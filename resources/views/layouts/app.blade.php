@@ -85,13 +85,13 @@
                 $isJobCreationActive = request()->routeIs('job.*');
             @endphp
             <div class="mt-1 mb-1">
-                <button class="w-full flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium transition-colors {{ $isJobCreationActive ? 'text-[#b01622]' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}" onclick="this.nextElementSibling.classList.toggle('hidden'); this.querySelector('.fa-chevron-down').classList.toggle('rotate-180')">
+                <a href="{{ route('job.index') }}" class="w-full flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium transition-colors {{ $isJobCreationActive ? 'text-[#b01622]' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
                     <div class="flex items-center gap-3">
                         <i class="fa-regular fa-calendar-plus w-5 text-center"></i>
                         Job Creation
                     </div>
                     <i class="fa-solid fa-chevron-down text-[10px] {{ $isJobCreationActive ? 'rotate-180' : '' }} transition-transform"></i>
-                </button>
+                </a>
                 <div class="flex flex-col gap-1 mt-1 pl-4 pr-2 {{ $isJobCreationActive ? 'block' : 'hidden' }}">
                     <a href="{{ route('job.new') }}" class="flex items-center py-2 px-3 rounded-md text-sm {{ request()->routeIs('job.new') ? 'bg-red-50 text-[#b01622] font-semibold border-l-2 border-[#b01622]' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
                         New Work Order
@@ -129,13 +129,33 @@
                 <i class="fa-solid fa-chevron-right text-[10px]"></i>
             </a>
 
-            <a href="#" class="flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium transition-colors text-gray-600 hover:bg-gray-50 hover:text-gray-900">
-                <div class="flex items-center gap-3">
-                    <i class="fa-regular fa-user w-5 text-center"></i>
-                    Client
+            <!-- Client (Active Accordion Group) -->
+            @php
+                $isClientActive = request()->routeIs('client.*');
+            @endphp
+            <div class="mt-1 mb-1">
+                <a href="{{ route('client.index') }}" class="w-full flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium transition-colors {{ $isClientActive ? 'text-[#b01622]' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                    <div class="flex items-center gap-3">
+                        <i class="fa-regular fa-user w-5 text-center"></i>
+                        Client
+                    </div>
+                    <i class="fa-solid fa-chevron-down text-[10px] {{ $isClientActive ? 'rotate-180' : '' }} transition-transform"></i>
+                </a>
+                <div class="flex flex-col gap-1 mt-1 pl-4 pr-2 {{ $isClientActive ? 'block' : 'hidden' }}">
+                    <a href="{{ route('client.index') }}" class="flex items-center py-2 px-3 rounded-md text-sm {{ request()->routeIs('client.index') ? 'bg-red-50 text-[#b01622] font-semibold border-l-2 border-[#b01622]' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                        Dashboard
+                    </a>
+                    <a href="{{ route('client.billing') }}" class="flex items-center py-2 px-3 rounded-md text-sm {{ request()->routeIs('client.billing') ? 'bg-red-50 text-[#b01622] font-semibold border-l-2 border-[#b01622]' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                        Billing
+                    </a>
+                    <a href="{{ route('client.pricelist') }}" class="flex items-center py-2 px-3 rounded-md text-sm {{ request()->routeIs('client.pricelist') ? 'bg-red-50 text-[#b01622] font-semibold border-l-2 border-[#b01622]' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                        Price List
+                    </a>
+                    <a href="{{ route('client.remove') }}" class="flex items-center py-2 px-3 rounded-md text-sm {{ request()->routeIs('client.remove') ? 'bg-red-50 text-[#b01622] font-semibold border-l-2 border-[#b01622]' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                        Remove Page
+                    </a>
                 </div>
-                <i class="fa-solid fa-chevron-right text-[10px]"></i>
-            </a>
+            </div>
 
             <a href="#" class="flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium transition-colors text-gray-600 hover:bg-gray-50 hover:text-gray-900">
                 <div class="flex items-center gap-3">
@@ -235,20 +255,20 @@
                 <div class="flex items-center gap-3">
                     <button class="relative p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors border border-gray-200">
                         <i class="fa-regular fa-bell"></i>
-                        <span class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
+                        <span class="absolute -top-1 -right-1 w-[18px] h-[18px] bg-[#b01622] rounded-full border border-white flex items-center justify-center text-[9px] text-white font-bold">23</span>
                     </button>
                     <button class="relative p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors border border-gray-200">
                         <i class="fa-regular fa-comment-dots"></i>
-                        <span class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
+                        <span class="absolute -top-1 -right-1 w-[18px] h-[18px] bg-[#b01622] rounded-full border border-white flex items-center justify-center text-[9px] text-white font-bold">0</span>
                     </button>
                 </div>
 
                 <!-- User Profile -->
-                <button class="flex items-center gap-2 pl-2 border-l border-gray-200">
+                <button class="flex items-center gap-3 px-3 py-1.5 border border-gray-200 rounded-full hover:bg-gray-50 transition-colors ml-2">
                     <div class="text-right hidden sm:block">
-                        <div class="text-sm font-semibold text-[#b01622]">Arvind <span class="text-gray-500 font-normal text-xs">(Super Admin)</span></div>
+                        <div class="text-sm font-semibold text-[#b01622]">Arvind <span class="text-gray-500 font-normal text-[11px]">(Super Admin)</span></div>
                     </div>
-                    <i class="fa-solid fa-chevron-down text-gray-400 text-xs ml-1"></i>
+                    <i class="fa-solid fa-chevron-down text-gray-400 text-[10px]"></i>
                 </button>
             </div>
         </header>
