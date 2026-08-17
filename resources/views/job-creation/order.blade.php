@@ -206,8 +206,8 @@
                         <h3 class="text-xs font-bold text-[#b01622] uppercase tracking-wider">Design Reference</h3>
                     </div>
                     
-                    <div class="border border-gray-200 border-dashed rounded p-1 h-[126px] bg-gray-50 flex items-center justify-center overflow-hidden relative">
-                        <img src="https://images.unsplash.com/photo-1599643478524-fb66f70a0066?auto=format&fit=crop&w=600&q=80" alt="Bridal Necklace" class="h-full w-auto object-cover opacity-80">
+                    <div class="h-32 bg-gray-100 rounded-lg overflow-hidden border border-gray-200 relative">
+                        <img src="https://images.unsplash.com/photo-1605100804763-247f66150ce8?auto=format&fit=crop&w=600&q=80" alt="Bridal Necklace" class="h-full w-auto object-cover opacity-80">
                         <div class="absolute inset-0 bg-gradient-to-r from-transparent to-white/90"></div>
                         
                         <!-- Mock text overlay on image as seen in PDF -->

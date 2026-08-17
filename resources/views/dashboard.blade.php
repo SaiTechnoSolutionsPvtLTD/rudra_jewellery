@@ -284,7 +284,7 @@
             <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm flex flex-col relative group">
                 <div class="absolute top-2 right-2 bg-white px-2 py-0.5 rounded text-[9px] font-bold text-gray-800 shadow-sm z-10 border border-gray-100 uppercase">Priority</div>
                 <div class="h-40 bg-gray-100 relative overflow-hidden">
-                    <img src="https://images.unsplash.com/photo-1599643478524-fb66f70a0066?auto=format&fit=crop&w=400&q=80" alt="Maharaja Ruby Set" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
+                    <img src="https://images.unsplash.com/photo-1605100804763-247f66150ce8?auto=format&fit=crop&w=400&q=80" alt="Maharaja Ruby Set" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
                 </div>
                 <div class="p-4 flex flex-col flex-1">
                     <div class="flex justify-between items-start mb-1">

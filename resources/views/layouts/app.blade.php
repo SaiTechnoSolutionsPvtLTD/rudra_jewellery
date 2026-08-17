@@ -64,20 +64,55 @@
                 Dashboard
             </a>
             
-            <a href="#" class="flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium transition-colors text-gray-600 hover:bg-gray-50 hover:text-gray-900">
-                <div class="flex items-center gap-3">
-                    <i class="fa-solid fa-chart-line w-5 text-center"></i>
-                    Sales
+            <!-- Sales (Active Accordion Group) -->
+            @php
+                $isSalesActive = request()->routeIs('sales.*');
+            @endphp
+            <div class="mt-1 mb-1">
+                <a href="javascript:void(0)" onclick="toggleAccordion('sales-dropdown', 'sales-icon')" class="w-full flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium transition-colors {{ $isSalesActive ? 'text-[#b01622]' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                    <div class="flex items-center gap-3">
+                        <i class="fa-solid fa-link w-5 text-center"></i>
+                        Sales
+                    </div>
+                    <i id="sales-icon" class="fa-solid fa-chevron-down text-[10px] {{ $isSalesActive ? 'rotate-180' : '' }} transition-transform"></i>
+                </a>
+                <div id="sales-dropdown" class="flex flex-col gap-1 mt-1 pl-4 pr-2 {{ $isSalesActive ? 'block' : 'hidden' }}">
+                    <a href="{{ route('sales.create') }}" class="flex items-center py-2 px-3 rounded-full text-sm {{ request()->routeIs('sales.create') ? 'bg-red-50 text-[#b01622] font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                        Create Sale
+                    </a>
+                    <a href="#" class="flex items-center py-2 px-3 rounded-full text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900">
+                        Sale List
+                    </a>
                 </div>
-                <i class="fa-solid fa-chevron-right text-[10px]"></i>
-            </a>
+            </div>
 
-            <a href="#" class="flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium transition-colors text-gray-600 hover:bg-gray-50 hover:text-gray-900">
+            <!-- Purchase (Active Accordion Group) -->
+            @php
+                $isPurchaseActive = request()->routeIs('purchase.*');
+            @endphp
+            <div class="mt-1 mb-1">
+                <a href="javascript:void(0)" onclick="toggleAccordion('purchase-dropdown', 'purchase-icon')" class="w-full flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium transition-colors {{ $isPurchaseActive ? 'text-[#b01622]' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                    <div class="flex items-center gap-3">
+                        <i class="fa-regular fa-circle-check w-5 text-center"></i>
+                        Purchase
+                    </div>
+                    <i id="purchase-icon" class="fa-solid fa-chevron-down text-[10px] {{ $isPurchaseActive ? 'rotate-180' : '' }} transition-transform"></i>
+                </a>
+                <div id="purchase-dropdown" class="flex flex-col gap-1 mt-1 pl-4 pr-2 {{ $isPurchaseActive ? 'block' : 'hidden' }}">
+                    <a href="{{ route('purchase.create') }}" class="flex items-center py-2 px-3 rounded-full text-sm {{ request()->routeIs('purchase.create') ? 'bg-red-50 text-[#b01622] font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                        Add Purchase
+                    </a>
+                    <a href="#" class="flex items-center py-2 px-3 rounded-full text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900">
+                        Purchase List
+                    </a>
+                </div>
+            </div>
+
+            <a href="{{ route('inventory.index') }}" class="flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium transition-colors {{ request()->routeIs('inventory.*') ? 'bg-red-50 text-[#b01622] border-l-4 border-[#b01622]' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
                 <div class="flex items-center gap-3">
                     <i class="fa-solid fa-box w-5 text-center"></i>
                     Inventory
                 </div>
-                <i class="fa-solid fa-chevron-right text-[10px]"></i>
             </a>
 
             <!-- Job Creation (Active Accordion Group) -->
@@ -181,13 +216,14 @@
                 <i class="fa-solid fa-chevron-right text-[10px]"></i>
             </a>
 
-            <a href="#" class="flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium transition-colors text-gray-600 hover:bg-gray-50 hover:text-gray-900">
+            <a href="{{ route('price-listing.index') }}" class="flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium transition-colors {{ request()->routeIs('price-listing.*') ? 'bg-red-50 text-[#b01622] border-l-4 border-[#b01622]' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
                 <div class="flex items-center gap-3">
-                    <i class="fa-solid fa-cart-shopping w-5 text-center"></i>
-                    Purchase
+                    <i class="fa-solid fa-tags w-5 text-center"></i>
+                    Price Listing
                 </div>
-                <i class="fa-solid fa-chevron-right text-[10px]"></i>
             </a>
+
+
         </nav>
 
         <!-- Bottom Area -->
@@ -281,5 +317,18 @@
     </div>
 
     @stack('scripts')
+    <script>
+        function toggleAccordion(dropdownId, iconId) {
+            const dropdown = document.getElementById(dropdownId);
+            const icon = document.getElementById(iconId);
+            if (dropdown.classList.contains('hidden')) {
+                dropdown.classList.remove('hidden');
+                icon.classList.add('rotate-180');
+            } else {
+                dropdown.classList.add('hidden');
+                icon.classList.remove('rotate-180');
+            }
+        }
+    </script>
 </body>
 </html>

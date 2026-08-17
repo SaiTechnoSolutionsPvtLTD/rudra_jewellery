@@ -11,6 +11,34 @@ Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
 Route::post('/login', [AuthController::class, 'login'])->name('login.post');
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
+Route::get('/sales', function () {
+    return view('sales.index');
+})->name('sales.index');
+
+Route::get('/purchase/create', function () {
+    return view('purchase.create');
+})->name('purchase.create');
+
+Route::get('/inventory', function () {
+    return view('inventory.index');
+})->name('inventory.index');
+
+Route::get('/inventory/bulk', function () {
+    return view('inventory.bulk');
+})->name('inventory.bulk');
+
+Route::get('/inventory/create', function () {
+    return view('inventory.create');
+})->name('inventory.create');
+
+Route::get('/sales/create', function () {
+    return view('sales.create');
+})->name('sales.create');
+
+Route::get('/price-listing', function () {
+    return view('price-listing.index');
+})->name('price-listing.index');
+
 Route::get('/client', function () {
     return view('client.index');
 })->name('client.index');
