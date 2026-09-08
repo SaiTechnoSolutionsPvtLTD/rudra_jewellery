@@ -329,12 +329,7 @@
     <button type="submit" class="btn-login">Sign In</button>
   </form>
 
-  <div class="divider-or">or continue with</div>
 
-  <div class="social-row">
-    <button class="btn-social">Google</button>
-    <button class="btn-social">Facebook</button>
-  </div>
 </div>
 
 <script>
