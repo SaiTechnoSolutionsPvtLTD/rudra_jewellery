@@ -83,3 +83,7 @@ Route::get('/job-creation/order', function () {
     return view('job-creation.order');
 })->name('job.order');
 
+// Render SPA shell for all non-API web routes
+Route::get('/{any?}', function () {
+    return view('app');
+})->where('any', '.*');

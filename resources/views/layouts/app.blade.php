@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ config('app.name', 'Rudra Jewellers') }} - @yield('title', 'Dashboard')</title>
+    <title>Rudra Jewellery - Dashboard</title>
     <link rel="icon" type="image/png" href="{{ asset('favicon.png') }}?v=2">
     
     <!-- Fonts -->
@@ -164,30 +164,30 @@
                 <i class="fa-solid fa-chevron-right text-[10px]"></i>
             </a>
 
-            <!-- Client (Active Accordion Group) -->
+            <!-- Client Accordion Group -->
             @php
-                $isClientActive = request()->routeIs('client.*');
+                $isClientActive = request()->routeIs('clients.*');
             @endphp
             <div class="mt-1 mb-1">
-                <a href="{{ route('client.index') }}" class="w-full flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium transition-colors {{ $isClientActive ? 'text-[#b01622]' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                <button class="w-full flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium transition-colors {{ $isClientActive ? 'text-[#b01622]' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}" onclick="this.nextElementSibling.classList.toggle('hidden'); this.querySelector('.fa-chevron-down').classList.toggle('rotate-180')">
                     <div class="flex items-center gap-3">
                         <i class="fa-regular fa-user w-5 text-center"></i>
                         Client
                     </div>
                     <i class="fa-solid fa-chevron-down text-[10px] {{ $isClientActive ? 'rotate-180' : '' }} transition-transform"></i>
-                </a>
+                </button>
                 <div class="flex flex-col gap-1 mt-1 pl-4 pr-2 {{ $isClientActive ? 'block' : 'hidden' }}">
-                    <a href="{{ route('client.index') }}" class="flex items-center py-2 px-3 rounded-md text-sm {{ request()->routeIs('client.index') ? 'bg-red-50 text-[#b01622] font-semibold border-l-2 border-[#b01622]' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                    <a href="{{ route('clients.index') }}" class="flex items-center py-2 px-3 rounded-md text-sm {{ request()->routeIs('clients.index') ? 'bg-red-50 text-[#b01622] font-semibold border-l-2 border-[#b01622]' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
                         Dashboard
                     </a>
-                    <a href="{{ route('client.billing') }}" class="flex items-center py-2 px-3 rounded-md text-sm {{ request()->routeIs('client.billing') ? 'bg-red-50 text-[#b01622] font-semibold border-l-2 border-[#b01622]' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                    <a href="{{ route('clients.billing') }}" class="flex items-center py-2 px-3 rounded-md text-sm {{ request()->routeIs('clients.billing') ? 'bg-red-50 text-[#b01622] font-semibold border-l-2 border-[#b01622]' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
                         Billing
                     </a>
-                    <a href="{{ route('client.pricelist') }}" class="flex items-center py-2 px-3 rounded-md text-sm {{ request()->routeIs('client.pricelist') ? 'bg-red-50 text-[#b01622] font-semibold border-l-2 border-[#b01622]' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                    <a href="#" class="flex items-center py-2 px-3 rounded-md text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900">
                         Price List
                     </a>
-                    <a href="{{ route('client.remove') }}" class="flex items-center py-2 px-3 rounded-md text-sm {{ request()->routeIs('client.remove') ? 'bg-red-50 text-[#b01622] font-semibold border-l-2 border-[#b01622]' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
-                        Remove Page
+                    <a href="#" class="flex items-center py-2 px-3 rounded-md text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900">
+                        Remove
                     </a>
                 </div>
             </div>
