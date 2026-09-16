@@ -5,10 +5,41 @@ import { useToast } from '../../context/ToastContext';
 import Pagination from '../../components/Pagination';
 
 export default function StockManagement() {
-  const [categories, setCategories] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [subcategories, setSubcategories] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Instant synchronous hydration from localStorage cache
+  const [categories, setCategories] = useState(() => {
+    try {
+      const c = localStorage.getItem('rudhra_stock_categories');
+      if (c) return JSON.parse(c) || [];
+    } catch (e) {}
+    return [];
+  });
+
+  const [products, setProducts] = useState(() => {
+    try {
+      const c = localStorage.getItem('rudhra_stock_products');
+      if (c) {
+        const parsed = JSON.parse(c);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
+
+  const [subcategories, setSubcategories] = useState(() => {
+    try {
+      const c = localStorage.getItem('rudhra_stock_subcategories');
+      if (c) return JSON.parse(c) || [];
+    } catch (e) {}
+    return [];
+  });
+
+  const [loading, setLoading] = useState(() => {
+    try {
+      const c = localStorage.getItem('rudhra_stock_products');
+      if (c && JSON.parse(c).length > 0) return false;
+    } catch (e) {}
+    return true;
+  });
   
   // Selected category for Card-click filtering
   const [selectedCategoryId, setSelectedCategoryId] = useState('all');
@@ -39,7 +70,33 @@ export default function StockManagement() {
   });
 
   // Bulk Opening Stock Form Data: Map of productId -> stock object
-  const [bulkStockData, setBulkStockData] = useState({});
+  const [bulkStockData, setBulkStockData] = useState(() => {
+    try {
+      const c = localStorage.getItem('rudhra_stock_products');
+      if (c) {
+        const prods = JSON.parse(c);
+        if (Array.isArray(prods) && prods.length > 0) {
+          const map = {};
+          prods.forEach(p => {
+            const opQty = p.opening_stock_qty ?? 0;
+            const currQty = (p.current_stock_qty && p.current_stock_qty > 0) ? p.current_stock_qty : opQty;
+            map[p.id] = {
+              id: p.id,
+              opening_stock_qty: opQty,
+              opening_stock_weight: p.opening_stock_weight ?? '',
+              opening_touch: p.opening_touch ?? 100,
+              opening_fine_weight: p.opening_fine_weight ?? '',
+              opening_stock_rate: p.opening_stock_rate ?? '',
+              opening_stock_date: p.opening_stock_date || new Date().toISOString().split('T')[0],
+              current_stock_qty: currQty
+            };
+          });
+          return map;
+        }
+      }
+    } catch (e) {}
+    return {};
+  });
   const [bulkFilterCategory, setBulkFilterCategory] = useState('all');
   const [bulkSearchTerm, setBulkSearchTerm] = useState('');
   const [batchDate, setBatchDate] = useState(new Date().toISOString().split('T')[0]);
@@ -48,7 +105,6 @@ export default function StockManagement() {
 
   const fetchData = async () => {
     try {
-      setLoading(true);
       const [catRes, prodRes, subRes] = await Promise.all([
         api.get('/categories'),
         api.get('/products'),
@@ -67,9 +123,21 @@ export default function StockManagement() {
       });
 
       const prods = prodRes.data || [];
+      const subs = subRes.data || [];
       setCategories(uniqueCategories);
       setProducts(prods);
-      setSubcategories(subRes.data || []);
+      setSubcategories(subs);
+
+      // Persist in localStorage for instant render on reload
+      if (uniqueCategories.length > 0) {
+        localStorage.setItem('rudhra_stock_categories', JSON.stringify(uniqueCategories));
+      }
+      if (prods.length > 0) {
+        localStorage.setItem('rudhra_stock_products', JSON.stringify(prods));
+      }
+      if (subs.length > 0) {
+        localStorage.setItem('rudhra_stock_subcategories', JSON.stringify(subs));
+      }
 
       // Initialize bulk stock form data
       const initialBulkMap = {};
@@ -439,7 +507,7 @@ export default function StockManagement() {
           </button>
 
           <Link
-            to="/masters/products/create"
+            to="/inventory/add-new/category"
             className="inline-flex items-center gap-2 px-4 py-2 bg-[#b01622] hover:bg-[#8e101b] text-white text-sm font-medium rounded-lg shadow-sm transition-all"
           >
             <i className="fa-solid fa-plus text-xs"></i>
@@ -766,7 +834,7 @@ export default function StockManagement() {
                           </button>
                           
                           <Link
-                            to={`/masters/products/${item.id}/edit`}
+                            to={`/inventory/products/${item.id}/edit`}
                             className="p-1.5 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
                             title="Edit Item"
                           >

@@ -50,6 +50,15 @@ class Product extends Model
             if (filter_var($this->image, FILTER_VALIDATE_URL)) {
                 return $this->image;
             }
+            if (str_starts_with($this->image, 'data:image')) {
+                return $this->image;
+            }
+            if (str_starts_with($this->image, '/images/') || str_starts_with($this->image, 'images/')) {
+                return asset(ltrim($this->image, '/'));
+            }
+            if (str_starts_with($this->image, '/storage/') || str_starts_with($this->image, 'storage/')) {
+                return asset(ltrim($this->image, '/'));
+            }
             return asset('storage/' . $this->image);
         }
         return null;
@@ -60,6 +69,15 @@ class Product extends Model
         if ($this->thumbnail) {
             if (filter_var($this->thumbnail, FILTER_VALIDATE_URL)) {
                 return $this->thumbnail;
+            }
+            if (str_starts_with($this->thumbnail, 'data:image')) {
+                return $this->thumbnail;
+            }
+            if (str_starts_with($this->thumbnail, '/images/') || str_starts_with($this->thumbnail, 'images/')) {
+                return asset(ltrim($this->thumbnail, '/'));
+            }
+            if (str_starts_with($this->thumbnail, '/storage/') || str_starts_with($this->thumbnail, 'storage/')) {
+                return asset(ltrim($this->thumbnail, '/'));
             }
             return asset('storage/' . $this->thumbnail);
         }
@@ -74,5 +92,15 @@ class Product extends Model
     public function subcategory()
     {
         return $this->belongsTo(Subcategory::class);
+    }
+
+    public function saleItems()
+    {
+        return $this->hasMany(SaleItem::class);
+    }
+
+    public function inventoryMovements()
+    {
+        return $this->hasMany(InventoryMovement::class);
     }
 }

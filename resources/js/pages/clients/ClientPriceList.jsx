@@ -446,6 +446,14 @@ export default function ClientPriceList() {
         </div>
 
         <div className="flex items-center gap-2.5">
+          <Link
+            to={`/clients/billing?create=true&client_id=${selectedClient ? selectedClient.id : (id || '')}`}
+            className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-md shadow-sm flex items-center gap-2 transition-colors cursor-pointer uppercase tracking-wider"
+            title="Generate Invoice for this Client"
+          >
+            <i className="fa-solid fa-file-invoice-dollar text-xs"></i>
+            GENERATE INVOICE
+          </Link>
           <button
             type="button"
             onClick={() => setIsPrintModalOpen(true)}
@@ -713,7 +721,7 @@ export default function ClientPriceList() {
                     colorStoneRates.map((item, idx) => (
                       <tr key={idx} className="hover:bg-gray-50/60">
                         <td className="px-4 py-3 text-gray-700 font-normal">{item.stone}</td>
-                        <td className="px-4 py-3 font-semibold text-gray-900">₹{Number(item.rate_per_ct).toLocaleString('en-IN')} / CT</td>
+                        <td className="px-4 py-3 font-semibold text-gray-900 whitespace-nowrap">₹{Number(item.rate_per_ct).toLocaleString('en-IN')}&nbsp;/&nbsp;CT</td>
                         <td className="px-4 py-3 text-center text-gray-400 space-x-2">
                           <button
                             onClick={() => {
@@ -1620,6 +1628,16 @@ export default function ClientPriceList() {
               .print\\:hidden {
                 display: none !important;
               }
+              #printable-price-list-sheet th,
+              #printable-price-list-sheet td {
+                font-feature-settings: "tnum";
+              }
+              #printable-price-list-sheet .whitespace-nowrap,
+              #printable-price-list-sheet td.whitespace-nowrap,
+              #printable-price-list-sheet th.whitespace-nowrap {
+                white-space: nowrap !important;
+                word-break: keep-all !important;
+              }
             }
           `}</style>
           <div className="bg-white rounded-2xl max-w-4xl w-full p-4 sm:p-6 shadow-2xl border border-gray-100 space-y-4 max-h-[92vh] flex flex-col">
@@ -1804,7 +1822,7 @@ export default function ClientPriceList() {
                         <thead>
                           <tr className="bg-gray-50/70 text-[9px] font-bold uppercase text-gray-500 border-b border-gray-200">
                             <th className="px-3 py-1.5">TYPE</th>
-                            <th className="px-3 py-1.5 text-right">RATE</th>
+                            <th className="px-3 py-1.5 text-right whitespace-nowrap w-32">RATE</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100 font-medium">
@@ -1814,7 +1832,9 @@ export default function ClientPriceList() {
                             colorStoneRates.map((c, i) => (
                               <tr key={i}>
                                 <td className="px-3 py-1.5 text-gray-800">{c.stone}</td>
-                                <td className="px-3 py-1.5 text-right font-bold text-gray-900">₹{Number(c.rate_per_ct || 0).toLocaleString('en-IN')} / CT</td>
+                                <td className="px-3 py-1.5 text-right font-bold text-gray-900 whitespace-nowrap">
+                                  ₹{Number(c.rate_per_ct || 0).toLocaleString('en-IN')}&nbsp;/&nbsp;CT
+                                </td>
                               </tr>
                             ))
                           )}
@@ -1831,32 +1851,32 @@ export default function ClientPriceList() {
                         <thead>
                           <tr className="bg-gray-50/70 text-[9px] font-bold uppercase text-gray-500 border-b border-gray-200">
                             <th className="px-3 py-1.5">CHARGE TYPE</th>
-                            <th className="px-3 py-1.5 text-right">RATE (₹)</th>
+                            <th className="px-3 py-1.5 text-right whitespace-nowrap w-28">RATE (₹)</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100 font-medium">
                           <tr>
                             <td className="px-3 py-1.5 text-gray-800">Minimum Labour</td>
-                            <td className="px-3 py-1.5 text-right font-bold text-gray-900">₹{Number(additionalCharges.minimum_labour || 1500).toLocaleString('en-IN')}</td>
+                            <td className="px-3 py-1.5 text-right font-bold text-gray-900 whitespace-nowrap">₹{Number(additionalCharges.minimum_labour || 1500).toLocaleString('en-IN')}</td>
                           </tr>
                           <tr>
                             <td className="px-3 py-1.5 text-gray-800">Single Nose Pin</td>
-                            <td className="px-3 py-1.5 text-right font-bold text-gray-900">₹{Number(additionalCharges.single_nose_pin || 850).toLocaleString('en-IN')}</td>
+                            <td className="px-3 py-1.5 text-right font-bold text-gray-900 whitespace-nowrap">₹{Number(additionalCharges.single_nose_pin || 850).toLocaleString('en-IN')}</td>
                           </tr>
                           <tr>
                             <td className="px-3 py-1.5 text-gray-800">Multi Stones</td>
-                            <td className="px-3 py-1.5 text-right font-bold text-gray-900">₹{Number(additionalCharges.multi_stones || 1000).toLocaleString('en-IN')}</td>
+                            <td className="px-3 py-1.5 text-right font-bold text-gray-900 whitespace-nowrap">₹{Number(additionalCharges.multi_stones || 1000).toLocaleString('en-IN')}</td>
                           </tr>
                           {additionalCharges.step_nose_pin ? (
                             <tr>
                               <td className="px-3 py-1.5 text-gray-800">Step Nose Pin</td>
-                              <td className="px-3 py-1.5 text-right font-bold text-gray-900">₹{Number(additionalCharges.step_nose_pin).toLocaleString('en-IN')}</td>
+                              <td className="px-3 py-1.5 text-right font-bold text-gray-900 whitespace-nowrap">₹{Number(additionalCharges.step_nose_pin).toLocaleString('en-IN')}</td>
                             </tr>
                           ) : null}
                           {additionalCharges.tongai ? (
                             <tr>
                               <td className="px-3 py-1.5 text-gray-800">Tongai</td>
-                              <td className="px-3 py-1.5 text-right font-bold text-gray-900">₹{Number(additionalCharges.tongai).toLocaleString('en-IN')}</td>
+                              <td className="px-3 py-1.5 text-right font-bold text-gray-900 whitespace-nowrap">₹{Number(additionalCharges.tongai).toLocaleString('en-IN')}</td>
                             </tr>
                           ) : null}
                         </tbody>

@@ -318,7 +318,7 @@ export default function CreateProduct() {
         showToast('New Product created successfully!', 'success', 'Created');
       }
 
-      navigate('/masters/products');
+      navigate('/inventory');
     } catch (err) {
       console.error(err);
       const errorMsg = err.response?.data?.message || 'Error saving product details.';
@@ -361,11 +361,11 @@ export default function CreateProduct() {
 
         <div className="flex items-center gap-3">
           <Link
-            to="/masters/products"
+            to="/inventory"
             className="px-4 py-2 bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 text-xs font-semibold rounded-lg shadow-xs flex items-center gap-2 transition-colors cursor-pointer"
           >
             <i className="fa-solid fa-arrow-left text-xs"></i>
-            Back to Products List
+            Back to Inventory List
           </Link>
         </div>
       </div>
@@ -955,7 +955,7 @@ export default function CreateProduct() {
         {/* Form Action Bar */}
         <div className="flex items-center justify-end gap-4 pt-4">
           <Link
-            to="/masters/products"
+            to="/inventory"
             className="px-6 py-3 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer"
           >
             Cancel

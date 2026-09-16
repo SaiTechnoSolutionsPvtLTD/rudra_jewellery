@@ -34,13 +34,21 @@ class Client extends Model
         'quick_notes',
         'avatar',
         'status',
+        'is_removed',
+        'removed_at',
+        'remove_reason',
+        'can_be_restored',
+        'removed_by',
     ];
 
     protected $casts = [
         'dob' => 'date',
         'anniversary_date' => 'date',
         'last_visit' => 'datetime',
+        'removed_at' => 'datetime',
         'total_purchases' => 'float',
+        'is_removed' => 'boolean',
+        'can_be_restored' => 'boolean',
     ];
 
     protected $appends = [
@@ -56,5 +64,10 @@ class Client extends Model
             return asset('storage/' . $this->avatar);
         }
         return null;
+    }
+
+    public function invoices()
+    {
+        return $this->hasMany(Invoice::class);
     }
 }

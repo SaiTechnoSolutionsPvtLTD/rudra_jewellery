@@ -26,6 +26,10 @@ export default function Products() {
   // Accordion state for grouped view (empty object = ALL COLLAPSED BY DEFAULT)
   const [expandedCategories, setExpandedCategories] = useState({});
 
+  // Separate pagination state for grouped view
+  const [groupedPage, setGroupedPage] = useState(1);
+  const [groupedItemsPerPage, setGroupedItemsPerPage] = useState(10);
+
   // Specification Modal target state
   const [specModalProduct, setSpecModalProduct] = useState(null);
 
@@ -120,7 +124,13 @@ export default function Products() {
       category: cat,
       products: catProducts
     };
-  });
+  }).filter(g => g.products.length > 0); // only show categories that have matching products
+
+  const totalGroupedPages = Math.ceil(groupedProducts.length / groupedItemsPerPage) || 1;
+  const paginatedGroups = groupedProducts.slice(
+    (groupedPage - 1) * groupedItemsPerPage,
+    groupedPage * groupedItemsPerPage
+  );
 
   return (
     <div className="w-full pb-12">
@@ -314,7 +324,7 @@ export default function Products() {
               No categories found.
             </div>
           ) : (
-            groupedProducts.map(({ category, products: catProds }) => {
+            paginatedGroups.map(({ category, products: catProds }) => {
               const isExpanded = !!expandedCategories[category.id];
 
               return (
@@ -367,7 +377,7 @@ export default function Products() {
                           <thead>
                             <tr className="bg-gray-50 text-[10px] font-bold uppercase tracking-wider text-gray-500 border-b border-gray-200/60">
                               <th className="px-6 py-3">PRODUCT NAME</th>
-                              <th className="px-6 py-3">SKU / CODE</th>
+                              <th className="px-6 py-3 whitespace-nowrap min-w-[160px]">SKU / CODE</th>
                               <th className="px-6 py-3">SUBCATEGORY</th>
                               <th className="px-6 py-3">SPECIFICATION</th>
                               <th className="px-6 py-3">STATUS</th>
@@ -394,8 +404,8 @@ export default function Products() {
                                     {item.description && <div className="text-[11px] font-normal text-gray-400 truncate max-w-xs">{item.description}</div>}
                                   </div>
                                 </td>
-                                <td className="px-6 py-3.5">
-                                  <span className="font-mono text-xs font-semibold bg-gray-100 px-2 py-0.5 rounded text-gray-800 border border-gray-200">
+                                <td className="px-6 py-3.5 whitespace-nowrap">
+                                  <span className="font-mono text-xs font-semibold bg-gray-100 px-2.5 py-1 rounded text-gray-800 border border-gray-200 whitespace-nowrap inline-block tracking-tight">
                                     {item.product_code}
                                   </span>
                                 </td>
@@ -458,6 +468,19 @@ export default function Products() {
               );
             })
           )}
+          {/* Grouped View Pagination */}
+          {!loading && groupedProducts.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200/80 shadow-xs overflow-hidden">
+              <Pagination
+                currentPage={groupedPage}
+                totalPages={totalGroupedPages}
+                totalItems={groupedProducts.length}
+                itemsPerPage={groupedItemsPerPage}
+                onPageChange={(page) => setGroupedPage(page)}
+                onItemsPerPageChange={(num) => { setGroupedItemsPerPage(num); setGroupedPage(1); }}
+              />
+            </div>
+          )}
         </div>
       ) : (
         /* VIEW MODE 2: FLAT ALL PRODUCTS TABLE */
@@ -467,7 +490,7 @@ export default function Products() {
               <thead>
                 <tr className="bg-[#f6eee9] border-b border-gray-200/60 text-[11px] font-bold uppercase tracking-wider text-gray-500">
                   <th className="px-6 py-4">PRODUCT NAME</th>
-                  <th className="px-6 py-4">SKU / CODE</th>
+                  <th className="px-6 py-4 whitespace-nowrap min-w-[160px]">SKU / CODE</th>
                   <th className="px-6 py-4">CATEGORY & SUBCATEGORY</th>
                   <th className="px-6 py-4">SPECIFICATION</th>
                   <th className="px-6 py-4">STATUS</th>
@@ -507,8 +530,8 @@ export default function Products() {
                           {item.description && <div className="text-xs font-normal text-gray-400 truncate max-w-xs">{item.description}</div>}
                         </div>
                       </td>
-                      <td className="px-6 py-4">
-                        <span className="font-mono text-xs font-semibold bg-gray-100 px-2.5 py-1 rounded text-gray-800 border border-gray-200">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="font-mono text-xs font-semibold bg-gray-100 px-2.5 py-1 rounded text-gray-800 border border-gray-200 whitespace-nowrap inline-block tracking-tight">
                           {item.product_code}
                         </span>
                       </td>
@@ -611,7 +634,7 @@ export default function Products() {
                 <div>
                   <h3 className="text-base font-bold text-gray-900">{specModalProduct.name}</h3>
                   <div className="flex items-center gap-2 mt-1">
-                    <span className="font-mono text-xs font-semibold bg-gray-100 px-2 py-0.5 rounded text-gray-800 border border-gray-200">
+                    <span className="font-mono text-xs font-semibold bg-gray-100 px-2.5 py-0.5 rounded text-gray-800 border border-gray-200 whitespace-nowrap inline-block">
                       {specModalProduct.product_code}
                     </span>
                     {specModalProduct.category && (

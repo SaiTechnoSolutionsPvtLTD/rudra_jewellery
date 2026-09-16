@@ -131,12 +131,16 @@ export default function RegisterClient() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!formData.fullName.trim()) {
-      showToast('Please enter Client Full Name', 'error', 'Validation Error');
-      return;
-    }
-    if (!formData.primaryPhone.trim()) {
-      showToast('Please enter Primary Mobile Number', 'error', 'Validation Error');
+    const missing = [];
+    if (!formData.fullName?.trim()) missing.push('Full Name');
+    if (!formData.primaryPhone?.trim()) missing.push('Primary Mobile');
+    if (!formData.streetAddress?.trim()) missing.push('Street Address');
+    if (!formData.city?.trim()) missing.push('City');
+    if (!formData.state?.trim()) missing.push('State');
+    if (!formData.zipCode?.trim()) missing.push('Zip Code');
+
+    if (missing.length > 0) {
+      showToast(`Please enter all required fields: ${missing.join(', ')}`, 'error', 'Validation Error');
       return;
     }
 
@@ -312,11 +316,11 @@ export default function RegisterClient() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-2">Date of Birth</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-2">Date of Birth (Optional)</label>
                   <input type="date" name="dob" value={formData.dob} onChange={handleChange} className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]" />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-2">Anniversary Date</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-2">Anniversary Date (Optional)</label>
                   <input type="date" name="anniversaryDate" value={formData.anniversaryDate} onChange={handleChange} className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]" />
                 </div>
               </div>
@@ -335,13 +339,13 @@ export default function RegisterClient() {
                   <input type="text" name="primaryPhone" value={formData.primaryPhone} onChange={handleChange} placeholder="+91 98765 43210" required className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622]" />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-2">Secondary Phone</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-2">Secondary Phone (Optional)</label>
                   <input type="text" name="secondaryPhone" value={formData.secondaryPhone} onChange={handleChange} placeholder="+91 98765 43211" className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622]" />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-2">Email Address</label>
+                <label className="block text-xs font-semibold text-gray-700 mb-2">Email Address (Optional)</label>
                 <input type="email" name="email" value={formData.email} onChange={handleChange} placeholder="alexandra@example.com" className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622]" />
               </div>
             </div>
@@ -355,32 +359,32 @@ export default function RegisterClient() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-5">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-2">Aadhar Number</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-2">Aadhar Number (Optional)</label>
                   <input type="text" name="aadharNumber" value={formData.aadharNumber} onChange={handleChange} placeholder="XXXX XXXX XXXX" className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622]" />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-2">PAN Number</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-2">PAN Number (Optional)</label>
                   <input type="text" name="panNumber" value={formData.panNumber} onChange={handleChange} placeholder="ABCDE1234F" className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622]" />
                 </div>
               </div>
 
               <div className="mb-5">
-                <label className="block text-xs font-semibold text-gray-700 mb-2">Street Address</label>
-                <input type="text" name="streetAddress" value={formData.streetAddress} onChange={handleChange} placeholder="Flat No, Building, Street Name" className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622]" />
+                <label className="block text-xs font-semibold text-gray-700 mb-2">Street Address <span className="text-red-500">*</span></label>
+                <input type="text" name="streetAddress" value={formData.streetAddress} onChange={handleChange} placeholder="Flat No, Building, Street Name" required className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622]" />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-2">City</label>
-                  <input type="text" name="city" value={formData.city} onChange={handleChange} placeholder="e.g. Chennai" className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]" />
+                  <label className="block text-xs font-semibold text-gray-700 mb-2">City <span className="text-red-500">*</span></label>
+                  <input type="text" name="city" value={formData.city} onChange={handleChange} placeholder="e.g. Chennai" required className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]" />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-2">State</label>
-                  <input type="text" name="state" value={formData.state} onChange={handleChange} placeholder="e.g. Tamil Nadu" className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]" />
+                  <label className="block text-xs font-semibold text-gray-700 mb-2">State <span className="text-red-500">*</span></label>
+                  <input type="text" name="state" value={formData.state} onChange={handleChange} placeholder="e.g. Tamil Nadu" required className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]" />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-2">Zip Code</label>
-                  <input type="text" name="zipCode" value={formData.zipCode} onChange={handleChange} placeholder="600028" className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]" />
+                  <label className="block text-xs font-semibold text-gray-700 mb-2">Zip Code <span className="text-red-500">*</span></label>
+                  <input type="text" name="zipCode" value={formData.zipCode} onChange={handleChange} placeholder="600028" required className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]" />
                 </div>
               </div>
             </div>
@@ -389,26 +393,26 @@ export default function RegisterClient() {
             <div className="bg-white rounded-xl border border-gray-200/80 shadow-sm p-6">
               <div className="flex items-center gap-2.5 text-sm font-bold text-[#b01622] mb-6">
                 <i className="fa-solid fa-building text-base"></i>
-                <span>Corporate & GST Details</span>
+                <span>Corporate & GST Details (Optional)</span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-5">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-2">Company Name</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-2">Company Name (Optional)</label>
                   <input type="text" name="companyName" value={formData.companyName} onChange={handleChange} placeholder="e.g. Regal Textiles Pvt Ltd" className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]" />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-2">GST Number</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-2">GST Number (Optional)</label>
                   <input type="text" name="gstNumber" value={formData.gstNumber} onChange={handleChange} placeholder="33ABCDE1234F1Z5" className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]" />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-2">GST Percentage (%)</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-2">GST Percentage (%) (Optional)</label>
                   <input type="text" name="gstPercentage" value={formData.gstPercentage} onChange={handleChange} placeholder="e.g. 3% or 18%" className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]" />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-2">Designation</label>
+                <label className="block text-xs font-semibold text-gray-700 mb-2">Designation (Optional)</label>
                 <input type="text" name="designation" value={formData.designation} onChange={handleChange} placeholder="e.g. Managing Director" className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]" />
               </div>
             </div>

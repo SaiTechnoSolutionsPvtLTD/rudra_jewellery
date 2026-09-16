@@ -157,8 +157,19 @@ export default function SupplierManagement() {
   // Submit Add / Edit Form
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.name.trim() || !formData.supplier_code.trim()) {
-      showToast('Supplier Code and Name are required fields', 'error');
+
+    const missing = [];
+    if (!formData.supplier_code?.trim()) missing.push('Supplier Code');
+    if (!formData.name?.trim()) missing.push('Supplier Name');
+    if (!formData.phone?.trim()) missing.push('Primary Phone');
+    if (!formData.email?.trim()) missing.push('Email Address');
+    if (!formData.address?.trim()) missing.push('Street Address');
+    if (!formData.city?.trim()) missing.push('City');
+    if (!formData.state?.trim()) missing.push('State');
+    if (!formData.pincode?.trim()) missing.push('Pincode');
+
+    if (missing.length > 0) {
+      showToast(`Please enter all required fields (marked in red): ${missing.join(', ')}`, 'error');
       return;
     }
 
@@ -561,7 +572,7 @@ export default function SupplierManagement() {
 
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">
-                      Company / Brand Name
+                      Company / Brand Name (Optional)
                     </label>
                     <input
                       type="text"
@@ -595,13 +606,14 @@ export default function SupplierManagement() {
 
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">
-                      Primary Phone / Mobile
+                      Primary Phone / Mobile <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="text"
                       name="phone"
                       value={formData.phone}
                       onChange={handleInputChange}
+                      required
                       placeholder="+91 98400 00000"
                       className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
                     />
@@ -609,13 +621,14 @@ export default function SupplierManagement() {
 
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">
-                      Email Address
+                      Email Address <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="email"
                       name="email"
                       value={formData.email}
                       onChange={handleInputChange}
+                      required
                       placeholder="supplier@jewels.com"
                       className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
                     />
@@ -626,13 +639,13 @@ export default function SupplierManagement() {
               {/* SECTION 2: GSTIN & Tax Details */}
               <div className="space-y-4">
                 <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 pb-2 flex items-center gap-2">
-                  <i className="fa-solid fa-receipt text-[#b01622]"></i> Tax & Identification Credentials
+                  <i className="fa-solid fa-receipt text-[#b01622]"></i> Tax & Identification Credentials (Optional)
                 </h4>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">
-                      GSTIN Number
+                      GSTIN Number (Optional)
                     </label>
                     <input
                       type="text"
@@ -646,7 +659,7 @@ export default function SupplierManagement() {
 
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">
-                      PAN Card Number
+                      PAN Card Number (Optional)
                     </label>
                     <input
                       type="text"
@@ -660,7 +673,7 @@ export default function SupplierManagement() {
 
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">
-                      Account Status
+                      Account Status <span className="text-red-500">*</span>
                     </label>
                     <select
                       name="status"
@@ -684,13 +697,14 @@ export default function SupplierManagement() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="sm:col-span-3">
                     <label className="block text-xs font-bold text-gray-700 mb-1">
-                      Street Address
+                      Street Address <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="text"
                       name="address"
                       value={formData.address}
                       onChange={handleInputChange}
+                      required
                       placeholder="Door No, Street Name, Bazaar Area"
                       className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
                     />
@@ -698,13 +712,14 @@ export default function SupplierManagement() {
 
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">
-                      City
+                      City <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="text"
                       name="city"
                       value={formData.city}
                       onChange={handleInputChange}
+                      required
                       placeholder="Chennai"
                       className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
                     />
@@ -712,13 +727,14 @@ export default function SupplierManagement() {
 
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">
-                      State
+                      State <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="text"
                       name="state"
                       value={formData.state}
                       onChange={handleInputChange}
+                      required
                       placeholder="Tamil Nadu"
                       className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
                     />
@@ -726,13 +742,14 @@ export default function SupplierManagement() {
 
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">
-                      Pincode
+                      Pincode <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="text"
                       name="pincode"
                       value={formData.pincode}
                       onChange={handleInputChange}
+                      required
                       placeholder="600001"
                       className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
                     />
@@ -743,13 +760,13 @@ export default function SupplierManagement() {
               {/* SECTION 4: Bank Account Credentials */}
               <div className="space-y-4">
                 <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 pb-2 flex items-center gap-2">
-                  <i className="fa-solid fa-[#b01622] fa-building-columns text-[#b01622]"></i> Bank Account Credentials (For Purchase Payments)
+                  <i className="fa-solid fa-[#b01622] fa-building-columns text-[#b01622]"></i> Bank Account Credentials (Optional)
                 </h4>
 
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">
-                      Bank Name
+                      Bank Name (Optional)
                     </label>
                     <input
                       type="text"
@@ -763,7 +780,7 @@ export default function SupplierManagement() {
 
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">
-                      Account Number
+                      Account Number (Optional)
                     </label>
                     <input
                       type="text"
@@ -777,7 +794,7 @@ export default function SupplierManagement() {
 
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">
-                      IFSC Code
+                      IFSC Code (Optional)
                     </label>
                     <input
                       type="text"
@@ -791,7 +808,7 @@ export default function SupplierManagement() {
 
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">
-                      Branch
+                      Branch (Optional)
                     </label>
                     <input
                       type="text"
@@ -808,7 +825,7 @@ export default function SupplierManagement() {
               {/* SECTION 5: Notes & Remarks */}
               <div>
                 <label className="block text-xs font-bold text-gray-700 mb-1">
-                  Additional Remarks / Notes
+                  Additional Remarks / Notes (Optional)
                 </label>
                 <textarea
                   name="notes"

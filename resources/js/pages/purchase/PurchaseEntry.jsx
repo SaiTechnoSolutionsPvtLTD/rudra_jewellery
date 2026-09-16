@@ -344,7 +344,7 @@ export default function PurchaseEntry({ initialTab }) {
                 Select Product <span className="text-red-500">*</span>
               </label>
               <Link
-                to="/masters/products/create"
+                to="/inventory/add-new/category"
                 className="text-[11px] font-bold text-[#b01622] hover:underline flex items-center gap-1"
               >
                 <i className="fa-solid fa-plus text-[10px]"></i> Create New Product

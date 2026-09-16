@@ -7,6 +7,8 @@ import Pagination from '../../components/Pagination';
 export default function Memberships() {
   const [memberships, setMemberships] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [initialLoad, setInitialLoad] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -36,7 +38,11 @@ export default function Memberships() {
 
   const fetchData = async () => {
     try {
-      setLoading(true);
+      if (initialLoad) {
+        setLoading(true);
+      } else {
+        setRefreshing(true);
+      }
       const res = await api.get('/memberships');
       setMemberships(res.data);
     } catch (err) {
@@ -44,6 +50,8 @@ export default function Memberships() {
       showToast('Failed to load membership plans', 'error');
     } finally {
       setLoading(false);
+      setRefreshing(false);
+      setInitialLoad(false);
     }
   };
 
@@ -93,12 +101,16 @@ export default function Memberships() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!formData.name.trim()) {
-      showToast('Please enter a Membership Plan Name', 'error', 'Validation Error');
-      return;
-    }
-    if (!formData.code.trim()) {
-      showToast('Please enter a Plan Code', 'error', 'Validation Error');
+    const missing = [];
+    if (!formData.name?.trim()) missing.push('Plan Name');
+    if (!formData.code?.trim()) missing.push('Plan Code');
+    if (formData.discount_percentage === '' || formData.discount_percentage === null) missing.push('Discount Percentage');
+    if (formData.reward_points_multiplier === '' || formData.reward_points_multiplier === null) missing.push('Reward Points Multiplier');
+    if (formData.validity_months === '' || formData.validity_months === null) missing.push('Validity Period');
+    if (formData.min_purchase_amount === '' || formData.min_purchase_amount === null) missing.push('Minimum Purchase');
+
+    if (missing.length > 0) {
+      showToast(`Please enter all required fields: ${missing.join(', ')}`, 'error', 'Validation Error');
       return;
     }
 
@@ -263,7 +275,7 @@ export default function Memberships() {
               </tr>
             </thead>
             <tbody className="text-sm divide-y divide-gray-100">
-              {loading ? (
+              {(loading && initialLoad) ? (
                 <tr>
                   <td colSpan="8" className="px-6 py-8 text-center text-gray-400">
                     <i className="fa-solid fa-circle-notch fa-spin mr-2"></i> Loading membership plans...
@@ -420,7 +432,7 @@ export default function Memberships() {
                 {/* Discount Percentage */}
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-2">
-                    Discount Percentage (%)
+                    Discount Percentage (%) <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="number"
@@ -429,6 +441,7 @@ export default function Memberships() {
                     value={formData.discount_percentage}
                     onChange={handleInputChange}
                     placeholder="5.00"
+                    required
                     className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
                   />
                 </div>
@@ -436,7 +449,7 @@ export default function Memberships() {
                 {/* Reward Points Multiplier */}
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-2">
-                    Reward Points Multiplier
+                    Reward Points Multiplier <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="number"
@@ -445,6 +458,7 @@ export default function Memberships() {
                     value={formData.reward_points_multiplier}
                     onChange={handleInputChange}
                     placeholder="1.5"
+                    required
                     className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
                   />
                 </div>
@@ -454,7 +468,7 @@ export default function Memberships() {
                 {/* Validity Period */}
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-2">
-                    Validity Period (Months)
+                    Validity Period (Months) <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="number"
@@ -462,6 +476,7 @@ export default function Memberships() {
                     value={formData.validity_months}
                     onChange={handleInputChange}
                     placeholder="12"
+                    required
                     className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
                   />
                 </div>
@@ -469,7 +484,7 @@ export default function Memberships() {
                 {/* Minimum Purchase Amount */}
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-2">
-                    Minimum Purchase (₹)
+                    Minimum Purchase (₹) <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="number"
@@ -477,6 +492,7 @@ export default function Memberships() {
                     value={formData.min_purchase_amount}
                     onChange={handleInputChange}
                     placeholder="50000"
+                    required
                     className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
                   />
                 </div>
@@ -502,7 +518,7 @@ export default function Memberships() {
               {/* Description */}
               <div>
                 <label className="block text-xs font-bold text-gray-700 mb-2">
-                  Description & Tier Benefits
+                  Description & Tier Benefits (Optional)
                 </label>
                 <textarea
                   name="description"

@@ -23,8 +23,12 @@ export const ToastProvider = ({ children }) => {
     setToast(null);
   };
 
+  const success = (message, title = 'Success') => showToast(message, 'success', title);
+  const error = (message, title = 'Validation Error') => showToast(message, 'error', title);
+  const info = (message, title = 'Notification') => showToast(message, 'info', title);
+
   return (
-    <ToastContext.Provider value={{ showToast, hideToast }}>
+    <ToastContext.Provider value={{ showToast, hideToast, success, error, info }}>
       {children}
 
       {/* Floating Toast Notification Popup */}

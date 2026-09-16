@@ -499,7 +499,7 @@ export default function Subcategories() {
               {/* Description */}
               <div>
                 <label className="block text-xs font-bold text-gray-700 mb-2">
-                  Description
+                  Description (Optional)
                 </label>
                 <textarea
                   name="description"
