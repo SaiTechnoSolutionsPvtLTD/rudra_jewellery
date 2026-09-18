@@ -33,6 +33,7 @@ import DiamondRanges from './pages/masters/DiamondRanges';
 import WorkSpecifications from './pages/masters/WorkSpecifications';
 const KarigarManagement = lazy(() => import('./pages/karigar/KarigarManagement'));
 const SalesModule = lazy(() => import('./pages/sales/SalesModule'));
+const ReportModule = lazy(() => import('./pages/reports/ReportModule'));
 
 // Inventory Module
 const InventoryDashboard = lazy(() => import('./pages/inventory/InventoryDashboard'));
@@ -117,11 +118,14 @@ function App() {
               <Route path="/sales" element={<SalesModule view="dashboard" />} />
               <Route path="/sales/list" element={<SalesModule view="list" />} />
               <Route path="/sales/create" element={<SalesModule view="create" />} />
+              <Route path="/sales/customer" element={<SalesModule view="create" />} />
               <Route path="/sales/profit" element={<SalesModule view="profit" />} />
               <Route path="/sales/rates" element={<SalesModule view="rates" />} />
               <Route path="/sales/customers" element={<SalesModule view="customer-index" />} />
               <Route path="/sales/customers/:clientId" element={<SalesModule view="customer" />} />
               <Route path="/sales/:id" element={<SalesModule view="details" />} />
+              <Route path="/reports" element={<ReportModule />} />
+              <Route path="/reports/:tab" element={<ReportModule />} />
               <Route path="/clients/price-list" element={<ClientPriceList />} />
               <Route path="/clients/:id/price-list" element={<ClientPriceList />} />
               <Route path="/clients/removed" element={<RemovePage />} />

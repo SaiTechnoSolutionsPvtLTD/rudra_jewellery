@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\InventoryController;
 use App\Http\Controllers\Api\WorkOrderController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\SalesController;
+use App\Http\Controllers\Api\ReportController;
 
 // Public authentication routes
 Route::post('/login', [AuthController::class, 'login']);
@@ -73,6 +74,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/invoices/{id}', [ClientController::class, 'destroyInvoice']);
 
     // Sales aggregate, settlement, customer report, and profit APIs
+    Route::get('/reports', [ReportController::class, 'index']);
     Route::get('/sales/dashboard', [SalesController::class, 'dashboard']);
     Route::get('/sales/customer-report', [SalesController::class, 'customerReport']);
     Route::get('/sales/products', [SalesController::class, 'products']);
@@ -122,6 +124,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/inventory/products/{id}', [InventoryController::class, 'show']);
     Route::put('/inventory/products/{id}', [InventoryController::class, 'update']);
     Route::delete('/inventory/products/{id}', [InventoryController::class, 'destroy']);
+    Route::post('/inventory/products/{id}/movements', [InventoryController::class, 'addMovement']);
     Route::get('/inventory', [InventoryController::class, 'index']);
     Route::post('/inventory', [InventoryController::class, 'store']);
 });

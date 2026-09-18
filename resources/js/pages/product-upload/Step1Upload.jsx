@@ -5,11 +5,13 @@ import { useToast } from '../../context/ToastContext';
 import ProductUploadStepNav from './ProductUploadStepNav';
 import ImageGalleryModal from '../../components/ImageGalleryModal';
 import ConfirmModal from '../../components/ConfirmModal';
+import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
 
 export default function Step1Upload() {
   const navigate = useNavigate();
   const { showToast } = useToast();
 
+  const [showStylesModal, setShowStylesModal] = useState(false);
   const [designs, setDesigns] = useState([]);
   const [totalDesigns, setTotalDesigns] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
@@ -66,9 +68,9 @@ export default function Step1Upload() {
   const fetchMeta = async () => {
     try {
       const res = await api.get('/product-designs/meta');
-      if (res.data.gold_types) setGoldTypes(res.data.gold_types);
-      if (res.data.styles) setStyles(res.data.styles);
-      if (res.data.diamond_ranges) setDiamondRanges(res.data.diamond_ranges);
+      if (res?.data?.gold_types && Array.isArray(res.data.gold_types)) setGoldTypes(res.data.gold_types);
+      if (res?.data?.styles && Array.isArray(res.data.styles)) setStyles(res.data.styles);
+      if (res?.data?.diamond_ranges && Array.isArray(res.data.diamond_ranges)) setDiamondRanges(res.data.diamond_ranges);
     } catch (err) {
       console.error('Failed to fetch metadata', err);
     }
@@ -79,13 +81,15 @@ export default function Step1Upload() {
     try {
       setLoading(true);
       const res = await api.get(`/product-designs?page=${page}&per_page=10`);
-      setDesigns(res.data.data || []);
-      setTotalDesigns(res.data.total || 0);
-      setCurrentPage(res.data.current_page || 1);
-      setLastPage(res.data.last_page || 1);
+      const payload = res?.data;
+      const dataArr = Array.isArray(payload) ? payload : (Array.isArray(payload?.data) ? payload.data : []);
+      setDesigns(dataArr);
+      setTotalDesigns(payload?.total ?? dataArr.length ?? 0);
+      setCurrentPage(payload?.current_page || 1);
+      setLastPage(payload?.last_page || 1);
     } catch (err) {
       console.error('Failed to fetch designs', err);
-      showToast('Failed to load designs', 'error');
+      setDesigns([]);
     } finally {
       setLoading(false);
     }
@@ -583,30 +587,49 @@ export default function Step1Upload() {
                     className="w-full px-3.5 h-[42px] bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:border-[#b01622] focus:bg-white transition-colors"
                   >
                     <option value="">Select Gold Type</option>
-                    {goldTypes.map((gt) => (
-                      <option key={gt} value={gt}>
-                        {gt}
-                      </option>
-                    ))}
+                    {goldTypes.map((gt, idx) => {
+                      const val = typeof gt === 'object' && gt !== null ? (gt.name || gt.id) : String(gt);
+                      const key = typeof gt === 'object' && gt !== null ? (gt.id || idx) : gt;
+                      return (
+                        <option key={key} value={val}>
+                          {val}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
                 {/* Setting Style */}
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                    Setting Style <span className="text-[#b01622]">*</span>
-                  </label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-semibold text-gray-700">
+                      Setting Style <span className="text-[#b01622]">*</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowStylesModal(true)}
+                      className="text-[11px] font-bold text-[#b01622] hover:underline flex items-center gap-1 cursor-pointer"
+                      title="Manage Setting Styles Master list"
+                    >
+                      <i className="fa-solid fa-plus text-[9px]"></i>
+                      <span>Manage Styles</span>
+                    </button>
+                  </div>
                   <select
                     value={formData.setting_style}
                     onChange={(e) => setFormData({ ...formData, setting_style: e.target.value })}
                     className="w-full px-3.5 h-[42px] bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:border-[#b01622] focus:bg-white transition-colors"
                   >
                     <option value="">Select Setting Style</option>
-                    {styles.map((s) => (
-                      <option key={s.id} value={s.name}>
-                        {s.name}
-                      </option>
-                    ))}
+                    {styles.map((s, idx) => {
+                      const name = typeof s === 'object' && s !== null ? (s.name || s.id) : String(s);
+                      const key = typeof s === 'object' && s !== null ? (s.id || s.name || idx) : s;
+                      return (
+                        <option key={key} value={name}>
+                          {name}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
@@ -621,11 +644,16 @@ export default function Step1Upload() {
                     className="w-full px-3.5 h-[42px] bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:border-[#b01622] focus:bg-white transition-colors"
                   >
                     <option value="">None / Optional</option>
-                    {diamondRanges.map((dr) => (
-                      <option key={dr.id} value={dr.code || dr.id}>
-                        {dr.name}
-                      </option>
-                    ))}
+                    {diamondRanges.map((dr, idx) => {
+                      const code = typeof dr === 'object' && dr !== null ? (dr.code || dr.id || dr.name) : String(dr);
+                      const label = typeof dr === 'object' && dr !== null ? (dr.name || dr.label || dr.code) : String(dr);
+                      const key = typeof dr === 'object' && dr !== null ? (dr.id || dr.code || idx) : dr;
+                      return (
+                        <option key={key} value={code}>
+                          {label}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
@@ -750,11 +778,15 @@ export default function Step1Upload() {
                     className="w-full px-3.5 h-[42px] bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:border-[#b01622] focus:bg-white"
                   >
                     <option value="">Select Gold Type</option>
-                    {goldTypes.map((gt) => (
-                      <option key={gt} value={gt}>
-                        {gt}
-                      </option>
-                    ))}
+                    {goldTypes.map((gt, idx) => {
+                      const val = typeof gt === 'object' && gt !== null ? (gt.name || gt.id) : String(gt);
+                      const key = typeof gt === 'object' && gt !== null ? (gt.id || idx) : gt;
+                      return (
+                        <option key={key} value={val}>
+                          {val}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
@@ -766,11 +798,15 @@ export default function Step1Upload() {
                     className="w-full px-3.5 h-[42px] bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:border-[#b01622] focus:bg-white"
                   >
                     <option value="">Select Setting Style</option>
-                    {styles.map((s) => (
-                      <option key={s.id} value={s.name}>
-                        {s.name}
-                      </option>
-                    ))}
+                    {styles.map((s, idx) => {
+                      const name = typeof s === 'object' && s !== null ? (s.name || s.id) : String(s);
+                      const key = typeof s === 'object' && s !== null ? (s.id || s.name || idx) : s;
+                      return (
+                        <option key={key} value={name}>
+                          {name}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
@@ -820,9 +856,24 @@ export default function Step1Upload() {
         isOpen={Boolean(deleteTarget)}
         title="Delete Design"
         message={`Are you sure you want to permanently delete design "${deleteTarget?.design_no}"? All associated images will also be removed.`}
-        confirmText={deleting ? 'Deleting...' : 'Delete'}
         onConfirm={handleDeleteConfirm}
         onCancel={() => setDeleteTarget(null)}
+      />
+
+      {/* Quick Dropdown CRUD Modal for Setting Styles */}
+      <QuickDropdownCrudModal
+        isOpen={showStylesModal}
+        onClose={() => setShowStylesModal(false)}
+        type="setting_style"
+        onItemSelect={(newStyleName) => {
+          setFormData((prev) => ({ ...prev, setting_style: newStyleName }));
+          fetchMeta();
+          fetchDesigns(currentPage);
+        }}
+        onRefresh={() => {
+          fetchMeta();
+          fetchDesigns(currentPage);
+        }}
       />
     </div>
   );

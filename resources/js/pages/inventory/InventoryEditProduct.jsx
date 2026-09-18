@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { compressImageFile } from '../../utils/imageCompressor';
+import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
 
 export default function InventoryEditProduct() {
   const { id } = useParams();
@@ -13,9 +14,19 @@ export default function InventoryEditProduct() {
   const [categories, setCategories] = useState([]);
   const [subcategories, setSubcategories] = useState([]);
   const [styles, setStyles] = useState([]);
+  const [showStylesModal, setShowStylesModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [imageError, setImageError] = useState(false);
+
+  const refreshStyles = async () => {
+    try {
+      const res = await api.get('/styles');
+      setStyles(res.data || []);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const [formData, setFormData] = useState({
     name: '',
@@ -372,16 +383,44 @@ export default function InventoryEditProduct() {
               </select>
             </div>
             <div>
-              <label className="text-xs font-bold text-stone-700 uppercase tracking-wider block mb-1.5">
-                Setting Style
-              </label>
-              <input
-                type="text"
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-bold text-stone-700 uppercase tracking-wider block">
+                  Setting Style
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowStylesModal(true)}
+                  className="text-[11px] font-bold text-[#b01622] hover:underline flex items-center gap-1 cursor-pointer"
+                  title="Manage Setting Styles Master list"
+                >
+                  <i className="fa-solid fa-plus text-[9px]"></i>
+                  <span>Manage Styles</span>
+                </button>
+              </div>
+              <select
                 value={formData.setting_style}
                 onChange={(e) => setFormData({ ...formData, setting_style: e.target.value })}
-                placeholder="e.g. Prong, Bezel, Pave"
                 className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-medium text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
-              />
+              >
+                <option value="">Select Setting Style</option>
+                {styles && styles.length > 0 ? (
+                  styles.map((s) => (
+                    <option key={s.id || s.name} value={s.name}>
+                      {s.name}
+                    </option>
+                  ))
+                ) : (
+                  <>
+                    <option value="Prong Setting">Prong Setting</option>
+                    <option value="Bezel Setting">Bezel Setting</option>
+                    <option value="Channel Setting">Channel Setting</option>
+                    <option value="Pave Setting">Pave Setting</option>
+                    <option value="Micro Pave">Micro Pave</option>
+                    <option value="Tension Setting">Tension Setting</option>
+                    <option value="Antique Cast / Temple Work">Antique Cast / Temple Work</option>
+                  </>
+                )}
+              </select>
             </div>
           </div>
 
@@ -649,6 +688,18 @@ export default function InventoryEditProduct() {
         </div>
 
       </form>
+
+      {/* Quick Dropdown CRUD Modal for Setting Styles */}
+      <QuickDropdownCrudModal
+        isOpen={showStylesModal}
+        onClose={() => setShowStylesModal(false)}
+        type="setting_style"
+        onItemSelect={(newStyleName) => {
+          setFormData((prev) => ({ ...prev, setting_style: newStyleName }));
+          refreshStyles();
+        }}
+        onRefresh={refreshStyles}
+      />
 
     </div>
   );

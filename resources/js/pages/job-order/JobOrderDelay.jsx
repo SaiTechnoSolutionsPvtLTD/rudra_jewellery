@@ -302,6 +302,8 @@ export default function JobOrderDelay() {
   // Pagination calculations
   const totalHistoryItems = delayHistory.length;
   const totalPages = Math.max(1, Math.ceil(totalHistoryItems / itemsPerPage));
+  const startRecord = totalHistoryItems > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0;
+  const endRecord = Math.min(currentPage * itemsPerPage, totalHistoryItems);
   const paginatedHistory = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
     return delayHistory.slice(start, start + itemsPerPage);
@@ -370,9 +372,9 @@ export default function JobOrderDelay() {
             Work in Progress
           </Link>
 
-          {/* Active Tab: Dealy / Job Details (matching exact user spelling & red underline) */}
+          {/* Active Tab: Delay / Job Details */}
           <div className="pb-3 text-sm font-bold text-[#b01622] border-b-2 border-[#b01622] cursor-default whitespace-nowrap">
-            Dealy / Job Details
+            Delay / Job Details
           </div>
 
           <Link
@@ -749,78 +751,45 @@ export default function JobOrderDelay() {
       {/* 6. BOTTOM PAGINATION FOOTER */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2 text-xs text-stone-500">
         <div>
-          Showing 1 to {Math.min(itemsPerPage, totalHistoryItems)} of 2,842 clients
+          Showing {startRecord} to {endRecord} of {totalHistoryItems} entries
         </div>
 
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-            disabled={currentPage === 1}
-            className="w-7 h-7 rounded-md border border-stone-200 hover:bg-stone-100 flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 cursor-pointer"
-          >
-            &lt;
-          </button>
+        {totalPages > 1 && (
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+              className="w-7 h-7 rounded-md border border-stone-200 hover:bg-stone-100 flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 cursor-pointer"
+            >
+              &lt;
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setCurrentPage(1)}
-            className={`w-7 h-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors cursor-pointer ${
-              currentPage === 1
-                ? 'bg-[#b01622] text-white'
-                : 'border border-stone-200 hover:bg-stone-100 text-stone-700'
-            }`}
-          >
-            1
-          </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
+              <button
+                key={pageNum}
+                type="button"
+                onClick={() => setCurrentPage(pageNum)}
+                className={`w-7 h-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors cursor-pointer ${
+                  currentPage === pageNum
+                    ? 'bg-[#b01622] text-white'
+                    : 'border border-stone-200 hover:bg-stone-100 text-stone-700'
+                }`}
+              >
+                {pageNum}
+              </button>
+            ))}
 
-          <button
-            type="button"
-            onClick={() => setCurrentPage(2)}
-            className={`w-7 h-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors cursor-pointer ${
-              currentPage === 2
-                ? 'bg-[#b01622] text-white'
-                : 'border border-stone-200 hover:bg-stone-100 text-stone-700'
-            }`}
-          >
-            2
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setCurrentPage(3)}
-            className={`w-7 h-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors cursor-pointer ${
-              currentPage === 3
-                ? 'bg-[#b01622] text-white'
-                : 'border border-stone-200 hover:bg-stone-100 text-stone-700'
-            }`}
-          >
-            3
-          </button>
-
-          <span className="px-1 text-stone-400">...</span>
-
-          <button
-            type="button"
-            onClick={() => setCurrentPage(142)}
-            className={`w-8 h-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors cursor-pointer ${
-              currentPage === 142
-                ? 'bg-[#b01622] text-white'
-                : 'border border-stone-200 hover:bg-stone-100 text-stone-700'
-            }`}
-          >
-            142
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setCurrentPage(prev => Math.min(142, prev + 1))}
-            disabled={currentPage === 142}
-            className="w-7 h-7 rounded-md border border-stone-200 hover:bg-stone-100 flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 cursor-pointer"
-          >
-            &gt;
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+              disabled={currentPage === totalPages}
+              className="w-7 h-7 rounded-md border border-stone-200 hover:bg-stone-100 flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 cursor-pointer"
+            >
+              &gt;
+            </button>
+          </div>
+        )}
       </div>
 
     </div>

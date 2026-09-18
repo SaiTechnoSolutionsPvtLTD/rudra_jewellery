@@ -20,11 +20,7 @@ export const resolveItemImage = (item) => {
 
 export default function JobCreationDashboard() {
   const navigate = useNavigate();
-  const toast = useToast?.() || {
-    success: (m) => alert(m),
-    error: (m) => alert(m),
-    info: (m) => alert(m),
-  };
+  const toast = useToast();
 
   // Active navigation tab
   const [activeTab, setActiveTab] = useState('wip');
@@ -633,6 +629,55 @@ export default function JobCreationDashboard() {
               </tbody>
             </table>
           </div>
+
+          {/* Pagination directly inside Live Job creation Status */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 mt-3 border-t border-gray-100">
+            <div className="text-[11px] text-[#6b7280]">
+              Showing{' '}
+              <span className="font-semibold text-gray-900">{paginationMeta.from || 0}</span> to{' '}
+              <span className="font-semibold text-gray-900">{paginationMeta.to || 0}</span> of{' '}
+              <span className="font-semibold text-gray-900">{paginationMeta.total || 0}</span> work orders
+            </div>
+
+            {/* Dynamic Pagination Controls */}
+            <div className="flex items-center gap-1">
+              {/* Previous */}
+              <button
+                type="button"
+                disabled={paginationMeta.current_page <= 1}
+                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                className="w-6 h-6 flex items-center justify-center rounded border border-[#e5e7eb] disabled:opacity-40 text-gray-500 hover:bg-gray-50 text-[11px] transition-colors cursor-pointer"
+              >
+                <i className="fa-solid fa-chevron-left text-[9px]"></i>
+              </button>
+
+              {/* Numbered Page Buttons */}
+              {Array.from({ length: paginationMeta.last_page || 1 }, (_, i) => i + 1).map((pageNum) => (
+                <button
+                  key={pageNum}
+                  type="button"
+                  onClick={() => setCurrentPage(pageNum)}
+                  className={`w-6 h-6 flex items-center justify-center rounded text-[11px] font-semibold cursor-pointer ${
+                    paginationMeta.current_page === pageNum
+                      ? 'bg-[#9e1b27] text-white'
+                      : 'border border-[#e5e7eb] text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  {pageNum}
+                </button>
+              ))}
+
+              {/* Next */}
+              <button
+                type="button"
+                disabled={paginationMeta.current_page >= paginationMeta.last_page}
+                onClick={() => setCurrentPage((prev) => Math.min(paginationMeta.last_page, prev + 1))}
+                className="w-6 h-6 flex items-center justify-center rounded border border-[#e5e7eb] disabled:opacity-40 text-gray-500 hover:bg-gray-50 text-[11px] transition-colors cursor-pointer"
+              >
+                <i className="fa-solid fa-chevron-right text-[9px]"></i>
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Right Column: Material Allocation (Real Data from Project DB) */}
@@ -735,12 +780,13 @@ export default function JobCreationDashboard() {
                     <img
                       src={card.image_url}
                       alt={card.product_name}
-                      loading="lazy"
-                      decoding="async"
+                      loading="eager"
+                      fetchPriority="high"
+                      decoding="sync"
                       className="w-full h-full object-cover"
                       onError={(e) => {
                         e.target.onerror = null;
-                        e.target.src = '/images/samples/peacock_choker.jpg';
+                        e.target.src = 'https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?auto=format&fit=crop&w=400&q=80';
                       }}
                     />
                     {card.is_priority && (
@@ -805,55 +851,6 @@ export default function JobCreationDashboard() {
             </Link>
           </div>
         )}
-      </div>
-
-      {/* 7. Pagination Footer (100% Real Database Pagination) */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-4 border-t border-[#eceff3]">
-        <div className="text-xs text-[#6b7280]">
-          Showing{' '}
-          <span className="font-semibold text-gray-900">{paginationMeta.from}</span> to{' '}
-          <span className="font-semibold text-gray-900">{paginationMeta.to}</span> of{' '}
-          <span className="font-semibold text-gray-900">{paginationMeta.total}</span> work orders
-        </div>
-
-        {/* Dynamic Pagination Controls */}
-        <div className="flex items-center gap-1">
-          {/* Previous */}
-          <button
-            type="button"
-            disabled={paginationMeta.current_page <= 1}
-            onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-            className="w-7 h-7 flex items-center justify-center rounded border border-[#e5e7eb] disabled:opacity-40 text-gray-500 hover:bg-gray-50 text-xs transition-colors cursor-pointer"
-          >
-            <i className="fa-solid fa-chevron-left text-[10px]"></i>
-          </button>
-
-          {/* Numbered Page Buttons */}
-          {Array.from({ length: paginationMeta.last_page || 1 }, (_, i) => i + 1).map((pageNum) => (
-            <button
-              key={pageNum}
-              type="button"
-              onClick={() => setCurrentPage(pageNum)}
-              className={`w-7 h-7 flex items-center justify-center rounded text-xs font-semibold cursor-pointer ${
-                paginationMeta.current_page === pageNum
-                  ? 'bg-[#9e1b27] text-white'
-                  : 'border border-[#e5e7eb] text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              {pageNum}
-            </button>
-          ))}
-
-          {/* Next */}
-          <button
-            type="button"
-            disabled={paginationMeta.current_page >= paginationMeta.last_page}
-            onClick={() => setCurrentPage((prev) => Math.min(paginationMeta.last_page, prev + 1))}
-            className="w-7 h-7 flex items-center justify-center rounded border border-[#e5e7eb] disabled:opacity-40 text-gray-500 hover:bg-gray-50 text-xs transition-colors cursor-pointer"
-          >
-            <i className="fa-solid fa-chevron-right text-[10px]"></i>
-          </button>
-        </div>
       </div>
 
       {/* MODAL 1: Real Detailed Audit Log Modal */}

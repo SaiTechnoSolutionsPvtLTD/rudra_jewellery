@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
 
 const SAMPLE_IMAGES = [
   { label: '22K Gold Peacock Choker', url: '/images/samples/peacock_choker.jpg' },
@@ -25,7 +26,7 @@ const STAGES = [
 export default function ReceiverWork() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { showToast } = useToast();
+  const { showToast, showConfirm } = useToast();
 
   const [orders, setOrders] = useState([]);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
@@ -48,6 +49,23 @@ export default function ReceiverWork() {
   const [editingRowIndex, setEditingRowIndex] = useState(null);
   const [formErrors, setFormErrors] = useState({});
   const [previewDoc, setPreviewDoc] = useState(null);
+
+  // Master Setting Styles state
+  const [settingStyles, setSettingStyles] = useState([]);
+  const [showStylesModal, setShowStylesModal] = useState(false);
+
+  const fetchSettingStyles = async () => {
+    try {
+      const res = await api.get('/styles');
+      setSettingStyles(res.data || []);
+    } catch (err) {
+      console.error('Failed to fetch setting styles:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchSettingStyles();
+  }, []);
 
   const designFileInputRef = useRef(null);
   const refImageInputRef = useRef(null);
@@ -604,13 +622,14 @@ export default function ReceiverWork() {
   // Complete Work Handler (Dedicated action requested by user)
   const handleCompleteWork = async () => {
     if (!currentOrder) return;
-    if (
-      !window.confirm(
-        `Complete and finalize Work Order #${currentOrder.work_order_number}? This will mark it 100% COMPLETED and finalize reception.`
-      )
-    ) {
-      return;
-    }
+    const confirmed = await showConfirm({
+      title: 'Finalize Work Order',
+      message: `Complete and finalize Work Order #${currentOrder.work_order_number}? This will mark it 100% COMPLETED and finalize reception.`,
+      icon: 'fa-solid fa-circle-check',
+      confirmText: 'Complete Work Order'
+    });
+    if (!confirmed) return;
+
     try {
       setProcessingAction(true);
       setCurrentStageKey('delivered');
@@ -634,13 +653,13 @@ export default function ReceiverWork() {
   // Final Approval Action (Approve Button)
   const handleApprove = async () => {
     if (!currentOrder) return;
-    if (
-      !window.confirm(
-        `Approve and finalize Work Order ${currentOrder.work_order_number}? This will mark it COMPLETED.`
-      )
-    ) {
-      return;
-    }
+    const confirmed = await showConfirm({
+      title: 'Approve Work Order',
+      message: `Approve and finalize Work Order ${currentOrder.work_order_number}? This will mark it COMPLETED.`,
+      icon: 'fa-solid fa-circle-check',
+      confirmText: 'Approve Order'
+    });
+    if (!confirmed) return;
     try {
       setProcessingAction(true);
       setCurrentStageKey('ready');
@@ -1077,6 +1096,45 @@ export default function ReceiverWork() {
             <i className="fa-solid fa-print text-stone-500 text-sm"></i>
             <span>Print Voucher</span>
           </button>
+        </div>
+      </div>
+
+      {/* SUB-VIEW TABS STRIP (Quality Check & Final Receive active tab) */}
+      <div className="border-b border-stone-200">
+        <div className="flex items-center gap-8 overflow-x-auto no-scrollbar">
+          <Link
+            to={`/job-order/in-progress${selectedOrderId || currentOrder?.id ? `?order_id=${selectedOrderId || currentOrder?.id}` : ''}`}
+            className="pb-3 text-sm font-bold text-stone-500 hover:text-stone-900 border-b-2 border-transparent hover:border-stone-300 flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap"
+          >
+            <span>Work in Progress</span>
+          </Link>
+
+          <Link
+            to={`/job-order/delay${selectedOrderId || currentOrder?.id ? `?order_id=${selectedOrderId || currentOrder?.id}` : ''}`}
+            className="pb-3 text-sm font-bold text-stone-500 hover:text-stone-900 border-b-2 border-transparent hover:border-stone-300 flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap"
+          >
+            <span>Delay / Job Details</span>
+          </Link>
+
+          <Link
+            to={`/job-order/waste${selectedOrderId || currentOrder?.id ? `?order_id=${selectedOrderId || currentOrder?.id}` : ''}`}
+            className="pb-3 text-sm font-bold text-stone-500 hover:text-stone-900 border-b-2 border-transparent hover:border-stone-300 flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap"
+          >
+            <span>Waste Details</span>
+          </Link>
+
+          <div
+            className="pb-3 text-sm font-bold text-[#b01622] border-b-2 border-[#b01622] flex items-center gap-2 cursor-default whitespace-nowrap"
+          >
+            <span>Quality Check &amp; Final Receive</span>
+          </div>
+
+          <Link
+            to={`/job-order/history${selectedOrderId || currentOrder?.id ? `?order_id=${selectedOrderId || currentOrder?.id}` : ''}`}
+            className="pb-3 text-sm font-bold text-stone-500 hover:text-stone-900 border-b-2 border-transparent hover:border-stone-300 flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap"
+          >
+            <span>History</span>
+          </Link>
         </div>
       </div>
 
@@ -2716,16 +2774,45 @@ export default function ReceiverWork() {
                   </div>
 
                   <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      SETTING TYPE
-                    </label>
-                    <input
-                      type="text"
-                      value={rowForm.setting_type || 'Prong'}
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-bold text-gray-700 uppercase tracking-wide">
+                        SETTING TYPE
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setShowStylesModal(true)}
+                        className="text-[10px] font-bold text-[#b01622] hover:underline flex items-center gap-1 cursor-pointer"
+                        title="Manage Setting Styles Master list"
+                      >
+                        <i className="fa-solid fa-plus text-[8px]"></i>
+                        <span>Manage Styles</span>
+                      </button>
+                    </div>
+                    <select
+                      value={rowForm.setting_type || ''}
                       onChange={(e) => updateFormField('setting_type', e.target.value)}
-                      placeholder="e.g. Prong, Bezel, Pave"
                       className="w-full text-xs border border-gray-200 rounded-lg p-2.5 outline-hidden focus:border-[#b01622] bg-white font-medium"
-                    />
+                    >
+                      {settingStyles.length > 0 ? (
+                        settingStyles.map((s) => (
+                          <option key={s.id || s.name} value={s.name}>
+                            {s.name}
+                          </option>
+                        ))
+                      ) : (
+                        <>
+                          <option value="Prong">Prong</option>
+                          <option value="Bezel">Bezel</option>
+                          <option value="Channel">Channel</option>
+                          <option value="Pave">Pave</option>
+                          <option value="Bar">Bar</option>
+                          <option value="Flush">Flush</option>
+                          <option value="Tension">Tension</option>
+                          <option value="Invisible">Invisible</option>
+                          <option value="Plain Casting">Plain Casting</option>
+                        </>
+                      )}
+                    </select>
                   </div>
 
                   <div>
@@ -3144,6 +3231,19 @@ export default function ReceiverWork() {
           </div>
         </div>
       )}
+
+      {/* Quick Dropdown CRUD Modal for Setting Styles */}
+      <QuickDropdownCrudModal
+        isOpen={showStylesModal}
+        onClose={() => setShowStylesModal(false)}
+        type="setting_style"
+        onItemSelect={(newStyleName) => {
+          updateFormField('setting_type', newStyleName);
+          fetchSettingStyles();
+        }}
+        onRefresh={fetchSettingStyles}
+      />
+
     </div>
   );
 }

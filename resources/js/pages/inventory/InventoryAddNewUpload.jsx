@@ -3,11 +3,16 @@ import { Link, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { compressImageFile } from '../../utils/imageCompressor';
+import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
 
 export default function InventoryAddNewUpload() {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const fileInputRef = useRef(null);
+
+  // Setting Styles Master Data State
+  const [settingStyles, setSettingStyles] = useState([]);
+  const [showStylesModal, setShowStylesModal] = useState(false);
 
   // Stored Category & Subcategory context
   const [category, setCategory] = useState(null);
@@ -61,7 +66,17 @@ export default function InventoryAddNewUpload() {
     return 6850;
   };
 
+  const fetchSettingStyles = async () => {
+    try {
+      const res = await api.get('/styles');
+      setSettingStyles(res.data || []);
+    } catch (err) {
+      console.error('Failed to fetch setting styles:', err);
+    }
+  };
+
   useEffect(() => {
+    fetchSettingStyles();
     // 1. Retrieve session selections
     const savedCat = sessionStorage.getItem('inventory_selected_category');
     const savedSub = sessionStorage.getItem('inventory_selected_subcategory');
@@ -913,22 +928,43 @@ export default function InventoryAddNewUpload() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Setting Style
-                  </label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      Setting Style
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowStylesModal(true)}
+                      className="text-[11px] font-bold text-[#b01622] hover:underline flex items-center gap-1 cursor-pointer"
+                      title="Manage Setting Styles Master list"
+                    >
+                      <i className="fa-solid fa-plus text-[9px]"></i>
+                      <span>Manage Styles</span>
+                    </button>
+                  </div>
                   <select
                     name="setting_style"
                     value={formData.setting_style}
                     onChange={handleChange}
                     className="w-full px-3.5 py-2.5 text-xs border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden font-semibold bg-white"
                   >
-                    <option value="Prong Setting">Prong Setting</option>
-                    <option value="Bezel Setting">Bezel Setting</option>
-                    <option value="Channel Setting">Channel Setting</option>
-                    <option value="Pave Setting">Pave Setting</option>
-                    <option value="Micro Pave">Micro Pave</option>
-                    <option value="Tension Setting">Tension Setting</option>
-                    <option value="Antique Cast / Temple Work">Antique Cast / Temple Work</option>
+                    {settingStyles.length > 0 ? (
+                      settingStyles.map((s) => (
+                        <option key={s.id || s.name} value={s.name}>
+                          {s.name}
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="Prong Setting">Prong Setting</option>
+                        <option value="Bezel Setting">Bezel Setting</option>
+                        <option value="Channel Setting">Channel Setting</option>
+                        <option value="Pave Setting">Pave Setting</option>
+                        <option value="Micro Pave">Micro Pave</option>
+                        <option value="Tension Setting">Tension Setting</option>
+                        <option value="Antique Cast / Temple Work">Antique Cast / Temple Work</option>
+                      </>
+                    )}
                   </select>
                 </div>
               </div>
@@ -1227,8 +1263,19 @@ export default function InventoryAddNewUpload() {
 
         </form>
 
-      </div>
+      {/* Quick Dropdown CRUD Modal for Setting Styles */}
+      <QuickDropdownCrudModal
+        isOpen={showStylesModal}
+        onClose={() => setShowStylesModal(false)}
+        type="setting_style"
+        onItemSelect={(newStyleName) => {
+          setFormData((prev) => ({ ...prev, setting_style: newStyleName }));
+          fetchSettingStyles();
+        }}
+        onRefresh={fetchSettingStyles}
+      />
 
+      </div>
     </div>
   );
 }

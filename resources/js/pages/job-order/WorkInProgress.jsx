@@ -139,7 +139,13 @@ export default function WorkInProgress() {
   // Dedicated Action: Work Completed (Send for QC)
   const handleWorkCompletedQC = async () => {
     if (!currentOrder) return;
-    if (!window.confirm('Confirm submitting this completed jewelry piece for Master Artisan Quality Check (QC)?')) return;
+    const confirmed = await showConfirm({
+      title: 'Submit for Quality Check',
+      message: 'Confirm submitting this completed jewelry piece for Master Artisan Quality Check (QC)?',
+      icon: 'fa-solid fa-[#b01622] fa-circle-check',
+      confirmText: 'Submit for QC'
+    });
+    if (!confirmed) return;
     try {
       setActionLoading(true);
       const payload = {
@@ -156,7 +162,7 @@ export default function WorkInProgress() {
       showToast?.('Work marked as Completed and submitted for Quality Check!', 'success');
       fetchOrderDetails(currentOrder.id, true);
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to submit for QC');
+      showToast?.(err.response?.data?.message || 'Failed to submit for QC', 'error');
     } finally {
       setActionLoading(false);
     }
@@ -316,28 +322,28 @@ export default function WorkInProgress() {
           </button>
 
           <Link
-            to={`/job-order/delay`}
+            to={`/job-order/delay${currentOrder?.id ? `?order_id=${currentOrder.id}` : ''}`}
             className="pb-3 text-sm font-bold text-stone-500 hover:text-stone-900 border-b-2 border-transparent hover:border-stone-300 flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap"
           >
-            <span>Dealy / Job Details</span>
+            <span>Delay / Job Details</span>
           </Link>
 
           <Link
-            to={`/job-order/waste`}
+            to={`/job-order/waste${currentOrder?.id ? `?order_id=${currentOrder.id}` : ''}`}
             className="pb-3 text-sm font-bold text-stone-500 hover:text-stone-900 border-b-2 border-transparent hover:border-stone-300 flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap"
           >
             <span>Waste Details</span>
           </Link>
 
           <Link
-            to={`/job-order/quality-check`}
+            to={`/job-order/quality-check${currentOrder?.id ? `?order_id=${currentOrder.id}` : ''}`}
             className="pb-3 text-sm font-bold text-stone-500 hover:text-stone-900 border-b-2 border-transparent hover:border-stone-300 flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap"
           >
             <span>Quality Check & Final Receive</span>
           </Link>
 
           <Link
-            to={`/job-order/history`}
+            to={`/job-order/history${currentOrder?.id ? `?order_id=${currentOrder.id}` : ''}`}
             className="pb-3 text-sm font-bold text-stone-500 hover:text-stone-900 border-b-2 border-transparent hover:border-stone-300 flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap"
           >
             <span>History</span>

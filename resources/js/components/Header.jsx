@@ -45,16 +45,22 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
   const searchInputRef = useRef(null);
   const searchContainerRef = useRef(null);
 
-  useEffect(() => {
+  const fetchMetalRates = () => {
     api.get('/metal-rates')
       .then(res => {
-        setRates(res.data);
+        if (res.data) setRates(res.data);
         setLoadingRates(false);
       })
       .catch(err => {
-        console.error('Error fetching Chennai live metal rates:', err);
+        console.error('Error fetching live metal rates:', err);
         setLoadingRates(false);
       });
+  };
+
+  useEffect(() => {
+    fetchMetalRates();
+    const interval = setInterval(fetchMetalRates, 60000);
+    return () => clearInterval(interval);
   }, []);
 
   // Keyboard shortcut Ctrl+F or Cmd+F
@@ -159,7 +165,7 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
   };
 
   return (
-    <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0 z-10">
+    <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0 z-10 print:hidden">
       {/* Left Side: 3-line menu toggle icon + search bar */}
       <div className="flex items-center gap-4 shrink-0">
         <button
@@ -271,13 +277,13 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
             </div>
           </div>
           <div className="flex flex-col">
-            <div className="text-[11px] font-semibold text-gray-800 leading-tight">
-              Today's Gold Rate : <span className="font-normal text-gray-700">{rates?.date || '23 July 2026'}</span>
+            <div className="text-[11px] font-semibold text-[#2D2A26] leading-tight whitespace-nowrap">
+              Today's Gold Rate : <span className="font-normal text-[#4A4641]">{rates?.date || new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
             </div>
-            <div className="flex items-center gap-2 text-[10px] font-medium text-gray-600 mt-0.5">
-              <span>24K (999) <span className="text-[#a5141f] font-bold">₹{rates?.gold24k || '7,238'}</span></span>
-              <span className="text-gray-300">|</span>
-              <span>22K (916) <span className="text-[#a5141f] font-bold">₹{rates?.gold22k || '6,632'}</span></span>
+            <div className="flex items-center gap-2 text-[10px] mt-0.5 whitespace-nowrap">
+              <span className="text-[#a38749] font-semibold">24K (999) <span className="text-[#b01622] font-bold text-[11px]">₹{rates?.gold24k || '14,256'}</span></span>
+              <span className="text-stone-300">|</span>
+              <span className="text-[#a38749] font-semibold">22K (916) <span className="text-[#b01622] font-bold text-[11px]">₹{rates?.gold22k || '13,068'}</span></span>
             </div>
           </div>
         </div>
@@ -387,22 +393,10 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
           )}
         </div>
 
-        {/* Messages with Badge '8' */}
-        <button
-          type="button"
-          className="relative w-9 h-9 flex items-center justify-center text-gray-700 hover:text-gray-900 rounded-full hover:bg-gray-50 transition-colors border border-gray-200 cursor-pointer shadow-2xs"
-          title="Messages"
-        >
-          <i className="fa-regular fa-comment-dots text-sm"></i>
-          <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#a5141f] text-white text-[9px] font-bold rounded-full flex items-center justify-center border-2 border-white shadow-2xs">
-            8
-          </span>
-        </button>
-
         {/* Subtle Vertical Divider */}
         <div className="h-6 w-[1px] bg-gray-200 mx-1"></div>
 
-        {/* User Profile Pill */}
+        {/* User Profile Pill (Clean Text without avatar photo/logo) */}
         <button
           onClick={() => setShowLogoutModal(true)}
           className="flex items-center gap-1.5 px-4 py-1.5 rounded-full border border-gray-300 bg-white hover:bg-gray-50 transition-colors cursor-pointer shadow-2xs"

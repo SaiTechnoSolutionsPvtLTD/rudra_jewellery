@@ -3,11 +3,15 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { compressImageFile } from '../../utils/imageCompressor';
+import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
 
 export default function InventoryViewProduct() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { showToast } = useToast();
+
+  const [settingStyles, setSettingStyles] = useState([]);
+  const [showStylesModal, setShowStylesModal] = useState(false);
 
   const [product, setProduct] = useState(null);
   const [attributes, setAttributes] = useState({});
@@ -33,7 +37,49 @@ export default function InventoryViewProduct() {
   });
   const [savingEdit, setSavingEdit] = useState(false);
 
+  // Add Stock Movement Modal State
+  const [showAddStockModal, setShowAddStockModal] = useState(false);
+  const [addStockForm, setAddStockForm] = useState({
+    action_type: 'Stock Inward (Added)',
+    change_qty: 1,
+    staff: 'Arvind (Admin)',
+    remarks: '',
+  });
+  const [submittingMovement, setSubmittingMovement] = useState(false);
+
+  const handleAddStockMovement = async (e) => {
+    e.preventDefault();
+    try {
+      setSubmittingMovement(true);
+      const res = await api.post(`/inventory/products/${id}/movements`, addStockForm);
+      showToast(res.data.message || 'Stock movement logged successfully!', 'success');
+      setShowAddStockModal(false);
+      setAddStockForm({
+        action_type: 'Stock Inward (Added)',
+        change_qty: 1,
+        staff: 'Arvind (Admin)',
+        remarks: '',
+      });
+      fetchProductDetails();
+    } catch (err) {
+      console.error('Failed to log stock movement:', err);
+      showToast(err.response?.data?.message || 'Failed to log stock movement', 'error');
+    } finally {
+      setSubmittingMovement(false);
+    }
+  };
+
+  const fetchSettingStyles = async () => {
+    try {
+      const res = await api.get('/styles');
+      setSettingStyles(res.data || []);
+    } catch (err) {
+      console.error('Failed to fetch setting styles:', err);
+    }
+  };
+
   useEffect(() => {
+    fetchSettingStyles();
     fetchProductDetails();
   }, [id]);
 
@@ -516,29 +562,81 @@ export default function InventoryViewProduct() {
 
       </div>
 
-      {/* 3. Full-Width Bottom Section: Recent Stock Movements */}
+      {/* 3. Full-Width Bottom Section: Recent Stock Movements & Product Stock Log */}
       <div className="bg-white rounded-2xl border border-stone-200/80 shadow-2xs overflow-hidden">
         
-        {/* Table Header with Title, Subtitle, and Download Report button */}
+        {/* Table Header with Title, Subtitle, Add Stock and Download Report buttons */}
         <div className="p-5 border-b border-stone-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-stone-50/40">
           <div>
-            <h2 className="text-sm font-bold text-[#8b121e]">
-              Recent Stock Movements
-            </h2>
+            <div className="flex items-center gap-2">
+              <i className="fa-solid fa-boxes-stacked text-[#8b121e]"></i>
+              <h2 className="text-sm font-bold text-[#8b121e]">
+                Recent Stock Movements & Inward Log
+              </h2>
+            </div>
             <p className="text-xs text-stone-400 mt-0.5">
-              Historical log of additions, transfers and sales for this SKU
+              Complete historical record of stock added, vault inward, QC audits, showcase floor transfers and sales for SKU: <span className="font-mono font-bold text-stone-600">{product.product_code || 'RJ-SKU'}</span>
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={downloadMovementsReport}
-            className="px-4 py-1.5 bg-white border border-stone-300 hover:border-stone-400 text-stone-700 text-xs font-semibold rounded-xl shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer self-start sm:self-auto hover:bg-stone-50"
-            title="Download CSV report of movements for this SKU"
-          >
-            <span>Download Report</span>
-            <i className="fa-solid fa-arrow-down text-[10px]"></i>
-          </button>
+          <div className="flex items-center gap-2.5 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => setShowAddStockModal(true)}
+              className="px-3.5 py-1.5 bg-[#b01622] hover:bg-[#8b121e] text-white text-xs font-semibold rounded-xl shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer"
+              title="Add new stock inward entry for this product SKU"
+            >
+              <i className="fa-solid fa-plus text-[10px]"></i>
+              <span>Log Stock Addition</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={downloadMovementsReport}
+              className="px-4 py-1.5 bg-white border border-stone-300 hover:border-stone-400 text-stone-700 text-xs font-semibold rounded-xl shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer hover:bg-stone-50"
+              title="Download CSV report of movements for this SKU"
+            >
+              <span>Download Report</span>
+              <i className="fa-solid fa-arrow-down text-[10px]"></i>
+            </button>
+          </div>
+        </div>
+
+        {/* Summary Highlights Strip */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-stone-100 border-b border-stone-200/60 bg-stone-50/20 text-xs">
+          <div className="p-3.5 space-y-0.5">
+            <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block">TOTAL INWARD STOCK ADDED</span>
+            <div className="font-mono font-bold text-emerald-600 text-sm flex items-center gap-1.5">
+              <i className="fa-solid fa-circle-arrow-down text-emerald-500 text-xs"></i>
+              <span>+{quantity} Units</span>
+            </div>
+            <span className="text-[10.5px] text-stone-500 block truncate">Gross: {grossWt}g • Net: {netWt}g</span>
+          </div>
+
+          <div className="p-3.5 space-y-0.5">
+            <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block">CURRENT VAULT BALANCE</span>
+            <div className="font-mono font-bold text-stone-900 text-sm flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${statusDotClass}`}></span>
+              <span>{quantity} Units</span>
+            </div>
+            <span className="text-[10.5px] text-stone-500 block truncate">{statusLabel}</span>
+          </div>
+
+          <div className="p-3.5 space-y-0.5">
+            <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block">PURITY & HALLMARK</span>
+            <div className="font-bold text-stone-800 text-xs truncate">
+              {purity}
+            </div>
+            <span className="text-[10.5px] text-stone-500 font-mono block truncate">HUID: {huid || 'H-65D7801C'}</span>
+          </div>
+
+          <div className="p-3.5 space-y-0.5">
+            <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block">ORIGIN & ARTISAN</span>
+            <div className="font-bold text-stone-800 text-xs truncate">
+              {karigarName}
+            </div>
+            <span className="text-[10.5px] text-stone-500 block truncate">{karigarWorkshop}</span>
+          </div>
         </div>
 
         {/* Movements Table */}
@@ -547,11 +645,11 @@ export default function InventoryViewProduct() {
             <thead>
               <tr className="border-b border-stone-200 bg-stone-50/70 text-stone-700 font-bold text-[11px] uppercase tracking-wider">
                 <th className="py-3 px-4 whitespace-nowrap w-[150px]">DATE & TIME</th>
-                <th className="py-3 px-4 whitespace-nowrap w-[160px]">ACTION TYPE</th>
-                <th className="py-3 px-3 text-center whitespace-nowrap w-[75px]">CHANGE</th>
-                <th className="py-3 px-3 text-center whitespace-nowrap w-[75px]">BALANCE</th>
+                <th className="py-3 px-4 whitespace-nowrap w-[170px]">ACTION TYPE</th>
+                <th className="py-3 px-3 text-center whitespace-nowrap w-[80px]">STOCK ADDED / CHANGE</th>
+                <th className="py-3 px-3 text-center whitespace-nowrap w-[80px]">BALANCE</th>
                 <th className="py-3 px-4 whitespace-nowrap w-[180px]">STAFF / ARTISAN</th>
-                <th className="py-3 px-4">REMARKS</th>
+                <th className="py-3 px-4">PRODUCT SPECIFICATIONS & REMARKS</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
@@ -583,7 +681,7 @@ export default function InventoryViewProduct() {
               ) : (
                 <tr>
                   <td colSpan="6" className="py-8 text-center text-stone-400">
-                    No movements recorded for this product yet.
+                    No stock movements recorded for this product yet.
                   </td>
                 </tr>
               )}
@@ -591,7 +689,7 @@ export default function InventoryViewProduct() {
           </table>
         </div>
 
-        {/* Footer with pagination */}
+        {/* Footer with summary and pagination */}
         <div className="p-4 border-t border-stone-200/80 bg-stone-50/50 flex items-center justify-between text-xs text-stone-500">
           <span>Showing {movements?.length || 0} movement logs for this SKU</span>
           <div className="flex items-center gap-1">
@@ -697,13 +795,41 @@ export default function InventoryViewProduct() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-bold text-stone-600 uppercase mb-1">Quality / Setting</label>
-                  <input
-                    type="text"
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-bold text-stone-600 uppercase">Quality / Setting</label>
+                    <button
+                      type="button"
+                      onClick={() => setShowStylesModal(true)}
+                      className="text-[10px] font-bold text-[#b01622] hover:underline flex items-center gap-1 cursor-pointer"
+                      title="Manage Setting Styles Master list"
+                    >
+                      <i className="fa-solid fa-plus text-[8px]"></i>
+                      <span>Manage</span>
+                    </button>
+                  </div>
+                  <select
                     value={editForm.setting_style}
                     onChange={(e) => setEditForm({ ...editForm, setting_style: e.target.value })}
                     className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs focus:outline-hidden focus:border-[#b01622]"
-                  />
+                  >
+                    {settingStyles.length > 0 ? (
+                      settingStyles.map((s) => (
+                        <option key={s.id || s.name} value={s.name}>
+                          {s.name}
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="Prong Setting">Prong Setting</option>
+                        <option value="Bezel Setting">Bezel Setting</option>
+                        <option value="Channel Setting">Channel Setting</option>
+                        <option value="Pave Setting">Pave Setting</option>
+                        <option value="Micro Pave">Micro Pave</option>
+                        <option value="Tension Setting">Tension Setting</option>
+                        <option value="Antique Cast / Temple Work">Antique Cast / Temple Work</option>
+                      </>
+                    )}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-[11px] font-bold text-stone-600 uppercase mb-1">Rate (₹/g)</label>
@@ -735,6 +861,111 @@ export default function InventoryViewProduct() {
               </div>
             </form>
 
+          </div>
+        </div>
+      )}
+
+      {/* --- Log Stock Addition Modal --- */}
+      {showAddStockModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="fixed inset-0" onClick={() => setShowAddStockModal(false)}></div>
+          
+          <div className="relative bg-white rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border border-stone-200 animate-in zoom-in-95 duration-150 z-10">
+            
+            <div className="flex items-center justify-between pb-4 border-b border-stone-100">
+              <div className="flex items-center gap-2">
+                <i className="fa-solid fa-boxes-packing text-[#b01622]"></i>
+                <h3 className="text-base font-bold text-gray-900">Log Stock Addition / Movement</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddStockModal(false)}
+                className="text-stone-400 hover:text-stone-600 cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+
+            <form onSubmit={handleAddStockMovement} className="space-y-4 pt-4 text-xs">
+              <div>
+                <label className="block text-[11px] font-bold text-stone-600 uppercase mb-1">Action Type</label>
+                <select
+                  value={addStockForm.action_type}
+                  onChange={(e) => setAddStockForm({ ...addStockForm, action_type: e.target.value })}
+                  className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs focus:outline-hidden focus:border-[#b01622]"
+                  required
+                >
+                  <option value="Stock Inward (Added)">Stock Inward (Added)</option>
+                  <option value="Artisan Inward">Artisan Inward</option>
+                  <option value="Purchase Inward">Purchase Inward</option>
+                  <option value="QC Stock Addition">QC Stock Addition</option>
+                  <option value="Stock Adjustment">Stock Adjustment (+/-)</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase mb-1">Quantity Change (+ / -)</label>
+                  <input
+                    type="number"
+                    step="1"
+                    value={addStockForm.change_qty}
+                    onChange={(e) => setAddStockForm({ ...addStockForm, change_qty: parseInt(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs font-mono focus:outline-hidden focus:border-[#b01622]"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase mb-1">Staff / Artisan Name</label>
+                  <input
+                    type="text"
+                    value={addStockForm.staff}
+                    onChange={(e) => setAddStockForm({ ...addStockForm, staff: e.target.value })}
+                    className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs focus:outline-hidden focus:border-[#b01622]"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-stone-600 uppercase mb-1">Remarks & Inward Details</label>
+                <textarea
+                  rows="3"
+                  value={addStockForm.remarks}
+                  onChange={(e) => setAddStockForm({ ...addStockForm, remarks: e.target.value })}
+                  placeholder="e.g. Handcrafted consignment of 2 units received into Master Vault from Artisan..."
+                  className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs focus:outline-hidden focus:border-[#b01622]"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-stone-100">
+                <button
+                  type="button"
+                  onClick={() => setShowAddStockModal(false)}
+                  className="px-4 py-2 border border-stone-200 hover:bg-stone-50 text-stone-700 rounded-xl font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingMovement}
+                  className="px-5 py-2 bg-[#b01622] hover:bg-[#8b121e] text-white rounded-xl font-semibold shadow-xs flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {submittingMovement ? (
+                    <>
+                      <i className="fa-solid fa-circle-notch fa-spin text-xs"></i>
+                      <span>Logging...</span>
+                    </>
+                  ) : (
+                    <>
+                      <i className="fa-solid fa-plus text-xs"></i>
+                      <span>Confirm & Log Stock</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -772,6 +1003,18 @@ export default function InventoryViewProduct() {
           </div>
         </div>
       )}
+
+      {/* Quick Dropdown CRUD Modal for Setting Styles */}
+      <QuickDropdownCrudModal
+        isOpen={showStylesModal}
+        onClose={() => setShowStylesModal(false)}
+        type="setting_style"
+        onItemSelect={(newStyleName) => {
+          setEditForm((prev) => ({ ...prev, setting_style: newStyleName }));
+          fetchSettingStyles();
+        }}
+        onRefresh={fetchSettingStyles}
+      />
 
     </div>
   );

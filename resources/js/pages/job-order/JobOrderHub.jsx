@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import api from '../../services/api';
+import { useToast } from '../../context/ToastContext';
 import WorkInProgress from './WorkInProgress';
 import WasteDetails from './WasteDetails';
 import QualityCheckDetails from './QualityCheckDetails';
@@ -27,6 +28,7 @@ const TABS = [
 ];
 
 export default function JobOrderHub({ initialTab = 'in-progress' }) {
+  const { showConfirm, showToast } = useToast();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -91,14 +93,22 @@ export default function JobOrderHub({ initialTab = 'in-progress' }) {
 
   // Quality Approval Action
   const handleApprove = async (orderId) => {
-    if (!window.confirm('Are you sure you want to approve this work order? It will be marked as Ready for delivery.')) return;
+    const confirmed = await showConfirm({
+      title: 'Approve Work Order',
+      message: 'Are you sure you want to approve this work order? It will be marked as Ready for delivery.',
+      icon: 'fa-solid fa-circle-check',
+      confirmText: 'Approve Order'
+    });
+    if (!confirmed) return;
+
     try {
       setActionLoading(true);
       await api.post(`/work-orders/${orderId}/approve`);
       await api.post(`/work-orders/${orderId}/mark-ready`);
+      showToast('Work order approved successfully!', 'success');
       fetchOrders(activeTab);
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to approve work order.');
+      showToast(err.response?.data?.message || 'Failed to approve work order.', 'error');
     } finally {
       setActionLoading(false);
     }
@@ -114,11 +124,12 @@ export default function JobOrderHub({ initialTab = 'in-progress' }) {
         return_reason: rejectReason,
         returned_weight: selectedOrder.completed_weight,
       });
+      showToast('Work order returned to artisan.', 'info');
       setShowRejectModal(false);
       setRejectReason('');
       fetchOrders(activeTab);
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to return work order.');
+      showToast(err.response?.data?.message || 'Failed to return work order.', 'error');
     } finally {
       setActionLoading(false);
     }
@@ -126,13 +137,21 @@ export default function JobOrderHub({ initialTab = 'in-progress' }) {
 
   // Final Receive Action
   const handleFinalReceive = async (orderId) => {
-    if (!window.confirm('Confirm final receive of finished jewelry item into store inventory?')) return;
+    const confirmed = await showConfirm({
+      title: 'Final Receive Confirmation',
+      message: 'Confirm final receive of finished jewelry item into store inventory?',
+      icon: 'fa-solid fa-box-archive',
+      confirmText: 'Confirm Final Receive'
+    });
+    if (!confirmed) return;
+
     try {
       setActionLoading(true);
       await api.post(`/work-orders/${orderId}/final-receive`);
+      showToast('Final receive completed. Product added to inventory.', 'success');
       fetchOrders(activeTab);
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to complete final receive.');
+      showToast(err.response?.data?.message || 'Failed to complete final receive.', 'error');
     } finally {
       setActionLoading(false);
     }

@@ -46,7 +46,7 @@ export default function Sidebar({ sidebarOpen = true }) {
 
   return (
     <aside
-      className={`bg-white text-gray-600 border-r border-gray-200 flex flex-col h-full shrink-0 relative z-20 transition-all duration-300 ease-in-out overflow-hidden ${
+      className={`bg-white text-gray-600 border-r border-gray-200 flex flex-col h-full shrink-0 relative z-20 transition-all duration-300 ease-in-out overflow-hidden print:hidden ${
         sidebarOpen ? 'w-64 opacity-100' : 'w-0 opacity-0 border-r-0 pointer-events-none'
       }`}
       id="sidebar"
@@ -296,8 +296,10 @@ export default function Sidebar({ sidebarOpen = true }) {
         {salesAccordionOpen && (
           <div className="flex flex-col gap-1 mt-1 pl-4 pr-2">
             <Link to="/sales" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/sales' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Dashboard</Link>
-            <Link to="/sales/customers" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname.startsWith('/sales/customers') ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Customers</Link>
+            <Link to="/sales/create" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/sales/create' || location.pathname === '/sales/customer' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Customer</Link>
+            <Link to="/sales/customers" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname.startsWith('/sales/customers') ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Client Accounts</Link>
             <Link to="/sales/rates" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/sales/rates' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Live rates</Link>
+            <Link to="/clients/price-list" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/clients/price-list' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Price List Management</Link>
           </div>
         )}
 
@@ -446,13 +448,20 @@ export default function Sidebar({ sidebarOpen = true }) {
         </Link>
 
         {/* Report */}
-        <a href="#" onClick={(e) => e.preventDefault()} className="flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium transition-colors text-gray-600 hover:bg-gray-50 hover:text-gray-900">
+        <Link
+          to="/reports"
+          className={`flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
+            location.pathname.startsWith('/reports')
+              ? 'bg-red-50 text-[#b01622] font-semibold border-l-4 border-[#b01622]'
+              : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+          }`}
+        >
           <div className="flex items-center gap-3">
             <i className="fa-regular fa-file-lines w-5 text-center"></i>
             Report
           </div>
           <i className="fa-solid fa-chevron-right text-[10px]"></i>
-        </a>
+        </Link>
 
         {/* Purchase Entry (Accordion Group) */}
         <div className="mt-1 mb-1">

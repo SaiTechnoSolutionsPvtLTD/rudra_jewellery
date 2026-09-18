@@ -1121,14 +1121,16 @@ class WorkOrderController extends Controller
 
         // 3. Real Material Allocations per active Artisan from active work orders only
         $materialAllocations = [];
-        $activeKarigars = Karigar::whereHas('workOrders', function ($q) {
-            $q->whereNotIn('status', ['completed', 'cancelled', 'final_received']);
-        })->with(['workOrders' => function ($q) {
-            $q->whereNotIn('status', ['completed', 'cancelled', 'final_received']);
-        }])->get();
+        $activeWorkOrders = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received', 'delivered'])
+            ->with('karigar')
+            ->get();
+
+        $activeKarigarIds = $activeWorkOrders->pluck('karigar_id')->filter()->unique();
+
+        $activeKarigars = Karigar::whereIn('id', $activeKarigarIds)->get();
 
         foreach ($activeKarigars as $k) {
-            $orders = $k->workOrders;
+            $orders = $activeWorkOrders->where('karigar_id', $k->id);
             $issued = (float) $orders->sum('allotted_weight');
             $completed = (float) $orders->sum('completed_weight');
             $balance = (float) $orders->sum('pending_weight');
@@ -1140,7 +1142,7 @@ class WorkOrderController extends Controller
                     $unit = 'ct';
                 }
 
-                $percent = min(100, max(8, round((($issued - $balance) / $issued) * 100)));
+                $percent = $issued > 0 ? min(100, max(8, round((($issued - $balance) / $issued) * 100))) : 0;
 
                 $color = '#78591e';
                 if (stripos($primaryMaterial, 'silver') !== false) {
@@ -1230,11 +1232,15 @@ class WorkOrderController extends Controller
             return [
                 'id' => $j->id,
                 'artisan_name' => $artisanName,
+                'karigar_name' => $artisanName,
+                'product_name' => $j->product_name ?: ($j->product?->name ?? '22K Gold Bangle Set'),
                 'initials' => $initials ?: 'AR',
                 'avatar_color' => $avatarColors[$idx % count($avatarColors)],
                 'work_order_number' => $j->work_order_number,
-                'item_type' => $j->product_name,
+                'item_type' => $j->product_name ?: ($j->product?->name ?? '22K Gold Bangle Set'),
                 'stage' => $stageName,
+                'current_stage' => $j->current_stage ?: 'Created',
+                'status' => $j->status ?: 'ongoing',
                 'stage_class' => $stageClass,
                 'due_date' => $dueDate,
                 'is_overdue' => $isOverdue,

@@ -5,7 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import Pagination from '../../components/Pagination';
 
 export default function PurchaseEntry({ initialTab }) {
-  const { showToast } = useToast();
+  const { showToast, showConfirm } = useToast();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -203,9 +203,13 @@ export default function PurchaseEntry({ initialTab }) {
   };
 
   const handleDeleteEntry = async (entryId, purchaseNo) => {
-    if (!window.confirm(`Are you sure you want to delete purchase entry "${purchaseNo}"? Product stock will be adjusted.`)) {
-      return;
-    }
+    const confirmed = await showConfirm({
+      title: 'Delete Purchase Entry',
+      message: `Are you sure you want to delete purchase entry "${purchaseNo}"? Product stock will be adjusted.`,
+      icon: 'fa-solid fa-trash-can',
+      confirmText: 'Delete Entry'
+    });
+    if (!confirmed) return;
 
     try {
       const res = await api.delete(`/purchase-entries/${entryId}`);

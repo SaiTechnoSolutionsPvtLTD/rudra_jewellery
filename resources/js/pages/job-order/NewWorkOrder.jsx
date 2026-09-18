@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
 
 export const resolveItemImage = (item) => {
   const raw =
@@ -63,9 +64,24 @@ export default function NewWorkOrder({ initialMode }) {
 
   const [orders, setOrders] = useState([]);
   const [karigars, setKarigars] = useState([]);
+  const [settingStyles, setSettingStyles] = useState([]);
+  const [showStylesModal, setShowStylesModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
+
+  const fetchSettingStyles = async () => {
+    try {
+      const res = await api.get('/styles');
+      setSettingStyles(res.data || []);
+    } catch (err) {
+      console.error('Failed to fetch setting styles:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchSettingStyles();
+  }, []);
 
   // Search & Filter for list mode and month filter
   const [search, setSearch] = useState('');
@@ -95,14 +111,19 @@ export default function NewWorkOrder({ initialMode }) {
   };
 
   const defaultRowForm = {
-    work_name: 'Peacock Antique Necklace',
+    work_name: '',
     material_type: '22K Yellow Gold',
     material_subtitle: '916 Hallmark Standard',
     ordered_date: new Date().toISOString().split('T')[0],
     delivery_date: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
-    image: '/images/samples/peacock_choker.jpg',
-    design_file: '/images/samples/peacock_choker.jpg',
-    reference_image: '/images/samples/ruby_set.jpg',
+    image: '',
+    image_name: '',
+    design_file: '',
+    design_file_name: '',
+    design_file_type: '',
+    reference_image: '',
+    reference_image_name: '',
+    reference_image_type: '',
     design_number: '',
     variant: 'Necklace',
     setting_type: 'Prong',
@@ -135,35 +156,106 @@ export default function NewWorkOrder({ initialMode }) {
     setPreviewDoc(doc);
   };
 
-  // Active documents for the documents card matching the single-line layout
+  // Active documents dynamically collected from input form, job items, and order details
   const activeDocuments = useMemo(() => {
-    const activeItem = jobItems[0] || (selectedOrder?.items && selectedOrder.items[0]);
-    const refImg =
-      activeItem?.reference_image ||
-      activeItem?.image ||
-      rowForm?.reference_image ||
-      '/images/samples/ruby_set.jpg';
-    const designDoc =
-      activeItem?.design_file ||
-      activeItem?.image ||
-      rowForm?.design_file ||
-      '/images/samples/peacock_choker.jpg';
+    const docs = [];
+    const seen = new Set();
 
-    return [
-      {
-        id: 'ref-img',
-        name: 'Reference Image.jpg',
-        type: 'image',
-        url: refImg,
-      },
-      {
-        id: 'design-pdf',
-        name: 'Design File.pdf',
-        type: 'pdf',
-        url: designDoc,
-      },
-    ];
-  }, [jobItems, selectedOrder, rowForm]);
+    const pushDoc = (url, name, type, source) => {
+      if (!url || typeof url !== 'string' || !url.trim()) return;
+      if (seen.has(url)) return;
+      seen.add(url);
+
+      const isDataUrl = url.startsWith('data:');
+      const isPdf = isDataUrl ? url.includes('data:application/pdf') : url.toLowerCase().endsWith('.pdf');
+      const isImg = isDataUrl
+        ? url.includes('data:image/')
+        : /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(url);
+
+      const finalType = type || (isPdf ? 'pdf' : (isImg ? 'image' : 'file'));
+
+      let finalName = name;
+      if (!finalName) {
+        if (!isDataUrl) {
+          const parts = url.split('/');
+          const filename = parts[parts.length - 1];
+          if (filename && filename.length > 2 && !filename.startsWith('ruby_set') && !filename.startsWith('peacock_choker')) {
+            finalName = filename;
+          }
+        }
+        if (!finalName) {
+          finalName = `${source || 'Attached File'}.${finalType === 'pdf' ? 'pdf' : (finalType === 'image' ? 'jpg' : 'file')}`;
+        }
+      }
+
+      docs.push({
+        id: `doc-${docs.length + 1}-${url.slice(-15)}`,
+        name: finalName,
+        type: finalType,
+        url,
+        source,
+      });
+    };
+
+    // 1. Scan current input form (rowForm)
+    if (rowForm?.reference_image) {
+      pushDoc(
+        rowForm.reference_image,
+        rowForm.reference_image_name,
+        rowForm.reference_image_type || 'image',
+        'Reference Image'
+      );
+    }
+    if (rowForm?.design_file) {
+      pushDoc(
+        rowForm.design_file,
+        rowForm.design_file_name,
+        rowForm.design_file_type || (rowForm.design_file.includes('application/pdf') ? 'pdf' : 'image'),
+        'Design File'
+      );
+    }
+    if (rowForm?.image && rowForm.image !== rowForm.design_file && rowForm.image !== rowForm.reference_image) {
+      pushDoc(rowForm.image, rowForm.image_name, 'image', 'Item Photo');
+    }
+
+    // 2. Scan Table Items (jobItems)
+    (jobItems || []).forEach((item, idx) => {
+      const label = item.design_number ? `Design ${item.design_number}` : `Item #${idx + 1}`;
+      if (item.reference_image) {
+        pushDoc(item.reference_image, item.reference_image_name, item.reference_image_type || 'image', `${label} Reference`);
+      }
+      if (item.design_file) {
+        pushDoc(item.design_file, item.design_file_name, item.design_file_type, `${label} Design`);
+      }
+      if (item.image && item.image !== item.design_file && item.image !== item.reference_image) {
+        pushDoc(item.image, item.image_name, 'image', `${label} Photo`);
+      }
+    });
+
+    // 3. Scan Selected Order (if viewing existing work order)
+    if (selectedOrder) {
+      (selectedOrder.items || []).forEach((item, idx) => {
+        const label = item.design_number ? `Design ${item.design_number}` : `Item #${idx + 1}`;
+        if (item.reference_image) {
+          pushDoc(item.reference_image, item.reference_image_name, item.reference_image_type || 'image', `${label} Reference`);
+        }
+        if (item.design_file) {
+          pushDoc(item.design_file, item.design_file_name, item.design_file_type, `${label} Design`);
+        }
+        if (item.image && item.image !== item.design_file && item.image !== item.reference_image) {
+          pushDoc(item.image, item.image_name, 'image', `${label} Photo`);
+        }
+      });
+      if (Array.isArray(selectedOrder.documents)) {
+        selectedOrder.documents.forEach((d) => {
+          if (typeof d === 'string') pushDoc(d, null, null, 'Order Document');
+          else if (d?.url) pushDoc(d.url, d.name, d.type, 'Order Document');
+        });
+      }
+    }
+
+    return docs;
+  }, [rowForm, jobItems, selectedOrder]);
 
   // Formatting helpers for table
   const formatDateDisplay = (dateStr) => {
@@ -220,15 +312,24 @@ export default function NewWorkOrder({ initialMode }) {
       const reader = new FileReader();
       reader.onload = (uploadEvt) => {
         const res = uploadEvt.target?.result || '';
+        const ext = file.name.split('.').pop()?.toLowerCase() || '';
+        const isPdf = ext === 'pdf';
+        const isImg = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(ext) || file.type.startsWith('image/');
+        const docType = isPdf ? 'pdf' : (isImg ? 'image' : 'file');
+
         setRowForm((prev) => ({
           ...prev,
           design_file: res,
-          image: res, // sync with primary thumbnail image
+          design_file_name: file.name,
+          design_file_type: docType,
+          image: isImg ? res : prev.image,
+          image_name: isImg ? file.name : prev.image_name,
         }));
-        if (toast?.success) toast.success('Design file uploaded successfully.');
+        if (toast?.success) toast.success(`Design file "${file.name}" uploaded successfully.`);
       };
       reader.readAsDataURL(file);
     }
+    if (e?.target) e.target.value = '';
   };
 
   // Handle Reference Image upload (client / sample picture)
@@ -238,14 +339,22 @@ export default function NewWorkOrder({ initialMode }) {
       const reader = new FileReader();
       reader.onload = (uploadEvt) => {
         const res = uploadEvt.target?.result || '';
+        const ext = file.name.split('.').pop()?.toLowerCase() || '';
+        const isPdf = ext === 'pdf';
+        const isImg = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(ext) || file.type.startsWith('image/');
+        const docType = isPdf ? 'pdf' : (isImg ? 'image' : 'file');
+
         setRowForm((prev) => ({
           ...prev,
           reference_image: res,
+          reference_image_name: file.name,
+          reference_image_type: docType,
         }));
-        if (toast?.success) toast.success('Reference image uploaded successfully.');
+        if (toast?.success) toast.success(`Reference image "${file.name}" uploaded successfully.`);
       };
       reader.readAsDataURL(file);
     }
+    if (e?.target) e.target.value = '';
   };
 
   // Handle image file upload (backwards compatibility)
@@ -536,8 +645,12 @@ export default function NewWorkOrder({ initialMode }) {
       ...rowForm,
       id: rowForm.id || Date.now(),
       work_name: rowForm.work_name || `${rowForm.variant || 'Jewellery'} - ${rowForm.design_number}`,
-      design_file: rowForm.design_file || rowForm.image || '/images/samples/peacock_choker.jpg',
-      reference_image: rowForm.reference_image || '/images/samples/ruby_set.jpg',
+      design_file: rowForm.design_file || rowForm.image || '',
+      design_file_name: rowForm.design_file_name || (rowForm.design_file ? 'Design File' : ''),
+      design_file_type: rowForm.design_file_type || (rowForm.design_file?.includes('application/pdf') ? 'pdf' : 'image'),
+      reference_image: rowForm.reference_image || '',
+      reference_image_name: rowForm.reference_image_name || (rowForm.reference_image ? 'Reference Image' : ''),
+      reference_image_type: rowForm.reference_image_type || 'image',
       material_type: rowForm.material_type || '22K Yellow Gold',
       material_subtitle: rowForm.material_subtitle || (isStoneOnly ? 'VS1 Clarity - F Color' : '916 Hallmark Standard'),
       variant: rowForm.variant || 'Necklace',
@@ -560,7 +673,7 @@ export default function NewWorkOrder({ initialMode }) {
       remark: rowForm.remark || '-',
       ordered_date: rowForm.ordered_date || new Date().toISOString().split('T')[0],
       delivery_date: rowForm.delivery_date || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
-      image: rowForm.design_file || rowForm.image || '/images/samples/peacock_choker.jpg',
+      image: rowForm.design_file || rowForm.reference_image || rowForm.image || '/images/samples/peacock_choker.jpg',
       gold_priory: rowForm.gold_priory || '22KT (916)',
     };
 
@@ -771,6 +884,22 @@ export default function NewWorkOrder({ initialMode }) {
 
   return (
     <div className="w-full min-h-screen bg-white font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif] text-gray-800 antialiased -m-6 p-8">
+      
+      {/* Global Hidden File Inputs for Design File and Reference Image */}
+      <input
+        type="file"
+        ref={designFileInputRef}
+        accept="image/*,.pdf,.dwg,.dxf,.stl,.obj"
+        onChange={handleDesignFileUpload}
+        className="hidden"
+      />
+      <input
+        type="file"
+        ref={refImageInputRef}
+        accept="image/*"
+        onChange={handleReferenceImageUpload}
+        className="hidden"
+      />
       
       {/* Top Navigation Mode Toggles */}
       <div className="flex items-center justify-between pb-4 border-b border-gray-100 mb-6">
@@ -1054,29 +1183,31 @@ export default function NewWorkOrder({ initialMode }) {
           </div>
 
           {/* WORK ASSIGNMENT HEADER CARD: Assigned once to this artisan with multiple materials */}
-          <div className="bg-[#faf6f0] border border-[#e2d5be] rounded-xl p-4 shadow-2xs">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-xl bg-[#881337] text-white flex items-center justify-center font-bold text-base shadow-xs shrink-0">
-                  {assignedWorker?.name ? assignedWorker.name.charAt(0) : 'A'}
+          <div className="bg-white border border-stone-200/90 rounded-2xl p-4 sm:p-5 shadow-2xs space-y-4">
+            
+            {/* Artisan Profile Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-stone-100">
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-rose-50 text-[#b01622] border border-rose-200/80 font-extrabold text-lg flex items-center justify-center shrink-0 shadow-2xs font-mono">
+                  {assignedWorker?.name ? assignedWorker.name.charAt(0).toUpperCase() : 'A'}
                 </div>
-                <div className="max-w-[210px]">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#881337] bg-rose-50 px-2 py-0.5 rounded border border-rose-100">
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#b01622] bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200/80">
                       Assigned Artisan
                     </span>
-                    <span className="text-xs text-stone-500 font-mono">
+                    <span className="text-xs text-stone-500 font-mono font-semibold">
                       Artisan #{workerId || '—'}
                     </span>
                   </div>
-                  <div className="font-bold text-gray-900 text-sm mt-0.5 leading-snug">
+                  <h3 className="font-bold text-gray-900 text-sm mt-0.5">
                     {assignedWorker?.name || 'Select Artisan for this Work Order'}
-                  </div>
-                  <div className="text-[11px] text-gray-500">
+                  </h3>
+                  <p className="text-[11px] text-stone-500 font-medium">
                     {assignedWorker?.specialization || 'Master Jeweller'} • {assignedWorker?.phone || 'Internal Karigar Unit'}
-                  </div>
+                  </p>
                   {assignedWorker && assignedWorker.is_available === false && (
-                    <div className="mt-1 inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-100 text-amber-900 font-bold text-[10px] border border-amber-300">
+                    <div className="mt-1 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 font-bold text-[10px] border border-amber-200">
                       <i className="fa-solid fa-triangle-exclamation text-amber-600"></i>
                       <span>Busy: {assignedWorker.current_assigned_order?.work_order_number || 'Active Order'}</span>
                     </div>
@@ -1084,96 +1215,24 @@ export default function NewWorkOrder({ initialMode }) {
                 </div>
               </div>
 
-              {/* Assignment Controls: Exactly like Image 2 right from the start */}
-              {viewMode === 'create' ? (
-                <div className="space-y-2.5">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <div>
-                      <label className="text-[10px] font-bold text-gray-600 block mb-1">
-                        Assigned Artisan / Karigar
-                      </label>
-                      <select
-                        value={workerId}
-                        onChange={(e) => setWorkerId(e.target.value)}
-                        className="w-[290px] text-xs font-semibold bg-white border border-stone-300 rounded-lg px-3 py-1.5 outline-hidden focus:border-[#881337] shadow-2xs"
-                      >
-                        <option value="">-- Select Artisan / Karigar --</option>
-                        {karigars.map((k) => {
-                          const isBusy = k.is_available === false && String(k.id) !== String(workerId);
-                          return (
-                            <option
-                              key={k.id}
-                              value={k.id}
-                              disabled={isBusy}
-                              className={isBusy ? "text-stone-400 bg-stone-100 italic" : ""}
-                            >
-                              {k.name} {isBusy ? `— [BUSY: ${k.current_assigned_order?.work_order_number || 'Active Order'}]` : `(${k.specialization || 'Artisan'})`}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-bold text-gray-600 block mb-1">
-                        Client Name
-                      </label>
-                      <input
-                        type="text"
-                        value={customerName}
-                        onChange={(e) => setCustomerName(e.target.value)}
-                        placeholder="Enter client name"
-                        maxLength={255}
-                        className="w-[220px] text-xs font-semibold bg-white border border-stone-300 rounded-lg px-3 py-1.5 outline-hidden focus:border-[#881337] shadow-2xs"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-bold text-gray-600 block mb-1">
-                        Promised Due Date
-                      </label>
-                      <input
-                        type="date"
-                        value={timeline.promised_due_date}
-                        onChange={(e) => setTimeline({ ...timeline, promised_due_date: e.target.value })}
-                        className="text-xs bg-white border border-stone-300 rounded-lg px-2.5 py-1.5 outline-hidden focus:border-[#881337] font-mono shadow-2xs"
-                      />
-                    </div>
-                  </div>
-
+              {viewMode === 'details' && (
+                <div className="flex items-center gap-4 text-xs bg-stone-50/70 p-2.5 rounded-xl border border-stone-200/60">
                   <div>
-                    <label className="text-[10px] font-bold text-gray-600 block mb-1">
-                      Order Priority
-                    </label>
-                    <select
-                      value={timeline.priority}
-                      onChange={(e) => setTimeline({ ...timeline, priority: e.target.value })}
-                      className="w-[110px] text-xs font-bold bg-white border border-stone-300 rounded-lg px-2.5 py-1.5 outline-hidden focus:border-[#881337] shadow-2xs"
-                    >
-                      <option value="LOW">LOW</option>
-                      <option value="MEDIUM">MEDIUM</option>
-                      <option value="HIGH">HIGH</option>
-                    </select>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center gap-5 text-xs">
-                  <div>
-                    <span className="text-gray-500 block text-[10px] uppercase font-bold">Customer</span>
-                    <span className="font-semibold text-gray-900 max-w-[160px] truncate block">
+                    <span className="text-stone-400 block text-[10px] uppercase font-bold tracking-wider">Customer</span>
+                    <span className="font-bold text-stone-800 truncate block max-w-[150px]" title={customerName || selectedOrder?.customer_name || ''}>
                       {customerName || selectedOrder?.customer_name || selectedOrder?.client?.full_name || selectedOrder?.client?.name || 'Internal Showroom'}
                     </span>
                   </div>
-                  <div>
-                    <span className="text-gray-500 block text-[10px] uppercase font-bold">Promised Due</span>
-                    <span className="font-mono font-bold text-[#881337]">
+                  <div className="border-l border-stone-200 pl-3">
+                    <span className="text-stone-400 block text-[10px] uppercase font-bold tracking-wider">Promised Due</span>
+                    <span className="font-mono font-bold text-[#b01622]">
                       {timeline.promised_due_date || selectedOrder?.delivery_date || '—'}
                     </span>
                   </div>
-                  <div>
-                    <span className="text-gray-500 block text-[10px] uppercase font-bold">Priority</span>
-                    <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold ${
-                      timeline.priority === 'HIGH' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'
+                  <div className="border-l border-stone-200 pl-3">
+                    <span className="text-stone-400 block text-[10px] uppercase font-bold tracking-wider">Priority</span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                      timeline.priority === 'HIGH' ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-amber-50 text-amber-700 border border-amber-200'
                     }`}>
                       {timeline.priority || 'MEDIUM'}
                     </span>
@@ -1181,6 +1240,79 @@ export default function NewWorkOrder({ initialMode }) {
                 </div>
               )}
             </div>
+
+            {/* Assignment Controls Grid (Create Mode) */}
+            {viewMode === 'create' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 pt-1">
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                    Assigned Artisan / Karigar
+                  </label>
+                  <select
+                    value={workerId}
+                    onChange={(e) => setWorkerId(e.target.value)}
+                    className="w-full text-xs font-semibold bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 outline-hidden focus:border-[#b01622] focus:bg-white transition-colors"
+                  >
+                    <option value="">-- Select Artisan / Karigar --</option>
+                    {karigars.map((k) => {
+                      const isBusy = k.is_available === false && String(k.id) !== String(workerId);
+                      return (
+                        <option
+                          key={k.id}
+                          value={k.id}
+                          disabled={isBusy}
+                          className={isBusy ? "text-stone-400 bg-stone-100 italic" : ""}
+                        >
+                          {k.name} {isBusy ? `— [BUSY: ${k.current_assigned_order?.work_order_number || 'Active Order'}]` : `(${k.specialization || 'Artisan'})`}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                    Client Name
+                  </label>
+                  <input
+                    type="text"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    placeholder="Enter client name"
+                    maxLength={255}
+                    className="w-full text-xs font-semibold bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 outline-hidden focus:border-[#b01622] focus:bg-white transition-colors"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                    Promised Due Date
+                  </label>
+                  <input
+                    type="date"
+                    value={timeline.promised_due_date}
+                    onChange={(e) => setTimeline({ ...timeline, promised_due_date: e.target.value })}
+                    className="w-full text-xs font-semibold font-mono bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 outline-hidden focus:border-[#b01622] focus:bg-white transition-colors"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                    Order Priority
+                  </label>
+                  <select
+                    value={timeline.priority}
+                    onChange={(e) => setTimeline({ ...timeline, priority: e.target.value })}
+                    className="w-full text-xs font-bold bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 outline-hidden focus:border-[#b01622] focus:bg-white transition-colors"
+                  >
+                    <option value="LOW">LOW</option>
+                    <option value="MEDIUM">MEDIUM</option>
+                    <option value="HIGH">HIGH</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
           </div>
 
           {/* Section Header: Materials & Components Issued */}
@@ -1820,63 +1952,129 @@ export default function NewWorkOrder({ initialMode }) {
                 </p>
               </div>
 
-              {/* DOCUMENTS Card matching Image 2 */}
+              {/* DOCUMENTS Card dynamically reflecting uploaded files */}
               <div className="bg-white rounded-2xl border border-[#ebd8cd] p-5 shadow-2xs">
-                <span className="text-[11px] font-bold text-gray-800 uppercase tracking-wider block">
-                  DOCUMENTS
-                </span>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-gray-800 uppercase tracking-wider block">
+                    DOCUMENTS {activeDocuments.length > 0 && `(${activeDocuments.length})`}
+                  </span>
+                  {activeDocuments.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => designFileInputRef.current?.click()}
+                      className="text-[10px] font-bold text-[#881337] hover:underline cursor-pointer flex items-center gap-1"
+                    >
+                      <i className="fa-solid fa-plus text-[9px]"></i> Add File
+                    </button>
+                  )}
+                </div>
                 <div className="w-full h-px bg-[#ead8ce] mt-2.5 mb-4"></div>
 
-                <div className="space-y-4">
-                  {activeDocuments.map((doc) => (
-                    <div
-                      key={doc.id}
-                      onClick={() => handleOpenDocument(doc)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && handleOpenDocument(doc)}
-                      className="flex items-center gap-3.5 cursor-pointer group py-1 px-1 -mx-1 rounded-lg hover:bg-amber-50/70 transition-all select-none"
-                      title={`Click to open ${doc.name}`}
-                    >
-                      {doc.type === 'image' ? (
-                        <div className="w-6 h-6 shrink-0 flex items-center justify-center">
-                          <svg
-                            className="w-5.5 h-5.5 text-[#f59e0b] group-hover:scale-110 transition-transform"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="#f59e0b"
-                            strokeWidth="1.6"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <rect x="3" y="3" width="18" height="18" rx="3" ry="3" />
-                            <circle cx="8.5" cy="8.5" r="1.5" />
-                            <polyline points="21 15 16 10 5 21" />
-                          </svg>
-                        </div>
-                      ) : (
-                        <div className="w-6 h-6 shrink-0 flex items-center justify-center">
-                          <svg
-                            className="w-5.5 h-5.5 text-[#f59e0b] group-hover:scale-110 transition-transform"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="#f59e0b"
-                            strokeWidth="1.6"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                            <polyline points="14 2 14 8 20 8" />
-                            <text x="6" y="16.5" fontSize="6.5" fontWeight="bold" fill="#f59e0b" stroke="none">PDF</text>
-                          </svg>
-                        </div>
-                      )}
-                      <span className="text-sm font-normal text-gray-800 group-hover:text-amber-700 transition-colors whitespace-nowrap">
-                        {doc.name}
-                      </span>
+                {activeDocuments.length === 0 ? (
+                  <div className="py-4 text-center border border-dashed border-stone-200 rounded-xl bg-stone-50/50 p-3.5">
+                    <div className="w-8 h-8 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-2">
+                      <i className="fa-solid fa-folder-open text-xs"></i>
                     </div>
-                  ))}
-                </div>
+                    <p className="text-xs font-bold text-gray-700">No documents attached yet</p>
+                    <p className="text-[10px] text-gray-500 mt-0.5 mb-3">
+                      Upload design CAD files or reference images to preview them here.
+                    </p>
+                    <div className="flex items-center justify-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => designFileInputRef.current?.click()}
+                        className="px-2.5 py-1 text-[10px] font-bold text-[#881337] bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors flex items-center gap-1 cursor-pointer"
+                      >
+                        <i className="fa-solid fa-plus text-[9px]"></i> Design File
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => refImageInputRef.current?.click()}
+                        className="px-2.5 py-1 text-[10px] font-bold text-[#881337] bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors flex items-center gap-1 cursor-pointer"
+                      >
+                        <i className="fa-solid fa-plus text-[9px]"></i> Ref Image
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3.5">
+                    {activeDocuments.map((doc) => (
+                      <div
+                        key={doc.id}
+                        onClick={() => handleOpenDocument(doc)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && handleOpenDocument(doc)}
+                        className="flex items-center justify-between group py-1 px-1 -mx-1 rounded-lg hover:bg-amber-50/70 transition-all cursor-pointer select-none"
+                        title={`Click to open ${doc.name}`}
+                      >
+                        <div className="flex items-center gap-3.5 min-w-0 flex-1 pr-2">
+                          {doc.type === 'image' ? (
+                            <div className="w-6 h-6 shrink-0 flex items-center justify-center">
+                              <svg
+                                className="w-5.5 h-5.5 text-[#f59e0b] group-hover:scale-110 transition-transform"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="#f59e0b"
+                                strokeWidth="1.6"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <rect x="3" y="3" width="18" height="18" rx="3" ry="3" />
+                                <circle cx="8.5" cy="8.5" r="1.5" />
+                                <polyline points="21 15 16 10 5 21" />
+                              </svg>
+                            </div>
+                          ) : doc.type === 'pdf' ? (
+                            <div className="w-6 h-6 shrink-0 flex items-center justify-center">
+                              <svg
+                                className="w-5.5 h-5.5 text-[#f59e0b] group-hover:scale-110 transition-transform"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="#f59e0b"
+                                strokeWidth="1.6"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                <polyline points="14 2 14 8 20 8" />
+                                <text x="6" y="16.5" fontSize="6.5" fontWeight="bold" fill="#f59e0b" stroke="none">PDF</text>
+                              </svg>
+                            </div>
+                          ) : (
+                            <div className="w-6 h-6 shrink-0 flex items-center justify-center">
+                              <svg
+                                className="w-5.5 h-5.5 text-[#f59e0b] group-hover:scale-110 transition-transform"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="#f59e0b"
+                                strokeWidth="1.6"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                <polyline points="14 2 14 8 20 8" />
+                                <line x1="16" y1="13" x2="8" y2="13" />
+                                <line x1="16" y1="17" x2="8" y2="17" />
+                              </svg>
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <span className="text-sm font-normal text-gray-800 group-hover:text-amber-800 transition-colors block truncate">
+                              {doc.name}
+                            </span>
+                            {doc.source && (
+                              <span className="text-[10px] text-gray-500 font-medium block truncate -mt-0.5">
+                                {doc.source}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <i className="fa-solid fa-eye text-xs text-amber-500 opacity-0 group-hover:opacity-100 transition-opacity"></i>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Submit / Action Buttons */}
@@ -2289,9 +2487,20 @@ export default function NewWorkOrder({ initialMode }) {
                   </div>
 
                   <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      SETTING TYPE <span className="text-red-600">*</span>
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-bold text-gray-700 uppercase tracking-wide">
+                        SETTING TYPE <span className="text-red-600">*</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setShowStylesModal(true)}
+                        className="text-[10px] font-bold text-[#881337] hover:underline flex items-center gap-1 cursor-pointer"
+                        title="Manage Setting Styles Master list"
+                      >
+                        <i className="fa-solid fa-plus text-[8px]"></i>
+                        <span>Manage Styles</span>
+                      </button>
+                    </div>
                     <select
                       value={rowForm.setting_type}
                       onChange={(e) => updateFormField('setting_type', e.target.value)}
@@ -2299,15 +2508,25 @@ export default function NewWorkOrder({ initialMode }) {
                         formErrors.setting_type ? 'border-2 border-red-500 bg-red-50/20' : 'border border-gray-200 focus:border-[#881337]'
                       }`}
                     >
-                      <option value="Prong">Prong</option>
-                      <option value="Bezel">Bezel</option>
-                      <option value="Channel">Channel</option>
-                      <option value="Pave">Pave</option>
-                      <option value="Bar">Bar</option>
-                      <option value="Flush">Flush</option>
-                      <option value="Tension">Tension</option>
-                      <option value="Invisible">Invisible</option>
-                      <option value="Plain Casting">Plain Casting</option>
+                      {settingStyles.length > 0 ? (
+                        settingStyles.map((s) => (
+                          <option key={s.id || s.name} value={s.name}>
+                            {s.name}
+                          </option>
+                        ))
+                      ) : (
+                        <>
+                          <option value="Prong">Prong</option>
+                          <option value="Bezel">Bezel</option>
+                          <option value="Channel">Channel</option>
+                          <option value="Pave">Pave</option>
+                          <option value="Bar">Bar</option>
+                          <option value="Flush">Flush</option>
+                          <option value="Tension">Tension</option>
+                          <option value="Invisible">Invisible</option>
+                          <option value="Plain Casting">Plain Casting</option>
+                        </>
+                      )}
                     </select>
                     {formErrors.setting_type && (
                       <span className="text-[10px] text-red-600 font-bold block mt-1 flex items-center gap-1">
@@ -2611,22 +2830,6 @@ export default function NewWorkOrder({ initialMode }) {
                   4. Design File & Reference Image (Uploads & Samples)
                 </span>
 
-                {/* Hidden inputs for both uploads */}
-                <input
-                  type="file"
-                  ref={designFileInputRef}
-                  accept="image/*,.pdf,.dwg,.dxf,.stl,.obj"
-                  onChange={handleDesignFileUpload}
-                  className="hidden"
-                />
-                <input
-                  type="file"
-                  ref={refImageInputRef}
-                  accept="image/*"
-                  onChange={handleReferenceImageUpload}
-                  className="hidden"
-                />
-
                 {/* Two side-by-side upload boxes */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {/* BOX 1: Upload Design File */}
@@ -2666,7 +2869,9 @@ export default function NewWorkOrder({ initialMode }) {
                             }}
                           />
                           <div className="min-w-0 flex-1">
-                            <span className="text-xs font-bold text-gray-800 block truncate">Design File Attached</span>
+                            <span className="text-xs font-bold text-gray-800 block truncate">
+                              {rowForm.design_file_name || 'Design File Attached'}
+                            </span>
                             <span className="text-[10px] text-emerald-600 font-semibold block flex items-center gap-1 mt-0.5">
                               <i className="fa-solid fa-circle-check text-[9px]"></i> Ready for job row
                             </span>
@@ -2697,7 +2902,12 @@ export default function NewWorkOrder({ initialMode }) {
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setRowForm((prev) => ({ ...prev, reference_image: '' }));
+                            setRowForm((prev) => ({
+                              ...prev,
+                              reference_image: '',
+                              reference_image_name: '',
+                              reference_image_type: '',
+                            }));
                           }}
                           className="text-[10px] text-red-600 hover:underline cursor-pointer font-semibold"
                         >
@@ -2718,7 +2928,9 @@ export default function NewWorkOrder({ initialMode }) {
                             className="w-14 h-14 object-cover rounded-lg border border-stone-200 shadow-2xs bg-white shrink-0"
                           />
                           <div className="min-w-0 flex-1">
-                            <span className="text-xs font-bold text-gray-800 block truncate">Reference Photo Attached</span>
+                            <span className="text-xs font-bold text-gray-800 block truncate">
+                              {rowForm.reference_image_name || 'Reference Photo Attached'}
+                            </span>
                             <span className="text-[10px] text-emerald-600 font-semibold block flex items-center gap-1 mt-0.5">
                               <i className="fa-solid fa-circle-check text-[9px]"></i> Ready for job row
                             </span>
@@ -2751,8 +2963,13 @@ export default function NewWorkOrder({ initialMode }) {
                           setRowForm((prev) => ({
                             ...prev,
                             image: img.url,
+                            image_name: `${img.label}.jpg`,
                             design_file: prev.design_file || img.url,
+                            design_file_name: prev.design_file_name || `${img.label}_Design.jpg`,
+                            design_file_type: 'image',
                             reference_image: img.url,
+                            reference_image_name: `${img.label}_Ref.jpg`,
+                            reference_image_type: 'image',
                           }))
                         }
                         className={`rounded-lg border overflow-hidden cursor-pointer p-1 transition-all flex flex-col items-center justify-center ${
@@ -2889,6 +3106,18 @@ export default function NewWorkOrder({ initialMode }) {
           </div>
         </div>
       )}
+
+      {/* Quick Dropdown CRUD Modal for Setting Styles */}
+      <QuickDropdownCrudModal
+        isOpen={showStylesModal}
+        onClose={() => setShowStylesModal(false)}
+        type="setting_style"
+        onItemSelect={(newStyleName) => {
+          updateFormField('setting_type', newStyleName);
+          fetchSettingStyles();
+        }}
+        onRefresh={fetchSettingStyles}
+      />
 
     </div>
   );

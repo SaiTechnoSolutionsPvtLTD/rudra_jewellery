@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
+import { useToast } from '../../context/ToastContext';
 
 const tabs = [
   ['Work in Progress', '/job-order/in-progress'],
@@ -22,6 +23,7 @@ const checkItems = [
 const displayDate = (value) => value ? new Date(value).toLocaleDateString('en-GB') : '20/04/2024';
 
 export default function QualityCheckDetails() {
+  const { showToast, showConfirm, showPrompt } = useToast();
   const location = useLocation();
   const navigate = useNavigate();
   const [order, setOrder] = useState(null);
@@ -36,10 +38,26 @@ export default function QualityCheckDetails() {
     const load = async () => {
       try {
         const queryId = new URLSearchParams(location.search).get('order_id');
-        const listResponse = await api.get('/work-orders', { params: { tab: 'ongoing' } });
+        // Fetch products sent for Quality Check (tab: 'quality_check')
+        const listResponse = await api.get('/work-orders', { params: { tab: 'quality_check' } });
         const list = listResponse.data?.data || [];
-        setOngoingOrders(list);
-        const id = queryId || list[0]?.id;
+
+        // Filter product selector list to ONLY include products that are sent for QC by karigar
+        const qcOnlyList = list.filter((item) => {
+          const status = (item.status || '').toLowerCase();
+          const stage = (item.current_stage || '').toLowerCase();
+          return (
+            status === 'pending_approval' ||
+            ['work_completed', 'sent_for_approval', 'quality_check', 'completed_approval', 'submitted'].includes(stage) ||
+            Boolean(item.karigar_submitted_at) ||
+            Number(item.completed_weight || 0) > 0
+          );
+        });
+
+        const finalOrdersList = qcOnlyList.length > 0 ? qcOnlyList : list;
+        setOngoingOrders(finalOrdersList);
+
+        const id = queryId || finalOrdersList[0]?.id;
         if (!id) return;
         const response = await api.get(`/work-orders/${id}`);
         if (!mounted) return;
@@ -72,26 +90,57 @@ export default function QualityCheckDetails() {
 
   const handleApprove = async () => {
     if (!orderId) return;
+    const confirmed = await showConfirm({
+      title: 'Approve Quality Check',
+      message: 'Are you sure you want to approve quality check and mark this job order ready for delivery?',
+      icon: 'fa-solid fa-circle-check',
+      confirmText: 'Approve & Pass QC'
+    });
+    if (!confirmed) return;
+
     try {
       setSaving(true);
       await api.post(`/work-orders/${orderId}/approve`, { quality_notes: notes || 'Quality check approved.' });
       await api.post(`/work-orders/${orderId}/mark-ready`);
+      showToast('Quality check approved successfully!', 'success');
       navigate(openTab('/job-order/receive'));
     } catch (error) {
-      window.alert(error.response?.data?.message || 'Failed to approve quality check.');
+      showToast(error.response?.data?.message || 'Failed to approve quality check.', 'error');
     } finally {
       setSaving(false);
     }
   };
 
   const handleRework = async () => {
-    if (!orderId || !notes.trim()) return;
+    if (!orderId) return;
+    let reason = notes;
+    if (!reason || !reason.trim()) {
+      reason = await showPrompt({
+        title: 'Return to Artisan for Rework',
+        message: 'Enter reason for returning to artisan (e.g. Solder defect, loose stone):',
+        placeholder: 'Enter reason for return...',
+        icon: 'fa-solid fa-rotate-left',
+        confirmText: 'Submit Rework'
+      });
+      if (!reason || !reason.trim()) return;
+      setNotes(reason);
+    } else {
+      const confirmed = await showConfirm({
+        title: 'Return to Artisan for Rework',
+        message: `Return this job order to artisan with reason: "${reason.trim()}"?`,
+        icon: 'fa-solid fa-rotate-left',
+        confirmText: 'Submit Rework'
+      });
+      if (!confirmed) return;
+    }
+
     try {
       setSaving(true);
-      await api.post(`/work-orders/${orderId}/return`, { return_reason: notes, returned_weight: receivedWeight });
+      await api.post(`/work-orders/${orderId}/return`, { return_reason: reason.trim(), returned_weight: receivedWeight });
+      showToast('Job order returned for rework.', 'info');
       navigate(openTab('/job-order/in-progress'));
     } catch (error) {
-      window.alert(error.response?.data?.message || 'Failed to send work order for rework.');
+      showToast(error.response?.data?.message || 'Failed to send work order for rework.', 'error');
     } finally {
       setSaving(false);
     }
