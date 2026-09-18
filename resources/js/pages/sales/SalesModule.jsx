@@ -2603,9 +2603,29 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
     return 1;
   }, [selectedCustomer]);
 
+  const GOLD_CATEGORIES = [
+    'Ring', 'Chain', 'Bangle', 'Pendant', 'Earrings', 'Necklace',
+    'Bracelet', 'Kada', 'Haram', 'Jhumka', 'Choker', 'Anklet', 'Gold Coin', 'Gold Bar'
+  ];
+
+  const DIAMOND_CATEGORIES = [
+    'Solitaire Ring', 'Diamond Tennis Necklace', 'Diamond Eternity Bangle',
+    'Halo Diamond Studs', 'Diamond Pendant', 'Single Cut Diamonds',
+    'Full Cut Diamonds', 'Round Brilliant Solitaires', 'Princess Cut Diamonds',
+    'Oval Cut Diamonds', 'Emerald Cut Diamonds', 'Marquise Cut Diamonds',
+    'Diamond Pointer Range', 'Pave Set Diamonds'
+  ];
+
+  const COLOR_STONE_CATEGORIES = [
+    'Burmese Ruby (Manik)', 'Zambian Emerald (Panna)', 'Ceylon Blue Sapphire (Neelam)',
+    'Yellow Sapphire (Pukhraj)', 'South Sea Pearl (Moti)', 'Red Coral (Moonga)',
+    'Tanzanite', "Cat's Eye (Lehsuniya)", 'Amethyst', 'Opal'
+  ];
+
   // Input Box Form state (top section to add dynamic rate items)
   const [showAddForm, setShowAddForm] = useState(false);
   const [newItem, setNewItem] = useState({
+    item_group: 'Gold Jewellery',
     category: 'Ring',
     purity: '22K (916)',
     item_type: 'Plain',
@@ -2613,7 +2633,32 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
     gold_rate: rate22k,
     making_charge: '650',
     wastage: '5',
+
+    // Diamond fields
+    code: '',
+    shape: 'Round Brilliant',
+    carat_wt: '0.75',
+    clarity: 'VVS1 / E-F',
+    rate_per_ct: '145000',
+    gold_wt: '3.500',
+
+    // Color stone fields
+    type: 'Ruby (Manik)',
+    cert: 'GIA Certified',
+    origin: 'Myanmar (Burma)',
   });
+
+  const handleItemGroupChange = (group) => {
+    let defaultCat = 'Ring';
+    if (group === 'Diamond Jewellery') defaultCat = 'Solitaire Ring';
+    if (group === 'Color Stone') defaultCat = 'Burmese Ruby (Manik)';
+
+    setNewItem((prev) => ({
+      ...prev,
+      item_group: group,
+      category: defaultCat,
+    }));
+  };
 
   // Keep gold_rate in form synced with rate22k default
   useEffect(() => {
@@ -2653,15 +2698,15 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
   ]);
 
   // Diamond Jewellery Dataset
-  const [diamondItems] = useState([
+  const [diamondItems, setDiamondItems] = useState([
     { id: 101, code: 'DM-RNG-101', name: 'Solitaire Engagement Ring', shape: 'Round Brilliant', carat_wt: 0.75, clarity: 'VVS1 / E-F', rate_per_ct: 145000, gold_wt: 3.500, approx_price: 134250 },
-    { id: 102, code: 'DM-CH-102', name: 'Diamond Tennis Necklace', shape: 'Round', carat_wt: 4.50, clarity: 'VS1 / G-H', rate_per_ct: 95000, gold_wt: 18.200, approx_price: 546000 },
+    { id: 102, code: 'DM-CH-102', name: 'Diamond Tennis Necklace', shape: 'Round Brilliant', carat_wt: 4.50, clarity: 'VS1 / G-H', rate_per_ct: 95000, gold_wt: 18.200, approx_price: 546000 },
     { id: 103, code: 'DM-BNG-103', name: 'Diamond Eternity Bangle', shape: 'Princess Cut', carat_wt: 2.20, clarity: 'VVS2 / F-G', rate_per_ct: 110000, gold_wt: 14.800, approx_price: 338500 },
-    { id: 104, code: 'DM-EAR-104', name: 'Halo Diamond Studs', shape: 'Oval', carat_wt: 1.10, clarity: 'VS2 / G-H', rate_per_ct: 88000, gold_wt: 4.100, approx_price: 123800 },
+    { id: 104, code: 'DM-EAR-104', name: 'Halo Diamond Studs', shape: 'Oval Cut', carat_wt: 1.10, clarity: 'VS2 / G-H', rate_per_ct: 88000, gold_wt: 4.100, approx_price: 123800 },
   ]);
 
   // Color Stone Dataset
-  const [stoneItems] = useState([
+  const [stoneItems, setStoneItems] = useState([
     { id: 201, name: 'Burmese Pigeon Blood Ruby', type: 'Ruby (Manik)', shape: 'Oval Cut', carat_wt: 3.25, cert: 'GIA Certified', origin: 'Myanmar (Burma)', rate_per_ct: 42000 },
     { id: 202, name: 'Zambian Emerald Deep Green', type: 'Emerald (Panna)', shape: 'Emerald Cut', carat_wt: 4.10, cert: 'IGI Certified', origin: 'Zambia', rate_per_ct: 35000 },
     { id: 203, name: 'Ceylon Royal Blue Sapphire', type: 'Blue Sapphire (Neelam)', shape: 'Cushion Cut', carat_wt: 2.80, cert: 'GSI Certified', origin: 'Sri Lanka', rate_per_ct: 48000 },
@@ -2700,29 +2745,84 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
     showToast?.('Updated live gold market rates! All price list items recalculated.', 'success');
   };
 
-  // Add Rate Item Handler
+  // Add Rate Item Handler (Gold, Diamond, Color Stone)
   const handleAddRateSubmit = (e) => {
     e.preventDefault();
-    const wt = parseFloat(newItem.weight) || 0;
-    const gRate = parseFloat(newItem.gold_rate) || rate22k;
-    const mCharge = parseFloat(newItem.making_charge) || 0;
-    const wst = parseFloat(newItem.wastage) || 0;
+    const group = newItem.item_group || 'Gold Jewellery';
 
-    const added = {
-      id: Date.now(),
-      s_no: items.length + 1,
-      category: newItem.category,
-      purity: newItem.purity,
-      item_type: newItem.item_type,
-      weight: wt,
-      gold_rate: gRate,
-      making_charge: mCharge,
-      wastage: wst,
-    };
+    if (group === 'Gold Jewellery') {
+      const wt = parseFloat(newItem.weight) || 0;
+      const gRate = parseFloat(newItem.gold_rate) || rate22k;
+      const mCharge = parseFloat(newItem.making_charge) || 0;
+      const wst = parseFloat(newItem.wastage) || 0;
 
-    setItems((prev) => [added, ...prev]);
-    showToast?.(`Added rate item for ${newItem.category} (${newItem.item_type})!`, 'success');
+      const added = {
+        id: Date.now(),
+        s_no: items.length + 1,
+        category: newItem.category,
+        purity: newItem.purity,
+        item_type: newItem.item_type,
+        weight: wt,
+        gold_rate: gRate,
+        making_charge: mCharge,
+        wastage: wst,
+      };
+
+      setItems((prev) => [added, ...prev]);
+      setActiveTab('Gold Jewellery');
+      showToast?.(`Added Gold item for ${newItem.category} (${newItem.item_type})!`, 'success');
+    } else if (group === 'Diamond Jewellery') {
+      const caratWt = parseFloat(newItem.carat_wt) || 0;
+      const ratePerCt = parseFloat(newItem.rate_per_ct) || 0;
+      const goldWt = parseFloat(newItem.gold_wt) || 0;
+      const approxPrice = Math.round(caratWt * ratePerCt + goldWt * rate22k);
+
+      const added = {
+        id: Date.now(),
+        code: newItem.code || `DM-${newItem.category.slice(0, 3).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`,
+        name: newItem.category,
+        shape: newItem.shape,
+        carat_wt: caratWt,
+        clarity: newItem.clarity,
+        rate_per_ct: ratePerCt,
+        gold_wt: goldWt,
+        approx_price: approxPrice,
+      };
+
+      setDiamondItems((prev) => [added, ...prev]);
+      setActiveTab('Diamond Jewellery');
+      showToast?.(`Added Diamond item for ${newItem.category}!`, 'success');
+    } else if (group === 'Color Stone') {
+      const caratWt = parseFloat(newItem.carat_wt) || 0;
+      const ratePerCt = parseFloat(newItem.rate_per_ct) || 0;
+
+      const added = {
+        id: Date.now(),
+        name: newItem.category,
+        type: newItem.type || newItem.category,
+        shape: newItem.shape,
+        carat_wt: caratWt,
+        cert: newItem.cert,
+        origin: newItem.origin,
+        rate_per_ct: ratePerCt,
+      };
+
+      setStoneItems((prev) => [added, ...prev]);
+      setActiveTab('Color Stone');
+      showToast?.(`Added Color Stone item for ${newItem.category}!`, 'success');
+    }
+
     setShowAddForm(false);
+  };
+
+  const handleDeleteDiamondRow = (id) => {
+    setDiamondItems((prev) => prev.filter((it) => it.id !== id));
+    showToast?.('Diamond item removed from price list.', 'info');
+  };
+
+  const handleDeleteStoneRow = (id) => {
+    setStoneItems((prev) => prev.filter((it) => it.id !== id));
+    showToast?.('Color Stone item removed from price list.', 'info');
   };
 
   // Real CSV File Upload Handler using FileReader
@@ -2854,7 +2954,15 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
           </button>
           <button
             type="button"
-            onClick={() => setShowAddForm(!showAddForm)}
+            onClick={() => {
+              if (!showAddForm) {
+                let grp = 'Gold Jewellery';
+                if (activeTab === 'Diamond Jewellery') grp = 'Diamond Jewellery';
+                if (activeTab === 'Color Stone') grp = 'Color Stone';
+                handleItemGroupChange(grp);
+              }
+              setShowAddForm(!showAddForm);
+            }}
             className="px-4 py-2 bg-stone-900 hover:bg-black text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer"
           >
             <i className={`fa-solid ${showAddForm ? 'fa-xmark' : 'fa-plus'}`}></i>
@@ -2871,110 +2979,309 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
               <i className="fa-solid fa-pen-to-square"></i>
               <span>Add New Price List Entry</span>
             </div>
-            <span className="text-xs text-stone-500">Enter item parameters to calculate approx price</span>
+            <span className="text-xs text-stone-500">
+              First select Gold, Diamond or Color Stone to load master categories
+            </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3 text-xs">
-            <div>
-              <label className="block text-[11px] font-semibold text-stone-600 mb-1">Category</label>
+          {/* Form Fields Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-3 text-xs">
+            {/* FIRST SELECT: Item Group / Type */}
+            <div className="col-span-1">
+              <label className="block text-[11px] font-bold text-[#b01622] mb-1">Select Item Group</label>
+              <select
+                value={newItem.item_group || 'Gold Jewellery'}
+                onChange={(e) => handleItemGroupChange(e.target.value)}
+                className="w-full bg-white border border-amber-400 focus:border-[#b01622] rounded-lg p-2 text-xs font-bold text-stone-900 focus:outline-hidden shadow-2xs"
+              >
+                <option value="Gold Jewellery">Gold Jewellery</option>
+                <option value="Diamond Jewellery">Diamond Jewellery</option>
+                <option value="Color Stone">Color Stone</option>
+              </select>
+            </div>
+
+            {/* DYNAMIC CATEGORY DROPDOWN based on Item Group selection */}
+            <div className="col-span-1">
+              <label className="block text-[11px] font-semibold text-stone-600 mb-1">
+                {newItem.item_group === 'Diamond Jewellery' ? 'Diamond Master Category' : newItem.item_group === 'Color Stone' ? 'Gemstone Master Category' : 'Gold Category'}
+              </label>
               <select
                 value={newItem.category}
                 onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
                 className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-semibold focus:outline-hidden focus:border-[#b01622]"
               >
-                <option value="Ring">Ring</option>
-                <option value="Chain">Chain</option>
-                <option value="Bangle">Bangle</option>
-                <option value="Pendant">Pendant</option>
-                <option value="Earrings">Earrings</option>
-                <option value="Necklace">Necklace</option>
-                <option value="Bracelet">Bracelet</option>
+                {(newItem.item_group === 'Diamond Jewellery'
+                  ? DIAMOND_CATEGORIES
+                  : newItem.item_group === 'Color Stone'
+                  ? COLOR_STONE_CATEGORIES
+                  : GOLD_CATEGORIES
+                ).map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
               </select>
             </div>
 
-            <div>
-              <label className="block text-[11px] font-semibold text-stone-600 mb-1">Purity</label>
-              <select
-                value={newItem.purity}
-                onChange={(e) => setNewItem({ ...newItem, purity: e.target.value })}
-                className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-semibold focus:outline-hidden focus:border-[#b01622]"
-              >
-                <option value="22K (916)">22K (916)</option>
-                <option value="24K (999)">24K (999)</option>
-                <option value="18K (750)">18K (750)</option>
-                <option value="14K (585)">14K (585)</option>
-              </select>
-            </div>
+            {/* DYNAMIC FIELDS FOR GOLD JEWELLERY */}
+            {newItem.item_group === 'Gold Jewellery' && (
+              <>
+                <div>
+                  <label className="block text-[11px] font-semibold text-stone-600 mb-1">Purity</label>
+                  <select
+                    value={newItem.purity}
+                    onChange={(e) => setNewItem({ ...newItem, purity: e.target.value })}
+                    className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-semibold focus:outline-hidden focus:border-[#b01622]"
+                  >
+                    <option value="22K (916)">22K (916)</option>
+                    <option value="24K (999)">24K (999)</option>
+                    <option value="18K (750)">18K (750)</option>
+                    <option value="14K (585)">14K (585)</option>
+                  </select>
+                </div>
 
-            <div>
-              <label className="block text-[11px] font-semibold text-stone-600 mb-1">Item Type</label>
-              <select
-                value={newItem.item_type}
-                onChange={(e) => setNewItem({ ...newItem, item_type: e.target.value })}
-                className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-semibold focus:outline-hidden focus:border-[#b01622]"
-              >
-                <option value="Plain">Plain</option>
-                <option value="Studded">Studded</option>
-                <option value="Antique">Antique</option>
-                <option value="Kundan">Kundan</option>
-                <option value="Temple">Temple</option>
-              </select>
-            </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-stone-600 mb-1">Item Type</label>
+                  <select
+                    value={newItem.item_type}
+                    onChange={(e) => setNewItem({ ...newItem, item_type: e.target.value })}
+                    className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-semibold focus:outline-hidden focus:border-[#b01622]"
+                  >
+                    <option value="Plain">Plain</option>
+                    <option value="Studded">Studded</option>
+                    <option value="Antique">Antique</option>
+                    <option value="Kundan">Kundan</option>
+                    <option value="Temple">Temple</option>
+                  </select>
+                </div>
 
-            <div>
-              <label className="block text-[11px] font-semibold text-stone-600 mb-1">Weight (GM)</label>
-              <input
-                required
-                type="number"
-                step="0.001"
-                value={newItem.weight}
-                onChange={(e) => setNewItem({ ...newItem, weight: e.target.value })}
-                placeholder="1.000"
-                className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-mono font-semibold focus:outline-hidden focus:border-[#b01622]"
-              />
-            </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-stone-600 mb-1">Weight (GM)</label>
+                  <input
+                    required
+                    type="number"
+                    step="0.001"
+                    value={newItem.weight}
+                    onChange={(e) => setNewItem({ ...newItem, weight: e.target.value })}
+                    placeholder="1.000"
+                    className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-mono font-semibold focus:outline-hidden focus:border-[#b01622]"
+                  />
+                </div>
 
-            <div>
-              <label className="block text-[11px] font-semibold text-stone-600 mb-1">Gold Rate (₹/gm)</label>
-              <input
-                required
-                type="number"
-                value={newItem.gold_rate}
-                onChange={(e) => setNewItem({ ...newItem, gold_rate: e.target.value })}
-                placeholder="6532"
-                className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-mono font-semibold focus:outline-hidden focus:border-[#b01622]"
-              />
-            </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-stone-600 mb-1">Gold Rate (₹/gm)</label>
+                  <input
+                    required
+                    type="number"
+                    value={newItem.gold_rate}
+                    onChange={(e) => setNewItem({ ...newItem, gold_rate: e.target.value })}
+                    placeholder="6532"
+                    className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-mono font-semibold focus:outline-hidden focus:border-[#b01622]"
+                  />
+                </div>
 
-            <div>
-              <label className="block text-[11px] font-semibold text-stone-600 mb-1">Making Charge (₹/gm)</label>
-              <input
-                required
-                type="number"
-                value={newItem.making_charge}
-                onChange={(e) => setNewItem({ ...newItem, making_charge: e.target.value })}
-                placeholder="650"
-                className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-mono font-semibold focus:outline-hidden focus:border-[#b01622]"
-              />
-            </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-stone-600 mb-1">Making Charge (₹/gm)</label>
+                  <input
+                    required
+                    type="number"
+                    value={newItem.making_charge}
+                    onChange={(e) => setNewItem({ ...newItem, making_charge: e.target.value })}
+                    placeholder="650"
+                    className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-mono font-semibold focus:outline-hidden focus:border-[#b01622]"
+                  />
+                </div>
 
-            <div>
-              <label className="block text-[11px] font-semibold text-stone-600 mb-1">Wastage (%)</label>
-              <input
-                required
-                type="number"
-                step="0.1"
-                value={newItem.wastage}
-                onChange={(e) => setNewItem({ ...newItem, wastage: e.target.value })}
-                placeholder="5"
-                className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-mono font-semibold focus:outline-hidden focus:border-[#b01622]"
-              />
-            </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-stone-600 mb-1">Wastage (%)</label>
+                  <input
+                    required
+                    type="number"
+                    step="0.1"
+                    value={newItem.wastage}
+                    onChange={(e) => setNewItem({ ...newItem, wastage: e.target.value })}
+                    placeholder="5"
+                    className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-mono font-semibold focus:outline-hidden focus:border-[#b01622]"
+                  />
+                </div>
+              </>
+            )}
+
+            {/* DYNAMIC FIELDS FOR DIAMOND JEWELLERY */}
+            {newItem.item_group === 'Diamond Jewellery' && (
+              <>
+                <div>
+                  <label className="block text-[11px] font-semibold text-stone-600 mb-1">Shape / Cut</label>
+                  <select
+                    value={newItem.shape}
+                    onChange={(e) => setNewItem({ ...newItem, shape: e.target.value })}
+                    className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-semibold focus:outline-hidden focus:border-[#b01622]"
+                  >
+                    <option value="Round Brilliant">Round Brilliant</option>
+                    <option value="Princess Cut">Princess Cut</option>
+                    <option value="Oval Cut">Oval Cut</option>
+                    <option value="Emerald Cut">Emerald Cut</option>
+                    <option value="Marquise Cut">Marquise Cut</option>
+                    <option value="Pear Cut">Pear Cut</option>
+                    <option value="Cushion Cut">Cushion Cut</option>
+                    <option value="Heart Cut">Heart Cut</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-stone-600 mb-1">Carat Weight (CT)</label>
+                  <input
+                    required
+                    type="number"
+                    step="0.01"
+                    value={newItem.carat_wt}
+                    onChange={(e) => setNewItem({ ...newItem, carat_wt: e.target.value })}
+                    placeholder="0.75"
+                    className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-mono font-semibold focus:outline-hidden focus:border-[#b01622]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-stone-600 mb-1">Clarity / Color</label>
+                  <select
+                    value={newItem.clarity}
+                    onChange={(e) => setNewItem({ ...newItem, clarity: e.target.value })}
+                    className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-semibold focus:outline-hidden focus:border-[#b01622]"
+                  >
+                    <option value="VVS1 / E-F">VVS1 / E-F</option>
+                    <option value="VVS2 / F-G">VVS2 / F-G</option>
+                    <option value="VS1 / G-H">VS1 / G-H</option>
+                    <option value="VS2 / G-H">VS2 / G-H</option>
+                    <option value="SI1 / I-J">SI1 / I-J</option>
+                    <option value="I1 / I-J">I1 / I-J</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-stone-600 mb-1">Rate / Carat (₹)</label>
+                  <input
+                    required
+                    type="number"
+                    value={newItem.rate_per_ct}
+                    onChange={(e) => setNewItem({ ...newItem, rate_per_ct: e.target.value })}
+                    placeholder="145000"
+                    className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-mono font-semibold focus:outline-hidden focus:border-[#b01622]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-stone-600 mb-1">Gold Wt (G)</label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    value={newItem.gold_wt}
+                    onChange={(e) => setNewItem({ ...newItem, gold_wt: e.target.value })}
+                    placeholder="3.500"
+                    className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-mono font-semibold focus:outline-hidden focus:border-[#b01622]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-stone-600 mb-1">Item Code</label>
+                  <input
+                    type="text"
+                    value={newItem.code}
+                    onChange={(e) => setNewItem({ ...newItem, code: e.target.value })}
+                    placeholder="DM-RNG-105"
+                    className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-mono font-semibold focus:outline-hidden focus:border-[#b01622]"
+                  />
+                </div>
+              </>
+            )}
+
+            {/* DYNAMIC FIELDS FOR COLOR STONE */}
+            {newItem.item_group === 'Color Stone' && (
+              <>
+                <div>
+                  <label className="block text-[11px] font-semibold text-stone-600 mb-1">Cut / Shape</label>
+                  <select
+                    value={newItem.shape}
+                    onChange={(e) => setNewItem({ ...newItem, shape: e.target.value })}
+                    className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-semibold focus:outline-hidden focus:border-[#b01622]"
+                  >
+                    <option value="Oval Cut">Oval Cut</option>
+                    <option value="Emerald Cut">Emerald Cut</option>
+                    <option value="Cushion Cut">Cushion Cut</option>
+                    <option value="Round Cut">Round Cut</option>
+                    <option value="Pear Cut">Pear Cut</option>
+                    <option value="Cabochon">Cabochon</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-stone-600 mb-1">Weight (CT)</label>
+                  <input
+                    required
+                    type="number"
+                    step="0.01"
+                    value={newItem.carat_wt}
+                    onChange={(e) => setNewItem({ ...newItem, carat_wt: e.target.value })}
+                    placeholder="3.25"
+                    className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-mono font-semibold focus:outline-hidden focus:border-[#b01622]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-stone-600 mb-1">Certification</label>
+                  <select
+                    value={newItem.cert}
+                    onChange={(e) => setNewItem({ ...newItem, cert: e.target.value })}
+                    className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-semibold focus:outline-hidden focus:border-[#b01622]"
+                  >
+                    <option value="GIA Certified">GIA Certified</option>
+                    <option value="IGI Certified">IGI Certified</option>
+                    <option value="GSI Certified">GSI Certified</option>
+                    <option value="Lab Certified">Lab Certified</option>
+                    <option value="Uncertified">Uncertified</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-stone-600 mb-1">Origin</label>
+                  <select
+                    value={newItem.origin}
+                    onChange={(e) => setNewItem({ ...newItem, origin: e.target.value })}
+                    className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-semibold focus:outline-hidden focus:border-[#b01622]"
+                  >
+                    <option value="Myanmar (Burma)">Myanmar (Burma)</option>
+                    <option value="Zambia">Zambia</option>
+                    <option value="Sri Lanka (Ceylon)">Sri Lanka (Ceylon)</option>
+                    <option value="India">India</option>
+                    <option value="Colombia">Colombia</option>
+                    <option value="Mozambique">Mozambique</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-stone-600 mb-1">Rate / Carat (₹)</label>
+                  <input
+                    required
+                    type="number"
+                    value={newItem.rate_per_ct}
+                    onChange={(e) => setNewItem({ ...newItem, rate_per_ct: e.target.value })}
+                    placeholder="42000"
+                    className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs font-mono font-semibold focus:outline-hidden focus:border-[#b01622]"
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           <div className="flex items-center justify-between pt-2">
             <div className="text-xs text-stone-600 font-mono">
-              Calculated Total Price: <strong className="text-[#b01622] font-bold text-sm">{formatCurrency(calculateTotalPrice(parseFloat(newItem.weight) || 0, parseFloat(newItem.gold_rate) || rate22k, parseFloat(newItem.making_charge) || 0, parseFloat(newItem.wastage) || 0))}</strong>
+              Calculated Approx Price: <strong className="text-[#b01622] font-bold text-sm">
+                {newItem.item_group === 'Diamond Jewellery'
+                  ? formatCurrency(Math.round((parseFloat(newItem.carat_wt) || 0) * (parseFloat(newItem.rate_per_ct) || 0) + (parseFloat(newItem.gold_wt) || 0) * rate22k))
+                  : newItem.item_group === 'Color Stone'
+                  ? formatCurrency(Math.round((parseFloat(newItem.carat_wt) || 0) * (parseFloat(newItem.rate_per_ct) || 0)))
+                  : formatCurrency(calculateTotalPrice(parseFloat(newItem.weight) || 0, parseFloat(newItem.gold_rate) || rate22k, parseFloat(newItem.making_charge) || 0, parseFloat(newItem.wastage) || 0))
+                }
+              </strong>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -2986,9 +3293,10 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
               </button>
               <button
                 type="submit"
-                className="px-5 py-2 bg-[#b01622] hover:bg-[#8e111a] text-white text-xs font-bold rounded-lg shadow-xs cursor-pointer"
+                className="px-5 py-2 bg-[#b01622] hover:bg-[#8e111a] text-white text-xs font-bold rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
               >
-                Save Rate Item
+                <i className="fa-solid fa-check"></i>
+                <span>Save Rate Item</span>
               </button>
             </div>
           </div>
@@ -3292,6 +3600,7 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                   <th className="p-3 text-right">RATE / CARAT</th>
                   <th className="p-3 text-center">GOLD WT (G)</th>
                   <th className="p-3 text-right">APPROX PRICE</th>
+                  <th className="p-3 text-center w-12">ACTION</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
@@ -3305,6 +3614,15 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                     <td className="p-3 text-right font-mono">{formatCurrency(item.rate_per_ct)}</td>
                     <td className="p-3 text-center font-mono">{item.gold_wt} g</td>
                     <td className="p-3 text-right font-mono font-bold text-stone-900 text-sm">{formatCurrency(item.approx_price)}</td>
+                    <td className="p-3 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteDiamondRow(item.id)}
+                        className="text-stone-400 hover:text-[#b01622] transition-colors cursor-pointer"
+                      >
+                        <i className="fa-regular fa-trash-can"></i>
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -3332,6 +3650,7 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                   <th className="p-3">CERTIFICATION</th>
                   <th className="p-3">ORIGIN</th>
                   <th className="p-3 text-right">RATE / CARAT</th>
+                  <th className="p-3 text-center w-12">ACTION</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
@@ -3344,6 +3663,15 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                     <td className="p-3 text-stone-600 font-semibold">{item.cert}</td>
                     <td className="p-3 text-stone-600">{item.origin}</td>
                     <td className="p-3 text-right font-mono font-bold text-stone-900">{formatCurrency(item.rate_per_ct)}</td>
+                    <td className="p-3 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteStoneRow(item.id)}
+                        className="text-stone-400 hover:text-[#b01622] transition-colors cursor-pointer"
+                      >
+                        <i className="fa-regular fa-trash-can"></i>
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
