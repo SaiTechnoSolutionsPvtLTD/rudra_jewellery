@@ -41,6 +41,9 @@ export default function HistoryDetails() {
     return () => { mounted = false; };
   }, [location.search]);
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 4;
+
   const orderId = order?.id;
   const jobId = order?.design_code || order?.work_order_number || 'RJ-3836-000125';
   const clientId = order?.client?.client_code || (order?.client_id ? `CL-2024-00${order.client_id}` : 'CL-2024-00456');
@@ -50,6 +53,14 @@ export default function HistoryDetails() {
     if (order?.timelines?.length) return order.timelines;
     return [{ stage_label: 'Work Order Created', stage: 'created', created_at: order?.created_at, action_by_name: 'Admin', notes: 'Work order created and assigned.' }];
   }, [order]);
+
+  const totalTimeline = timeline.length;
+  const totalPages = Math.ceil(totalTimeline / itemsPerPage) || 1;
+  const safePage = Math.min(currentPage, totalPages);
+  const startRecord = totalTimeline === 0 ? 0 : (safePage - 1) * itemsPerPage + 1;
+  const endRecord = Math.min(safePage * itemsPerPage, totalTimeline);
+  const paginatedTimeline = timeline.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
+
   const openTab = (path) => `${path}${orderId ? `?order_id=${orderId}` : ''}`;
   const switchOrder = (event) => navigate(`/job-order/history?order_id=${event.target.value}`);
 
@@ -66,7 +77,73 @@ export default function HistoryDetails() {
         <section className="lg:col-span-4 bg-white rounded-xl border border-stone-200 p-4 h-fit"><h2 className="text-sm font-bold text-gray-900 mb-4">Audit Summary</h2><div className="space-y-3 text-xs"><div className="flex justify-between"><span className="text-stone-500">Created Date</span><span className="font-semibold">{displayDate(order?.created_at)}</span></div><div className="flex justify-between"><span className="text-stone-500">Allotted Date</span><span className="font-semibold">{displayDate(order?.allotted_date)}</span></div><div className="flex justify-between"><span className="text-stone-500">Due Date</span><span className="font-semibold">{displayDate(order?.delivery_date)}</span></div><div className="flex justify-between"><span className="text-stone-500">Last Updated</span><span className="font-semibold">{displayDate(order?.updated_at)}</span></div><div className="border-t border-stone-200 pt-3 flex justify-between"><span className="text-stone-500">Current Stage</span><span className="font-bold text-[#b01622]">{String(order?.current_stage || 'created').replace(/_/g, ' ')}</span></div></div></section>
       </div>
 
-      <section className="bg-white rounded-xl border border-stone-200 overflow-hidden"><div className="px-4 py-3 border-b border-stone-200"><h2 className="text-sm font-bold text-gray-900">Audit Details</h2></div><div className="overflow-x-auto"><table className="w-full min-w-[720px] text-xs"><thead><tr className="bg-stone-50 text-stone-500 uppercase text-[11px] border-b border-stone-200"><th className="text-left px-4 py-3">Date &amp; Time</th><th className="text-left px-3 py-3">Event</th><th className="text-left px-3 py-3">Updated By</th><th className="text-left px-4 py-3">Remarks</th></tr></thead><tbody className="divide-y divide-stone-100">{timeline.map((event, index) => <tr key={`audit-${event.id || index}`}><td className="px-4 py-3 font-mono text-stone-500">{event.created_at ? new Date(event.created_at).toLocaleString('en-GB') : '—'}</td><td className="px-3 py-3 font-bold text-gray-900">{event.stage_label || event.stage || 'Update'}</td><td className="px-3 py-3 text-stone-600">{event.action_by_name || 'System'}</td><td className="px-4 py-3 text-stone-600">{event.notes || 'Status progression recorded.'}</td></tr>)}</tbody></table></div></section>
+      <section className="bg-white rounded-xl border border-stone-200 overflow-hidden">
+        <div className="px-4 py-3 border-b border-stone-200"><h2 className="text-sm font-bold text-gray-900">Audit Details</h2></div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] text-xs">
+            <thead>
+              <tr className="bg-stone-50 text-stone-500 uppercase text-[11px] border-b border-stone-200">
+                <th className="text-left px-4 py-3">Date &amp; Time</th>
+                <th className="text-left px-3 py-3">Event</th>
+                <th className="text-left px-3 py-3">Updated By</th>
+                <th className="text-left px-4 py-3">Remarks</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100">
+              {paginatedTimeline.map((event, index) => (
+                <tr key={`audit-${event.id || index}`}>
+                  <td className="px-4 py-3 font-mono text-stone-500">{event.created_at ? new Date(event.created_at).toLocaleString('en-GB') : '—'}</td>
+                  <td className="px-3 py-3 font-bold text-gray-900">{event.stage_label || event.stage || 'Update'}</td>
+                  <td className="px-3 py-3 text-stone-600">{event.action_by_name || 'System'}</td>
+                  <td className="px-4 py-3 text-stone-600">{event.notes || 'Status progression recorded.'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination Controls */}
+        <div className="px-4 py-3 border-t border-stone-200 bg-stone-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-stone-500">
+          <div>
+            Showing {startRecord} to {endRecord} of {totalTimeline} entries
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              disabled={safePage <= 1}
+              className="w-7 h-7 rounded-md border border-stone-200 hover:bg-white flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            >
+              &lt;
+            </button>
+
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
+              <button
+                key={pageNum}
+                type="button"
+                onClick={() => setCurrentPage(pageNum)}
+                className={`w-7 h-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors cursor-pointer ${
+                  safePage === pageNum
+                    ? 'bg-[#b01622] text-white'
+                    : 'border border-stone-200 hover:bg-white text-stone-700'
+                }`}
+              >
+                {pageNum}
+              </button>
+            ))}
+
+            <button
+              type="button"
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+              disabled={safePage >= totalPages}
+              className="w-7 h-7 rounded-md border border-stone-200 hover:bg-white flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            >
+              &gt;
+            </button>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

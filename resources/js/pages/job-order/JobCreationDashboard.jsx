@@ -30,6 +30,10 @@ export default function JobCreationDashboard() {
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
   const filterRef = useRef(null);
 
+  // Table & Card Horizontal Scroll Refs
+  const tableScrollRef = useRef(null);
+  const qcScrollRef = useRef(null);
+
   // Row 3-dots action menu
   const [activeMenuId, setActiveMenuId] = useState(null);
   const actionMenuRef = useRef(null);
@@ -68,8 +72,17 @@ export default function JobCreationDashboard() {
   // Table, Materials & Cards state
   const [liveJobs, setLiveJobs] = useState([]);
   const [qcItems, setQcItems] = useState([]);
+  const [qcPage, setQcPage] = useState(1);
+  const qcPerPage = 4;
+
   const [materialAllocations, setMaterialAllocations] = useState([]);
+  const [allocPage, setAllocPage] = useState(1);
+  const allocPerPage = 3;
+
   const [auditLogs, setAuditLogs] = useState([]);
+  const [auditPage, setAuditPage] = useState(1);
+  const auditPerPage = 5;
+
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
 
@@ -481,41 +494,53 @@ export default function JobCreationDashboard() {
         
         {/* Left Column: Live Job Creation Status */}
         <div className="lg:col-span-8 bg-white rounded-xl border border-[#eceff3] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-bold text-[#111827] tracking-tight">
-              Live Job creation Status
-            </h2>
-            <Link
-              to="/job-order"
-              className="text-xs font-bold text-[#9e1b27] hover:underline"
-            >
-              View Full Queue
-            </Link>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-2 border-b border-gray-100 pb-3">
+            <div>
+              <h2 className="text-sm font-bold text-[#111827] tracking-tight flex items-center gap-2">
+                <span>Live Job creation Status</span>
+              </h2>
+              <p className="text-[11px] text-gray-400 font-normal mt-0.5">
+                Real-time active artisan manufacturing orders from database
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2.5">
+              <Link
+                to="/job-order"
+                className="text-xs font-bold text-[#9e1b27] hover:underline whitespace-nowrap"
+              >
+                View Full Queue
+              </Link>
+            </div>
           </div>
 
-          <div className="overflow-x-auto no-scrollbar">
-            <table className="w-full text-left text-xs border-collapse min-w-[560px]">
+          <div ref={tableScrollRef} className="overflow-x-auto scroll-smooth py-1">
+            <table className="w-full text-left text-xs border-collapse min-w-[780px]">
               <thead>
                 <tr className="text-[10px] font-bold text-[#9ca3af] tracking-wider uppercase border-b border-gray-100">
                   <th className="py-2.5 px-3 font-semibold whitespace-nowrap">ARTISAN NAME</th>
                   <th className="py-2.5 px-3 font-semibold whitespace-nowrap">ORDER ID</th>
                   <th className="py-2.5 px-3 font-semibold whitespace-nowrap">ITEM TYPE</th>
+                  <th className="py-2.5 px-3 font-semibold whitespace-nowrap text-right">ALLOTTED WT</th>
+                  <th className="py-2.5 px-3 font-semibold whitespace-nowrap text-right">COMPLETED WT</th>
+                  <th className="py-2.5 px-3 font-semibold whitespace-nowrap text-right">PENDING WT</th>
                   <th className="py-2.5 px-3 font-semibold whitespace-nowrap">STAGE</th>
                   <th className="py-2.5 px-3 font-semibold whitespace-nowrap">DUE DATE</th>
+                  <th className="py-2.5 px-3 font-semibold whitespace-nowrap text-center">STATUS</th>
                   <th className="py-2.5 px-2 text-right"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {loading && liveJobs.length === 0 ? (
                   <tr>
-                    <td colSpan="6" className="py-8 text-center text-gray-400 text-xs">
+                    <td colSpan="10" className="py-8 text-center text-gray-400 text-xs">
                       <i className="fa-solid fa-spinner fa-spin text-[#9e1b27] mr-2"></i>
                       Loading live jobs...
                     </td>
                   </tr>
                 ) : liveJobs.length === 0 ? (
                   <tr>
-                    <td colSpan="6" className="py-8 text-center text-gray-400 text-xs">
+                    <td colSpan="10" className="py-8 text-center text-gray-400 text-xs">
                       No active work orders found. Click "+ New Work Order" to create one.
                     </td>
                   </tr>
@@ -526,7 +551,6 @@ export default function JobCreationDashboard() {
                       onClick={() => navigate(`/job-order/${job.id}`)}
                       className="hover:bg-[#fafafa] transition-colors group cursor-pointer"
                     >
-                      
                       {/* Artisan Name with Avatar */}
                       <td className="py-3.5 px-3 whitespace-nowrap">
                         <div className="flex items-center gap-2.5">
@@ -540,15 +564,30 @@ export default function JobCreationDashboard() {
                       </td>
 
                       {/* Order ID */}
-                      <td className="py-3.5 px-3 font-medium text-gray-500 text-xs whitespace-nowrap">
+                      <td className="py-3.5 px-3 font-mono font-bold text-gray-500 text-xs whitespace-nowrap">
                         {job.work_order_number}
                       </td>
 
                       {/* Item Type */}
                       <td className="py-3.5 px-3 font-medium text-gray-800 text-xs">
-                        <div className="max-w-[150px] truncate" title={job.item_type}>
+                        <div className="max-w-[170px] truncate" title={job.item_type}>
                           {job.item_type}
                         </div>
+                      </td>
+
+                      {/* Allotted Wt */}
+                      <td className="py-3.5 px-3 text-right font-mono font-bold text-gray-900 text-xs whitespace-nowrap">
+                        {Number(job.allotted_weight || 0).toFixed(3)}g
+                      </td>
+
+                      {/* Completed Wt */}
+                      <td className="py-3.5 px-3 text-right font-mono font-bold text-emerald-600 text-xs whitespace-nowrap">
+                        {Number(job.completed_weight || 0).toFixed(3)}g
+                      </td>
+
+                      {/* Pending Wt */}
+                      <td className="py-3.5 px-3 text-right font-mono font-bold text-red-600 text-xs whitespace-nowrap">
+                        {Number(job.pending_weight || 0).toFixed(3)}g
                       </td>
 
                       {/* Stage Pill */}
@@ -563,6 +602,18 @@ export default function JobCreationDashboard() {
                         job.is_overdue ? 'text-[#dc2626] font-bold' : 'text-gray-500'
                       }`}>
                         {job.due_date}
+                      </td>
+
+                      {/* Status Pill */}
+                      <td className="py-3.5 px-3 text-center whitespace-nowrap">
+                        <span className={`px-2 py-0.5 rounded-full text-[9.5px] font-extrabold uppercase ${
+                          job.status === 'completed' ? 'bg-emerald-100 text-emerald-800' :
+                          job.status === 'pending_approval' ? 'bg-amber-100 text-amber-800' :
+                          job.status === 'delayed' ? 'bg-red-100 text-red-800' :
+                          'bg-blue-100 text-blue-800'
+                        }`}>
+                          {job.status?.replace('_', ' ') || 'ongoing'}
+                        </span>
                       </td>
 
                       {/* 3-dots Actions Menu */}
@@ -750,15 +801,17 @@ export default function JobCreationDashboard() {
       {/* 6. Bottom Section: Quality Check Queue (Final Approval - Real Database Items) */}
       <div className="mb-8">
         <div className="border-b border-[#eceff3] pb-2.5 mb-4 flex items-center justify-between">
-          <h2 className="text-sm font-bold text-[#111827] tracking-tight">
-            Quality Check Queue (Final Approval)
-          </h2>
-          <span className="text-[11px] font-semibold text-stone-400">
-            {qcItems.length} item{qcItems.length === 1 ? '' : 's'} awaiting manager inspection
-          </span>
+          <div>
+            <h2 className="text-sm font-bold text-[#111827] tracking-tight">
+              Quality Check Queue (Final Approval)
+            </h2>
+            <span className="text-[11px] font-semibold text-stone-400">
+              {qcItems.length} item{qcItems.length === 1 ? '' : 's'} awaiting manager inspection
+            </span>
+          </div>
         </div>
 
-        {/* Horizontal Cards Grid */}
+        {/* Horizontal Cards Slider */}
         {qcItems.length === 0 ? (
           <div className="bg-stone-50 border border-dashed border-stone-200 rounded-xl p-8 text-center text-xs text-stone-400">
             <i className="fa-solid fa-circle-check text-2xl text-emerald-500 mb-2 block"></i>
@@ -768,88 +821,143 @@ export default function JobCreationDashboard() {
             </span>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {qcItems.map((card) => (
-              <div
-                key={card.id}
-                className="bg-white rounded-xl border border-[#eceff3] shadow-[0_1px_3px_rgba(0,0,0,0.02)] p-3 flex flex-col justify-between hover:border-gray-300 transition-colors"
-              >
-                <div>
-                  {/* Image Box - Optimized and fast loading */}
-                  <div className="relative h-32 rounded-lg overflow-hidden bg-stone-100 mb-3">
-                    <img
-                      src={card.image_url}
-                      alt={card.product_name}
-                      loading="eager"
-                      fetchPriority="high"
-                      decoding="sync"
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        e.target.onerror = null;
-                        e.target.src = 'https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?auto=format&fit=crop&w=400&q=80';
-                      }}
-                    />
-                    {card.is_priority && (
-                      <span className="absolute top-2 right-2 bg-[#ea580c] text-white text-[8px] font-bold px-1.5 py-0.5 rounded tracking-wider shadow-2xs uppercase">
-                        PRIORITY
-                      </span>
-                    )}
-                  </div>
+          (() => {
+            const totalQc = qcItems.length;
+            const totalQcPages = Math.ceil(totalQc / qcPerPage) || 1;
+            const safeQcPage = Math.min(qcPage, totalQcPages);
+            const startQc = (safeQcPage - 1) * qcPerPage + 1;
+            const endQc = Math.min(safeQcPage * qcPerPage, totalQc);
+            const paginatedQc = qcItems.slice((safeQcPage - 1) * qcPerPage, safeQcPage * qcPerPage);
 
-                  {/* Title & QC Code */}
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-xs font-bold text-gray-900 truncate max-w-[140px]" title={card.product_name}>
-                      {card.product_name}
-                    </h3>
-                    <span className="text-[10px] font-semibold text-[#9ca3af]">
-                      {card.qc_code}
+            return (
+              <div>
+                <div ref={qcScrollRef} className="flex gap-4 overflow-x-auto scroll-smooth pb-3">
+                  {paginatedQc.map((card) => (
+                    <div
+                      key={card.id}
+                      className="bg-white rounded-xl border border-[#eceff3] shadow-[0_1px_3px_rgba(0,0,0,0.02)] p-3 flex flex-col justify-between hover:border-gray-300 transition-colors shrink-0 w-64"
+                    >
+                      <div>
+                        {/* Image Box - Optimized and fast loading */}
+                        <div className="relative h-32 rounded-lg overflow-hidden bg-stone-100 mb-3">
+                          <img
+                            src={card.image_url}
+                            alt={card.product_name}
+                            loading="eager"
+                            fetchPriority="high"
+                            decoding="sync"
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              e.target.onerror = null;
+                              e.target.src = 'https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?auto=format&fit=crop&w=400&q=80';
+                            }}
+                          />
+                          {card.is_priority && (
+                            <span className="absolute top-2 right-2 bg-[#ea580c] text-white text-[8px] font-bold px-1.5 py-0.5 rounded tracking-wider shadow-2xs uppercase">
+                              PRIORITY
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Title & QC Code */}
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-xs font-bold text-gray-900 truncate max-w-[140px]" title={card.product_name}>
+                            {card.product_name}
+                          </h3>
+                          <span className="text-[10px] font-semibold text-[#9ca3af]">
+                            {card.qc_code}
+                          </span>
+                        </div>
+
+                        {/* Artisan Info */}
+                        <p className="text-[10.5px] text-[#6b7280] mt-0.5 mb-3">
+                          Artisan: {card.artisan_name}
+                        </p>
+                      </div>
+
+                      {/* Action Buttons: Approve & Reject */}
+                      <div className="grid grid-cols-2 gap-2 mt-1">
+                        <button
+                          type="button"
+                          disabled={actionLoading}
+                          onClick={() => handleApproveQC(card)}
+                          className="py-1.5 px-3 bg-[#16a34a] hover:bg-[#15803d] disabled:opacity-50 text-white font-bold text-xs rounded-md transition-colors text-center cursor-pointer shadow-2xs"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          disabled={actionLoading}
+                          onClick={() => handleOpenReject(card)}
+                          className="py-1.5 px-3 bg-white hover:bg-red-50 disabled:opacity-50 text-[#ef4444] border border-[#ef4444] font-bold text-xs rounded-md transition-colors text-center cursor-pointer"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Quick link card to QC Hub */}
+                  <Link
+                    to="/job-order/quality-check"
+                    className="border-2 border-dashed border-[#d1d5db] hover:border-gray-400 rounded-xl bg-white p-6 flex flex-col items-center justify-center text-center cursor-pointer transition-colors min-h-[220px] shrink-0 w-64"
+                  >
+                    <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 mb-2.5 text-lg">
+                      <i className="fa-solid fa-arrow-right text-xs"></i>
+                    </div>
+                    <span className="text-xs font-bold text-gray-900">
+                      Quality Check Hub
                     </span>
+                    <p className="text-[10px] text-gray-400 mt-1 max-w-[150px] leading-tight">
+                      View all items & inspection history
+                    </p>
+                  </Link>
+                </div>
+
+                {/* QC Queue Bottom Pagination Controls */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 mt-1 border-t border-[#eceff3] text-xs text-stone-500">
+                  <div>
+                    Showing {startQc} to {endQc} of {totalQc} items
                   </div>
 
-                  {/* Artisan Info */}
-                  <p className="text-[10.5px] text-[#6b7280] mt-0.5 mb-3">
-                    Artisan: {card.artisan_name}
-                  </p>
-                </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setQcPage((prev) => Math.max(1, prev - 1))}
+                      disabled={safeQcPage <= 1}
+                      className="w-6 h-6 flex items-center justify-center rounded border border-[#e5e7eb] disabled:opacity-40 disabled:cursor-not-allowed text-gray-500 hover:bg-gray-50 text-[11px] transition-colors cursor-pointer"
+                    >
+                      <i className="fa-solid fa-chevron-left text-[9px]"></i>
+                    </button>
 
-                {/* Action Buttons: Approve & Reject */}
-                <div className="grid grid-cols-2 gap-2 mt-1">
-                  <button
-                    type="button"
-                    disabled={actionLoading}
-                    onClick={() => handleApproveQC(card)}
-                    className="py-1.5 px-3 bg-[#16a34a] hover:bg-[#15803d] disabled:opacity-50 text-white font-bold text-xs rounded-md transition-colors text-center cursor-pointer shadow-2xs"
-                  >
-                    Approve
-                  </button>
-                  <button
-                    type="button"
-                    disabled={actionLoading}
-                    onClick={() => handleOpenReject(card)}
-                    className="py-1.5 px-3 bg-white hover:bg-red-50 disabled:opacity-50 text-[#ef4444] border border-[#ef4444] font-bold text-xs rounded-md transition-colors text-center cursor-pointer"
-                  >
-                    Reject
-                  </button>
+                    {Array.from({ length: totalQcPages }, (_, i) => i + 1).map((pageNum) => (
+                      <button
+                        key={pageNum}
+                        type="button"
+                        onClick={() => setQcPage(pageNum)}
+                        className={`w-6 h-6 flex items-center justify-center rounded text-[11px] font-semibold cursor-pointer ${
+                          safeQcPage === pageNum
+                            ? 'bg-[#9e1b27] text-white'
+                            : 'border border-[#e5e7eb] text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    ))}
+
+                    <button
+                      type="button"
+                      onClick={() => setQcPage((prev) => Math.min(totalQcPages, prev + 1))}
+                      disabled={safeQcPage >= totalQcPages}
+                      className="w-6 h-6 flex items-center justify-center rounded border border-[#e5e7eb] disabled:opacity-40 disabled:cursor-not-allowed text-gray-500 hover:bg-gray-50 text-[11px] transition-colors cursor-pointer"
+                    >
+                      <i className="fa-solid fa-chevron-right text-[9px]"></i>
+                    </button>
+                  </div>
                 </div>
               </div>
-            ))}
-
-            {/* Quick link card to QC Hub */}
-            <Link
-              to="/job-order/quality-check"
-              className="border-2 border-dashed border-[#d1d5db] hover:border-gray-400 rounded-xl bg-white p-6 flex flex-col items-center justify-center text-center cursor-pointer transition-colors min-h-[220px]"
-            >
-              <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 mb-2.5 text-lg">
-                <i className="fa-solid fa-arrow-right text-xs"></i>
-              </div>
-              <span className="text-xs font-bold text-gray-900">
-                Quality Check Hub
-              </span>
-              <p className="text-[10px] text-gray-400 mt-1 max-w-[150px] leading-tight">
-                View all items & inspection history
-              </p>
-            </Link>
-          </div>
+            );
+          })()
         )}
       </div>
 
@@ -896,20 +1004,76 @@ export default function JobCreationDashboard() {
                       </td>
                     </tr>
                   ) : (
-                    auditLogs.map((log, idx) => (
-                      <tr key={idx}>
-                        <td className="py-3 font-semibold text-gray-900">{log.artisan_name}</td>
-                        <td className="py-3 text-stone-600">{log.material}</td>
-                        <td className="py-3 text-right font-mono font-bold">{log.issued}</td>
-                        <td className="py-3 text-right font-mono text-emerald-600">{log.returned}</td>
-                        <td className="py-3 text-right font-mono text-amber-600">{log.loss}</td>
-                        <td className="py-3 text-right font-mono font-bold text-[#9e1b27]">{log.vault_balance}</td>
-                      </tr>
-                    ))
+                    (() => {
+                      const totalAudit = auditLogs.length;
+                      const totalAuditPages = Math.ceil(totalAudit / auditPerPage) || 1;
+                      const safeAuditPage = Math.min(auditPage, totalAuditPages);
+                      const paginatedAudit = auditLogs.slice((safeAuditPage - 1) * auditPerPage, safeAuditPage * auditPerPage);
+
+                      return paginatedAudit.map((log, idx) => (
+                        <tr key={idx}>
+                          <td className="py-3 font-semibold text-gray-900">{log.artisan_name}</td>
+                          <td className="py-3 text-stone-600">{log.material}</td>
+                          <td className="py-3 text-right font-mono font-bold">{log.issued}</td>
+                          <td className="py-3 text-right font-mono text-emerald-600">{log.returned}</td>
+                          <td className="py-3 text-right font-mono text-amber-600">{log.loss}</td>
+                          <td className="py-3 text-right font-mono font-bold text-[#9e1b27]">{log.vault_balance}</td>
+                        </tr>
+                      ));
+                    })()
                   )}
                 </tbody>
               </table>
             </div>
+
+            {auditLogs.length > 0 && (() => {
+              const totalAudit = auditLogs.length;
+              const totalAuditPages = Math.ceil(totalAudit / auditPerPage) || 1;
+              const safeAuditPage = Math.min(auditPage, totalAuditPages);
+              const startAudit = (safeAuditPage - 1) * auditPerPage + 1;
+              const endAudit = Math.min(safeAuditPage * auditPerPage, totalAudit);
+
+              return (
+                <div className="px-5 py-2.5 border-t border-gray-100 bg-stone-50/70 flex items-center justify-between text-xs text-gray-500">
+                  <span>Showing {startAudit} to {endAudit} of {totalAudit} audit entries</span>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setAuditPage((prev) => Math.max(1, prev - 1))}
+                      disabled={safeAuditPage <= 1}
+                      className="w-6 h-6 flex items-center justify-center rounded border border-[#e5e7eb] disabled:opacity-40 disabled:cursor-not-allowed text-gray-500 hover:bg-gray-50 text-[11px] transition-colors cursor-pointer"
+                    >
+                      <i className="fa-solid fa-chevron-left text-[9px]"></i>
+                    </button>
+
+                    {Array.from({ length: totalAuditPages }, (_, i) => i + 1).map((pageNum) => (
+                      <button
+                        key={pageNum}
+                        type="button"
+                        onClick={() => setAuditPage(pageNum)}
+                        className={`w-6 h-6 flex items-center justify-center rounded text-[11px] font-semibold cursor-pointer ${
+                          safeAuditPage === pageNum
+                            ? 'bg-[#9e1b27] text-white'
+                            : 'border border-[#e5e7eb] text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    ))}
+
+                    <button
+                      type="button"
+                      onClick={() => setAuditPage((prev) => Math.min(totalAuditPages, prev + 1))}
+                      disabled={safeAuditPage >= totalAuditPages}
+                      className="w-6 h-6 flex items-center justify-center rounded border border-[#e5e7eb] disabled:opacity-40 disabled:cursor-not-allowed text-gray-500 hover:bg-gray-50 text-[11px] transition-colors cursor-pointer"
+                    >
+                      <i className="fa-solid fa-chevron-right text-[9px]"></i>
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
 
             <div className="p-4 border-t border-gray-100 bg-stone-50 flex items-center justify-between">
               <span className="text-[11px] text-gray-400">Calculated directly from registered karigars and active work orders</span>

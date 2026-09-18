@@ -27,6 +27,10 @@ export default function WasteDetails() {
   const [ongoingOrders, setOngoingOrders] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 4;
+
   useEffect(() => {
     let mounted = true;
     const params = new URLSearchParams(location.search);
@@ -73,6 +77,13 @@ export default function WasteDetails() {
 
     return { allottedWeight, receivedWeight, scrapWeight, allowedPercent, wastageValue, makingCharges, rows };
   }, [order]);
+
+  const totalItems = details.rows.length;
+  const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+  const safePage = Math.min(currentPage, totalPages);
+  const startRecord = totalItems === 0 ? 0 : (safePage - 1) * itemsPerPage + 1;
+  const endRecord = Math.min(safePage * itemsPerPage, totalItems);
+  const paginatedRows = details.rows.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
 
   const jobId = order?.design_code || order?.work_order_number || 'RJ-3836-000125';
   const clientId = order?.client?.client_code || (order?.client_id ? `CL-2024-00${order.client_id}` : 'CL-2024-00456');
@@ -180,7 +191,7 @@ export default function WasteDetails() {
             <colgroup><col className="w-[155px]" /><col className="w-[370px]" /><col className="w-[130px]" /><col className="w-[120px]" /><col className="w-[110px]" /><col className="w-[145px]" /><col className="w-[145px]" /><col className="w-[145px]" /></colgroup>
             <thead><tr className="bg-stone-50 text-stone-500 uppercase tracking-wide border-b border-stone-200 text-[11px]"><th className="text-left px-4 py-3 align-middle">Material Type</th><th className="text-left px-3 py-3 align-middle">Qty / Description</th><th className="text-right px-3 py-3 align-middle">Wastage (Scrap) (g)</th><th className="text-right px-3 py-3 align-middle">Total Wt (g)</th><th className="text-right px-3 py-3 align-middle">Rate</th><th className="text-right px-3 py-3 align-middle">Wastage Charges</th><th className="text-right px-3 py-3 align-middle">Making Charges</th><th className="text-right px-4 py-3 align-middle">Total Wastage</th></tr></thead>
             <tbody className="divide-y divide-stone-100">
-              {details.rows.map((row, index) => {
+              {paginatedRows.map((row, index) => {
                 const wastageCharges = row.wastage * row.rate;
                 const makingCharge = row.total_weight * Number(order?.making_charge_per_gram || 150);
                 return <tr key={`${row.material_type}-${index}`}><td className="px-4 py-3 font-bold text-gray-900 align-middle">{row.material_type}</td><td className="px-3 py-3 text-stone-500 align-middle whitespace-normal leading-relaxed">{row.description}</td><td className="px-3 py-3 text-right font-bold align-middle whitespace-nowrap">{row.wastage.toFixed(3)}</td><td className="px-3 py-3 text-right font-bold align-middle whitespace-nowrap">{row.total_weight.toFixed(2)}</td><td className="px-3 py-3 text-right font-bold align-middle whitespace-nowrap">{formatCurrency(row.rate)}</td><td className="px-3 py-3 text-right font-bold text-[#b01622] align-middle whitespace-nowrap">{formatCurrency(wastageCharges)}</td><td className="px-3 py-3 text-right font-bold align-middle whitespace-nowrap">{formatCurrency(makingCharge)}</td><td className="px-4 py-3 text-right font-bold text-[#b01622] align-middle whitespace-nowrap">{formatCurrency(wastageCharges + makingCharge)}</td></tr>;
@@ -188,6 +199,48 @@ export default function WasteDetails() {
             </tbody>
             <tfoot><tr className="bg-stone-50 border-t-2 border-stone-200 font-bold"><td colSpan="2" className="px-4 py-3 text-right uppercase">Total</td><td className="px-3 py-3 text-right font-bold whitespace-nowrap">{details.rows.reduce((sum, row) => sum + row.wastage, 0).toFixed(3)}</td><td className="px-3 py-3 text-right font-bold whitespace-nowrap">{details.rows.reduce((sum, row) => sum + row.total_weight, 0).toFixed(2)}</td><td></td><td className="px-3 py-3 text-right font-bold text-[#b01622] whitespace-nowrap">{formatCurrency(totalWastageCharges)}</td><td></td><td className="px-4 py-3 text-right font-bold text-[#b01622] whitespace-nowrap">{formatCurrency(totalWasteValue)}</td></tr></tfoot>
           </table>
+        </div>
+
+        {/* Pagination Controls */}
+        <div className="px-4 py-3 border-t border-stone-200 bg-stone-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-stone-500">
+          <div>
+            Showing {startRecord} to {endRecord} of {totalItems} entries
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              disabled={safePage <= 1}
+              className="w-7 h-7 rounded-md border border-stone-200 hover:bg-white flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            >
+              &lt;
+            </button>
+
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
+              <button
+                key={pageNum}
+                type="button"
+                onClick={() => setCurrentPage(pageNum)}
+                className={`w-7 h-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors cursor-pointer ${
+                  safePage === pageNum
+                    ? 'bg-[#b01622] text-white'
+                    : 'border border-stone-200 hover:bg-white text-stone-700'
+                }`}
+              >
+                {pageNum}
+              </button>
+            ))}
+
+            <button
+              type="button"
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+              disabled={safePage >= totalPages}
+              className="w-7 h-7 rounded-md border border-stone-200 hover:bg-white flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            >
+              &gt;
+            </button>
+          </div>
         </div>
       </section>
     </div>

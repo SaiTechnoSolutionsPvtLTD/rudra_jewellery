@@ -82,18 +82,17 @@ function Shell({ title, subtitle, children, actions }) {
 
       <nav className="bg-white border border-stone-200/90 rounded-2xl p-2.5 flex items-center gap-2.5 overflow-x-auto no-scrollbar shadow-2xs">
         {navItems.map(([label, path]) => {
-          const isActive = currentPath === path || 
+          const isActive = currentPath === path ||
             (path === '/sales/list' && (currentPath === '/sales' || currentPath === '/sales/'));
 
           return (
             <Link
               key={path}
               to={path}
-              className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all duration-150 cursor-pointer ${
-                isActive
+              className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all duration-150 cursor-pointer ${isActive
                   ? 'bg-[#b01622] text-white border-2 border-[#b01622] shadow-xs'
                   : 'bg-stone-50 text-stone-700 border border-stone-200 hover:bg-stone-100 hover:text-stone-900 hover:border-stone-300'
-              }`}
+                }`}
             >
               {label}
             </Link>
@@ -170,7 +169,7 @@ export default function SalesModule({ view = 'dashboard' }) {
           try {
             const stored = sessionStorage.getItem('lastGeneratedInvoice');
             if (stored) previewData = JSON.parse(stored);
-          } catch (e) {}
+          } catch (e) { }
         }
 
         if (previewData) {
@@ -183,8 +182,8 @@ export default function SalesModule({ view = 'dashboard' }) {
             const cleanId = String(id).toLowerCase().replaceAll('-', '').replaceAll(' ', '');
             const match = masterDemoSalesList.find(
               (item) => String(item.id) === String(id) ||
-                        item.invoice_no.toLowerCase().includes(String(id).toLowerCase()) ||
-                        item.invoice_no.toLowerCase().replaceAll('-', '').replaceAll(' ', '').includes(cleanId)
+                item.invoice_no.toLowerCase().includes(String(id).toLowerCase()) ||
+                item.invoice_no.toLowerCase().replaceAll('-', '').replaceAll(' ', '').includes(cleanId)
             );
             if (match) {
               setSale(match);
@@ -1339,11 +1338,10 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
                   key={pg}
                   type="button"
                   onClick={() => handlePageClick(pg)}
-                  className={`w-7 h-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors cursor-pointer ${
-                    currentPage === pg
+                  className={`w-7 h-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors cursor-pointer ${currentPage === pg
                       ? 'bg-[#b01622] text-white'
                       : 'border border-stone-200 hover:bg-stone-100 text-stone-700'
-                  }`}
+                    }`}
                 >
                   {pg}
                 </button>
@@ -1586,12 +1584,12 @@ function ProfitManagementReport({ sales, filters, setFilters, reload }) {
 
   const profitRows = rawList.length > 0
     ? rawList.map((row) => {
-        const rev = Number(row.total_amount || 0);
-        const cost = Number(row.cost_amount || (rev * 0.76));
-        const prof = Number(row.profit_amount || (rev - cost));
-        const mgn = rev > 0 ? ((prof / rev) * 100).toFixed(2) : '0.00';
-        return { ...row, total_amount: rev, cost_amount: cost, profit_amount: prof, margin: mgn };
-      })
+      const rev = Number(row.total_amount || 0);
+      const cost = Number(row.cost_amount || (rev * 0.76));
+      const prof = Number(row.profit_amount || (rev - cost));
+      const mgn = rev > 0 ? ((prof / rev) * 100).toFixed(2) : '0.00';
+      return { ...row, total_amount: rev, cost_amount: cost, profit_amount: prof, margin: mgn };
+    })
     : demoProfitRows;
 
   const totalRevenueSum = summary.revenue || profitRows.reduce((a, b) => a + Number(b.total_amount || 0), 0);
@@ -1919,14 +1917,112 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
   const [useNetWeight, setUseNetWeight] = useState(false);
   const [chargeType, setChargeType] = useState('Fixed Amount');
 
+  // Diamond Masters state & header dropdown
+  const [diamondMasters, setDiamondMasters] = useState([]);
+  const [showDiamondDropdown, setShowDiamondDropdown] = useState(false);
+  const [selectedDiamondIds, setSelectedDiamondIds] = useState([]);
+  const [diamondSearch, setDiamondSearch] = useState('');
+  const diamondDropdownRef = React.useRef(null);
+
+  useEffect(() => {
+    const fetchDiamondMasters = async () => {
+      try {
+        const res = await api.get('/diamond-ranges');
+        const list = res.data?.data || res.data || [];
+        if (Array.isArray(list) && list.length > 0) {
+          const formatted = list.map((d, i) => ({
+            id: String(d.id || d.code || i + 1),
+            code: d.code || `DIA-MSTR-0${i + 1}`,
+            name: d.name || d.description || `Diamond Range ${d.min_ct || 0}-${d.max_ct || 1}ct`,
+            carat_weight: Number(d.min_ct || 0.25) + (Number(d.max_ct || 0.5) - Number(d.min_ct || 0.25)) / 2 || 0.500,
+            price_per_carat: Number(d.rate || 45000),
+            description: d.description || `${d.min_ct || 0.1}-${d.max_ct || 1.0} ct Range`,
+          }));
+          setDiamondMasters(formatted);
+          return;
+        }
+      } catch (err) {
+        console.warn('Failed to fetch diamond ranges:', err);
+      }
+
+      setDiamondMasters([
+        { id: 'dm_1', code: 'DIA-VVS1-05', name: 'VVS1 Round Brilliant', carat_weight: 0.500, price_per_carat: 45000, description: 'Natural VVS1 Certified Diamond' },
+        { id: 'dm_2', code: 'DIA-VS1-10', name: 'VS1 Solitaire Cut', carat_weight: 1.000, price_per_carat: 85000, description: 'Premium Solitaire 1.0ct' },
+        { id: 'dm_3', code: 'DIA-SI1-075', name: 'SI1 Cushion Cut', carat_weight: 0.750, price_per_carat: 35000, description: 'Cushion Cut Fine Diamond' },
+        { id: 'dm_4', code: 'DIA-PRIN-035', name: 'Princess Cut Diamond', carat_weight: 0.350, price_per_carat: 25000, description: 'Square Princess Cut' },
+        { id: 'dm_5', code: 'DIA-POLKI-08', name: 'Uncut Polki Diamonds', carat_weight: 0.800, price_per_carat: 18000, description: 'Traditional Uncut Polki' },
+        { id: 'dm_6', code: 'DIA-EMER-12', name: 'Emerald Cut Diamond', carat_weight: 1.200, price_per_carat: 95000, description: 'Certified Emerald Cut' },
+        { id: 'dm_7', code: 'DIA-MARQ-06', name: 'Marquise Cut Diamond', carat_weight: 0.600, price_per_carat: 42000, description: 'Marquise Eye Cut' },
+        { id: 'dm_8', code: 'DIA-MELEE-025', name: 'Pave Melee Diamonds', carat_weight: 0.250, price_per_carat: 12000, description: 'Pave Setting Small Melee' },
+      ]);
+    };
+
+    fetchDiamondMasters();
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (diamondDropdownRef.current && !diamondDropdownRef.current.contains(e.target)) {
+        setShowDiamondDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleToggleDiamond = (id) => {
+    setSelectedDiamondIds((prev) => {
+      const isSelected = prev.includes(id);
+      const updated = isSelected ? prev.filter((x) => x !== id) : [...prev, id];
+
+      const selectedItems = diamondMasters.filter((dm) => updated.includes(dm.id));
+      const totalCarats = selectedItems.reduce((sum, dm) => sum + (Number(dm.carat_weight) || 0), 0);
+
+      setItems((currentItems) =>
+        currentItems.map((item) => {
+          if (updated.length === 0) {
+            const defaultDiamond = Math.round((Number(item.gross_wt || 0) * 0.1) * 1000) / 1000;
+            return { ...item, diamond: defaultDiamond };
+          }
+          const calcDiamond = Math.round((totalCarats * ((Number(item.gross_wt) || 5) / 10)) * 1000) / 1000;
+          return { ...item, diamond: calcDiamond > 0 ? calcDiamond : Math.round(totalCarats * 1000) / 1000 };
+        })
+      );
+
+      return updated;
+    });
+  };
+
+  const handleSelectAllDiamonds = () => {
+    const allIds = diamondMasters.map((dm) => dm.id);
+    setSelectedDiamondIds(allIds);
+    const totalCarats = diamondMasters.reduce((sum, dm) => sum + (Number(dm.carat_weight) || 0), 0);
+    setItems((currentItems) =>
+      currentItems.map((item) => ({
+        ...item,
+        diamond: Math.round((totalCarats * ((Number(item.gross_wt) || 5) / 10)) * 1000) / 1000,
+      }))
+    );
+  };
+
+  const handleClearAllDiamonds = () => {
+    setSelectedDiamondIds([]);
+    setItems((currentItems) =>
+      currentItems.map((item) => ({
+        ...item,
+        diamond: 0,
+      }))
+    );
+  };
+
   const [items, setItems] = useState([
-    { id: 1, code: 'GR-1024', desc: 'Gold Ring', gross_wt: 2.875, unit: 'Gm', qty: 2, purity: '-', diamond: 0.604, add_yr: 7238, wastage: 10.00, labour: 3500.00, hallmarking: 500.00, discount: 1000.00 },
-    { id: 2, code: 'BG-2058', desc: 'Gold Bangle', gross_wt: 15.125, unit: 'Gm', qty: 1, purity: '-', diamond: 1.512, add_yr: 7235, wastage: 10.00, labour: 12000.00, hallmarking: 500.00, discount: 2000.00 },
-    { id: 3, code: 'CH-3001', desc: 'Gold Chain', gross_wt: 10.250, unit: 'Gm', qty: 1, purity: '-', diamond: 1.025, add_yr: 7235, wastage: 10.00, labour: 8000.00, hallmarking: 500.00, discount: 1000.00 },
-    { id: 4, code: 'EJ-4102', desc: 'Gold Earrings', gross_wt: 4.350, unit: 'Pair', qty: 1, purity: '-', diamond: 0.435, add_yr: 7235, wastage: 10.00, labour: 2000.00, hallmarking: 500.00, discount: 500.00 },
-    { id: 5, code: 'PN-5123', desc: 'Gold Pendant', gross_wt: 3.200, unit: 'Gm', qty: 1, purity: '-', diamond: 0.320, add_yr: 7238, wastage: 10.00, labour: 2000.00, hallmarking: 500.00, discount: 500.00 },
-    { id: 6, code: 'BR-6231', desc: 'Gold Bracelet', gross_wt: 6.760, unit: 'Gm', qty: 1, purity: '-', diamond: 0.676, add_yr: 7235, wastage: 10.00, labour: 5000.00, hallmarking: 500.00, discount: 1000.00 },
-    { id: 7, code: 'RM-7345', desc: 'Gold Mangalsutra', gross_wt: 9.840, unit: 'Gm', qty: 1, purity: '-', diamond: 0.984, add_yr: 7235, wastage: 10.00, labour: 6000.00, hallmarking: 500.00, discount: 1000.00 },
+    { id: 1, code: 'GR-1024', desc: 'Gold Ring', gross_wt: 2.875, net_wt: 2.650, unit: 'Gm', qty: 2, purity: '22K', diamond: 0.604, add_yr: 7238, wastage: 10.00, labour: 3500.00, hallmarking: 500.00, discount: 1000.00 },
+    { id: 2, code: 'BG-2058', desc: 'Gold Bangle', gross_wt: 15.125, net_wt: 13.850, unit: 'Gm', qty: 1, purity: '22K', diamond: 1.512, add_yr: 7235, wastage: 10.00, labour: 12000.00, hallmarking: 500.00, discount: 2000.00 },
+    { id: 3, code: 'CH-3001', desc: 'Gold Chain', gross_wt: 10.250, net_wt: 9.250, unit: 'Gm', qty: 1, purity: '22K', diamond: 1.025, add_yr: 7235, wastage: 10.00, labour: 8000.00, hallmarking: 500.00, discount: 1000.00 },
+    { id: 4, code: 'EJ-4102', desc: 'Gold Earrings', gross_wt: 4.350, net_wt: 3.800, unit: 'Pair', qty: 1, purity: '22K', diamond: 0.435, add_yr: 7235, wastage: 10.00, labour: 2000.00, hallmarking: 500.00, discount: 500.00 },
+    { id: 5, code: 'PN-5123', desc: 'Gold Pendant', gross_wt: 3.200, net_wt: 2.900, unit: 'Gm', qty: 1, purity: '22K', diamond: 0.320, add_yr: 7238, wastage: 10.00, labour: 2000.00, hallmarking: 500.00, discount: 500.00 },
+    { id: 6, code: 'BR-6231', desc: 'Gold Bracelet', gross_wt: 6.760, net_wt: 6.100, unit: 'Gm', qty: 1, purity: '22K', diamond: 0.676, add_yr: 7235, wastage: 10.00, labour: 5000.00, hallmarking: 500.00, discount: 1000.00 },
+    { id: 7, code: 'RM-7345', desc: 'Gold Mangalsutra', gross_wt: 9.840, net_wt: 9.140, unit: 'Gm', qty: 1, purity: '22K', diamond: 0.984, add_yr: 7235, wastage: 10.00, labour: 6000.00, hallmarking: 500.00, discount: 1000.00 },
   ]);
 
   const [amountReceived, setAmountReceived] = useState(500000.00);
@@ -1948,9 +2044,10 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
         code: `RJ-${1000 + nextId}`,
         desc: 'Gold Ornament',
         gross_wt: 5.000,
+        net_wt: 4.500,
         unit: 'Gm',
         qty: 1,
-        purity: '-',
+        purity: '91.6%',
         diamond: 0.500,
         add_yr: 7235,
         wastage: 10.00,
@@ -1959,6 +2056,42 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
         discount: 500.00,
       }
     ]);
+  };
+
+  const getCustomerPriceListRate = (desc, type) => {
+    const text = String(desc || '').toLowerCase();
+    if (text.includes('ring')) {
+      return type === 'Per Piece' ? 1750 : type === 'Per Weight' ? 650 : 3500;
+    }
+    if (text.includes('bangle')) {
+      return type === 'Per Piece' ? 6000 : type === 'Per Weight' ? 500 : 12000;
+    }
+    if (text.includes('chain')) {
+      return type === 'Per Piece' ? 4000 : type === 'Per Weight' ? 450 : 8000;
+    }
+    if (text.includes('earring') || text.includes('jhumka') || text.includes('stud')) {
+      return type === 'Per Piece' ? 2000 : type === 'Per Weight' ? 600 : 2000;
+    }
+    if (text.includes('pendant')) {
+      return type === 'Per Piece' ? 2000 : type === 'Per Weight' ? 600 : 2000;
+    }
+    if (text.includes('bracelet')) {
+      return type === 'Per Piece' ? 5000 : type === 'Per Weight' ? 550 : 5000;
+    }
+    if (text.includes('mangalsutra') || text.includes('haram') || text.includes('necklace')) {
+      return type === 'Per Piece' ? 6000 : type === 'Per Weight' ? 700 : 6000;
+    }
+    return type === 'Per Piece' ? 2500 : type === 'Per Weight' ? 500 : 3000;
+  };
+
+  const handleChargeTypeChange = (newType) => {
+    setChargeType(newType);
+    setItems((prevItems) =>
+      prevItems.map((item) => ({
+        ...item,
+        labour: getCustomerPriceListRate(item.desc, newType),
+      }))
+    );
   };
 
   const removeItemRow = (index) => {
@@ -1974,22 +2107,33 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
 
     items.forEach((item) => {
       const gWt = Number(item.gross_wt || 0);
+      const nWt = Number((item.net_wt ?? item.gross_wt) || 0);
+      const effectiveWt = useNetWeight ? nWt : gWt;
       const qty = Number(item.qty || 1);
       const rate = Number(item.add_yr || 7235);
       const wastagePct = Number(item.wastage || 0);
-      const labour = Number(item.labour || 0);
+      const baseLabour = Number(item.labour || 0);
       const hallmarking = Number(item.hallmarking || 0);
       const disc = Number(item.discount || 0);
       const diamondWt = Number(item.diamond || 0);
 
-      const goldVal = gWt * qty * rate * (1 + wastagePct / 100);
+      let effectiveLabour = baseLabour;
+      if (chargeType === 'Per Piece') {
+        effectiveLabour = baseLabour * qty;
+      } else if (chargeType === 'Per Weight') {
+        effectiveLabour = baseLabour * effectiveWt;
+      } else {
+        effectiveLabour = baseLabour;
+      }
+
+      const goldVal = effectiveWt * qty * rate * (1 + wastagePct / 100);
       calcGoldValue += goldVal;
-      calcMakingCharges += (labour + hallmarking);
+      calcMakingCharges += (effectiveLabour + hallmarking);
       calcStoneCharges += (diamondWt * 50000);
       calcDiscount += disc;
     });
 
-    const isDefault = items.length === 7 && items[0].code === 'GR-1024';
+    const isDefault = items.length === 7 && items[0].code === 'GR-1024' && !useNetWeight && chargeType === 'Fixed Amount';
 
     const goldValue = isDefault ? 481291.75 : Math.round(calcGoldValue * 100) / 100;
     const makingCharges = isDefault ? 34200.00 : Math.round(calcMakingCharges * 100) / 100;
@@ -2013,7 +2157,7 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
       grandTotal,
       balanceDue,
     };
-  }, [items, amountReceived]);
+  }, [items, amountReceived, useNetWeight, chargeType]);
 
   const handleSaveInvoice = async (isDraft = false) => {
     try {
@@ -2039,7 +2183,7 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
 
       try {
         sessionStorage.setItem('lastGeneratedInvoice', JSON.stringify(generatedInvoice));
-      } catch (err) {}
+      } catch (err) { }
 
       showToast?.(
         isDraft
@@ -2110,15 +2254,15 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
               />
             </div>
 
-            <div>
+            <div className="sm:col-span-2">
               <label className="block text-[11px] font-semibold text-stone-600 mb-1">
                 Address
               </label>
               <textarea
-                rows="2"
+                rows="4"
                 value={customer.address}
                 onChange={(e) => setCustomer({ ...customer, address: e.target.value })}
-                className="w-full border border-stone-300 rounded-lg p-2.5 text-xs text-stone-800 focus:outline-hidden focus:border-[#b01622] resize-none"
+                className="w-full border border-stone-300 rounded-lg p-2.5 text-xs text-stone-800 focus:outline-hidden focus:border-[#b01622] leading-relaxed"
               />
             </div>
 
@@ -2268,7 +2412,7 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                   name="chargeType"
                   value="Per Piece"
                   checked={chargeType === 'Per Piece'}
-                  onChange={(e) => setChargeType(e.target.value)}
+                  onChange={(e) => handleChargeTypeChange(e.target.value)}
                   className="w-3.5 h-3.5 text-[#b01622] accent-[#b01622]"
                 />
                 <span>Per Piece</span>
@@ -2279,7 +2423,7 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                   name="chargeType"
                   value="Per Weight"
                   checked={chargeType === 'Per Weight'}
-                  onChange={(e) => setChargeType(e.target.value)}
+                  onChange={(e) => handleChargeTypeChange(e.target.value)}
                   className="w-3.5 h-3.5 text-[#b01622] accent-[#b01622]"
                 />
                 <span>Per Weight</span>
@@ -2290,7 +2434,7 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                   name="chargeType"
                   value="Fixed Amount"
                   checked={chargeType === 'Fixed Amount'}
-                  onChange={(e) => setChargeType(e.target.value)}
+                  onChange={(e) => handleChargeTypeChange(e.target.value)}
                   className="w-3.5 h-3.5 text-[#b01622] accent-[#b01622]"
                 />
                 <span>Fixed Amount</span>
@@ -2308,13 +2452,126 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                 <th className="p-2.5">Product Code</th>
                 <th className="p-2.5">Product Description</th>
                 <th className="p-2.5 text-center">Gross Wt. (g)</th>
+                {useNetWeight && (
+                  <th className="p-2.5 text-center bg-red-50/60 text-[#b01622] font-bold border-x border-red-200/50">Net Wt. (g)</th>
+                )}
                 <th className="p-2.5 text-center">Unit</th>
                 <th className="p-2.5 text-center">QTY</th>
                 <th className="p-2.5 text-center">Purity %</th>
-                <th className="p-2.5 text-center">Diamond</th>
-                <th className="p-2.5 text-right">Add Yr</th>
+                <th className="p-2.5 text-center relative select-none" ref={diamondDropdownRef}>
+                  <button
+                    type="button"
+                    onClick={() => setShowDiamondDropdown((prev) => !prev)}
+                    className="inline-flex items-center gap-1.5 px-2 py-1 bg-white hover:bg-stone-100 border border-stone-200 rounded-md font-bold text-stone-800 text-xs shadow-2xs cursor-pointer transition-colors"
+                    title="Click to view & select Diamonds from Masters"
+                  >
+                    <span>Diamond</span>
+                    {selectedDiamondIds.length > 0 && (
+                      <span className="bg-[#b01622] text-white text-[9.5px] px-1.5 py-0.2 rounded-full font-bold">
+                        {selectedDiamondIds.length}
+                      </span>
+                    )}
+                    <i className={`fa-solid fa-chevron-down text-[9.5px] transition-transform ${showDiamondDropdown ? 'rotate-180 text-[#b01622]' : 'text-stone-400'}`}></i>
+                  </button>
+
+                  {/* Master Diamonds Checkbox Dropdown */}
+                  {showDiamondDropdown && (
+                    <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1.5 w-84 bg-white rounded-xl shadow-2xl border border-stone-200 p-3.5 z-50 text-left font-normal animate-in fade-in zoom-in-95 duration-100">
+                      <div className="flex items-center justify-between pb-2 mb-2 border-b border-stone-100">
+                        <div className="flex items-center gap-1.5">
+                          <i className="fa-solid fa-gem text-xs text-[#b01622]"></i>
+                          <span className="font-bold text-xs text-stone-900">Select Diamonds (Masters)</span>
+                        </div>
+                        <span className="text-[10px] text-stone-400 font-medium">{diamondMasters.length} items</span>
+                      </div>
+
+                      {/* Search Bar */}
+                      <div className="relative mb-2">
+                        <input
+                          type="text"
+                          value={diamondSearch}
+                          onChange={(e) => setDiamondSearch(e.target.value)}
+                          placeholder="Search diamond master..."
+                          className="w-full pl-7 pr-3 py-1.5 text-xs bg-stone-50 border border-stone-200 rounded-lg focus:outline-hidden focus:border-[#b01622]"
+                        />
+                        <i className="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-[10px] text-stone-400"></i>
+                      </div>
+
+                      {/* Select / Clear All buttons */}
+                      <div className="flex items-center justify-between text-[11px] mb-2 px-1">
+                        <button
+                          type="button"
+                          onClick={handleSelectAllDiamonds}
+                          className="text-[#b01622] hover:underline font-bold cursor-pointer"
+                        >
+                          Select All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleClearAllDiamonds}
+                          className="text-stone-500 hover:text-stone-800 font-medium cursor-pointer"
+                        >
+                          Clear All
+                        </button>
+                      </div>
+
+                      {/* Master Diamonds Checkbox List */}
+                      <div className="max-h-56 overflow-y-auto divide-y divide-stone-100 border border-stone-100 rounded-lg p-1 space-y-1">
+                        {diamondMasters
+                          .filter((dm) =>
+                            dm.name.toLowerCase().includes(diamondSearch.toLowerCase()) ||
+                            dm.code.toLowerCase().includes(diamondSearch.toLowerCase())
+                          )
+                          .map((dm) => {
+                            const isChecked = selectedDiamondIds.includes(dm.id);
+                            return (
+                              <label
+                                key={dm.id}
+                                className={`flex items-start gap-2.5 p-2 rounded-lg hover:bg-stone-50 cursor-pointer transition-colors ${isChecked ? 'bg-red-50/50' : ''
+                                  }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => handleToggleDiamond(dm.id)}
+                                  className="mt-0.5 w-3.5 h-3.5 rounded text-[#b01622] accent-[#b01622] cursor-pointer"
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span className="font-bold text-xs text-stone-900 truncate">{dm.name}</span>
+                                    <span className="font-mono text-[10px] font-bold text-[#b01622]">{dm.carat_weight.toFixed(3)} ct</span>
+                                  </div>
+                                  <div className="flex items-center justify-between text-[10px] text-stone-500 mt-0.5">
+                                    <span>{dm.code}</span>
+                                    <span>₹{dm.price_per_carat.toLocaleString('en-IN')}/ct</span>
+                                  </div>
+                                </div>
+                              </label>
+                            );
+                          })}
+                      </div>
+
+                      {/* Footer Info */}
+                      <div className="mt-3 pt-2 border-t border-stone-100 flex items-center justify-between text-[10.5px]">
+                        <span className="text-stone-400">
+                          Selected: <strong className="text-stone-800 font-mono">{selectedDiamondIds.length}</strong> items
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowDiamondDropdown(false)}
+                          className="px-3 py-1 bg-[#b01622] hover:bg-[#8f1019] text-white text-xs font-bold rounded-lg cursor-pointer"
+                        >
+                          Apply Selection
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </th>
+                <th className="p-2.5 text-right">Gold Rate (₹)</th>
                 <th className="p-2.5 text-center">Wastage %</th>
-                <th className="p-2.5 text-right">Labour (₹)</th>
+                <th className="p-2.5 text-right font-semibold">
+                  {chargeType === 'Per Piece' ? 'Labour (₹/pc)' : chargeType === 'Per Weight' ? 'Labour (₹/g)' : 'Labour (₹)'}
+                </th>
                 <th className="p-2.5 text-right">Hallmarking (₹)</th>
                 <th className="p-2.5 text-right">Discount (₹)</th>
                 <th className="p-2.5 text-right text-[#b01622]">Total MC</th>
@@ -2323,6 +2580,28 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
             </thead>
             <tbody className="divide-y divide-stone-200 bg-white">
               {items.map((item, idx) => {
+                const gWt = Number(item.gross_wt || 0);
+                const nWt = Number((item.net_wt ?? item.gross_wt) || 0);
+                const effectiveWt = useNetWeight ? nWt : gWt;
+                const qty = Number(item.qty || 1);
+                const rate = Number(item.add_yr || 7235);
+                const wastagePct = Number(item.wastage || 0);
+                const baseLabour = Number(item.labour || 0);
+                const hallmarking = Number(item.hallmarking || 0);
+                const disc = Number(item.discount || 0);
+                const diamondWt = Number(item.diamond || 0);
+
+                let effectiveLabour = baseLabour;
+                if (chargeType === 'Per Piece') {
+                  effectiveLabour = baseLabour * qty;
+                } else if (chargeType === 'Per Weight') {
+                  effectiveLabour = baseLabour * effectiveWt;
+                }
+
+                const goldVal = effectiveWt * qty * rate * (1 + wastagePct / 100);
+                const stoneVal = diamondWt * 50000;
+                const rowTotal = Math.max(0, goldVal + effectiveLabour + hallmarking + stoneVal - disc);
+
                 return (
                   <tr key={item.id || idx} className="hover:bg-stone-50/70">
                     <td className="p-2.5 text-center font-mono text-stone-500">{idx + 1}</td>
@@ -2339,6 +2618,17 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                         className="w-16 text-center border border-stone-200 rounded p-1 text-xs focus:outline-hidden focus:border-[#b01622]"
                       />
                     </td>
+                    {useNetWeight && (
+                      <td className="p-2.5 text-center bg-red-50/20 border-x border-red-100">
+                        <input
+                          type="number"
+                          step="0.001"
+                          value={item.net_wt ?? item.gross_wt}
+                          onChange={(e) => updateItem(idx, 'net_wt', e.target.value)}
+                          className="w-16 text-center border border-red-200 bg-white rounded p-1 text-xs font-mono font-bold text-[#b01622] focus:outline-hidden focus:border-[#b01622]"
+                        />
+                      </td>
+                    )}
                     <td className="p-2.5 text-center text-stone-600 font-medium">{item.unit}</td>
                     <td className="p-2.5 text-center">
                       <input
@@ -2349,15 +2639,42 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                         className="w-12 text-center border border-stone-200 rounded p-1 text-xs focus:outline-hidden focus:border-[#b01622]"
                       />
                     </td>
-                    <td className="p-2.5 text-center text-stone-500">{item.purity}</td>
-                    <td className="p-2.5 text-center font-mono text-stone-700">{item.diamond ? Number(item.diamond).toFixed(3) : '-'}</td>
+                    <td className="p-2.5 text-center">
+                      <select
+                        value={item.purity && item.purity !== '-' ? item.purity : '22K'}
+                        onChange={(e) => updateItem(idx, 'purity', e.target.value)}
+                        className="w-20 text-center border border-stone-200 rounded p-1 text-xs font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622] bg-white cursor-pointer"
+                      >
+                        <option value="22K">22K</option>
+                        <option value="24K">24K</option>
+                        <option value="18K">18K</option>
+                        <option value="14K">14K</option>
+                      </select>
+                    </td>
+                    <td className="p-2.5 text-center">
+                      <input
+                        type="number"
+                        step="0.001"
+                        value={item.diamond}
+                        onChange={(e) => updateItem(idx, 'diamond', e.target.value)}
+                        className="w-16 text-center border border-stone-200 rounded p-1 text-xs font-mono font-bold text-stone-800 focus:outline-hidden focus:border-[#b01622]"
+                      />
+                    </td>
                     <td className="p-2.5 text-right font-mono text-stone-700">{Number(item.add_yr).toLocaleString('en-IN')}</td>
                     <td className="p-2.5 text-center font-mono text-stone-700">{Number(item.wastage).toFixed(2)}</td>
-                    <td className="p-2.5 text-right font-mono text-stone-700">{Number(item.labour).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                    <td className="p-2.5 text-right font-mono text-stone-700">
+                      <input
+                        type="number"
+                        step="1"
+                        value={item.labour}
+                        onChange={(e) => updateItem(idx, 'labour', e.target.value)}
+                        className="w-20 text-right border border-stone-200 rounded p-1 text-xs font-mono font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622]"
+                      />
+                    </td>
                     <td className="p-2.5 text-right font-mono text-stone-700">{Number(item.hallmarking).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                     <td className="p-2.5 text-right font-mono text-red-600">{Number(item.discount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                     <td className="p-2.5 text-right font-mono font-bold text-[#b01622]">
-                      45,586.00
+                      {rowTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                     <td className="p-2.5 text-center">
                       <button
@@ -2573,7 +2890,7 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
               date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
               time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
             });
-          }).catch(() => {});
+          }).catch(() => { });
           return 45;
         }
         return prev - 1;
@@ -2703,6 +3020,14 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
     { id: 102, code: 'DM-CH-102', name: 'Diamond Tennis Necklace', shape: 'Round Brilliant', carat_wt: 4.50, clarity: 'VS1 / G-H', rate_per_ct: 95000, gold_wt: 18.200, approx_price: 546000 },
     { id: 103, code: 'DM-BNG-103', name: 'Diamond Eternity Bangle', shape: 'Princess Cut', carat_wt: 2.20, clarity: 'VVS2 / F-G', rate_per_ct: 110000, gold_wt: 14.800, approx_price: 338500 },
     { id: 104, code: 'DM-EAR-104', name: 'Halo Diamond Studs', shape: 'Oval Cut', carat_wt: 1.10, clarity: 'VS2 / G-H', rate_per_ct: 88000, gold_wt: 4.100, approx_price: 123800 },
+    { id: 105, code: 'DM-PND-105', name: 'Solitaire Heart Pendant', shape: 'Heart Cut', carat_wt: 1.00, clarity: 'VVS1 / E-F', rate_per_ct: 155000, gold_wt: 2.800, approx_price: 191500 },
+    { id: 106, code: 'DM-RNG-106', name: 'Emerald Cut Diamond Ring', shape: 'Emerald Cut', carat_wt: 1.50, clarity: 'VVS2 / E-F', rate_per_ct: 130000, gold_wt: 4.200, approx_price: 250600 },
+    { id: 107, code: 'DM-BRC-107', name: 'Fancy Pear Diamond Bracelet', shape: 'Pear Cut', carat_wt: 3.10, clarity: 'VS1 / G-H', rate_per_ct: 102000, gold_wt: 12.500, approx_price: 479200 },
+    { id: 108, code: 'DM-EAR-108', name: 'Cluster Cushion Earrings', shape: 'Cushion Cut', carat_wt: 1.80, clarity: 'SI1 / I-J', rate_per_ct: 75000, gold_wt: 5.600, approx_price: 208000 },
+    { id: 109, code: 'DM-RNG-109', name: 'Marquise Halo Cocktail Ring', shape: 'Marquise Cut', carat_wt: 1.25, clarity: 'VS2 / G-H', rate_per_ct: 98000, gold_wt: 5.100, approx_price: 189000 },
+    { id: 110, code: 'DM-NKL-110', name: 'Bridal Diamond Choker', shape: 'Round Brilliant', carat_wt: 8.50, clarity: 'VVS2 / F-G', rate_per_ct: 120000, gold_wt: 35.000, approx_price: 1485000 },
+    { id: 111, code: 'DM-BNG-111', name: 'Single Line Diamond Kada', shape: 'Princess Cut', carat_wt: 3.50, clarity: 'VS1 / G-H', rate_per_ct: 92000, gold_wt: 22.000, approx_price: 615000 },
+    { id: 112, code: 'DM-PND-112', name: 'Floral Diamond Cluster Drop', shape: 'Round Brilliant', carat_wt: 0.85, clarity: 'SI1 / I-J', rate_per_ct: 78000, gold_wt: 3.100, approx_price: 107500 },
   ]);
 
   // Color Stone Dataset
@@ -2710,6 +3035,13 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
     { id: 201, name: 'Burmese Pigeon Blood Ruby', type: 'Ruby (Manik)', shape: 'Oval Cut', carat_wt: 3.25, cert: 'GIA Certified', origin: 'Myanmar (Burma)', rate_per_ct: 42000 },
     { id: 202, name: 'Zambian Emerald Deep Green', type: 'Emerald (Panna)', shape: 'Emerald Cut', carat_wt: 4.10, cert: 'IGI Certified', origin: 'Zambia', rate_per_ct: 35000 },
     { id: 203, name: 'Ceylon Royal Blue Sapphire', type: 'Blue Sapphire (Neelam)', shape: 'Cushion Cut', carat_wt: 2.80, cert: 'GSI Certified', origin: 'Sri Lanka', rate_per_ct: 48000 },
+    { id: 204, name: 'Yellow Sapphire Kanakapushparagam', type: 'Yellow Sapphire (Pukhraj)', shape: 'Round Cut', carat_wt: 5.15, cert: 'Lab Certified', origin: 'Sri Lanka', rate_per_ct: 28000 },
+    { id: 205, name: 'Natural Red Coral Italian', type: 'Coral (Moonga)', shape: 'Cabochon', carat_wt: 8.50, cert: 'Lab Certified', origin: 'Italy', rate_per_ct: 6500 },
+    { id: 206, name: 'Chrysoberyl Cat\'s Eye', type: 'Cat\'s Eye (Lehsuniya)', shape: 'Cabochon', carat_wt: 4.20, cert: 'IGI Certified', origin: 'India', rate_per_ct: 12500 },
+    { id: 207, name: 'South Sea Cultured Pearl', type: 'Pearl (Moti)', shape: 'Round Cut', carat_wt: 10.00, cert: 'Lab Certified', origin: 'Australia', rate_per_ct: 4500 },
+    { id: 208, name: 'Hessonite Garnet Sri Lankan', type: 'Hessonite (Gomed)', shape: 'Oval Cut', carat_wt: 6.30, cert: 'Lab Certified', origin: 'Sri Lanka', rate_per_ct: 8500 },
+    { id: 209, name: 'Natural Tanzanite Deep Violet', type: 'Tanzanite', shape: 'Pear Cut', carat_wt: 3.80, cert: 'GIA Certified', origin: 'Tanzania', rate_per_ct: 32000 },
+    { id: 210, name: 'Australian Opal Iridescent', type: 'Opal', shape: 'Oval Cut', carat_wt: 5.50, cert: 'Lab Certified', origin: 'Australia', rate_per_ct: 9500 },
   ]);
 
   // Making Charges Matrix Dataset
@@ -2719,6 +3051,13 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
     { category: 'Bangle', plain: 500, studded: 700, antique: 850, kundan: 1000, min_piece: 2000 },
     { category: 'Pendant', plain: 600, studded: 800, antique: 900, kundan: 1050, min_piece: 1400 },
     { category: 'Earrings', plain: 600, studded: 800, antique: 950, kundan: 1150, min_piece: 1600 },
+    { category: 'Necklace', plain: 800, studded: 1000, antique: 1200, kundan: 1400, min_piece: 3500 },
+    { category: 'Haram', plain: 900, studded: 1150, antique: 1350, kundan: 1600, min_piece: 5000 },
+    { category: 'Jhumka', plain: 650, studded: 850, antique: 1000, kundan: 1200, min_piece: 1800 },
+    { category: 'Bracelet', plain: 550, studded: 750, antique: 900, kundan: 1050, min_piece: 2200 },
+    { category: 'Kada', plain: 600, studded: 800, antique: 950, kundan: 1100, min_piece: 2500 },
+    { category: 'Mangalsutra', plain: 700, studded: 900, antique: 1050, kundan: 1250, min_piece: 2800 },
+    { category: 'Choker', plain: 950, studded: 1200, antique: 1400, kundan: 1700, min_piece: 6000 },
   ]);
 
   // Calculate Total Price (Approx) function with customer discount support
@@ -2889,7 +3228,7 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Live_Price_List_${new Date().toISOString().slice(0,10)}.csv`;
+    a.download = `Live_Price_List_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     showToast?.('Exported live price list as CSV.', 'success');
   };
@@ -2907,7 +3246,7 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
     return true;
   });
 
-  // Interactive Pagination Logic
+  // Interactive Pagination Logic for Gold Jewellery
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
@@ -2920,6 +3259,53 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
   const paginatedItems = filteredItems.slice((validCurrentPage - 1) * itemsPerPage, validCurrentPage * itemsPerPage);
   const displayStart = filteredItems.length > 0 ? (validCurrentPage - 1) * itemsPerPage + 1 : 0;
   const displayEnd = Math.min(validCurrentPage * itemsPerPage, filteredItems.length);
+
+  // Interactive Pagination Logic for Diamond Jewellery
+  const [diamondPage, setDiamondPage] = useState(1);
+  const [diamondSearch, setDiamondSearch] = useState('');
+  const diamondItemsPerPage = 5;
+
+  const filteredDiamondItems = diamondItems.filter((item) => {
+    if (!diamondSearch) return true;
+    const q = diamondSearch.toLowerCase();
+    return item.name.toLowerCase().includes(q) || item.code.toLowerCase().includes(q) || item.shape.toLowerCase().includes(q) || item.clarity.toLowerCase().includes(q);
+  });
+  const totalDiamondPages = Math.max(1, Math.ceil(filteredDiamondItems.length / diamondItemsPerPage));
+  const validDiamondPage = Math.min(diamondPage, totalDiamondPages);
+  const paginatedDiamondItems = filteredDiamondItems.slice((validDiamondPage - 1) * diamondItemsPerPage, validDiamondPage * diamondItemsPerPage);
+  const displayDiamondStart = filteredDiamondItems.length > 0 ? (validDiamondPage - 1) * diamondItemsPerPage + 1 : 0;
+  const displayDiamondEnd = Math.min(validDiamondPage * diamondItemsPerPage, filteredDiamondItems.length);
+
+  // Interactive Pagination Logic for Color Stone
+  const [stonePage, setStonePage] = useState(1);
+  const [stoneSearch, setStoneSearch] = useState('');
+  const stoneItemsPerPage = 5;
+
+  const filteredStoneItems = stoneItems.filter((item) => {
+    if (!stoneSearch) return true;
+    const q = stoneSearch.toLowerCase();
+    return item.name.toLowerCase().includes(q) || item.type.toLowerCase().includes(q) || item.shape.toLowerCase().includes(q) || item.origin.toLowerCase().includes(q);
+  });
+  const totalStonePages = Math.max(1, Math.ceil(filteredStoneItems.length / stoneItemsPerPage));
+  const validStonePage = Math.min(stonePage, totalStonePages);
+  const paginatedStoneItems = filteredStoneItems.slice((validStonePage - 1) * stoneItemsPerPage, validStonePage * stoneItemsPerPage);
+  const displayStoneStart = filteredStoneItems.length > 0 ? (validStonePage - 1) * stoneItemsPerPage + 1 : 0;
+  const displayStoneEnd = Math.min(validStonePage * stoneItemsPerPage, filteredStoneItems.length);
+
+  // Interactive Pagination Logic for Making Charges
+  const [makingPage, setMakingPage] = useState(1);
+  const [makingSearch, setMakingSearch] = useState('');
+  const makingItemsPerPage = 5;
+
+  const filteredMakingItems = makingChargeMatrix.filter((item) => {
+    if (!makingSearch) return true;
+    return item.category.toLowerCase().includes(makingSearch.toLowerCase());
+  });
+  const totalMakingPages = Math.max(1, Math.ceil(filteredMakingItems.length / makingItemsPerPage));
+  const validMakingPage = Math.min(makingPage, totalMakingPages);
+  const paginatedMakingItems = filteredMakingItems.slice((validMakingPage - 1) * makingItemsPerPage, validMakingPage * makingItemsPerPage);
+  const displayMakingStart = filteredMakingItems.length > 0 ? (validMakingPage - 1) * makingItemsPerPage + 1 : 0;
+  const displayMakingEnd = Math.min(validMakingPage * makingItemsPerPage, filteredMakingItems.length);
 
   return (
     <div className="w-full pb-16 space-y-5 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif] text-stone-800">
@@ -3013,8 +3399,8 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                 {(newItem.item_group === 'Diamond Jewellery'
                   ? DIAMOND_CATEGORIES
                   : newItem.item_group === 'Color Stone'
-                  ? COLOR_STONE_CATEGORIES
-                  : GOLD_CATEGORIES
+                    ? COLOR_STONE_CATEGORIES
+                    : GOLD_CATEGORIES
                 ).map((cat) => (
                   <option key={cat} value={cat}>
                     {cat}
@@ -3278,8 +3664,8 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                 {newItem.item_group === 'Diamond Jewellery'
                   ? formatCurrency(Math.round((parseFloat(newItem.carat_wt) || 0) * (parseFloat(newItem.rate_per_ct) || 0) + (parseFloat(newItem.gold_wt) || 0) * rate22k))
                   : newItem.item_group === 'Color Stone'
-                  ? formatCurrency(Math.round((parseFloat(newItem.carat_wt) || 0) * (parseFloat(newItem.rate_per_ct) || 0)))
-                  : formatCurrency(calculateTotalPrice(parseFloat(newItem.weight) || 0, parseFloat(newItem.gold_rate) || rate22k, parseFloat(newItem.making_charge) || 0, parseFloat(newItem.wastage) || 0))
+                    ? formatCurrency(Math.round((parseFloat(newItem.carat_wt) || 0) * (parseFloat(newItem.rate_per_ct) || 0)))
+                    : formatCurrency(calculateTotalPrice(parseFloat(newItem.weight) || 0, parseFloat(newItem.gold_rate) || rate22k, parseFloat(newItem.making_charge) || 0, parseFloat(newItem.wastage) || 0))
                 }
               </strong>
             </div>
@@ -3437,9 +3823,8 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
             key={tab}
             type="button"
             onClick={() => setActiveTab(tab)}
-            className={`px-5 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
-              activeTab === tab ? 'bg-[#b01622] text-white shadow-2xs' : 'text-stone-600 hover:bg-stone-50 hover:text-stone-900'
-            }`}
+            className={`px-5 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${activeTab === tab ? 'bg-[#b01622] text-white shadow-2xs' : 'text-stone-600 hover:bg-stone-50 hover:text-stone-900'
+              }`}
           >
             {tab}
           </button>
@@ -3541,11 +3926,10 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                 type="button"
                 disabled={validCurrentPage === 1}
                 onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs transition-all ${
-                  validCurrentPage === 1
+                className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs transition-all ${validCurrentPage === 1
                     ? 'border-stone-200 text-stone-300 cursor-not-allowed'
                     : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
-                }`}
+                  }`}
               >
                 <i className="fa-solid fa-chevron-left text-[10px]"></i>
               </button>
@@ -3554,11 +3938,10 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                   key={pg}
                   type="button"
                   onClick={() => setCurrentPage(pg)}
-                  className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs font-bold transition-all cursor-pointer ${
-                    validCurrentPage === pg
+                  className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs font-bold transition-all cursor-pointer ${validCurrentPage === pg
                       ? 'bg-red-50 text-[#b01622] border-red-200 shadow-2xs'
                       : 'border-stone-200 text-stone-600 hover:bg-stone-50'
-                  }`}
+                    }`}
                 >
                   {pg}
                 </button>
@@ -3567,11 +3950,10 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                 type="button"
                 disabled={validCurrentPage === totalPages}
                 onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs transition-all ${
-                  validCurrentPage === totalPages
+                className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs transition-all ${validCurrentPage === totalPages
                     ? 'border-stone-200 text-stone-300 cursor-not-allowed'
                     : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
-                }`}
+                  }`}
               >
                 <i className="fa-solid fa-chevron-right text-[10px]"></i>
               </button>
@@ -3583,9 +3965,20 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
       {/* TAB 2: DIAMOND JEWELLERY */}
       {activeTab === 'Diamond Jewellery' && (
         <div className="bg-white border border-stone-200 rounded-2xl shadow-2xs overflow-hidden p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-sm text-stone-900">Certified Diamond Rate Chart</h3>
-            <span className="text-xs text-stone-500">VVS-EF / VS-GH Diamonds</span>
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-b border-stone-100 pb-3">
+            <div>
+              <h3 className="font-bold text-sm text-stone-900">Certified Diamond Rate Chart ({filteredDiamondItems.length})</h3>
+              <span className="text-xs text-stone-500">VVS-EF / VS-GH Diamonds</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={diamondSearch}
+                onChange={(e) => { setDiamondSearch(e.target.value); setDiamondPage(1); }}
+                placeholder="Search code, shape, clarity..."
+                className="px-3 py-1.5 border border-stone-200 rounded-xl text-xs font-medium text-stone-700 focus:outline-hidden focus:border-[#b01622]"
+              />
+            </div>
           </div>
 
           <div className="overflow-x-auto border border-stone-200 rounded-xl">
@@ -3604,7 +3997,7 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {diamondItems.map((item) => (
+                {paginatedDiamondItems.map((item) => (
                   <tr key={item.id} className="hover:bg-amber-50/20">
                     <td className="p-3 font-mono text-stone-500">{item.code}</td>
                     <td className="p-3 font-bold text-stone-900">{item.name}</td>
@@ -3628,15 +4021,67 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
               </tbody>
             </table>
           </div>
+
+          <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-stone-500">
+            <div>Showing {displayDiamondStart} to {displayDiamondEnd} of {filteredDiamondItems.length} items</div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                disabled={validDiamondPage === 1}
+                onClick={() => setDiamondPage((prev) => Math.max(1, prev - 1))}
+                className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs transition-all ${validDiamondPage === 1
+                    ? 'border-stone-200 text-stone-300 cursor-not-allowed'
+                    : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
+                  }`}
+              >
+                <i className="fa-solid fa-chevron-left text-[10px]"></i>
+              </button>
+              {Array.from({ length: totalDiamondPages }, (_, i) => i + 1).map((pg) => (
+                <button
+                  key={pg}
+                  type="button"
+                  onClick={() => setDiamondPage(pg)}
+                  className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs font-bold transition-all cursor-pointer ${validDiamondPage === pg
+                      ? 'bg-red-50 text-[#b01622] border-red-200 shadow-2xs'
+                      : 'border-stone-200 text-stone-600 hover:bg-stone-50'
+                    }`}
+                >
+                  {pg}
+                </button>
+              ))}
+              <button
+                type="button"
+                disabled={validDiamondPage === totalDiamondPages}
+                onClick={() => setDiamondPage((prev) => Math.min(totalDiamondPages, prev + 1))}
+                className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs transition-all ${validDiamondPage === totalDiamondPages
+                    ? 'border-stone-200 text-stone-300 cursor-not-allowed'
+                    : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
+                  }`}
+              >
+                <i className="fa-solid fa-chevron-right text-[10px]"></i>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
       {/* TAB 3: COLOR STONE */}
       {activeTab === 'Color Stone' && (
         <div className="bg-white border border-stone-200 rounded-2xl shadow-2xs overflow-hidden p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-sm text-stone-900">Precious Gemstone Price Chart</h3>
-            <span className="text-xs text-stone-500">Natural Certified Gemstones</span>
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-b border-stone-100 pb-3">
+            <div>
+              <h3 className="font-bold text-sm text-stone-900">Precious Gemstone Price Chart ({filteredStoneItems.length})</h3>
+              <span className="text-xs text-stone-500">Natural Certified Gemstones</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={stoneSearch}
+                onChange={(e) => { setStoneSearch(e.target.value); setStonePage(1); }}
+                placeholder="Search gemstone name, type, origin..."
+                className="px-3 py-1.5 border border-stone-200 rounded-xl text-xs font-medium text-stone-700 focus:outline-hidden focus:border-[#b01622]"
+              />
+            </div>
           </div>
 
           <div className="overflow-x-auto border border-stone-200 rounded-xl">
@@ -3654,7 +4099,7 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {stoneItems.map((item) => (
+                {paginatedStoneItems.map((item) => (
                   <tr key={item.id} className="hover:bg-amber-50/20">
                     <td className="p-3 font-bold text-stone-900">{item.name}</td>
                     <td className="p-3 font-medium text-[#b01622]">{item.type}</td>
@@ -3677,15 +4122,67 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
               </tbody>
             </table>
           </div>
+
+          <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-stone-500">
+            <div>Showing {displayStoneStart} to {displayStoneEnd} of {filteredStoneItems.length} items</div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                disabled={validStonePage === 1}
+                onClick={() => setStonePage((prev) => Math.max(1, prev - 1))}
+                className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs transition-all ${validStonePage === 1
+                    ? 'border-stone-200 text-stone-300 cursor-not-allowed'
+                    : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
+                  }`}
+              >
+                <i className="fa-solid fa-chevron-left text-[10px]"></i>
+              </button>
+              {Array.from({ length: totalStonePages }, (_, i) => i + 1).map((pg) => (
+                <button
+                  key={pg}
+                  type="button"
+                  onClick={() => setStonePage(pg)}
+                  className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs font-bold transition-all cursor-pointer ${validStonePage === pg
+                      ? 'bg-red-50 text-[#b01622] border-red-200 shadow-2xs'
+                      : 'border-stone-200 text-stone-600 hover:bg-stone-50'
+                    }`}
+                >
+                  {pg}
+                </button>
+              ))}
+              <button
+                type="button"
+                disabled={validStonePage === totalStonePages}
+                onClick={() => setStonePage((prev) => Math.min(totalStonePages, prev + 1))}
+                className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs transition-all ${validStonePage === totalStonePages
+                    ? 'border-stone-200 text-stone-300 cursor-not-allowed'
+                    : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
+                  }`}
+              >
+                <i className="fa-solid fa-chevron-right text-[10px]"></i>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
       {/* TAB 4: MAKING CHARGES */}
       {activeTab === 'Making Charges' && (
         <div className="bg-white border border-stone-200 rounded-2xl shadow-2xs overflow-hidden p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-sm text-stone-900">Category-Wise Labour &amp; Making Charges Matrix</h3>
-            <span className="text-xs text-stone-500">Standard Showroom Rates</span>
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-b border-stone-100 pb-3">
+            <div>
+              <h3 className="font-bold text-sm text-stone-900">Category-Wise Labour &amp; Making Charges Matrix ({filteredMakingItems.length})</h3>
+              <span className="text-xs text-stone-500">Standard Showroom Rates</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={makingSearch}
+                onChange={(e) => { setMakingSearch(e.target.value); setMakingPage(1); }}
+                placeholder="Search category..."
+                className="px-3 py-1.5 border border-stone-200 rounded-xl text-xs font-medium text-stone-700 focus:outline-hidden focus:border-[#b01622]"
+              />
+            </div>
           </div>
 
           <div className="overflow-x-auto border border-stone-200 rounded-xl">
@@ -3701,7 +4198,7 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {makingChargeMatrix.map((row, idx) => (
+                {paginatedMakingItems.map((row, idx) => (
                   <tr key={idx} className="hover:bg-amber-50/20">
                     <td className="p-3 font-bold text-stone-900">{row.category}</td>
                     <td className="p-3 text-right font-mono">{formatCurrency(row.plain * customerDiscount)}</td>
@@ -3713,6 +4210,47 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-stone-500">
+            <div>Showing {displayMakingStart} to {displayMakingEnd} of {filteredMakingItems.length} items</div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                disabled={validMakingPage === 1}
+                onClick={() => setMakingPage((prev) => Math.max(1, prev - 1))}
+                className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs transition-all ${validMakingPage === 1
+                    ? 'border-stone-200 text-stone-300 cursor-not-allowed'
+                    : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
+                  }`}
+              >
+                <i className="fa-solid fa-chevron-left text-[10px]"></i>
+              </button>
+              {Array.from({ length: totalMakingPages }, (_, i) => i + 1).map((pg) => (
+                <button
+                  key={pg}
+                  type="button"
+                  onClick={() => setMakingPage(pg)}
+                  className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs font-bold transition-all cursor-pointer ${validMakingPage === pg
+                      ? 'bg-red-50 text-[#b01622] border-red-200 shadow-2xs'
+                      : 'border-stone-200 text-stone-600 hover:bg-stone-50'
+                    }`}
+                >
+                  {pg}
+                </button>
+              ))}
+              <button
+                type="button"
+                disabled={validMakingPage === totalMakingPages}
+                onClick={() => setMakingPage((prev) => Math.min(totalMakingPages, prev + 1))}
+                className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs transition-all ${validMakingPage === totalMakingPages
+                    ? 'border-stone-200 text-stone-300 cursor-not-allowed'
+                    : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
+                  }`}
+              >
+                <i className="fa-solid fa-chevron-right text-[10px]"></i>
+              </button>
+            </div>
           </div>
         </div>
       )}

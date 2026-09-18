@@ -754,42 +754,40 @@ export default function JobOrderDelay() {
           Showing {startRecord} to {endRecord} of {totalHistoryItems} entries
         </div>
 
-        {totalPages > 1 && (
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-              disabled={currentPage === 1}
-              className="w-7 h-7 rounded-md border border-stone-200 hover:bg-stone-100 flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 cursor-pointer"
-            >
-              &lt;
-            </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+            disabled={currentPage <= 1}
+            className="w-7 h-7 rounded-md border border-stone-200 hover:bg-stone-100 flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          >
+            &lt;
+          </button>
 
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
-              <button
-                key={pageNum}
-                type="button"
-                onClick={() => setCurrentPage(pageNum)}
-                className={`w-7 h-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors cursor-pointer ${
-                  currentPage === pageNum
-                    ? 'bg-[#b01622] text-white'
-                    : 'border border-stone-200 hover:bg-stone-100 text-stone-700'
-                }`}
-              >
-                {pageNum}
-              </button>
-            ))}
-
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
             <button
+              key={pageNum}
               type="button"
-              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-              disabled={currentPage === totalPages}
-              className="w-7 h-7 rounded-md border border-stone-200 hover:bg-stone-100 flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 cursor-pointer"
+              onClick={() => setCurrentPage(pageNum)}
+              className={`w-7 h-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors cursor-pointer ${
+                currentPage === pageNum
+                  ? 'bg-[#b01622] text-white'
+                  : 'border border-stone-200 hover:bg-stone-100 text-stone-700'
+              }`}
             >
-              &gt;
+              {pageNum}
             </button>
-          </div>
-        )}
+          ))}
+
+          <button
+            type="button"
+            onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+            disabled={currentPage >= totalPages}
+            className="w-7 h-7 rounded-md border border-stone-200 hover:bg-stone-100 flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          >
+            &gt;
+          </button>
+        </div>
       </div>
 
     </div>

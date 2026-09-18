@@ -43,6 +43,10 @@ export default function JobOrderHub({ initialTab = 'in-progress' }) {
   const [actionLoading, setActionLoading] = useState(false);
   const [search, setSearch] = useState('');
 
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 4;
+
   // Selected Order for Timeline Drawer or Action Modal
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -56,6 +60,7 @@ export default function JobOrderHub({ initialTab = 'in-progress' }) {
   }, [currentPath]);
 
   useEffect(() => {
+    setCurrentPage(1);
     fetchOrders(activeTab);
   }, [activeTab]);
 
@@ -378,212 +383,271 @@ export default function JobOrderHub({ initialTab = 'in-progress' }) {
                   </td>
                 </tr>
               ) : (
-                orders.map((wo) => {
-                  const scrapWt = Math.max(0, wo.allotted_weight - wo.completed_weight);
-                  const allowedScrap = (wo.allotted_weight * (wo.wastage_allowed_percent || 0)) / 100;
-                  const isWithinWastage = scrapWt <= (allowedScrap + 0.05);
+                (() => {
+                  const totalOrders = orders.length;
+                  const totalPages = Math.ceil(totalOrders / itemsPerPage) || 1;
+                  const safePage = Math.min(currentPage, totalPages);
+                  const paginatedOrders = orders.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
 
-                  return (
-                    <tr key={wo.id} className="hover:bg-stone-50/70 transition-colors">
-                      {/* Order Number */}
-                      <td className="py-3 px-4 whitespace-nowrap">
-                        <span className="font-mono font-bold text-xs text-[#b01622] bg-red-50 border border-red-200 px-2 py-0.5 rounded-md">
-                          {wo.work_order_number}
-                        </span>
-                      </td>
+                  return paginatedOrders.map((wo) => {
+                    const scrapWt = Math.max(0, wo.allotted_weight - wo.completed_weight);
+                    const allowedScrap = (wo.allotted_weight * (wo.wastage_allowed_percent || 0)) / 100;
+                    const isWithinWastage = scrapWt <= (allowedScrap + 0.05);
 
-                      {/* Product Name */}
-                      <td className="py-3 px-3">
-                        <div className="flex items-center gap-2.5">
-                          <img
-                            src={resolveItemImage(wo)}
-                            alt={wo.product_name}
-                            loading="eager"
-                            decoding="async"
-                            width="32"
-                            height="32"
-                            className="w-8 h-8 rounded-lg object-cover border border-stone-200 bg-stone-100 shrink-0"
-                            onError={(e) => { e.target.onerror = null; e.target.src = '/placeholder-jewelry.png'; }}
-                          />
-                          <div className="min-w-0">
-                            <div className="font-bold text-gray-900 text-xs truncate max-w-[170px]">
-                              {wo.product_name}
+                    return (
+                      <tr key={wo.id} className="hover:bg-stone-50/70 transition-colors">
+                        {/* Order Number */}
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          <span className="font-mono font-bold text-xs text-[#b01622] bg-red-50 border border-red-200 px-2 py-0.5 rounded-md">
+                            {wo.work_order_number}
+                          </span>
+                        </td>
+
+                        {/* Product Name */}
+                        <td className="py-3 px-3">
+                          <div className="flex items-center gap-2.5">
+                            <img
+                              src={resolveItemImage(wo)}
+                              alt={wo.product_name}
+                              loading="eager"
+                              decoding="async"
+                              width="32"
+                              height="32"
+                              className="w-8 h-8 rounded-lg object-cover border border-stone-200 bg-stone-100 shrink-0"
+                              onError={(e) => { e.target.onerror = null; e.target.src = '/placeholder-jewelry.png'; }}
+                            />
+                            <div className="min-w-0">
+                              <div className="font-bold text-gray-900 text-xs truncate max-w-[170px]">
+                                {wo.product_name}
+                              </div>
+                              <span className="font-mono text-[10px] text-stone-400 block">
+                                {wo.design_code || 'DES-AUTO'}
+                              </span>
                             </div>
-                            <span className="font-mono text-[10px] text-stone-400 block">
-                              {wo.design_code || 'DES-AUTO'}
-                            </span>
                           </div>
-                        </div>
-                      </td>
+                        </td>
 
-                      {/* Karigar */}
-                      <td className="py-3 px-3 whitespace-nowrap font-medium text-stone-800">
-                        <div>{wo.karigar_name || '—'}</div>
-                        <span className="text-[10px] text-stone-400 block">{wo.karigar?.workshop_name}</span>
-                      </td>
+                        {/* Karigar */}
+                        <td className="py-3 px-3 whitespace-nowrap font-medium text-stone-800">
+                          <div>{wo.karigar_name || '—'}</div>
+                          <span className="text-[10px] text-stone-400 block">{wo.karigar?.workshop_name}</span>
+                        </td>
 
-                      {/* Material */}
-                      <td className="py-3 px-3 whitespace-nowrap text-stone-600 font-medium">
-                        {wo.material_type}
-                      </td>
+                        {/* Material */}
+                        <td className="py-3 px-3 whitespace-nowrap text-stone-600 font-medium">
+                          {wo.material_type}
+                        </td>
 
-                      {/* Dynamic Columns based on Active Tab */}
-                      {activeTab === 'waste' ? (
-                        <>
-                          <td className="py-3 px-3 text-right font-mono font-bold whitespace-nowrap">
-                            {Number(wo.allotted_weight).toFixed(3)} g
-                          </td>
-                          <td className="py-3 px-3 text-right font-mono font-bold text-emerald-700 whitespace-nowrap">
-                            {Number(wo.completed_weight).toFixed(3)} g
-                          </td>
-                          <td className="py-3 px-3 text-right font-mono font-bold text-[#b01622] whitespace-nowrap">
-                            {scrapWt.toFixed(3)} g
-                          </td>
-                          <td className="py-3 px-3 text-right font-mono whitespace-nowrap text-stone-600">
-                            {wo.wastage_allowed_percent}% ({allowedScrap.toFixed(3)}g)
-                          </td>
-                          <td className="py-3 px-3 whitespace-nowrap">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              isWithinWastage
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                : 'bg-red-50 text-red-700 border border-red-200'
-                            }`}>
-                              {isWithinWastage ? 'Normal Limit' : 'Excess Scrap'}
-                            </span>
-                          </td>
-                        </>
-                      ) : activeTab === 'delay' ? (
-                        <>
-                          <td className="py-3 px-3 font-mono font-bold text-red-600 whitespace-nowrap">
-                            {wo.delivery_date ? new Date(wo.delivery_date).toLocaleDateString('en-GB') : '—'}
-                          </td>
-                          <td className="py-3 px-3 whitespace-nowrap">
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-800 border border-red-200">
-                              {wo.delay_days} days overdue
-                            </span>
-                          </td>
-                          <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
-                            {Number(wo.completed_weight).toFixed(3)} g
-                          </td>
-                          <td className="py-3 px-3 text-right font-mono font-bold text-[#b01622] whitespace-nowrap">
-                            {Number(wo.pending_weight).toFixed(3)} g
-                          </td>
-                          <td className="py-3 px-3 whitespace-nowrap text-stone-600">
-                            {wo.karigar?.workshop_address || wo.karigar?.city || 'Master Workshop'}
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          <td className="py-3 px-3 text-right font-mono font-bold whitespace-nowrap">
-                            {Number(wo.allotted_weight).toFixed(3)} g
-                          </td>
-                          <td className="py-3 px-3 text-right font-mono font-semibold text-emerald-700 whitespace-nowrap">
-                            {Number(wo.completed_weight).toFixed(3)} g
-                          </td>
-                          <td className="py-3 px-3 text-right font-mono font-bold text-[#b01622] whitespace-nowrap">
-                            {Number(wo.pending_weight).toFixed(3)} g
-                          </td>
-                          <td className="py-3 px-3 font-mono text-stone-600 whitespace-nowrap">
-                            {wo.delivery_date ? new Date(wo.delivery_date).toLocaleDateString('en-GB') : '—'}
-                          </td>
-                          <td className="py-3 px-3 whitespace-nowrap">
-                            <span className="px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-stone-100 text-stone-800 border border-stone-200">
-                              {wo.current_stage ? wo.current_stage.replace(/_/g, ' ') : 'Created'}
-                            </span>
-                          </td>
-                        </>
-                      )}
+                        {/* Dynamic Columns based on Active Tab */}
+                        {activeTab === 'waste' ? (
+                          <>
+                            <td className="py-3 px-3 text-right font-mono font-bold whitespace-nowrap">
+                              {Number(wo.allotted_weight).toFixed(3)} g
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono font-bold text-emerald-700 whitespace-nowrap">
+                              {Number(wo.completed_weight).toFixed(3)} g
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono font-bold text-[#b01622] whitespace-nowrap">
+                              {scrapWt.toFixed(3)} g
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono whitespace-nowrap text-stone-600">
+                              {wo.wastage_allowed_percent}% ({allowedScrap.toFixed(3)}g)
+                            </td>
+                            <td className="py-3 px-3 whitespace-nowrap">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                isWithinWastage
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : 'bg-red-50 text-red-700 border border-red-200'
+                              }`}>
+                                {isWithinWastage ? 'Normal Limit' : 'Excess Scrap'}
+                              </span>
+                            </td>
+                          </>
+                        ) : activeTab === 'delay' ? (
+                          <>
+                            <td className="py-3 px-3 font-mono font-bold text-red-600 whitespace-nowrap">
+                              {wo.delivery_date ? new Date(wo.delivery_date).toLocaleDateString('en-GB') : '—'}
+                            </td>
+                            <td className="py-3 px-3 whitespace-nowrap">
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-800 border border-red-200">
+                                {wo.delay_days} days overdue
+                              </span>
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
+                              {Number(wo.completed_weight).toFixed(3)} g
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono font-bold text-[#b01622] whitespace-nowrap">
+                              {Number(wo.pending_weight).toFixed(3)} g
+                            </td>
+                            <td className="py-3 px-3 whitespace-nowrap text-stone-600">
+                              {wo.karigar?.workshop_address || wo.karigar?.city || 'Master Workshop'}
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="py-3 px-3 text-right font-mono font-bold whitespace-nowrap">
+                              {Number(wo.allotted_weight).toFixed(3)} g
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono font-semibold text-emerald-700 whitespace-nowrap">
+                              {Number(wo.completed_weight).toFixed(3)} g
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono font-bold text-[#b01622] whitespace-nowrap">
+                              {Number(wo.pending_weight).toFixed(3)} g
+                            </td>
+                            <td className="py-3 px-3 font-mono text-stone-600 whitespace-nowrap">
+                              {wo.delivery_date ? new Date(wo.delivery_date).toLocaleDateString('en-GB') : '—'}
+                            </td>
+                            <td className="py-3 px-3 whitespace-nowrap">
+                              <span className="px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-stone-100 text-stone-800 border border-stone-200">
+                                {wo.current_stage ? wo.current_stage.replace(/_/g, ' ') : 'Created'}
+                              </span>
+                            </td>
+                          </>
+                        )}
 
-                      {/* Actions */}
-                      <td className="py-3 px-4 text-center whitespace-nowrap">
-                        <div className="inline-flex items-center gap-1.5">
-                          
-                          {/* Quality Check Approval & Return Actions */}
-                          {activeTab === 'quality-check' && (
-                            <>
+                        {/* Actions */}
+                        <td className="py-3 px-4 text-center whitespace-nowrap">
+                          <div className="inline-flex items-center gap-1.5">
+                            
+                            {/* Quality Check Approval & Return Actions */}
+                            {activeTab === 'quality-check' && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleApprove(wo.id)}
+                                  disabled={actionLoading}
+                                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs"
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedOrder(wo);
+                                    setShowRejectModal(true);
+                                  }}
+                                  disabled={actionLoading}
+                                  className="px-3 py-1 bg-white border border-red-300 hover:bg-red-50 text-red-600 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                                >
+                                  Return
+                                </button>
+                              </>
+                            )}
+
+                            {/* Final Receive Action */}
+                            {activeTab === 'final-receive' && (
                               <button
                                 type="button"
-                                onClick={() => handleApprove(wo.id)}
+                                onClick={() => handleFinalReceive(wo.id)}
                                 disabled={actionLoading}
-                                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs"
+                                className="px-3 py-1 bg-[#b01622] hover:bg-[#8f1019] text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs flex items-center gap-1"
                               >
-                                Approve
+                                <i className="fa-solid fa-box-open text-xs"></i>
+                                <span>Final Receive</span>
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedOrder(wo);
-                                  setShowRejectModal(true);
-                                }}
-                                disabled={actionLoading}
-                                className="px-3 py-1 bg-white border border-red-300 hover:bg-red-50 text-red-600 rounded-lg text-xs font-bold transition-all cursor-pointer"
-                              >
-                                Return
-                              </button>
-                            </>
-                          )}
+                            )}
 
-                          {/* Final Receive Action */}
-                          {activeTab === 'final-receive' && (
+                            {/* History & Timeline Drawer Button */}
                             <button
                               type="button"
-                              onClick={() => handleFinalReceive(wo.id)}
-                              disabled={actionLoading}
-                              className="px-3 py-1 bg-[#b01622] hover:bg-[#8f1019] text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs flex items-center gap-1"
+                              onClick={() => handleViewHistory(wo)}
+                              className="w-7 h-7 rounded-lg hover:bg-stone-100 text-stone-500 hover:text-stone-900 flex items-center justify-center transition-colors cursor-pointer"
+                              title="View Full Lifecycle History"
                             >
-                              <i className="fa-solid fa-box-open text-xs"></i>
-                              <span>Final Receive</span>
+                              <i className="fa-solid fa-clock-rotate-left text-xs"></i>
                             </button>
-                          )}
 
-                          {/* History & Timeline Drawer Button */}
-                          <button
-                            type="button"
-                            onClick={() => handleViewHistory(wo)}
-                            className="w-7 h-7 rounded-lg hover:bg-stone-100 text-stone-500 hover:text-stone-900 flex items-center justify-center transition-colors cursor-pointer"
-                            title="View Full Lifecycle History"
-                          >
-                            <i className="fa-solid fa-clock-rotate-left text-xs"></i>
-                          </button>
+                            {/* Open in Work in Progress */}
+                            <Link
+                              to={`/job-order/in-progress?order_id=${wo.id}`}
+                              className="w-7 h-7 rounded-lg hover:bg-red-50 text-stone-500 hover:text-[#b01622] flex items-center justify-center transition-colors cursor-pointer"
+                              title="Open Work in Progress (Partial/Waiting)"
+                            >
+                              <i className="fa-solid fa-spinner text-xs"></i>
+                            </Link>
 
-                          {/* Open in Work in Progress */}
-                          <Link
-                            to={`/job-order/in-progress?order_id=${wo.id}`}
-                            className="w-7 h-7 rounded-lg hover:bg-red-50 text-stone-500 hover:text-[#b01622] flex items-center justify-center transition-colors cursor-pointer"
-                            title="Open Work in Progress (Partial/Waiting)"
-                          >
-                            <i className="fa-solid fa-spinner text-xs"></i>
-                          </Link>
+                            {/* Open in Receive Work Order */}
+                            <Link
+                              to={`/job-order/receive?order_id=${wo.id}`}
+                              className="w-7 h-7 rounded-lg hover:bg-amber-50 text-stone-500 hover:text-amber-700 flex items-center justify-center transition-colors cursor-pointer"
+                              title="Open in Receive Work Order"
+                            >
+                              <i className="fa-solid fa-dolly text-xs"></i>
+                            </Link>
 
-                          {/* Open in Receive Work Order */}
-                          <Link
-                            to={`/job-order/receive?order_id=${wo.id}`}
-                            className="w-7 h-7 rounded-lg hover:bg-amber-50 text-stone-500 hover:text-amber-700 flex items-center justify-center transition-colors cursor-pointer"
-                            title="Open in Receive Work Order"
-                          >
-                            <i className="fa-solid fa-dolly text-xs"></i>
-                          </Link>
+                            {/* Print PDF Button */}
+                            <a
+                              href={`/work-orders/${wo.id}/pdf`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="w-7 h-7 rounded-lg hover:bg-red-50 text-stone-500 hover:text-[#b01622] flex items-center justify-center transition-colors cursor-pointer"
+                              title="Print Work Order PDF"
+                            >
+                              <i className="fa-solid fa-print text-xs"></i>
+                            </a>
 
-                          {/* Print PDF Button */}
-                          <a
-                            href={`/work-orders/${wo.id}/pdf`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="w-7 h-7 rounded-lg hover:bg-red-50 text-stone-500 hover:text-[#b01622] flex items-center justify-center transition-colors cursor-pointer"
-                            title="Print Work Order PDF"
-                          >
-                            <i className="fa-solid fa-print text-xs"></i>
-                          </a>
-
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  });
+                })()
               )}
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Controls */}
+        {orders.length > 0 && (() => {
+          const totalOrders = orders.length;
+          const totalPages = Math.ceil(totalOrders / itemsPerPage) || 1;
+          const safePage = Math.min(currentPage, totalPages);
+          const startRecord = totalOrders === 0 ? 0 : (safePage - 1) * itemsPerPage + 1;
+          const endRecord = Math.min(safePage * itemsPerPage, totalOrders);
+
+          return (
+            <div className="px-4 py-3 border-t border-stone-200 bg-stone-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-stone-500">
+              <div>
+                Showing {startRecord} to {endRecord} of {totalOrders} entries
+              </div>
+
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={safePage <= 1}
+                  className="w-7 h-7 rounded-md border border-stone-200 hover:bg-white flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  &lt;
+                </button>
+
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
+                  <button
+                    key={pageNum}
+                    type="button"
+                    onClick={() => setCurrentPage(pageNum)}
+                    className={`w-7 h-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors cursor-pointer ${
+                      safePage === pageNum
+                        ? 'bg-[#b01622] text-white'
+                        : 'border border-stone-200 hover:bg-white text-stone-700'
+                    }`}
+                  >
+                    {pageNum}
+                  </button>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={safePage >= totalPages}
+                  className="w-7 h-7 rounded-md border border-stone-200 hover:bg-white flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  &gt;
+                </button>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* 5. AUDIT HISTORY & TIMELINE MODAL */}

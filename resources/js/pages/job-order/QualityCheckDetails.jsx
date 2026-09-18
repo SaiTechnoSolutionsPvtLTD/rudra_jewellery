@@ -33,6 +33,16 @@ export default function QualityCheckDetails() {
   const [statuses, setStatuses] = useState({});
   const [notes, setNotes] = useState('');
 
+  // Pagination state for check points
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 4;
+  const totalChecks = checkItems.length;
+  const totalPages = Math.ceil(totalChecks / itemsPerPage) || 1;
+  const safePage = Math.min(currentPage, totalPages);
+  const startRecord = totalChecks === 0 ? 0 : (safePage - 1) * itemsPerPage + 1;
+  const endRecord = Math.min(safePage * itemsPerPage, totalChecks);
+  const paginatedCheckItems = checkItems.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
+
   useEffect(() => {
     let mounted = true;
     const load = async () => {
@@ -172,7 +182,49 @@ export default function QualityCheckDetails() {
           <h2 className="text-sm font-bold text-gray-900 mb-3">Quality Check (All Receive)</h2>
           <div className="grid grid-cols-[1.2fr_1fr_0.8fr_1.4fr] gap-x-3 px-2 pb-2 text-[10px] font-bold text-stone-400 uppercase border-b border-stone-200"><span>Check Point</span><span>Expected</span><span>Status</span><span>Remarks</span></div>
           <div className="divide-y divide-stone-100">
-            {checkItems.map((item) => <div key={item.key} className="grid grid-cols-[1.2fr_1fr_0.8fr_1.4fr] gap-x-3 items-center px-2 py-3 text-xs"><span className="font-medium text-gray-800">{item.label}</span><span className="text-stone-500">{item.expected}</span><select value={statuses[item.key] || 'Accept'} onChange={(event) => setStatuses((current) => ({ ...current, [item.key]: event.target.value }))} className={`w-fit px-2 py-1 rounded-md border text-[11px] font-semibold outline-hidden ${statuses[item.key] === 'Pending' ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}><option>Accept</option><option>Pending</option></select><span className="text-stone-500">{item.note}</span></div>)}
+            {paginatedCheckItems.map((item) => <div key={item.key} className="grid grid-cols-[1.2fr_1fr_0.8fr_1.4fr] gap-x-3 items-center px-2 py-3 text-xs"><span className="font-medium text-gray-800">{item.label}</span><span className="text-stone-500">{item.expected}</span><select value={statuses[item.key] || 'Accept'} onChange={(event) => setStatuses((current) => ({ ...current, [item.key]: event.target.value }))} className={`w-fit px-2 py-1 rounded-md border text-[11px] font-semibold outline-hidden ${statuses[item.key] === 'Pending' ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}><option>Accept</option><option>Pending</option></select><span className="text-stone-500">{item.note}</span></div>)}
+          </div>
+
+          {/* Pagination Controls */}
+          <div className="mt-4 pt-3 border-t border-stone-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-stone-500">
+            <div>
+              Showing {startRecord} to {endRecord} of {totalChecks} entries
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={safePage <= 1}
+                className="w-7 h-7 rounded-md border border-stone-200 hover:bg-stone-50 flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                &lt;
+              </button>
+
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
+                <button
+                  key={pageNum}
+                  type="button"
+                  onClick={() => setCurrentPage(pageNum)}
+                  className={`w-7 h-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors cursor-pointer ${
+                    safePage === pageNum
+                      ? 'bg-[#b01622] text-white'
+                      : 'border border-stone-200 hover:bg-stone-50 text-stone-700'
+                  }`}
+                >
+                  {pageNum}
+                </button>
+              ))}
+
+              <button
+                type="button"
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={safePage >= totalPages}
+                className="w-7 h-7 rounded-md border border-stone-200 hover:bg-stone-50 flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                &gt;
+              </button>
+            </div>
           </div>
         </section>
 
