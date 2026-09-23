@@ -68,62 +68,204 @@ input[type=number].no-spinners,
   100% { background-position: -200% 0; }
 }
 
-/* Global Print Stylesheet for Professional A4 Document Output */
+/* Global Print Stylesheet for 1:1 Exact Preview-to-Print Parity */
 @media print {
-  /* Hide all navigation, headers, sidebars, buttons, and UI controls */
+  /* Force exact background colors, graphics, borders, and text colors */
+  *,
+  *::before,
+  *::after,
+  html,
+  body,
+  div,
+  span,
+  main,
+  section,
+  table,
+  thead,
+  tbody,
+  tfoot,
+  tr,
+  th,
+  td,
+  p,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  strong,
+  img,
+  [class*="bg-"],
+  [class*="border-"],
+  [class*="text-"] {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  /* Hide all application navigation, sidebars, headers, floating action buttons, modals controls */
   aside,
   #sidebar,
   header,
   #header,
   nav,
   .print\:hidden,
-  .no-print {
+  .no-print,
+  button,
+  .btn,
+  .toast-container {
     display: none !important;
   }
 
-  /* Reset layout structure for clean A4 printing */
-  html, body, #app, main, .flex-1, .w-full {
+  /* Make backdrop overlays transparent for print */
+  .modal-backdrop,
+  div[class*="backdrop-blur"],
+  div[class*="bg-black/"] {
+    background: transparent !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  /* Page layout resets for A4 document printing */
+  html,
+  body {
     background: #ffffff !important;
     color: #000000 !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    height: auto !important;
     margin: 0 !important;
     padding: 0 !important;
+    width: 100% !important;
+    height: auto !important;
     overflow: visible !important;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  }
+
+  /* Modal overlay container reset for clean printing */
+  .fixed,
+  .fixed.inset-0,
+  div[class*="fixed inset-0"],
+  div[class*="fixed"] {
     position: static !important;
+    display: block !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
     box-shadow: none !important;
     border: none !important;
   }
 
-  /* Ensure card containers render cleanly on white background */
-  .bg-white, .bg-stone-50 {
-    background: #ffffff !important;
-    border-color: #d1d5db !important;
-    box-shadow: none !important;
-  }
-
-  /* Target specific printable report sheets when active */
-  #printable-report-sheet, #printable-report-sheet * {
-    visibility: visible !important;
-  }
-  
-  #printable-report-sheet {
-    position: absolute !important;
-    left: 0 !important;
-    top: 0 !important;
+  /* Modal content container reset */
+  div[class*="max-w-4xl"],
+  div[class*="max-w-5xl"],
+  div[class*="bg-white rounded-2xl"] {
+    max-width: 100% !important;
     width: 100% !important;
     margin: 0 !important;
-    padding: 15px !important;
-    background: #ffffff !important;
-    border: none !important;
+    padding: 0 !important;
     box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    max-height: none !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+  }
+
+  /* Target all report printable sheets to render full width with exact parity */
+  .printable-area,
+  #printable-profit-invoice-sheet,
+  #printable-profit-metal-sheet,
+  #printable-executive-report,
+  #printable-tax-invoice-sheet,
+  #job-order-voucher-sheet,
+  #printable-invoice-sheet,
+  #printable-work-order-sheet,
+  #printable-price-list-sheet,
+  #printable-report-sheet {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: #ffffff !important;
+    overflow: visible !important;
+  }
+
+  /* Explicit background color enforcement for red headers and KPI cards */
+  .bg-\[\#b01622\],
+  [style*="background-color: #b01622"],
+  thead.bg-\[\#b01622\],
+  thead {
+    background-color: #b01622 !important;
+    color: #ffffff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .bg-stone-50 {
+    background-color: #f9fafb !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .bg-emerald-50\/70,
+  .bg-emerald-50 {
+    background-color: #ecfdf5 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .bg-red-50 {
+    background-color: #fef2f2 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Table rules */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    page-break-inside: auto !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    page-break-after: auto !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tfoot {
+    display: table-footer-group !important;
+  }
+
+  .print-break-inside-avoid,
+  .avoid-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .print-page-break {
+    page-break-before: always !important;
+    break-before: page !important;
   }
 
   @page {
     size: A4 portrait;
-    margin: 10mm;
+    margin: 8mm;
   }
 }
-
-

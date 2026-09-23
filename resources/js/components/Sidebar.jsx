@@ -25,6 +25,7 @@ export default function Sidebar({ sidebarOpen = true }) {
   const isProductUploadActive = location.pathname.startsWith('/product-upload');
   const isClientsActive = location.pathname.startsWith('/clients');
   const isSalesActive = location.pathname.startsWith('/sales');
+  const isProfitsActive = location.pathname.startsWith('/sales/profit');
 
   const [jobCreationAccordionOpen, setJobCreationAccordionOpen] = useState(true);
   const [jobOrderSubAccordionOpen, setJobOrderSubAccordionOpen] = useState(isJobOrderSubActive || true);
@@ -33,6 +34,7 @@ export default function Sidebar({ sidebarOpen = true }) {
   const [purchaseAccordionOpen, setPurchaseAccordionOpen] = useState(isPurchaseActive);
   const [clientsAccordionOpen, setClientsAccordionOpen] = useState(isClientsActive);
   const [salesAccordionOpen, setSalesAccordionOpen] = useState(isSalesActive);
+  const [profitsAccordionOpen, setProfitsAccordionOpen] = useState(isProfitsActive || true);
 
   useEffect(() => {
     if (isClientsActive) {
@@ -42,7 +44,8 @@ export default function Sidebar({ sidebarOpen = true }) {
 
   useEffect(() => {
     if (isSalesActive) setSalesAccordionOpen(true);
-  }, [location.pathname, isSalesActive]);
+    if (isProfitsActive) setProfitsAccordionOpen(true);
+  }, [location.pathname, isSalesActive, isProfitsActive]);
 
   return (
     <aside
@@ -161,6 +164,26 @@ export default function Sidebar({ sidebarOpen = true }) {
                 }`}
               >
                 Work Specification
+              </Link>
+              <Link
+                to="/masters/bank-accounts"
+                className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${
+                  location.pathname === '/masters/bank-accounts'
+                    ? 'text-[#b01622] font-bold'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                }`}
+              >
+                Bank Accounts
+              </Link>
+              <Link
+                to="/masters/info"
+                className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${
+                  location.pathname === '/masters/info' || location.pathname === '/masters/company-info'
+                    ? 'text-[#b01622] font-bold'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                }`}
+              >
+                Info
               </Link>
             </div>
           )}
@@ -297,7 +320,7 @@ export default function Sidebar({ sidebarOpen = true }) {
           <div className="flex flex-col gap-1 mt-1 pl-4 pr-2">
             <Link to="/sales" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/sales' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Dashboard</Link>
             <Link to="/sales/create" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/sales/create' || location.pathname === '/sales/customer' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Customer</Link>
-            <Link to="/sales/customers" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname.startsWith('/sales/customers') ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Client Accounts</Link>
+
             <Link to="/sales/rates" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/sales/rates' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Live rates</Link>
             <Link to="/clients/price-list" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/clients/price-list' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Price List Management</Link>
           </div>

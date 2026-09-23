@@ -205,6 +205,16 @@ class WorkOrderController extends Controller
             }
         }
 
+        // BUSINESS RULE: Rudhra Jewellery supplies Gold, Silver, Platinum and Diamonds for WorkOrders, but loose colour stones are not company-supplied.
+        if ($request->filled('material_type')) {
+            $mat = strtolower($request->input('material_type'));
+            if (str_contains($mat, 'colour_stone') || str_contains($mat, 'loose_stone')) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'material_type' => ['Loose Stone Allocation Prohibited: Karigars procure loose colour stones independently. Metals and certified Diamonds can be allocated to work orders.']
+                ]);
+            }
+        }
+
         $validated = $request->validate([
             'product_name' => 'required|string|max:255',
             'allotted_date' => 'required|date',
@@ -345,12 +355,86 @@ class WorkOrderController extends Controller
                 'created_at' => now(),
             ]);
 
+            // Send notification for Karigar Work Order assignment
+            if ($workOrder->karigar_id) {
+                WorkOrderNotification::create([
+                    'work_order_id' => $workOrder->id,
+                    'karigar_id' => $workOrder->karigar_id,
+                    'type' => 'assigned',
+                    'title' => "Work Order Assigned: {$workOrder->work_order_number}",
+                    'message' => "Work Order {$workOrder->work_order_number} ({$workOrder->product_name}) assigned to Karigar {$workOrder->karigar_name}.",
+                    'data' => [
+                        'order_id' => $workOrder->id,
+                        'work_order_number' => $workOrder->work_order_number,
+                        'product_name' => $workOrder->product_name,
+                        'allotted_weight' => $workOrder->allotted_weight,
+                        'status' => $workOrder->status,
+                    ],
+                    'is_read' => false,
+                ]);
+            }
+
+            // Sync Karigar Gold Balance on Bench
+            $this->syncKarigarGoldBalance($workOrder->karigar_id);
+
+            // Debit Raw Material inventory balance (ONLY Rudhra-supplied metals: Gold, Silver, Platinum)
+            $matStr = strtolower(($validated['material_type'] ?? '') . ' ' . ($validated['product_name'] ?? ''));
+            
+            // STRICT BUSINESS RULE: Reject company stone/diamond allocation to Karigars
+            if ((isset($validated['material_type']) && in_array(strtolower($validated['material_type']), ['diamond', 'stone', 'colour stone', 'color stone'])) ||
+                ($request->filled('allocate_stone') && $request->boolean('allocate_stone'))) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'material_type' => 'Stone Allocation Prohibited: Rudhra Jewellery does not supply diamonds or stones to artisans. Karigars procure stones independently. Only company-supplied metals (Gold, Silver, Platinum) can be allocated to work orders.'
+                ]);
+            }
+
+            $debitMatType = 'gold';
+            if (str_contains($matStr, 'silver')) {
+                $debitMatType = 'silver';
+            } elseif (str_contains($matStr, 'platinum')) {
+                $debitMatType = 'platinum';
+            }
+
+            $rawRec = \App\Models\RawMaterial::where('material_type', $debitMatType)->first();
+            if ($rawRec) {
+                $availableVault = floatval($rawRec->current_balance);
+                $checkWeight = ($rawRec->unit === 'kg' && $allottedWeight > 50) ? ($allottedWeight / 1000.0) : $allottedWeight;
+
+                if ($availableVault < $checkWeight) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'allotted_weight' => "Insufficient raw {$debitMatType} in vault. Available: {$rawRec->current_balance} {$rawRec->unit}, Required: {$checkWeight} {$rawRec->unit}."
+                    ]);
+                }
+            }
+
+            \App\Models\RawMaterial::debitAllocation($debitMatType, $allottedWeight);
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Work Order created successfully.',
                 'data' => $workOrder->load(['karigar', 'product', 'category', 'subcategory', 'client', 'timelines'])
             ], 201);
         });
+    }
+
+    /**
+     * Synchronize a Karigar's current_gold_balance_grams based on active assigned work orders.
+     */
+    protected function syncKarigarGoldBalance($karigarId)
+    {
+        if (!$karigarId) return;
+
+        $karigar = Karigar::find($karigarId);
+        if (!$karigar) return;
+
+        // Sum pending weight for all non-completed/non-cancelled active work orders for this karigar
+        $activePendingWeight = (float) WorkOrder::where('karigar_id', $karigarId)
+            ->whereNotIn('status', ['completed', 'cancelled', 'final_received', 'delivered'])
+            ->selectRaw('SUM(GREATEST(0, allotted_weight - completed_weight)) as pending')
+            ->value('pending');
+
+        $karigar->current_gold_balance_grams = round((float) $activePendingWeight, 3);
+        $karigar->save();
     }
 
     /**
@@ -466,13 +550,17 @@ class WorkOrderController extends Controller
             if (in_array($newStage, ['work_completed', 'sent_for_approval', 'quality_check'])) {
                 $order->status = 'pending_approval';
                 $order->quality_status = 'pending';
+                $this->creditWorkOrderToInventory($order);
             } elseif ($newStage === 'approved') {
                 $order->status = 'approved';
                 $order->quality_status = 'passed';
+                $this->creditWorkOrderToInventory($order);
             } elseif ($newStage === 'ready') {
                 $order->status = 'ready';
+                $this->creditWorkOrderToInventory($order);
             } elseif (in_array($newStage, ['delivered', 'final_received'])) {
                 $order->status = 'completed';
+                $this->creditWorkOrderToInventory($order);
             }
 
             // Log timeline step
@@ -522,62 +610,78 @@ class WorkOrderController extends Controller
     {
         $order = WorkOrder::findOrFail($id);
 
-        $order->status = 'completed'; // Per Requirement 8: Final state must be COMPLETED
-        $order->current_stage = 'approved';
-        $order->quality_status = 'passed';
-        $order->quality_notes = $request->input('quality_notes', 'Quality check passed and approved.');
-        $order->quality_checked_by = Auth::id() ?? 1;
-        $order->quality_checked_at = now();
-        $order->approved_by = Auth::id() ?? 1;
-        $order->approved_at = now();
-        $order->save();
+        if (in_array($order->status, ['completed', 'final_received']) && $order->quality_status === 'passed') {
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Work order is already approved and completed.',
+                'data' => $order->load(['karigar', 'product', 'category', 'timelines'])
+            ]);
+        }
 
-        WorkOrderTimeline::create([
-            'work_order_id' => $order->id,
-            'stage' => 'approved',
-            'stage_label' => 'Quality Check Approved',
-            'completed_weight_at_step' => $order->completed_weight,
-            'pending_weight_at_step' => $order->pending_weight,
-            'status' => 'completed',
-            'notes' => $order->quality_notes,
-            'user_id' => Auth::id() ?? 1,
-            'action_by_name' => Auth::user()?->name ?? 'Admin',
-            'created_at' => now(),
-        ]);
+        return DB::transaction(function () use ($request, $order) {
+            $order->status = 'completed'; // Final state must be COMPLETED
+            $order->current_stage = 'approved';
+            $order->quality_status = 'passed';
+            $order->quality_notes = $request->input('quality_notes', 'Quality check passed and approved.');
+            $order->quality_checked_by = Auth::id() ?? 1;
+            $order->quality_checked_at = now();
+            $order->approved_by = Auth::id() ?? 1;
+            $order->approved_at = now();
+            $order->save();
 
-        WorkOrderTimeline::create([
-            'work_order_id' => $order->id,
-            'stage' => 'final_received',
-            'stage_label' => 'Work Order Completed & Archived to History',
-            'completed_weight_at_step' => $order->completed_weight,
-            'pending_weight_at_step' => 0,
-            'status' => 'completed',
-            'notes' => 'Work order marked COMPLETED by Admin. Artisan is now available for new assignments.',
-            'user_id' => Auth::id() ?? 1,
-            'action_by_name' => Auth::user()?->name ?? 'Admin',
-            'created_at' => now(),
-        ]);
-
-        // Top Bar Notification
-        WorkOrderNotification::create([
-            'work_order_id' => $order->id,
-            'karigar_id' => $order->karigar_id,
-            'type' => 'approved',
-            'title' => "Work Order Approved: {$order->work_order_number}",
-            'message' => "Work order {$order->work_order_number} ({$order->product_name}) was approved and completed by Admin.",
-            'data' => [
-                'order_id' => $order->id,
-                'work_order_number' => $order->work_order_number,
+            WorkOrderTimeline::create([
+                'work_order_id' => $order->id,
+                'stage' => 'approved',
+                'stage_label' => 'Quality Check Approved',
+                'completed_weight_at_step' => $order->completed_weight,
+                'pending_weight_at_step' => $order->pending_weight,
                 'status' => 'completed',
-            ],
-            'is_read' => false,
-        ]);
+                'notes' => $order->quality_notes,
+                'user_id' => Auth::id() ?? 1,
+                'action_by_name' => Auth::user()?->name ?? 'Admin',
+                'created_at' => now(),
+            ]);
 
-        return response()->json([
-            'status' => 'success',
-            'message' => 'Work order approved and marked COMPLETED. Karigar is now available for new work.',
-            'data' => $order->load(['karigar', 'product', 'category', 'timelines'])
-        ]);
+            WorkOrderTimeline::create([
+                'work_order_id' => $order->id,
+                'stage' => 'final_received',
+                'stage_label' => 'Work Order Completed & Archived to History',
+                'completed_weight_at_step' => $order->completed_weight,
+                'pending_weight_at_step' => 0,
+                'status' => 'completed',
+                'notes' => 'Work order marked COMPLETED by Admin. Artisan is now available for new assignments.',
+                'user_id' => Auth::id() ?? 1,
+                'action_by_name' => Auth::user()?->name ?? 'Admin',
+                'created_at' => now(),
+            ]);
+
+            // Top Bar Notification
+            WorkOrderNotification::create([
+                'work_order_id' => $order->id,
+                'karigar_id' => $order->karigar_id,
+                'type' => 'approved',
+                'title' => "Work Order Approved: {$order->work_order_number}",
+                'message' => "Work order {$order->work_order_number} ({$order->product_name}) was approved and completed by Admin.",
+                'data' => [
+                    'order_id' => $order->id,
+                    'work_order_number' => $order->work_order_number,
+                    'status' => 'completed',
+                ],
+                'is_read' => false,
+            ]);
+
+            // Sync Karigar Gold Balance on Bench
+            $this->syncKarigarGoldBalance($order->karigar_id);
+
+            // Reflect completed product in Inventory count
+            $this->creditWorkOrderToInventory($order);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Work order approved and marked COMPLETED. Karigar is now available for new work.',
+                'data' => $order->load(['karigar', 'product', 'category', 'timelines'])
+            ]);
+        });
     }
 
     /**
@@ -673,7 +777,16 @@ class WorkOrderController extends Controller
 
         return DB::transaction(function () use ($request, $order, $action, $currentUser) {
             if ($request->has('completed_weight')) {
-                $order->completed_weight = (float)$request->completed_weight;
+                $newCompleted = (float)$request->completed_weight;
+                $currentCompleted = (float)$order->completed_weight;
+
+                if ($newCompleted < $currentCompleted && !in_array($order->status, ['returned', 'rework'])) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => "Validation Error: Completed weight can ONLY increase. Current value is {$currentCompleted}g, but {$newCompleted}g was provided."
+                    ], 422);
+                }
+                $order->completed_weight = $newCompleted;
                 $order->pending_weight = max(0, round($order->allotted_weight - $order->completed_weight, 3));
             }
             if ($request->has('scrap_weight')) {
@@ -705,9 +818,22 @@ class WorkOrderController extends Controller
             $karigarData['last_updated_at'] = now()->toDateTimeString();
             $order->karigar_data = $karigarData;
 
-            // Optional timeline stage progression from Karigar Management
+            // Strict forward-only timeline stage progression validation
             if ($request->filled('current_stage') && $request->current_stage !== $order->current_stage) {
-                $order->current_stage = $request->current_stage;
+                $newStage = $request->current_stage;
+                $currentStage = $order->current_stage;
+
+                $currentRank = $this->stageOrder[$currentStage] ?? 0;
+                $newRank = $this->stageOrder[$newStage] ?? 0;
+
+                if ($newRank < $currentRank && !in_array($order->status, ['returned', 'rework'])) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => "Validation Error: Workflow tracking can only move forward. You cannot revert stage from '{$currentStage}' to '{$newStage}'."
+                    ], 422);
+                }
+
+                $order->current_stage = $newStage;
             }
 
             $previousStatus = $order->status;
@@ -722,6 +848,9 @@ class WorkOrderController extends Controller
                 $order->quality_status = 'pending';
                 $order->karigar_submitted_at = now();
                 $order->save();
+
+                // Reflect completed product in Inventory count
+                $this->creditWorkOrderToInventory($order);
 
                 $timelineEvent = $isRework ? 'Corrected Work Resubmitted for Approval' : 'Work Completed & Submitted for Review';
                 WorkOrderTimeline::create([
@@ -775,6 +904,22 @@ class WorkOrderController extends Controller
                     'user_id' => $currentUser?->id ?? 1,
                     'action_by_name' => $currentUser?->name ?? ($order->karigar_name ?: 'Karigar'),
                     'created_at' => now(),
+                ]);
+
+                // Create Top Bar Notification for Admin on Work Progress Update
+                WorkOrderNotification::create([
+                    'work_order_id' => $order->id,
+                    'karigar_id' => $order->karigar_id,
+                    'type' => 'progress_update',
+                    'title' => "Work Order Updated: {$order->work_order_number}",
+                    'message' => "Karigar {$order->karigar_name} updated Work Order #{$order->work_order_number}",
+                    'data' => [
+                        'order_id' => $order->id,
+                        'work_order_number' => $order->work_order_number,
+                        'karigar_name' => $order->karigar_name,
+                        'status' => $order->status,
+                    ],
+                    'is_read' => false,
                 ]);
 
                 $msg = 'Work progress saved successfully.';
@@ -860,6 +1005,21 @@ class WorkOrderController extends Controller
             'user_id' => Auth::id() ?? 1,
             'action_by_name' => Auth::user()?->name ?? ($order->karigar_name ?: 'Manikandan'),
             'created_at' => now(),
+        ]);
+
+        WorkOrderNotification::create([
+            'work_order_id' => $order->id,
+            'karigar_id' => $order->karigar_id,
+            'type' => 'timeline_update',
+            'title' => "Timeline Updated: {$order->work_order_number}",
+            'message' => "Karigar " . ($order->karigar_name ?: 'Artisan') . " updated timeline on Work Order #{$order->work_order_number}",
+            'data' => [
+                'order_id' => $order->id,
+                'work_order_number' => $order->work_order_number,
+                'karigar_name' => $order->karigar_name,
+                'status' => $order->status,
+            ],
+            'is_read' => false,
         ]);
 
         return response()->json([
@@ -1023,6 +1183,11 @@ class WorkOrderController extends Controller
             'created_at' => now(),
         ]);
 
+        $this->syncKarigarGoldBalance($order->karigar_id);
+
+        // Reflect completed product in Inventory count
+        $this->creditWorkOrderToInventory($order);
+
         return response()->json([
             'status' => 'success',
             'message' => 'Work order marked as Ready.',
@@ -1053,6 +1218,11 @@ class WorkOrderController extends Controller
             'action_by_name' => Auth::user()?->name ?? 'Store Manager',
             'created_at' => now(),
         ]);
+
+        $this->syncKarigarGoldBalance($order->karigar_id);
+
+        // Reflect completed product in Inventory count
+        $this->creditWorkOrderToInventory($order);
 
         return response()->json([
             'status' => 'success',
@@ -1251,7 +1421,41 @@ class WorkOrderController extends Controller
             ];
         });
 
-        // 6. Detailed Audit Log per Karigar from DB
+        // 6. All Active Work Orders for full material allocation reporting
+        $allActiveJobs = WorkOrder::with(['karigar', 'product'])
+            ->whereNotIn('status', ['completed', 'cancelled', 'final_received', 'delivered'])
+            ->latest()
+            ->get()
+            ->map(function ($j) use ($today) {
+                $artisanName = $j->karigar_name ?? $j->karigar?->name ?? 'Artisan';
+                $dueDate = $j->delivery_date
+                    ? Carbon::parse($j->delivery_date)->format('M d, Y')
+                    : Carbon::parse($j->created_at)->addDays(7)->format('M d, Y');
+
+                $allotted = (float) $j->allotted_weight;
+                $completed = (float) $j->completed_weight;
+                $pending = max(0, $allotted - $completed);
+
+                return [
+                    'id' => $j->id,
+                    'artisan_name' => $artisanName,
+                    'karigar_name' => $artisanName,
+                    'karigar_id' => $j->karigar_id,
+                    'product_name' => $j->product_name ?: ($j->product?->name ?? 'Jewellery Product'),
+                    'work_order_number' => $j->work_order_number,
+                    'item_type' => $j->product_name ?: ($j->product?->name ?? 'Jewellery Product'),
+                    'current_stage' => $j->current_stage ?: 'Created',
+                    'status' => $j->status ?: 'ongoing',
+                    'due_date' => $dueDate,
+                    'allotted_weight' => round($allotted, 3),
+                    'completed_weight' => round($completed, 3),
+                    'pending_weight' => round($pending, 3),
+                    'material' => $j->material_type ?? '22K Gold',
+                    'material_type' => $j->material_type ?? '22K Gold',
+                ];
+            });
+
+        // 7. Detailed Audit Log per Karigar from DB
         $auditLogs = $activeKarigars->map(function ($k) {
             $orders = $k->workOrders;
             $allotted = (float) $orders->sum('allotted_weight');
@@ -1288,6 +1492,7 @@ class WorkOrderController extends Controller
             'material_allocations' => $materialAllocations,
             'audit_logs' => $auditLogs,
             'approval_cards' => $dbApprovalCards,
+            'all_active_jobs' => $allActiveJobs,
             'pagination' => [
                 'current_page' => $paginatedLiveJobs->currentPage(),
                 'last_page' => $paginatedLiveJobs->lastPage(),
@@ -1304,6 +1509,7 @@ class WorkOrderController extends Controller
             'data' => $data,
             'summary' => $data,
             'live_jobs' => $transformedLiveJobs,
+            'all_active_jobs' => $allActiveJobs,
             'approval_cards' => $dbApprovalCards,
             'pagination' => $data['pagination'],
         ]);
@@ -1323,5 +1529,68 @@ class WorkOrderController extends Controller
                   ->setOption(['isRemoteEnabled' => true, 'isHtml5ParserEnabled' => true]);
 
         return $pdf->stream("WorkOrder-{$order->work_order_number}.pdf");
+    }
+
+    /**
+     * Helper to credit completed product to Inventory count & stock weight
+     */
+    protected function creditWorkOrderToInventory(WorkOrder $order)
+    {
+        try {
+            $pricing = $order->pricing_details ?? [];
+            if (!empty($pricing['inventory_credited'])) {
+                return; // Avoid duplicate increments
+            }
+
+            $product = null;
+            if ($order->product_id) {
+                $product = Product::find($order->product_id);
+            }
+
+            if (!$product && !empty($order->product_name)) {
+                $product = Product::where('name', $order->product_name)->first();
+            }
+
+            $itemWeight = (float) ($order->completed_weight ?: ($order->allotted_weight ?: 28.5));
+
+            if ($product) {
+                $product->current_stock_qty = max(1, intval($product->current_stock_qty ?? 0) + 1);
+                $product->opening_stock_weight = round(floatval($product->opening_stock_weight ?? 0) + $itemWeight, 3);
+                $product->status = 'active';
+                $product->save();
+            } else {
+                $code = $order->design_code ?: ('PROD-' . strtoupper(\Illuminate\Support\Str::random(6)));
+                $catId = $order->category_id ?: 1;
+
+                $product = Product::create([
+                    'name' => $order->product_name ?: 'Finished Jewelry Piece',
+                    'product_code' => $code,
+                    'category_id' => $catId,
+                    'subcategory_id' => $order->subcategory_id,
+                    'current_stock_qty' => 1,
+                    'opening_stock_weight' => round($itemWeight, 3),
+                    'weight' => round($itemWeight, 3),
+                    'purchase_price' => $order->total_price ?: 0,
+                    'image' => $order->image_url,
+                    'image_url' => $order->image_url,
+                    'status' => 'active',
+                    'attributes' => [
+                        'source' => 'inventory',
+                        'is_inventory' => true,
+                        'gross_wt' => round($itemWeight, 3),
+                        'from_work_order' => $order->work_order_number,
+                        'karigar_name' => $order->karigar_name,
+                    ],
+                ]);
+                $order->product_id = $product->id;
+            }
+
+            $pricing['inventory_credited'] = true;
+            $pricing['inventory_credited_at'] = now()->toDateTimeString();
+            $order->pricing_details = $pricing;
+            $order->save();
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to credit work order to inventory: ' . $e->getMessage());
+        }
     }
 }

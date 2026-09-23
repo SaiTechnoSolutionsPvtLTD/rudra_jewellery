@@ -15,10 +15,26 @@ export default function Step3Selection() {
   const [totalDesigns, setTotalDesigns] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [lastPage, setLastPage] = useState(1);
+  const [perPage, setPerPage] = useState(20);
   const [loading, setLoading] = useState(true);
 
+  // Helper for pagination windowing
+  const getPageNumbers = (current, last) => {
+    if (last <= 1) return [1];
+    if (last <= 7) {
+      return Array.from({ length: last }, (_, i) => i + 1);
+    }
+    if (current <= 4) {
+      return [1, 2, 3, 4, 5, '...', last];
+    }
+    if (current >= last - 3) {
+      return [1, '...', last - 4, last - 3, last - 2, last - 1, last];
+    }
+    return [1, '...', current - 1, current, current + 1, '...', last];
+  };
+
   // Metadata
-  const [goldTypes, setGoldTypes] = useState(['18 Carat', '22 Carat', '24 Carat', '14 Carat']);
+  const [goldTypes, setGoldTypes] = useState([]);
   const [styles, setStyles] = useState([]);
   const [diamondRanges, setDiamondRanges] = useState([]);
 
@@ -48,12 +64,12 @@ export default function Step3Selection() {
     }
   };
 
-  const fetchDesigns = async (page = 1, customFilters = filters) => {
+  const fetchDesigns = async (page = 1, customFilters = filters, requestedPerPage = perPage) => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
       params.append('page', page);
-      params.append('per_page', 20);
+      params.append('per_page', requestedPerPage);
 
       if (customFilters.gold_type) params.append('gold_type', customFilters.gold_type);
       if (customFilters.setting_style) params.append('setting_style', customFilters.setting_style);
@@ -336,14 +352,18 @@ export default function Step3Selection() {
                       <img
                         src={firstImage}
                         alt={design.design_no}
+                        onError={(e) => {
+                          e.target.onerror = null;
+                          e.target.style.display = 'none';
+                          if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex';
+                        }}
                         className="w-full h-full object-cover rounded-xl transition-transform duration-200 group-hover:scale-105"
                       />
-                    ) : (
-                      <div className="flex flex-col items-center gap-1 text-gray-300">
-                        <i className="fa-regular fa-image text-3xl"></i>
-                        <span className="text-[10px] text-gray-400">No Image</span>
-                      </div>
-                    )}
+                    ) : null}
+                    <div className="flex flex-col items-center gap-1 text-gray-300 p-2" style={{ display: firstImage ? 'none' : 'flex' }}>
+                      <i className="fa-solid fa-gem text-3xl text-red-200"></i>
+                      <span className="text-[10px] text-gray-400 font-bold">{design.design_no}</span>
+                    </div>
                   </div>
                 </div>
 
@@ -373,42 +393,69 @@ export default function Step3Selection() {
       )}
 
       {/* Pagination */}
-      {lastPage > 1 && (
-        <div className="mt-6 flex items-center justify-between text-xs text-gray-500">
+      <div className="mt-6 p-4 bg-white border border-gray-200/80 rounded-xl shadow-xs flex flex-wrap items-center justify-between gap-4 text-xs text-gray-500">
+        <div className="flex items-center gap-3">
           <span>
-            Showing {(currentPage - 1) * 20 + 1} to {Math.min(currentPage * 20, totalDesigns)} of {totalDesigns} designs
+            Showing {totalDesigns === 0 ? 0 : (currentPage - 1) * perPage + 1} to{' '}
+            {Math.min(currentPage * perPage, totalDesigns)} of {totalDesigns} designs
           </span>
-          <div className="flex items-center gap-1.5">
-            <button
-              disabled={currentPage <= 1}
-              onClick={() => fetchDesigns(currentPage - 1)}
-              className="px-3.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium transition-colors"
+          <div className="flex items-center gap-1.5 ml-2">
+            <span className="text-gray-400 font-normal">Per page:</span>
+            <select
+              value={perPage}
+              onChange={(e) => {
+                const newPerPage = Number(e.target.value);
+                setPerPage(newPerPage);
+                fetchDesigns(1, filters, newPerPage);
+              }}
+              className="px-2 py-1 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-gray-700 outline-none focus:border-[#b01622] cursor-pointer"
             >
-              Previous
-            </button>
-            {Array.from({ length: lastPage }, (_, i) => i + 1).map((p) => (
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            disabled={currentPage <= 1}
+            onClick={() => fetchDesigns(currentPage - 1)}
+            className="px-3.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium transition-colors cursor-pointer bg-white shadow-xs"
+          >
+            Previous
+          </button>
+          {getPageNumbers(currentPage, lastPage).map((p, idx) =>
+            p === '...' ? (
+              <span key={`ellipsis-${idx}`} className="px-2 py-1 text-gray-400">
+                ...
+              </span>
+            ) : (
               <button
+                type="button"
                 key={p}
                 onClick={() => fetchDesigns(p)}
-                className={`w-7 h-7 rounded-lg text-xs font-semibold transition-colors ${
+                className={`w-8 h-8 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                   p === currentPage
                     ? 'bg-[#b01622] text-white shadow-xs'
-                    : 'border border-gray-200 text-gray-600 hover:bg-gray-50'
+                    : 'border border-gray-200 text-gray-600 hover:bg-gray-50 bg-white'
                 }`}
               >
                 {p}
               </button>
-            ))}
-            <button
-              disabled={currentPage >= lastPage}
-              onClick={() => fetchDesigns(currentPage + 1)}
-              className="px-3.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium transition-colors"
-            >
-              Next
-            </button>
-          </div>
+            )
+          )}
+          <button
+            type="button"
+            disabled={currentPage >= lastPage}
+            onClick={() => fetchDesigns(currentPage + 1)}
+            className="px-3.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium transition-colors cursor-pointer bg-white shadow-xs"
+          >
+            Next
+          </button>
         </div>
-      )}
+      </div>
 
       {/* Bottom Actions */}
       <div className="flex items-center justify-between mt-8">

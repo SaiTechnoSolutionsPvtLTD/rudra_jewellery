@@ -25,7 +25,13 @@ export default function InventoryJewelleryTag() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  const printReport = () => {
+  const tagCode = product?.product_code || 'RJ-SKU-' + id;
+
+  const printReport = (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     const reportEl = document.getElementById('jewellery-tag-report');
     if (!reportEl) return;
 
@@ -35,7 +41,7 @@ export default function InventoryJewelleryTag() {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Jewellery Tag — ${code}</title>
+  <title>Jewellery Tag — ${tagCode}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
@@ -124,8 +130,8 @@ ${reportEl.outerHTML}
     : (Number(netWt) * rate) + (attributes.dia_wt_ct ? Number(attributes.dia_wt_ct) * 65000 : 0);
   const formattedValuation = Math.round(valuation).toLocaleString('en-IN');
   const imageSrc = product?.image_url || product?.image || '/placeholder-jewelry.png';
-  const artisanName = karigar?.name || 'Rajesh Varma';
-  const workshopName = karigar?.workshop_name || 'Varma Handcrafted Filigree & Temple Arts';
+  const artisanName = karigar?.name || '-';
+  const workshopName = karigar?.workshop_name || '-';
   const printDate = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
   // Generate pseudo-unique barcode bar widths from code string
@@ -229,29 +235,29 @@ ${reportEl.outerHTML}
 
       {/* Main A4 Report Page */}
       <div id="jewellery-tag-report" className="a4-page text-stone-900">
-        <div className="watermark">RUDRA JEWELLERS</div>
+        <div className="watermark">RUDHRA JEWELLERS</div>
 
         {/* 1. Official Header & Letterhead (Matching Project Theme) */}
         <header className="border-b-2 border-[#b01622] pb-5 mb-5 relative z-10 flex items-start justify-between">
           <div className="flex items-center gap-4">
-            <div className="h-16 shrink-0">
+            <div className="h-14 shrink-0">
               <img
                 src="/logo.png"
-                alt="Rudra Jewellers"
+                alt="Rudhra Jewellers"
                 className="h-full w-auto object-contain"
                 onError={(e) => { e.target.style.display = 'none'; }}
               />
             </div>
             <div>
               <h1 className="text-xl font-black text-[#b01622] tracking-tight leading-none">
-                RUDRA JEWELLERS
+                RUDHRA JEWELLERS
               </h1>
               <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mt-1">
                 Imperial Heritage Jewellery & Bullion Merchants
               </p>
               <div className="text-[9.5px] text-stone-500 space-y-0.5 mt-2">
                 <p>Regd. Office: 402, Heritage Plaza, MG Road, Mumbai 400001</p>
-                <p>GSTIN: 27AABCR1234F1Z9 | BIS Hallmark Regn: HM-BIS-916-2026</p>
+                <p>GSTIN: 33AAACR1234F1Z0 | BIS Hallmark Regn: HM-BIS-916-2026</p>
               </div>
             </div>
           </div>

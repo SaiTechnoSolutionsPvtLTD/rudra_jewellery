@@ -49,7 +49,9 @@ class PurchaseEntryController extends Controller
         $validated = $request->validate([
             'purchase_no' => 'nullable|string|max:50',
             'supplier_id' => 'required|exists:suppliers,id',
-            'product_id' => 'required|exists:products,id',
+            'product_id' => 'nullable|exists:products,id',
+            'purchase_type' => 'nullable|string|in:raw_material,finished_product',
+            'metal_type' => 'nullable|string|max:50',
             'qty' => 'nullable|numeric|min:0',
             'weight' => 'required|numeric|min:0.001',
             'touch' => 'nullable|numeric|min:0|max:100',
@@ -72,6 +74,13 @@ class PurchaseEntryController extends Controller
                         $purchaseNo = 'PUR-' . $nextNum;
                     }
                     $validated['purchase_no'] = $purchaseNo;
+                }
+
+                $purchaseType = $validated['purchase_type'] ?? (!empty($validated['product_id']) ? 'finished_product' : 'raw_material');
+                $validated['purchase_type'] = $purchaseType;
+
+                if ($purchaseType === 'finished_product' && empty($validated['product_id'])) {
+                    return response()->json(['message' => 'Product selection is required for finished product purchases.'], 422);
                 }
 
                 $weight = floatval($validated['weight'] ?? 0);
@@ -99,35 +108,53 @@ class PurchaseEntryController extends Controller
                 // 1. Create Purchase Entry record
                 $purchaseEntry = PurchaseEntry::create($validated);
 
-                // 2. Update Product Stock Weight (Grams) in database so it reflects in Stock Management immediately
-                $product = Product::findOrFail($validated['product_id']);
-                
-                // Accumulate purchased weight in grams on product stock
-                $currentWeight = floatval($product->opening_stock_weight ?? 0);
-                $product->opening_stock_weight = round($currentWeight + $weight, 3);
-                $product->current_stock_qty = intval($product->current_stock_qty ?? 0) + $validated['qty'];
+                $product = null;
 
-                if ($touch > 0) {
-                    $product->opening_touch = $touch;
-                }
-                if ($fineWeight > 0) {
-                    $currentFineWeight = floatval($product->opening_fine_weight ?? 0);
-                    $product->opening_fine_weight = round($currentFineWeight + $fineWeight, 3);
-                }
-                if ($rate > 0) {
-                    $product->opening_stock_rate = $rate;
-                }
-                if (!empty($validated['purchase_date'])) {
-                    $product->opening_stock_date = $validated['purchase_date'];
-                }
+                if ($purchaseType === 'finished_product' && !empty($validated['product_id'])) {
+                    // 2. Update Finished Product Stock Weight & Qty
+                    $product = Product::findOrFail($validated['product_id']);
+                    
+                    $currentWeight = floatval($product->opening_stock_weight ?? 0);
+                    $product->opening_stock_weight = round($currentWeight + $weight, 3);
+                    $product->current_stock_qty = intval($product->current_stock_qty ?? 0) + $validated['qty'];
 
-                $product->save();
+                    if ($touch > 0) {
+                        $product->opening_touch = $touch;
+                    }
+                    if ($fineWeight > 0) {
+                        $currentFineWeight = floatval($product->opening_fine_weight ?? 0);
+                        $product->opening_fine_weight = round($currentFineWeight + $fineWeight, 3);
+                    }
+                    if ($rate > 0) {
+                        $product->opening_stock_rate = $rate;
+                    }
+                    if (!empty($validated['purchase_date'])) {
+                        $product->opening_stock_date = $validated['purchase_date'];
+                    }
+
+                    $product->save();
+
+                    // Log Inventory Movement for finished product purchase
+                    \App\Models\InventoryMovement::create([
+                        'product_id' => $product->id,
+                        'movement_type' => 'purchase',
+                        'quantity' => $validated['qty'],
+                        'weight' => $weight,
+                        'unit_cost' => $rate,
+                        'notes' => "Finished product purchase entry {$purchaseEntry->purchase_no}",
+                        'created_by' => auth()->id() ?? null,
+                    ]);
+                } else {
+                    // 3. Update Raw Material Vault Inventory for raw material purchase
+                    $matType = strtolower($validated['metal_type'] ?? 'gold');
+                    \App\Models\RawMaterial::creditPurchase($matType, $weight);
+                }
 
                 $purchaseEntry->load(['supplier', 'product.category', 'product.subcategory']);
 
                 return response()->json([
                     'status' => 'success',
-                    'message' => 'Purchase entry created successfully and stock updated in Stock Management!',
+                    'message' => 'Purchase entry created successfully!',
                     'purchase_entry' => $purchaseEntry,
                     'updated_product' => $product
                 ], 201);
@@ -149,33 +176,46 @@ class PurchaseEntryController extends Controller
     public function destroy($id)
     {
         try {
-            $entry = PurchaseEntry::find($id);
-            if (!$entry) {
-                return response()->json(['message' => 'Purchase entry not found'], 404);
-            }
+            return DB::transaction(function () use ($id) {
+                $entry = PurchaseEntry::find($id);
+                if (!$entry) {
+                    return response()->json(['message' => 'Purchase entry not found'], 404);
+                }
 
-            // Reverse stock weight update on product
-            $product = Product::find($entry->product_id);
-            if ($product) {
-                $currentWeight = floatval($product->opening_stock_weight ?? 0);
-                $product->opening_stock_weight = max(0, round($currentWeight - floatval($entry->weight), 3));
-                
-                $currentFineWt = floatval($product->opening_fine_weight ?? 0);
-                $product->opening_fine_weight = max(0, round($currentFineWt - floatval($entry->fine_weight), 3));
+                if ($entry->purchase_type === 'finished_product' && $entry->product_id) {
+                    $product = Product::find($entry->product_id);
+                    if ($product) {
+                        $currentWeight = floatval($product->opening_stock_weight ?? 0);
+                        $product->opening_stock_weight = max(0, round($currentWeight - floatval($entry->weight), 3));
+                        
+                        $currentFineWt = floatval($product->opening_fine_weight ?? 0);
+                        $product->opening_fine_weight = max(0, round($currentFineWt - floatval($entry->fine_weight), 3));
 
-                $newQty = max(0, intval($product->current_stock_qty ?? 0) - intval($entry->qty));
-                $product->current_stock_qty = $newQty;
-                $product->save();
-            }
+                        $newQty = max(0, intval($product->current_stock_qty ?? 0) - intval($entry->qty));
+                        $product->current_stock_qty = $newQty;
+                        $product->save();
+                    }
+                } else {
+                    $matType = strtolower($entry->metal_type ?? 'gold');
+                    $rawMat = \App\Models\RawMaterial::where('material_type', $matType)->first();
+                    if ($rawMat) {
+                        $rawMat->purchased_weight = max(0, round($rawMat->purchased_weight - floatval($entry->weight), 3));
+                        $rawMat->current_balance = max(0, round($rawMat->purchased_weight - $rawMat->allocated_weight, 3));
+                        $rawMat->save();
+                    }
+                }
 
-            $entry->delete();
+                $entry->delete();
 
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Purchase entry deleted and product stock reversed successfully.'
-            ]);
+                return response()->json([
+                    'status' => 'success',
+                    'message' => 'Purchase entry deleted and inventory reversed successfully.'
+                ]);
+            });
         } catch (\Exception $e) {
             return response()->json(['message' => 'Error deleting purchase entry: ' . $e->getMessage()], 500);
         }
     }
 }
+
+

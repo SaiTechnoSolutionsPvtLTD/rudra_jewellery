@@ -54,7 +54,7 @@ function QRBlock({ accent = '#b01622' }) {
 /* ───────────────────────────────────────────────────────────
    Single printable label card (used in grid)
 ─────────────────────────────────────────────────────────── */
-function LabelCard({ code, name, purity, grossWt, netWt, stamp, huid, price, variant = 'full' }) {
+function LabelCard({ code, name, purity, grossWt, netWt, diaWt, stamp, huid, price, variant = 'full' }) {
   return (
     <div
       style={{ breakInside: 'avoid' }}
@@ -62,35 +62,34 @@ function LabelCard({ code, name, purity, grossWt, netWt, stamp, huid, price, var
     >
       {/* Card header */}
       <div className="bg-[#b01622] px-3 py-1.5 flex items-center justify-between">
-        <span className="text-white text-[9px] font-black tracking-widest">RUDRA JEWELLERS</span>
+        <span className="text-white text-[9px] font-black tracking-widest">RUDHRA JEWELLERS</span>
         <span className="text-red-100 text-[9px] font-mono font-bold">{stamp}</span>
       </div>
 
-      <div className="px-3 pt-2 pb-1 flex-1 flex flex-col gap-1.5">
+      <div className="px-3 pt-2 pb-1.5 flex-1 flex flex-col gap-1.5">
         {/* Product name */}
         <div className="text-[10.5px] font-bold text-stone-900 leading-snug line-clamp-2">{name}</div>
 
-        {/* Spec row */}
-        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[9px] text-stone-500">
-          <div><span className="text-stone-400">SKU: </span><strong className="font-mono text-stone-800">{code}</strong></div>
-          <div><span className="text-stone-400">Purity: </span><strong className="font-mono text-stone-800">{purity}</strong></div>
-          <div><span className="text-stone-400">Gross: </span><strong className="font-mono text-stone-800">{Number(grossWt).toFixed(3)}g</strong></div>
-          <div><span className="text-stone-400">Net Wt: </span><strong className="font-mono text-stone-800">{Number(netWt).toFixed(3)}g</strong></div>
-          {variant === 'full' && (
-            <div className="col-span-2"><span className="text-stone-400">HUID: </span><strong className="font-mono text-stone-800">{huid}</strong></div>
-          )}
+        {/* Spec row with Dia Wt, Net Wt, Gross Wt/Total Wt, Stamp & HUID */}
+        <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[9px] text-stone-600 bg-stone-50 p-2 rounded-lg border border-stone-200">
+          <div><span className="text-stone-400 font-semibold">SKU:</span> <strong className="font-mono text-stone-900">{code}</strong></div>
+          <div><span className="text-stone-400 font-semibold">Stamp:</span> <strong className="font-mono text-[#b01622]">{stamp}</strong></div>
+          <div><span className="text-stone-400 font-semibold">Total Wt:</span> <strong className="font-mono text-stone-900">{Number(grossWt).toFixed(3)}g</strong></div>
+          <div><span className="text-stone-400 font-semibold">Net Wt:</span> <strong className="font-mono text-stone-900">{Number(netWt).toFixed(3)}g</strong></div>
+          <div><span className="text-stone-400 font-semibold">Dia Wt:</span> <strong className="font-mono text-purple-700">{diaWt ? `${Number(diaWt).toFixed(2)} CT` : '0.00 CT'}</strong></div>
+          <div><span className="text-stone-400 font-semibold">HUID:</span> <strong className="font-mono text-stone-900">{huid}</strong></div>
         </div>
 
         {/* Barcode */}
         <div className="h-7 w-full mt-0.5">
           <BarcodeStrip code={code} height={28} />
         </div>
-        <div className="font-mono text-[8px] font-bold text-stone-500 text-center tracking-widest">*{code}*</div>
+        <div className="font-mono text-[8px] font-bold text-stone-600 text-center tracking-widest">*{code}*</div>
       </div>
 
       {/* Price footer */}
-      <div className="border-t border-stone-200 px-3 py-1.5 flex items-center justify-between">
-        <span className="text-[9px] text-stone-400 font-mono">BIS {stamp}</span>
+      <div className="border-t border-stone-200 px-3 py-1.5 flex items-center justify-between bg-stone-50/50">
+        <span className="text-[9.5px] text-stone-500 font-mono font-bold">BIS {stamp}</span>
         <span className="text-sm font-black text-[#b01622]">₹{Number(price).toLocaleString('en-IN')}</span>
       </div>
     </div>
@@ -137,6 +136,7 @@ export default function InventoryBarcodeTag() {
   const subcatName    = product?.subcategory?.name || 'Jewellery';
   const grossWt       = attributes.gross_wt  || product?.opening_stock_weight  || '0.000';
   const netWt         = attributes.net_wt    || product?.opening_fine_weight   || '0.000';
+  const diaWt         = attributes.dia_wt_ct || attributes.dia_wt || product?.dia_wt_ct || 0;
   const purity        = attributes.purity    || attributes.gold_type           || '22K';
   const purityShort   = purity.split(' ')[0];
   const stamp         = attributes.stamp     || '916 BIS';
@@ -147,9 +147,9 @@ export default function InventoryBarcodeTag() {
   const wastage       = attributes.wastage_percent ? `${attributes.wastage_percent}%` : '3.50%';
   const valuation     = attributes.sale_value
     ? Number(attributes.sale_value)
-    : (Number(netWt) * rate) + (attributes.dia_wt_ct ? Number(attributes.dia_wt_ct) * 65000 : 0);
+    : (Number(netWt) * rate) + (diaWt ? Number(diaWt) * 65000 : 0);
   const formattedPrice = Math.round(valuation).toLocaleString('en-IN');
-  const artisanName   = karigar?.name || 'Rajesh Varma';
+  const artisanName   = karigar?.name || '-';
   const imageSrc      = product?.image_url || product?.image || '/placeholder-jewelry.png';
   const printDate     = new Date().toLocaleDateString('en-IN', {
     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
@@ -252,27 +252,27 @@ export default function InventoryBarcodeTag() {
           A4 PRINTABLE PAGE
       ═══════════════════════════════════════════════════ */}
       <div className="a4-page text-stone-900">
-        <div className="watermark">RUDRA JEWELLERS</div>
+        <div className="watermark">RUDHRA JEWELLERS</div>
 
         {/* 1. LETTERHEAD ─────────────────────────────────── */}
         <header className="border-b-2 border-[#b01622] pb-5 mb-5 relative z-10 flex items-start justify-between">
           <div className="flex items-center gap-4">
-            <div className="h-16 shrink-0">
+            <div className="h-14 shrink-0">
               <img
                 src="/logo.png"
-                alt="Rudra Jewellers"
+                alt="Rudhra Jewellers"
                 className="h-full w-auto object-contain"
                 onError={(e) => { e.target.style.display = 'none'; }}
               />
             </div>
             <div>
-              <h1 className="text-xl font-black text-[#b01622] tracking-tight leading-none">RUDRA JEWELLERS</h1>
+              <h1 className="text-xl font-black text-[#b01622] tracking-tight leading-none">RUDHRA JEWELLERS</h1>
               <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mt-1">
                 Imperial Heritage Jewellery &amp; Bullion Merchants
               </p>
               <div className="text-[9.5px] text-stone-500 space-y-0.5 mt-2">
                 <p>Regd. Office: 402, Heritage Plaza, MG Road, Mumbai 400001</p>
-                <p>GSTIN: 27AABCR1234F1Z9 | BIS Hallmark Regn: HM-BIS-916-2026</p>
+                <p>GSTIN: 33AAACR1234F1Z0 | BIS Hallmark Regn: HM-BIS-916-2026</p>
               </div>
             </div>
           </div>
@@ -305,23 +305,22 @@ export default function InventoryBarcodeTag() {
             </div>
           </div>
 
-          {/* Product Details */}
+          {/* Product Details Grid: Dia Wt, Net Wt, Gross Wt (Total Wt), Stamp, HUID */}
           <div className="col-span-7 space-y-2">
             <div className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">
               {categoryName} • {subcatName}
             </div>
             <h2 className="text-base font-black text-stone-900 leading-tight">{name}</h2>
 
-            <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-[10px]">
-              <div><span className="text-stone-400">Metal &amp; Purity:</span> <strong className="text-stone-800">{purity}</strong></div>
-              <div><span className="text-stone-400">Hallmark:</span> <strong className="text-[#b01622] font-mono">{stamp}</strong></div>
-              <div><span className="text-stone-400">Gross Wt:</span> <strong className="font-mono text-stone-800">{Number(grossWt).toFixed(3)} g</strong></div>
-              <div><span className="text-stone-400">Net Fine Wt:</span> <strong className="font-mono text-stone-800">{Number(netWt).toFixed(3)} g</strong></div>
-              <div><span className="text-stone-400">Wastage:</span> <strong className="text-stone-800">{wastage}</strong></div>
-              <div><span className="text-stone-400">Making Charge:</span> <strong className="text-stone-800">{makingCharge}</strong></div>
-              <div><span className="text-stone-400">Setting:</span> <strong className="text-stone-800">{settingStyle}</strong></div>
-              <div><span className="text-stone-400">Fastening:</span> <strong className="text-stone-800">{openClose}</strong></div>
-              <div><span className="text-stone-400">HUID:</span> <strong className="font-mono text-stone-800">{huid}</strong></div>
+            <div className="grid grid-cols-4 gap-x-3 gap-y-1.5 text-[9.5px]">
+              <div><span className="text-stone-400 block uppercase font-bold text-[8px]">Metal &amp; Purity</span> <strong className="text-stone-800">{purity}</strong></div>
+              <div><span className="text-stone-400 block uppercase font-bold text-[8px]">Hallmark Stamp</span> <strong className="text-[#b01622] font-mono">{stamp}</strong></div>
+              <div><span className="text-stone-400 block uppercase font-bold text-[8px]">Total Gross Wt</span> <strong className="font-mono text-stone-900">{Number(grossWt).toFixed(3)} g</strong></div>
+              <div><span className="text-stone-400 block uppercase font-bold text-[8px]">Net Fine Wt</span> <strong className="font-mono text-stone-900">{Number(netWt).toFixed(3)} g</strong></div>
+              <div><span className="text-stone-400 block uppercase font-bold text-[8px]">Diamond Weight</span> <strong className="font-mono text-purple-700">{diaWt ? `${Number(diaWt).toFixed(2)} CT` : '0.00 CT'}</strong></div>
+              <div><span className="text-stone-400 block uppercase font-bold text-[8px]">Wastage</span> <strong className="text-stone-800">{wastage}</strong></div>
+              <div><span className="text-stone-400 block uppercase font-bold text-[8px]">Making Charge</span> <strong className="text-stone-800">{makingCharge}</strong></div>
+              <div><span className="text-stone-400 block uppercase font-bold text-[8px]">BIS HUID Tag</span> <strong className="font-mono text-stone-900">{huid}</strong></div>
             </div>
           </div>
 
@@ -369,7 +368,7 @@ export default function InventoryBarcodeTag() {
           </div>
         </div>
 
-        {/* 4. LABEL GRID ──────────────────────────────────── */}
+        {/* 4. LABEL GRID WITH DIA WT, NET WT, GROSS WT, STAMP & BARCODE ───── */}
         <div className="relative z-10 mb-5">
           <div className="flex items-center justify-between mb-3">
             <div className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">
@@ -390,6 +389,7 @@ export default function InventoryBarcodeTag() {
                 purity={purityShort}
                 grossWt={grossWt}
                 netWt={netWt}
+                diaWt={diaWt}
                 stamp={stamp}
                 huid={huid}
                 price={Math.round(valuation)}

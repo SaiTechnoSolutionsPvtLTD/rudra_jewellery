@@ -53,6 +53,7 @@ export default function InventoryDashboard() {
   const [subcategoryFilter, setSubcategoryFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [activeTab, setActiveTab] = useState('all');
+  const [periodFilter, setPeriodFilter] = useState('all');
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -95,6 +96,7 @@ export default function InventoryDashboard() {
           subcategory_id: subcategoryFilter,
           status: statusFilter,
           tab: activeTab,
+          period: periodFilter,
         },
       });
 
@@ -106,9 +108,7 @@ export default function InventoryDashboard() {
       setStats(newStats);
 
       // Persist to local cache so on page reload everything shows instantly
-      if (prods.length > 0) {
-        localStorage.setItem('rudhra_inventory_products', JSON.stringify(prods));
-      }
+      localStorage.setItem('rudhra_inventory_products', JSON.stringify(prods));
       if (newStats && Object.keys(newStats).length > 0) {
         localStorage.setItem('rudhra_inventory_stats', JSON.stringify(newStats));
       }
@@ -126,7 +126,7 @@ export default function InventoryDashboard() {
       fetchInventory();
     }, 250);
     return () => clearTimeout(timer);
-  }, [searchTerm, categoryFilter, subcategoryFilter, statusFilter, activeTab, currentPage, itemsPerPage]);
+  }, [searchTerm, categoryFilter, subcategoryFilter, statusFilter, activeTab, periodFilter, currentPage, itemsPerPage]);
 
   // Handle category change to update subcategories
   useEffect(() => {
@@ -166,27 +166,33 @@ export default function InventoryDashboard() {
 
   // Safe accessor helpers for cards matching reference image
   const rawValues = stats.raw_values || {
-    gold: { weight: '12.40 kg', amount: '₹24,75,000', change: '4.5%' },
-    diamond: { weight: '42.5 ct', amount: '₹24,75,000', change: '4.5%' },
-    stone: { weight: '880 units', amount: '₹24,75,000', change: '4.5%' },
-    silver_1: { weight: '12.80 kg', amount: '₹24,75,000', change: '4.5%' },
-    silver_2: { weight: '12.80 kg', amount: '₹24,75,000', change: '4.5%' },
+    gold: { weight: '0.000 kg', amount: '₹0', change: '+0.0%', is_increase: true },
+    diamond: { weight: '0.00 ct', amount: '₹0', change: '+0.0%', is_increase: true },
+    stone: { weight: '0 units', amount: '₹0', change: '+0.0%', is_increase: true },
+    silver_1: { weight: '0.000 kg', amount: '₹0', change: '+0.0%', is_increase: true },
+    silver_2: { weight: '0.000 kg', amount: '₹0', change: '+0.0%', is_increase: true },
   };
 
-  const jewelValues = stats.jewel_values || {
-    gold: { weight: '12.40 kg', amount: '₹24,75,000', change: '4.5%' },
-    stone: { weight: '880 units', amount: '₹24,75,000', change: '4.5%' },
-    silver: { weight: '12.80 kg', amount: '₹24,75,000', change: '4.5%' },
-    diamond: { weight: '42.5 ct', amount: '₹24,75,000', change: '4.5%' },
+  const jewelValues = stats?.jewel_values || {
+    gold: { weight: '0.000 kg', amount: '₹0', change: '+0.0%', is_increase: true },
+    stone: { weight: '0 units', amount: '₹0', change: '+0.0%', is_increase: true },
+    silver: { weight: '0.000 kg', amount: '₹0', change: '+0.0%', is_increase: true },
+    diamond: { weight: '0.00 ct', amount: '₹0', change: '+0.0%', is_increase: true },
   };
 
-  const lowStockAlerts = Array.isArray(stats.low_stock_alerts)
-    ? stats.low_stock_alerts
-    : [
-        { id: 7, name: '22KT Test Gold Necklace', stock_qty: 1, status_label: 'Current Stock: 01 unit', is_out_of_stock: false },
-        { id: 10, name: '22KT Traditional Peacock Choker Necklace', stock_qty: 1, status_label: 'Current Stock: 01 unit', is_out_of_stock: false },
-        { id: 9, name: '18KT Solitaire Diamond Engagement Ring', stock_qty: 2, status_label: 'Current Stock: 02 units', is_out_of_stock: false },
-      ];
+  const lowStockAlerts = Array.isArray(stats?.low_stock_alerts) ? stats.low_stock_alerts : [];
+
+  // Helper function to render dynamic % change badges
+  const renderBadge = (item) => {
+    const isInc = item?.is_increase !== false;
+    const changeVal = item?.change || '+0.0%';
+    return (
+      <span className={`font-semibold flex items-center text-[10px] ${isInc ? 'text-emerald-600' : 'text-rose-600'}`}>
+        <i className={`fa-solid ${isInc ? 'fa-arrow-up' : 'fa-arrow-down'} text-[8px] mr-0.5`}></i>
+        {changeVal}
+      </span>
+    );
+  };
 
   return (
     <div className="w-full pb-14 space-y-6 font-['Inter',-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif]">
@@ -221,6 +227,41 @@ export default function InventoryDashboard() {
         </div>
       </div>
 
+      {/* 1.5 Time Period Filter Pills Selector */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+        <span className="text-xs font-semibold text-stone-500 mr-1 flex items-center gap-1.5 shrink-0">
+          <i className="fa-regular fa-calendar-days text-stone-400"></i>
+          <span>Period:</span>
+        </span>
+        {[
+          { id: 'all', label: 'All Time' },
+          { id: 'today', label: 'Today' },
+          { id: 'yesterday', label: 'Yesterday' },
+          { id: 'this_week', label: 'This Week' },
+          { id: 'this_month', label: 'This Month' },
+          { id: 'this_year', label: 'This Year' },
+        ].map((p) => {
+          const isActive = periodFilter === p.id;
+          return (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => {
+                setPeriodFilter(p.id);
+                setCurrentPage(1);
+              }}
+              className={`px-3.5 py-1.5 text-xs font-semibold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
+                isActive
+                  ? 'bg-[#b01622] text-white shadow-xs'
+                  : 'bg-white text-stone-600 hover:bg-stone-100 hover:text-stone-900 border border-stone-200/80'
+              }`}
+            >
+              {p.label}
+            </button>
+          );
+        })}
+      </div>
+
       {/* 2. Raw Values Section (Red Pill + 5 Cards Grid) */}
       <div>
         <div className="inline-block px-4 py-1.5 bg-[#b01622] text-white text-xs font-bold rounded-xl mb-3 shadow-2xs">
@@ -239,13 +280,11 @@ export default function InventoryDashboard() {
             </div>
             <div>
               <div className="text-lg font-bold text-gray-900 tracking-tight">
-                {rawValues.gold?.weight || '12.40 kg'}
+                {rawValues.gold?.weight || '0.000 kg'}
               </div>
               <div className="text-[11px] text-stone-500 font-medium flex items-center gap-1 mt-0.5">
-                <span>{rawValues.gold?.amount || '₹24,75,000'}</span>
-                <span className="text-emerald-600 font-semibold flex items-center text-[10px]">
-                  <i className="fa-solid fa-arrow-up text-[8px] mr-0.5"></i>4.5%
-                </span>
+                <span>{rawValues.gold?.amount || '₹0'}</span>
+                {renderBadge(rawValues.gold)}
               </div>
             </div>
           </div>
@@ -260,13 +299,11 @@ export default function InventoryDashboard() {
             </div>
             <div>
               <div className="text-lg font-bold text-gray-900 tracking-tight">
-                {rawValues.diamond?.weight || '42.5 ct'}
+                {rawValues.diamond?.weight || '0.00 ct'}
               </div>
               <div className="text-[11px] text-stone-500 font-medium flex items-center gap-1 mt-0.5">
-                <span>{rawValues.diamond?.amount || '₹24,75,000'}</span>
-                <span className="text-emerald-600 font-semibold flex items-center text-[10px]">
-                  <i className="fa-solid fa-arrow-up text-[8px] mr-0.5"></i>4.5%
-                </span>
+                <span>{rawValues.diamond?.amount || '₹0'}</span>
+                {renderBadge(rawValues.diamond)}
               </div>
             </div>
           </div>
@@ -281,13 +318,11 @@ export default function InventoryDashboard() {
             </div>
             <div>
               <div className="text-lg font-bold text-gray-900 tracking-tight">
-                {rawValues.stone?.weight || '880 units'}
+                {rawValues.stone?.weight || '0 units'}
               </div>
               <div className="text-[11px] text-stone-500 font-medium flex items-center gap-1 mt-0.5">
-                <span>{rawValues.stone?.amount || '₹24,75,000'}</span>
-                <span className="text-emerald-600 font-semibold flex items-center text-[10px]">
-                  <i className="fa-solid fa-arrow-up text-[8px] mr-0.5"></i>4.5%
-                </span>
+                <span>{rawValues.stone?.amount || '₹0'}</span>
+                {renderBadge(rawValues.stone)}
               </div>
             </div>
           </div>
@@ -302,13 +337,11 @@ export default function InventoryDashboard() {
             </div>
             <div>
               <div className="text-lg font-bold text-gray-900 tracking-tight">
-                {rawValues.silver_1?.weight || '12.80 kg'}
+                {rawValues.silver_1?.weight || '0.000 kg'}
               </div>
               <div className="text-[11px] text-stone-500 font-medium flex items-center gap-1 mt-0.5">
-                <span>{rawValues.silver_1?.amount || '₹24,75,000'}</span>
-                <span className="text-emerald-600 font-semibold flex items-center text-[10px]">
-                  <i className="fa-solid fa-arrow-up text-[8px] mr-0.5"></i>4.5%
-                </span>
+                <span>{rawValues.silver_1?.amount || '₹0'}</span>
+                {renderBadge(rawValues.silver_1)}
               </div>
             </div>
           </div>
@@ -323,13 +356,11 @@ export default function InventoryDashboard() {
             </div>
             <div>
               <div className="text-lg font-bold text-gray-900 tracking-tight">
-                {rawValues.silver_2?.weight || '12.80 kg'}
+                {rawValues.silver_2?.weight || '0.000 kg'}
               </div>
               <div className="text-[11px] text-stone-500 font-medium flex items-center gap-1 mt-0.5">
-                <span>{rawValues.silver_2?.amount || '₹24,75,000'}</span>
-                <span className="text-emerald-600 font-semibold flex items-center text-[10px]">
-                  <i className="fa-solid fa-arrow-up text-[8px] mr-0.5"></i>4.5%
-                </span>
+                <span>{rawValues.silver_2?.amount || '₹0'}</span>
+                {renderBadge(rawValues.silver_2)}
               </div>
             </div>
           </div>
@@ -355,13 +386,11 @@ export default function InventoryDashboard() {
             </div>
             <div>
               <div className="text-lg font-bold text-gray-900 tracking-tight">
-                {jewelValues.gold?.weight || '12.40 kg'}
+                {jewelValues.gold?.weight || '0.000 kg'}
               </div>
               <div className="text-[11px] text-stone-500 font-medium flex items-center gap-1 mt-0.5">
-                <span>{jewelValues.gold?.amount || '₹24,75,000'}</span>
-                <span className="text-emerald-600 font-semibold flex items-center text-[10px]">
-                  <i className="fa-solid fa-arrow-up text-[8px] mr-0.5"></i>4.5%
-                </span>
+                <span>{jewelValues.gold?.amount || '₹0'}</span>
+                {renderBadge(jewelValues.gold)}
               </div>
             </div>
           </div>
@@ -376,13 +405,11 @@ export default function InventoryDashboard() {
             </div>
             <div>
               <div className="text-lg font-bold text-gray-900 tracking-tight">
-                {jewelValues.stone?.weight || '880 units'}
+                {jewelValues.stone?.weight || '0 units'}
               </div>
               <div className="text-[11px] text-stone-500 font-medium flex items-center gap-1 mt-0.5">
-                <span>{jewelValues.stone?.amount || '₹24,75,000'}</span>
-                <span className="text-emerald-600 font-semibold flex items-center text-[10px]">
-                  <i className="fa-solid fa-arrow-up text-[8px] mr-0.5"></i>4.5%
-                </span>
+                <span>{jewelValues.stone?.amount || '₹0'}</span>
+                {renderBadge(jewelValues.stone)}
               </div>
             </div>
           </div>
@@ -397,13 +424,11 @@ export default function InventoryDashboard() {
             </div>
             <div>
               <div className="text-lg font-bold text-gray-900 tracking-tight">
-                {jewelValues.silver?.weight || '12.80 kg'}
+                {jewelValues.silver?.weight || '0.000 kg'}
               </div>
               <div className="text-[11px] text-stone-500 font-medium flex items-center gap-1 mt-0.5">
-                <span>{jewelValues.silver?.amount || '₹24,75,000'}</span>
-                <span className="text-emerald-600 font-semibold flex items-center text-[10px]">
-                  <i className="fa-solid fa-arrow-up text-[8px] mr-0.5"></i>4.5%
-                </span>
+                <span>{jewelValues.silver?.amount || '₹0'}</span>
+                {renderBadge(jewelValues.silver)}
               </div>
             </div>
           </div>
@@ -418,13 +443,11 @@ export default function InventoryDashboard() {
             </div>
             <div>
               <div className="text-lg font-bold text-gray-900 tracking-tight">
-                {jewelValues.diamond?.weight || '42.5 ct'}
+                {jewelValues.diamond?.weight || '0.00 ct'}
               </div>
               <div className="text-[11px] text-stone-500 font-medium flex items-center gap-1 mt-0.5">
-                <span>{jewelValues.diamond?.amount || '₹24,75,000'}</span>
-                <span className="text-emerald-600 font-semibold flex items-center text-[10px]">
-                  <i className="fa-solid fa-arrow-up text-[8px] mr-0.5"></i>4.5%
-                </span>
+                <span>{jewelValues.diamond?.amount || '₹0'}</span>
+                {renderBadge(jewelValues.diamond)}
               </div>
             </div>
           </div>
@@ -545,14 +568,25 @@ export default function InventoryDashboard() {
                 <div
                   className="min-w-0 flex-1 cursor-pointer"
                   onClick={() => {
-                    setSearchTerm(item.name);
-                    setCurrentPage(1);
+                    if (!item.is_raw_material) {
+                      setSearchTerm(item.name);
+                      setCurrentPage(1);
+                    } else {
+                      navigate('/purchase/entry');
+                    }
                   }}
-                  title="Click to filter by this product in table"
+                  title={item.is_raw_material ? 'Click to open Purchase Entry for Raw Metal' : 'Click to filter by this product in table'}
                 >
-                  <h4 className="font-bold text-gray-900 text-xs truncate hover:text-[#b01622] transition-colors">
-                    {item.name}
-                  </h4>
+                  <div className="flex items-center gap-1.5">
+                    <h4 className="font-bold text-gray-900 text-xs truncate hover:text-[#b01622] transition-colors">
+                      {item.name}
+                    </h4>
+                    {item.is_raw_material && (
+                      <span className="text-[9px] font-extrabold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded tracking-wide uppercase shrink-0">
+                        Raw Metal
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2 mt-0.5">
                     {item.product_code && (
                       <span className="text-[10px] font-mono text-stone-400 font-semibold">{item.product_code}</span>
@@ -660,9 +694,25 @@ export default function InventoryDashboard() {
                           />
                           <div className="min-w-0">
                             <div className="font-bold text-gray-900 text-xs leading-snug">{p.name}</div>
-                            <span className="font-mono text-[10.5px] font-semibold text-stone-400 tracking-tight block mt-0.5">
-                              {p.product_code}
-                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                              <span className="font-mono text-[10.5px] font-semibold text-stone-400 tracking-tight">
+                                {p.product_code}
+                              </span>
+                              {(() => {
+                                const vList = attrs.variants
+                                  ? (typeof attrs.variants === 'string' ? JSON.parse(attrs.variants || '[]') : attrs.variants)
+                                  : [];
+                                if (Array.isArray(vList) && vList.length > 0) {
+                                  return (
+                                    <span className="px-1.5 py-0.2 bg-purple-50 text-purple-700 border border-purple-200/80 rounded text-[9.5px] font-extrabold inline-flex items-center gap-1" title={`${vList.length} model variants available`}>
+                                      <i className="fa-solid fa-layer-group text-[8px]"></i>
+                                      {vList.length} Variants
+                                    </span>
+                                  );
+                                }
+                                return null;
+                              })()}
+                            </div>
                           </div>
                         </div>
                       </td>

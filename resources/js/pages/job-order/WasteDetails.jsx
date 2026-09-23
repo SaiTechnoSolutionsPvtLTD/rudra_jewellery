@@ -59,21 +59,21 @@ export default function WasteDetails() {
   }, [location.search]);
 
   const details = useMemo(() => {
-    const allottedWeight = Number(order?.allotted_weight || 200);
-    const receivedWeight = Number(order?.completed_weight || allottedWeight * 0.9);
+    const allottedWeight = Number(order?.allotted_weight || 0);
+    const receivedWeight = Number(order?.completed_weight || 0);
     const scrapWeight = Math.max(0, allottedWeight - receivedWeight);
-    const allowedPercent = Number(order?.wastage_allowed_percent || 1.75);
-    const wastageValue = scrapWeight * Number(order?.making_charge_per_gram || 150);
-    const makingCharges = Number(order?.total_making_charges || order?.total_price || 2500);
+    const allowedPercent = Number(order?.wastage_allowed_percent || 0);
+    const wastageValue = scrapWeight * Number(order?.making_charge_per_gram || 0);
+    const makingCharges = Number(order?.total_making_charges || order?.total_price || 0);
     const rows = Array.isArray(order?.items) && order.items.length > 0
       ? order.items.map((item) => ({
           material_type: item.material_type || item.variant || 'Material',
           description: item.material_subtitle || item.remark || '-',
           wastage: Number(item.wastage || 0),
           total_weight: Number(item.gold_weight || item.total_weight || 0),
-          rate: Number(order?.making_charge_per_gram || 150),
+          rate: Number(order?.making_charge_per_gram || 0),
         }))
-      : fallbackRows;
+      : [];
 
     return { allottedWeight, receivedWeight, scrapWeight, allowedPercent, wastageValue, makingCharges, rows };
   }, [order]);
@@ -85,19 +85,58 @@ export default function WasteDetails() {
   const endRecord = Math.min(safePage * itemsPerPage, totalItems);
   const paginatedRows = details.rows.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
 
-  const jobId = order?.design_code || order?.work_order_number || 'RJ-3836-000125';
-  const clientId = order?.client?.client_code || (order?.client_id ? `CL-2024-00${order.client_id}` : 'CL-2024-00456');
-  const clientName = order?.customer_name || order?.client?.full_name || order?.client?.name || 'Rajesh Vishwakarma';
-  const karigarName = order?.karigar?.name || order?.karigar_name || 'Manikandan';
+  const jobId = order?.design_code || order?.work_order_number || (order?.id ? `ORD-${order.id}` : '—');
+  const clientId = order?.client?.client_code || (order?.client_id ? `CL-${order.client_id}` : '—');
+  const clientName = order?.customer_name || order?.client?.full_name || order?.client?.name || '—';
+  const karigarName = order?.karigar?.name || order?.karigar_name || 'Unassigned';
   const receivedDate = order?.allotted_date
     ? new Date(order.allotted_date).toLocaleDateString('en-GB')
-    : '20/04/2026';
+    : '—';
   const totalWastageCharges = details.rows.reduce((sum, row) => sum + row.wastage * row.rate, 0);
   const totalWasteValue = details.wastageValue + totalWastageCharges;
   const switchOrder = (event) => navigate(`/job-order/waste?order_id=${event.target.value}`);
 
   if (loading) {
     return <div className="min-h-[450px] flex items-center justify-center text-sm font-semibold text-stone-500">Loading waste details...</div>;
+  }
+
+  if (!order) {
+    return (
+      <div className="w-full pb-16 space-y-5 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif] text-gray-800">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 text-xs text-stone-400 font-semibold mb-2">
+              <span>Manufacturing</span><span>&gt;</span><span>Job Orders</span><span>&gt;</span><span>Reception</span><span>&gt;</span><span className="text-stone-600">Waste Details</span>
+            </div>
+            <h1 className="text-xl font-bold text-gray-900 tracking-tight">Wastage &amp; Loss Details</h1>
+          </div>
+          <Link to="/job-order/receive" className="px-4 py-2 bg-white border border-stone-300 text-stone-800 text-xs font-semibold rounded-lg shadow-2xs hover:bg-stone-50">Back to Receive Summary</Link>
+        </div>
+
+        <div className="border-b border-stone-200 flex items-center gap-8 overflow-x-auto no-scrollbar">
+          {tabLinks.map((tab) => (
+            <Link key={tab.path} to={tab.path} className={`pb-3 text-sm whitespace-nowrap border-b-2 ${tab.path === '/job-order/waste' ? 'font-bold text-[#b01622] border-[#b01622]' : 'font-medium text-stone-500 border-transparent hover:text-stone-900'}`}>{tab.label}</Link>
+          ))}
+        </div>
+
+        <div className="bg-white rounded-2xl border border-stone-200 p-12 text-center flex flex-col items-center justify-center space-y-4 shadow-2xs">
+          <div className="w-16 h-16 rounded-full bg-red-50 text-[#b01622] flex items-center justify-center text-2xl">
+            <i className="fa-solid fa-trash-can"></i>
+          </div>
+          <h2 className="text-lg font-bold text-gray-900">No Wastage Details Recorded</h2>
+          <p className="text-xs text-stone-500 max-w-md">
+            There are currently no job orders recorded in the database with wastage or scrap details.
+          </p>
+          <Link
+            to="/job-order/new"
+            className="px-4 py-2.5 bg-[#b01622] text-white text-xs font-bold rounded-xl shadow-2xs hover:bg-[#8e111a] transition-all flex items-center gap-2"
+          >
+            <i className="fa-solid fa-plus"></i>
+            <span>Create New Job Order</span>
+          </Link>
+        </div>
+      </div>
+    );
   }
 
   return (

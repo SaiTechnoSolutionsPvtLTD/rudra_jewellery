@@ -49,7 +49,7 @@ export default function WorkSpecifications() {
     total: 0,
     active_count: 0,
     inactive_count: 0,
-    avg_wastage: 4.5,
+    avg_wastage: 0,
   });
   const [loading, setLoading] = useState(true);
   const [initialLoad, setInitialLoad] = useState(true);

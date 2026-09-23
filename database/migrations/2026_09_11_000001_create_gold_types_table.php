@@ -20,17 +20,6 @@ return new class extends Migration
             $table->text('description')->nullable();
             $table->timestamps();
         });
-
-        // Seed initial standard gold types
-        $defaultTypes = ['14 Carat', '18 Carat', '22 Carat', '24 Carat'];
-        foreach ($defaultTypes as $idx => $name) {
-            DB::table('gold_types')->insertOrIgnore([
-                'name' => $name,
-                'sort_order' => $idx + 1,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-        }
     }
 
     /**

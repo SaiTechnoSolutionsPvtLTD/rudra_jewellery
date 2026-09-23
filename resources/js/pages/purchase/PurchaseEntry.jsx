@@ -33,11 +33,13 @@ export default function PurchaseEntry({ initialTab }) {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
-  // Single Product Purchase Form State
+  // Single Product / Raw Material Purchase Form State
   const initialFormState = {
     purchase_no: '',
     supplier_id: '',
     product_id: '',
+    purchase_type: 'raw_material',
+    metal_type: 'gold',
     qty: 0,
     weight: 0,
     touch: 0,
@@ -60,12 +62,17 @@ export default function PurchaseEntry({ initialTab }) {
         api.get('/purchase-entries')
       ]);
 
-      const activeSuppliers = (supRes.data?.data || []).filter(s => s.status === 'active');
-      const activeProducts = (prodRes.data || []).filter(p => p.status === 'active');
+      const rawSuppliers = Array.isArray(supRes.data?.data) ? supRes.data.data : (Array.isArray(supRes.data) ? supRes.data : []);
+      const activeSuppliers = rawSuppliers.filter(s => !s.status || s.status === 'active');
+
+      const rawProducts = Array.isArray(prodRes.data?.data) ? prodRes.data.data : (Array.isArray(prodRes.data) ? prodRes.data : []);
+      const activeProducts = rawProducts.filter(p => !p.status || p.status === 'active');
+
+      const rawEntries = Array.isArray(entryRes.data?.data) ? entryRes.data.data : (Array.isArray(entryRes.data) ? entryRes.data : []);
 
       setSuppliers(activeSuppliers);
       setProducts(activeProducts);
-      setPurchaseEntries(entryRes.data || []);
+      setPurchaseEntries(rawEntries);
 
       // Auto-fetch fresh Purchase Ref Number
       fetchPurchaseNo();
@@ -163,8 +170,8 @@ export default function PurchaseEntry({ initialTab }) {
       showToast('Please select a Supplier Name', 'error', 'Validation Error');
       return;
     }
-    if (!formData.product_id) {
-      showToast('Please select a Product', 'error', 'Validation Error');
+    if (formData.purchase_type === 'finished_product' && !formData.product_id) {
+      showToast('Please select a Product for finished product purchase', 'error', 'Validation Error');
       return;
     }
     if (!formData.weight || parseFloat(formData.weight) <= 0) {
@@ -300,7 +307,41 @@ export default function PurchaseEntry({ initialTab }) {
           </span>
         </div>
 
-        {/* SECTION 1: Supplier & Product Selection */}
+        {/* PURCHASE TYPE TOGGLE */}
+        <div className="bg-gray-50 p-3 rounded-xl border border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <span className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-2">
+            <i className="fa-solid fa-layer-group text-[#b01622]"></i>
+            Select Purchase Inventory Type:
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setFormData(prev => ({ ...prev, purchase_type: 'raw_material' }))}
+              className={`px-4 py-2 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center gap-2 ${
+                formData.purchase_type === 'raw_material'
+                  ? 'bg-[#b01622] text-white border-[#b01622] shadow-sm'
+                  : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
+              }`}
+            >
+              <i className="fa-solid fa-cubes"></i>
+              Raw Material Purchase (Vault)
+            </button>
+            <button
+              type="button"
+              onClick={() => setFormData(prev => ({ ...prev, purchase_type: 'finished_product' }))}
+              className={`px-4 py-2 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center gap-2 ${
+                formData.purchase_type === 'finished_product'
+                  ? 'bg-[#b01622] text-white border-[#b01622] shadow-sm'
+                  : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
+              }`}
+            >
+              <i className="fa-solid fa-gem"></i>
+              Finished Jewellery Purchase (Product Catalog)
+            </button>
+          </div>
+        </div>
+
+        {/* SECTION 1: Supplier & Product / Material Selection */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
           {/* Supplier Name Select */}

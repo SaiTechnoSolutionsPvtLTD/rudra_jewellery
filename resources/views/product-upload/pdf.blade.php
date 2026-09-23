@@ -188,18 +188,44 @@
 </head>
 <body>
 
+    @php
+        $companyInfo = \DB::table('company_infos')->where('is_default', true)->first()
+            ?? \DB::table('company_infos')->where('is_active', true)->first()
+            ?? \DB::table('company_infos')->first();
+
+        $logoPath = public_path('logo.png');
+        $logoBase64 = '';
+        if (file_exists($logoPath)) {
+            $logoData = file_get_contents($logoPath);
+            $logoBase64 = 'data:image/png;base64,' . base64_encode($logoData);
+        }
+
+        $companyName = $companyInfo->company_name ?? 'Rudhra Jewellers Pvt. Ltd.';
+        $tagline = $companyInfo->tagline ?? 'Executive Enterprise Product Selection Catalog';
+        $gstin = $companyInfo->gstin ?? '33AAACR1234F1Z0';
+        $regNo = $companyInfo->reg_no ?? 'CHN/2026/JEW/9912';
+        $hallmark = $companyInfo->hallmark_license ?? 'HM-339018274';
+    @endphp
+
     <!-- Header Section -->
-    <table style="width:100%; border-collapse:collapse; margin-bottom:12px; border-bottom: 3px solid #b01622; padding-bottom: 8px;">
+    <table style="width:100%; border-collapse:collapse; margin-bottom:14px; border-bottom: 3.5px solid #b01622; padding-bottom: 10px;">
         <tr>
-            <td style="vertical-align:top; text-align:left;">
-                <div class="company-name">Rudhra Jewellers Pvt. Ltd.</div>
-                <div class="subtitle">Executive Product Selection Catalog</div>
-                <div class="meta-line">GSTIN: 33AAACR1234F1Z0 | Reg No: CHN/2026/JEW/9912</div>
+            @if($logoBase64)
+                <td style="width: 75px; vertical-align: middle; padding-right: 12px;">
+                    <img src="{{ $logoBase64 }}" style="max-height: 54px; width: auto; display: block;">
+                </td>
+            @endif
+            <td style="vertical-align: middle; text-align: left;">
+                <div class="company-name">{{ $companyName }}</div>
+                <div class="subtitle">{{ $tagline }}</div>
+                <div class="meta-line">GSTIN: {{ $gstin }} | Reg No: {{ $regNo }} | BIS Hallmark: {{ $hallmark }}</div>
             </td>
-            <td style="vertical-align:top; text-align:right;">
-                <div style="font-size: 10px; font-weight:700; color:#475569;">DATE: {{ date('d M Y') }}</div>
-                <div style="font-size: 9px; color:#94a3b8; margin-top:2px;">TIME: {{ date('h:i A') }}</div>
-                <div style="font-size: 9px; font-weight:700; color:#b01622; margin-top:4px; text-transform:uppercase;">Official Catalog</div>
+            <td style="vertical-align: middle; text-align: right; width: 170px;">
+                <div style="font-size: 9px; font-weight: 800; color: #b01622; background-color: #fff1f2; border: 1px solid #fecdd3; padding: 3px 8px; border-radius: 4px; text-transform: uppercase; display: inline-block; margin-bottom: 4px;">
+                    Official Product Catalog
+                </div>
+                <div style="font-size: 10px; font-weight: 700; color: #334155;">DATE: {{ date('d M Y') }}</div>
+                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">TIME: {{ date('h:i A') }}</div>
             </td>
         </tr>
     </table>

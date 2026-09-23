@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import { getStoredCompanyInfo, fetchCompanyInfo } from '../../utils/companyInfoService';
+import { printElement } from '../../utils/printHelper';
 
 export default function ReportModule() {
   const location = useLocation();
@@ -17,6 +19,20 @@ export default function ReportModule() {
   const [endDate, setEndDate] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+
+  // Dynamic Company Master Info
+  const [companyInfo, setCompanyInfo] = useState(() => getStoredCompanyInfo());
+
+  useEffect(() => {
+    fetchCompanyInfo().then(info => {
+      if (info) setCompanyInfo(info);
+    });
+    const handleCompanyUpdate = (e) => {
+      if (e?.detail) setCompanyInfo(e.detail);
+    };
+    window.addEventListener('rudhra_company_info_updated', handleCompanyUpdate);
+    return () => window.removeEventListener('rudhra_company_info_updated', handleCompanyUpdate);
+  }, []);
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -35,18 +51,18 @@ export default function ReportModule() {
   // Backend Data
   const [reportData, setReportData] = useState({
     summary: {
-      totalSalesRevenueFormatted: '₹2,85,45,670',
-      totalSalesCount: 320,
-      avgOrderValueFormatted: '₹89,205',
-      totalGstTaxFormatted: '₹8,56,370',
-      inventoryValuationFormatted: '₹1,85,45,670',
-      totalProducts: 45,
-      lowStockCount: 3,
-      totalAllottedGold: 168.447,
-      totalCompletedGold: 114.347,
-      totalWastageGold: 3.25,
-      totalPendingGold: 54.1,
-      totalPurchaseSpendFormatted: '₹1,24,50,000',
+      totalSalesRevenueFormatted: '₹0',
+      totalSalesCount: 0,
+      avgOrderValueFormatted: '₹0',
+      totalGstTaxFormatted: '₹0',
+      inventoryValuationFormatted: '₹0',
+      totalProducts: 0,
+      lowStockCount: 0,
+      totalAllottedGold: 0,
+      totalCompletedGold: 0,
+      totalWastageGold: 0,
+      totalPendingGold: 0,
+      totalPurchaseSpendFormatted: '₹0',
     },
     sales: [],
     inventory: [],
@@ -99,42 +115,69 @@ export default function ReportModule() {
     navigate(`/reports?tab=${tabId}`, { replace: true });
   };
 
-  // CSV Export Generator
-  const handleExportCSV = () => {
+  // Helper for Nil / Empty field handling - returns '-' for missing values, while preserving numbers/zeros
+  const formatNil = (val) => {
+    if (val === null || val === undefined || val === '' || val === 'null' || val === 'N/A' || val === 'undefined') {
+      return '-';
+    }
+    return val;
+  };
+
+  // CSV Export Generator (Fetches complete filtered dataset from database)
+  const handleExportCSV = async () => {
     try {
+      showToast?.('Preparing full report dataset export...', 'info');
+
+      // Request full filtered dataset from backend
+      const res = await api.get('/reports', {
+        params: {
+          type: activeTab,
+          period,
+          search: searchQuery,
+          start_date: startDate || undefined,
+          end_date: endDate || undefined,
+          export: 1,
+        },
+      });
+
+      const exportData = res.data?.status === 'success' || res.data?.summary ? res.data : reportData;
+
       let headers = [];
       let rows = [];
       let title = '';
 
+      const esc = (val) => `"${String(formatNil(val)).replace(/"/g, '""')}"`;
+      const num = (val) => (typeof val === 'number' ? val : (parseFloat(val) || 0));
+
       if (activeTab === 'sales') {
         title = 'Rudhra_Jewellers_Sales_And_Billing_Report';
         headers = ['Invoice No', 'Customer Name', 'Phone', 'Date', 'Items', 'Subtotal (₹)', 'Making Charges (₹)', '3% GST (₹)', 'Total Amount (₹)', 'Payment Method', 'Status'];
-        rows = (reportData.sales || []).map(r => [
-          `"${r.invoice_number}"`, `"${r.customer_name}"`, `"${r.customer_phone}"`, `"${r.date}"`, r.items_count, r.subtotal, r.making_charges, r.gst_amount, r.total_amount, `"${r.payment_method}"`, `"${r.status}"`
+        rows = (exportData.sales || []).map(r => [
+          esc(r.invoice_number), esc(r.customer_name), esc(r.customer_phone), esc(r.date), num(r.items_count), num(r.subtotal), num(r.making_charges), num(r.gst_amount), num(r.total_amount), esc(r.payment_method), esc(r.status)
         ]);
       } else if (activeTab === 'inventory') {
         title = 'Rudhra_Jewellers_Inventory_Valuation_Report';
         headers = ['SKU No', 'Product Name', 'Category', 'Purity', 'Gross Wt (g)', 'Net Wt (g)', 'Stock Qty', 'Unit Price (₹)', 'Total Valuation (₹)', 'Stock Status'];
-        rows = (reportData.inventory || []).map(r => [
-          `"${r.sku}"`, `"${r.name}"`, `"${r.category}"`, `"${r.purity}"`, r.gross_weight, r.net_weight, r.stock_qty, r.price, r.total_valuation, `"${r.stock_status}"`
+        rows = (exportData.inventory || []).map(r => [
+          esc(r.sku), esc(r.name), esc(r.category), esc(r.purity), num(r.gross_weight), num(r.net_weight), num(r.stock_qty), num(r.price), num(r.total_valuation), esc(r.stock_status)
         ]);
       } else if (activeTab === 'karigar') {
         title = 'Rudhra_Jewellers_Karigar_Manufacturing_Report';
         headers = ['Work Order No', 'Artisan Name', 'Product Name', 'Material', 'Allotted Wt (g)', 'Completed Wt (g)', 'Wastage (g)', 'Pending Wt (g)', 'Stage', 'Status', 'Date'];
-        rows = (reportData.workOrders || []).map(r => [
-          `"${r.work_order_number}"`, `"${r.artisan_name}"`, `"${r.product_name}"`, `"${r.material_type}"`, r.allotted_weight, r.completed_weight, r.wastage_weight, r.pending_weight, `"${r.current_stage}"`, `"${r.status}"`, `"${r.date}"`
+        rows = (exportData.workOrders || []).map(r => [
+          esc(r.work_order_number), esc(r.artisan_name), esc(r.product_name), esc(r.material_type), num(r.allotted_weight), num(r.completed_weight), num(r.wastage_weight), num(r.pending_weight), esc(r.current_stage), esc(r.status), esc(r.date)
         ]);
       } else if (activeTab === 'purchase') {
         title = 'Rudhra_Jewellers_Supplier_Purchase_Report';
         headers = ['Purchase No', 'Supplier Name', 'Purchase Date', 'Purity', 'Net Weight (g)', 'Total Spend (₹)', 'Payment Status'];
-        rows = (reportData.purchases || []).map(r => [
-          `"${r.purchase_no}"`, `"${r.supplier_name}"`, `"${r.purchase_date}"`, `"${r.purity}"`, r.net_weight, r.total_amount, `"${r.payment_status}"`
+        rows = (exportData.purchases || []).map(r => [
+          esc(r.purchase_no), esc(r.supplier_name), esc(r.purchase_date), esc(r.purity), num(r.net_weight), num(r.total_amount), esc(r.payment_status)
         ]);
       } else {
         title = 'Rudhra_Jewellers_GST_Tax_Compliance_Report';
         headers = ['Invoice No', 'Customer Name', 'Date', 'Taxable Subtotal (₹)', 'SGST 1.5% (₹)', 'CGST 1.5% (₹)', 'Total 3% GST (₹)', 'Grand Total (₹)'];
-        rows = (reportData.sales || []).map(r => [
-          `"${r.invoice_number}"`, `"${r.customer_name}"`, `"${r.date}"`, r.subtotal, (r.gst_amount / 2).toFixed(2), (r.gst_amount / 2).toFixed(2), r.gst_amount, r.total_amount
+        rows = (exportData.sales || []).map(r => [
+          esc(r.invoice_number), esc(r.customer_name), esc(r.date), num(r.subtotal), (num(r.gst_amount) / 2).toFixed(2), (num(r.gst_amount) / 2).toFixed(2), num(r.gst_amount), num(r.total_amount)
         ]);
       }
 
@@ -148,6 +191,7 @@ export default function ReportModule() {
         `"Report Type: ${title.replace(/_/g, ' ')}"`,
         `"Generated At: ${new Date().toLocaleString()}"`,
         `"Period Filter: ${period.toUpperCase()}"`,
+        `"Total Records Exported: ${rows.length}"`,
         '',
         headers.join(','),
         ...rows.map(e => e.join(','))
@@ -161,7 +205,7 @@ export default function ReportModule() {
       link.click();
       document.body.removeChild(link);
 
-      showToast?.('Report downloaded successfully as CSV!', 'success', 'Export Complete');
+      showToast?.(`Exported ${rows.length} records successfully as CSV!`, 'success', 'Export Complete');
     } catch (err) {
       console.error('Export failed:', err);
       showToast?.('Failed to generate CSV export', 'error');
@@ -246,12 +290,30 @@ export default function ReportModule() {
             </div>
           </div>
           <div className="text-xl font-extrabold text-stone-900 font-mono tracking-tight">
-            {summary.totalSalesRevenueFormatted || '₹2,85,45,670'}
+            {loading ? (
+              <div className="h-7 w-28 bg-stone-100 animate-pulse rounded-md my-0.5"></div>
+            ) : (
+              summary.totalSalesRevenueFormatted || '₹0'
+            )}
           </div>
-          <div className="text-[11px] font-bold text-emerald-600 flex items-center gap-1 font-['Inter',sans-serif]">
-            <i className="fa-solid fa-arrow-trend-up text-[9px]"></i>
-            <span>+24.5% <span className="font-normal text-stone-400">vs Prev Period</span></span>
-          </div>
+          {(() => {
+            const growthText = summary.salesGrowth || '+0.0%';
+            const isNegative = growthText.startsWith('-');
+            const growthColorClass = isNegative ? 'text-rose-600' : 'text-emerald-600';
+            const growthIconClass = isNegative ? 'fa-arrow-trend-down' : 'fa-arrow-trend-up';
+            return (
+              <div className={`text-[11px] font-bold ${growthColorClass} flex items-center gap-1 font-['Inter',sans-serif]`}>
+                {loading ? (
+                  <div className="h-3 w-20 bg-stone-100 animate-pulse rounded-xs"></div>
+                ) : (
+                  <>
+                    <i className={`fa-solid ${growthIconClass} text-[9px]`}></i>
+                    <span>{growthText} <span className="font-normal text-stone-400">{summary.prevPeriodLabel || 'vs Prev Period'}</span></span>
+                  </>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Metric 2: Average Order Value */}
@@ -263,10 +325,18 @@ export default function ReportModule() {
             </div>
           </div>
           <div className="text-xl font-extrabold text-stone-900 font-mono tracking-tight">
-            {summary.avgOrderValueFormatted || '₹89,205'}
+            {loading ? (
+              <div className="h-7 w-24 bg-stone-100 animate-pulse rounded-md my-0.5"></div>
+            ) : (
+              summary.avgOrderValueFormatted || '₹0'
+            )}
           </div>
           <div className="text-[11px] font-medium text-stone-500 font-['Inter',sans-serif]">
-            Across <strong className="text-stone-900 font-bold">{summary.totalSalesCount || 320} Total Orders</strong>
+            {loading ? (
+              <div className="h-3 w-24 bg-stone-100 animate-pulse rounded-xs"></div>
+            ) : (
+              <>Across <strong className="text-stone-900 font-bold">{summary.totalSalesCount ?? 0} Total Orders</strong></>
+            )}
           </div>
         </div>
 
@@ -279,10 +349,18 @@ export default function ReportModule() {
             </div>
           </div>
           <div className="text-xl font-extrabold text-stone-900 font-mono tracking-tight">
-            {summary.inventoryValuationFormatted || '₹1,85,45,670'}
+            {loading ? (
+              <div className="h-7 w-28 bg-stone-100 animate-pulse rounded-md my-0.5"></div>
+            ) : (
+              summary.inventoryValuationFormatted || '₹0'
+            )}
           </div>
           <div className="text-[11px] font-medium text-stone-500 font-['Inter',sans-serif]">
-            <strong className="text-stone-900 font-bold">{summary.totalProducts || 45} Items</strong> ({summary.lowStockCount || 3} Low Stock)
+            {loading ? (
+              <div className="h-3 w-28 bg-stone-100 animate-pulse rounded-xs"></div>
+            ) : (
+              <><strong className="text-stone-900 font-bold">{summary.totalProducts ?? 0} Items</strong> ({summary.lowStockCount ?? 0} Low Stock)</>
+            )}
           </div>
         </div>
 
@@ -295,10 +373,18 @@ export default function ReportModule() {
             </div>
           </div>
           <div className="text-xl font-extrabold text-stone-900 font-mono tracking-tight">
-            {summary.totalAllottedGold || '168.447'} <span className="text-xs font-semibold text-stone-500">g</span>
+            {loading ? (
+              <div className="h-7 w-20 bg-stone-100 animate-pulse rounded-md my-0.5"></div>
+            ) : (
+              <>{summary.totalAllottedGold ?? '0.000'} <span className="text-xs font-semibold text-stone-500">g</span></>
+            )}
           </div>
           <div className="text-[11px] font-bold text-[#b01622] font-['Inter',sans-serif]">
-            Pending: {summary.totalPendingGold || '54.100'}g
+            {loading ? (
+              <div className="h-3 w-20 bg-stone-100 animate-pulse rounded-xs"></div>
+            ) : (
+              <>Pending: {summary.totalPendingGold ?? '0.000'}g</>
+            )}
           </div>
         </div>
 
@@ -307,11 +393,15 @@ export default function ReportModule() {
           <div className="flex items-center justify-between">
             <span className="text-[10.5px] font-bold text-stone-400 uppercase tracking-wider">GST Tax Liability (3%)</span>
             <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-sm">
-              <i className="fa-solid fa-[#b01622] fa-receipt"></i>
+              <i className="fa-solid fa-receipt"></i>
             </div>
           </div>
           <div className="text-xl font-extrabold text-stone-900 font-mono tracking-tight">
-            {summary.totalGstTaxFormatted || '₹8,56,370'}
+            {loading ? (
+              <div className="h-7 w-24 bg-stone-100 animate-pulse rounded-md my-0.5"></div>
+            ) : (
+              summary.totalGstTaxFormatted || '₹0'
+            )}
           </div>
           <div className="text-[11px] font-medium text-stone-500 font-['Inter',sans-serif]">
             SGST 1.5% + CGST 1.5%
@@ -357,10 +447,11 @@ export default function ReportModule() {
           <div className="flex items-center bg-stone-100 p-1 rounded-xl gap-1 text-xs font-bold font-['Inter',sans-serif]">
             {[
               ['Today', 'today'],
-              ['This Week', 'week'],
-              ['This Month', 'month'],
-              ['This Quarter', 'quarter'],
-              ['This Year', 'year'],
+              ['Weekly', 'week'],
+              ['Monthly', 'month'],
+              ['Quarterly', 'quarter'],
+              ['Yearly', 'year'],
+              ['All Time', 'all'],
             ].map(([lbl, val]) => (
               <button
                 key={val}
@@ -692,27 +783,34 @@ export default function ReportModule() {
         <div className="fixed inset-0 z-50 overflow-y-auto p-4 md:p-8 bg-stone-900/60 backdrop-blur-xs flex justify-center items-start print:p-0 print:bg-white print:static print:inset-auto print:block print:overflow-visible print:h-auto print:w-full print:filter-none print:backdrop-filter-none">
           <style>{`
             @media print {
-              body * {
-                visibility: hidden !important;
+              body {
+                background: white !important;
+                margin: 0 !important;
+                padding: 0 !important;
               }
-              #printable-executive-report,
-              #printable-executive-report * {
-                visibility: visible !important;
+              .print\\:hidden, .no-print, header, nav, sidebar, button {
+                display: none !important;
               }
               #printable-executive-report {
-                position: absolute !important;
+                position: fixed !important;
                 left: 0 !important;
                 top: 0 !important;
                 width: 100% !important;
+                height: auto !important;
                 margin: 0 !important;
-                padding: 15px !important;
+                padding: 10mm !important;
                 background: white !important;
-                box-shadow: none !important;
                 border: none !important;
-                border-radius: 0 !important;
+                box-shadow: none !important;
+                visibility: visible !important;
+                opacity: 1 !important;
+                z-index: 999999 !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
               }
-              .print\\:hidden {
-                display: none !important;
+              #printable-executive-report * {
+                visibility: visible !important;
+                opacity: 1 !important;
               }
               #printable-executive-report .sticky {
                 position: static !important;
@@ -758,13 +856,13 @@ export default function ReportModule() {
             <div className="sticky top-0 bg-white z-20 border-b-2 border-[#b01622] pt-2 pb-4 -mx-8 px-8 -mt-8 rounded-t-2xl shadow-2xs flex items-start justify-between">
               <div>
                 <h2 className="text-2xl font-extrabold text-[#b01622] uppercase tracking-wider font-['Inter',sans-serif]">
-                  Rudhra Jewellers Pvt. Ltd.
+                  {companyInfo?.company_name || 'Rudhra Jewellers'}
                 </h2>
                 <p className="text-xs font-bold text-stone-700 mt-0.5">
-                  Certified Executive Business Audit &amp; Tax Compliance Statement
+                  {companyInfo?.tagline || 'Certified Executive Business Audit & Tax Compliance Statement'}
                 </p>
                 <p className="text-[11px] font-semibold text-stone-500 mt-0.5">
-                  GSTIN: 33AAACR1234F1Z0 | Reg No: CHN/2026/JEW/9912 | Period Filter: <span className="uppercase text-stone-800 font-bold">{period}</span>
+                  GSTIN: {companyInfo?.gstin || 'N/A'} | Reg No: {companyInfo?.reg_no || 'N/A'} | Period Filter: <span className="uppercase text-stone-800 font-bold">{period}</span>
                 </p>
               </div>
 
@@ -772,7 +870,11 @@ export default function ReportModule() {
               <div className="flex items-center gap-2 print:hidden">
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    printElement('printable-executive-report', 'Audit & Financial Statement - Rudra Jewellers');
+                  }}
                   className="px-4 py-2 bg-[#b01622] hover:bg-[#8e111a] text-white text-xs font-bold rounded-xl cursor-pointer shadow-xs transition-colors flex items-center gap-1.5"
                 >
                   <i className="fa-solid fa-print text-sm"></i>
@@ -794,23 +896,23 @@ export default function ReportModule() {
             <div className="report-section grid grid-cols-5 gap-3 bg-stone-50 border border-stone-200 rounded-xl p-4 text-xs">
               <div className="border-r border-stone-200 pr-2">
                 <span className="text-[10px] text-stone-400 font-bold block uppercase tracking-wider">Total Revenue</span>
-                <span className="font-extrabold font-mono text-stone-900 text-sm">{summary.totalSalesRevenueFormatted || '₹2,85,45,670'}</span>
+                <span className="font-extrabold font-mono text-stone-900 text-sm">{summary.totalSalesRevenueFormatted || '₹0'}</span>
               </div>
               <div className="border-r border-stone-200 pr-2 pl-1">
                 <span className="text-[10px] text-stone-400 font-bold block uppercase tracking-wider">3% GST Tax</span>
-                <span className="font-extrabold font-mono text-[#b01622] text-sm">{summary.totalGstTaxFormatted || '₹8,56,370'}</span>
+                <span className="font-extrabold font-mono text-[#b01622] text-sm">{summary.totalGstTaxFormatted || '₹0'}</span>
               </div>
               <div className="border-r border-stone-200 pr-2 pl-1">
                 <span className="text-[10px] text-stone-400 font-bold block uppercase tracking-wider">Inventory Stock</span>
-                <span className="font-extrabold font-mono text-stone-900 text-sm">{summary.inventoryValuationFormatted || '₹1,85,45,670'}</span>
+                <span className="font-extrabold font-mono text-stone-900 text-sm">{summary.inventoryValuationFormatted || '₹0'}</span>
               </div>
               <div className="border-r border-stone-200 pr-2 pl-1">
                 <span className="text-[10px] text-stone-400 font-bold block uppercase tracking-wider">Metal Vault</span>
-                <span className="font-extrabold font-mono text-purple-700 text-sm">{summary.totalAllottedGold || 168.447}g</span>
+                <span className="font-extrabold font-mono text-purple-700 text-sm">{summary.totalAllottedGold || 0}g</span>
               </div>
               <div className="pl-1">
                 <span className="text-[10px] text-stone-400 font-bold block uppercase tracking-wider">Supplier Spend</span>
-                <span className="font-extrabold font-mono text-stone-900 text-sm">{summary.totalPurchaseSpendFormatted || '₹1,24,50,000'}</span>
+                <span className="font-extrabold font-mono text-stone-900 text-sm">{summary.totalPurchaseSpendFormatted || '₹0'}</span>
               </div>
             </div>
 
@@ -969,8 +1071,8 @@ export default function ReportModule() {
             {/* Footer Signature & Timestamp */}
             <div className="report-section pt-6 border-t-2 border-stone-200 flex items-end justify-between text-xs text-stone-600 font-medium">
               <div>
-                <p className="font-bold text-stone-800">Rudhra Jewellers Pvt. Ltd.</p>
-                <p className="text-[11px] text-stone-500">Corporate Office: Chennai, Tamil Nadu, India</p>
+                <p className="font-bold text-stone-800">{companyInfo?.company_name || 'Rudhra Jewellers'}</p>
+                <p className="text-[11px] text-stone-500">Corporate Office: {[companyInfo?.city, companyInfo?.state, 'India'].filter(Boolean).join(', ')}</p>
                 <p className="text-[11px] text-stone-400 mt-1 font-mono">Statement Generated At: {new Date().toLocaleString()}</p>
               </div>
               <div className="text-right">

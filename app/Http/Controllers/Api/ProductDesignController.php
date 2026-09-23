@@ -24,6 +24,10 @@ class ProductDesignController extends Controller
      */
     public function index(Request $request)
     {
+        if (ProductDesign::count() === 0 || $request->boolean('sync')) {
+            $this->performInventorySync();
+        }
+
         $query = ProductDesign::query();
 
         // Filter by IDs (for selection / step 3 & 4)
@@ -94,12 +98,35 @@ class ProductDesignController extends Controller
         $designs->getCollection()->transform(function ($design) {
             $images = is_array($design->image_path) ? $design->image_path : [];
             $design->image_urls = array_map(function ($path) {
-                return asset('storage/' . $path);
+                return $this->formatSingleImageUrl($path);
             }, $images);
             return $design;
         });
 
         return response()->json($designs);
+    }
+
+    /**
+     * Format a single image path safely into a full URL.
+     */
+    public function formatSingleImageUrl($path)
+    {
+        if (empty($path)) return null;
+
+        if (str_starts_with($path, 'data:image') || str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            return $path;
+        }
+
+        $clean = ltrim($path, '/');
+        if (str_starts_with($clean, 'storage/')) {
+            $clean = substr($clean, 8);
+        }
+
+        if (str_starts_with($clean, 'images/')) {
+            return asset($clean);
+        }
+
+        return asset('storage/' . $clean);
     }
 
     /**
@@ -112,13 +139,7 @@ class ProductDesignController extends Controller
         $goldTypesList = GoldType::orderBy('sort_order')->orderBy('name')->get();
         $goldNames = $goldTypesList->pluck('name')->toArray();
 
-        $existingGold = ProductDesign::whereNotNull('gold_type')
-            ->where('gold_type', '!=', '')
-            ->distinct()
-            ->pluck('gold_type')
-            ->toArray();
-        $defaultGold = ['18 Carat', '22 Carat', '24 Carat', '14 Carat'];
-        $goldTypes = array_values(array_unique(array_merge($goldNames, $defaultGold, $existingGold)));
+        $goldTypes = array_values(array_unique(array_merge($goldNames, $existingGold)));
 
         $diamondRanges = DiamondRange::orderBy('min_ct')->get();
 
@@ -131,10 +152,69 @@ class ProductDesignController extends Controller
     }
 
     /**
+     * Check if a design number is unique across product_designs and products tables.
+     */
+    public function checkDesignNo(Request $request)
+    {
+        $designNo = trim($request->input('design_no', ''));
+        $ignoreId = $request->input('ignore_id');
+
+        if (empty($designNo)) {
+            return response()->json(['exists' => false, 'available' => true]);
+        }
+
+        $queryInDesigns = ProductDesign::where('design_no', $designNo);
+        if ($ignoreId) {
+            $queryInDesigns->where('id', '!=', $ignoreId);
+        }
+        $existsInDesigns = $queryInDesigns->exists();
+        $existsInProducts = \App\Models\Product::where('product_code', $designNo)->exists();
+
+        $exists = $existsInDesigns || $existsInProducts;
+        $location = $existsInDesigns ? 'uploaded designs' : ($existsInProducts ? 'inventory products' : null);
+
+        return response()->json([
+            'exists' => $exists,
+            'available' => !$exists,
+            'location' => $location,
+            'message' => $exists ? "Design Number '{$designNo}' already exists in {$location}." : "Design Number '{$designNo}' is available.",
+        ]);
+    }
+
+    /**
+     * Auto-generate a guaranteed unique design number across both product_designs and products tables.
+     */
+    public function generateDesignNo()
+    {
+        $prefix = 'DES-';
+        $num = 1001;
+
+        while (
+            ProductDesign::where('design_no', $prefix . $num)->exists() ||
+            \App\Models\Product::where('product_code', $prefix . $num)->exists()
+        ) {
+            $num++;
+        }
+
+        return response()->json([
+            'design_no' => $prefix . $num,
+        ]);
+    }
+
+    /**
      * Store a newly created product design.
      */
     public function store(Request $request)
     {
+        $designNo = trim($request->design_no ?? '');
+
+        if (\App\Models\Product::where('product_code', $designNo)->exists()) {
+            return response()->json([
+                'message' => "The Design Number '{$designNo}' is already used by an inventory product. Design numbers must be unique across all products.",
+                'errors' => ['design_no' => ["Design Number '{$designNo}' already exists in inventory products."]]
+            ], 422);
+        }
+
         $request->validate([
             'design_no' => 'required|string|unique:product_designs,design_no',
             'net_wt' => 'required|numeric',
@@ -144,6 +224,9 @@ class ProductDesignController extends Controller
             'dia_wt_range' => 'nullable|string',
             'image' => 'nullable',
             'image.*' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:5120',
+        ], [
+            'design_no.unique' => 'The Design Number ":input" is already taken. Design Numbers must be unique across all products.',
+            'design_no.required' => 'Design Number is required.',
         ]);
 
         $imagePaths = [];
@@ -170,6 +253,11 @@ class ProductDesignController extends Controller
             };
         }
 
+        $variants = $request->input('variants', []);
+        if (is_string($variants)) {
+            $variants = json_decode($variants, true) ?: [];
+        }
+
         $design = ProductDesign::create([
             'design_no' => $request->design_no,
             'image_path' => $imagePaths,
@@ -177,11 +265,15 @@ class ProductDesignController extends Controller
             'net_wt' => $request->net_wt,
             'gold_type' => $request->gold_type ?: null,
             'setting_style' => $settingStyle ?: null,
+            'stamp' => $request->stamp ?: null,
+            'stone_size' => $request->stone_size ?: null,
+            'stone_color' => $request->stone_color ?: null,
+            'variants' => $variants,
             'status' => 'Uploaded',
         ]);
 
         $images = is_array($design->image_path) ? $design->image_path : [];
-        $design->image_urls = array_map(fn($path) => asset('storage/' . $path), $images);
+        $design->image_urls = array_map(fn($path) => $this->formatSingleImageUrl($path), $images);
 
         return response()->json([
             'message' => 'Design uploaded successfully!',
@@ -196,7 +288,7 @@ class ProductDesignController extends Controller
     {
         $design = ProductDesign::findOrFail($id);
         $images = is_array($design->image_path) ? $design->image_path : [];
-        $design->image_urls = array_map(fn($path) => asset('storage/' . $path), $images);
+        $design->image_urls = array_map(fn($path) => $this->formatSingleImageUrl($path), $images);
 
         return response()->json($design);
     }
@@ -207,6 +299,14 @@ class ProductDesignController extends Controller
     public function update(Request $request, $id)
     {
         $design = ProductDesign::findOrFail($id);
+        $designNo = trim($request->design_no ?? '');
+
+        if (\App\Models\Product::where('product_code', $designNo)->exists()) {
+            return response()->json([
+                'message' => "The Design Number '{$designNo}' is already used by an inventory product. Design numbers must be unique across all products.",
+                'errors' => ['design_no' => ["Design Number '{$designNo}' already exists in inventory products."]]
+            ], 422);
+        }
 
         $request->validate([
             'design_no' => 'required|string|unique:product_designs,design_no,' . $id,
@@ -216,6 +316,8 @@ class ProductDesignController extends Controller
             'dia_wt_ct' => 'nullable|string',
             'image' => 'nullable',
             'image.*' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:5120',
+        ], [
+            'design_no.unique' => 'The Design Number ":input" is already taken. Design Numbers must be unique across all products.',
         ]);
 
         $imagePaths = $design->image_path;
@@ -240,6 +342,11 @@ class ProductDesignController extends Controller
             Style::firstOrCreate(['name' => $settingStyle]);
         }
 
+        $variants = $request->input('variants', $design->variants ?? []);
+        if (is_string($variants)) {
+            $variants = json_decode($variants, true) ?: [];
+        }
+
         $design->update([
             'design_no' => $request->design_no,
             'image_path' => $imagePaths,
@@ -247,10 +354,14 @@ class ProductDesignController extends Controller
             'net_wt' => $request->net_wt,
             'gold_type' => $request->gold_type ?: null,
             'setting_style' => $settingStyle ?: null,
+            'stamp' => $request->input('stamp', $design->stamp),
+            'stone_size' => $request->input('stone_size', $design->stone_size),
+            'stone_color' => $request->input('stone_color', $design->stone_color),
+            'variants' => $variants,
         ]);
 
         $images = is_array($design->image_path) ? $design->image_path : [];
-        $design->image_urls = array_map(fn($path) => asset('storage/' . $path), $images);
+        $design->image_urls = array_map(fn($path) => $this->formatSingleImageUrl($path), $images);
 
         return response()->json([
             'message' => 'Design updated successfully!',
@@ -439,5 +550,73 @@ class ProductDesignController extends Controller
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'Cache-Control' => 'max-age=0',
         ]);
+    }
+
+    /**
+     * Automatically sync all inventory products to product upload & catalog.
+     */
+    public function syncInventory(Request $request)
+    {
+        $count = $this->performInventorySync();
+        return response()->json([
+            'message' => "Successfully synced {$count} products from Inventory to Catalog!",
+            'synced_count' => $count,
+        ]);
+    }
+
+    public function performInventorySync()
+    {
+        $syncedCount = 0;
+        try {
+            if (!\Illuminate\Support\Facades\Schema::hasTable('products')) {
+                return 0;
+            }
+
+            $inventoryProducts = \App\Models\Product::with(['category', 'subcategory'])->get();
+
+            foreach ($inventoryProducts as $prod) {
+                $code = $prod->product_code ?: ('PRD-' . sprintf('%04d', $prod->id));
+                $attrs = is_array($prod->attributes) ? $prod->attributes : json_decode($prod->attributes ?? '[]', true);
+
+                $netWt = (float) ($attrs['net_weight'] ?? $prod->opening_stock_weight ?? 1.500);
+                $purityRaw = $attrs['purity'] ?? '22K';
+                $purity = '22 Carat';
+                if (str_contains(strtolower($purityRaw), '18')) $purity = '18 Carat';
+                elseif (str_contains(strtolower($purityRaw), '24')) $purity = '24 Carat';
+                elseif (str_contains(strtolower($purityRaw), '14')) $purity = '14 Carat';
+
+                $settingStyle = $attrs['setting_style'] ?? ($prod->category ? $prod->category->name : 'Studded');
+                $diaWt = (string) ($attrs['diamond_wt'] ?? '0.50');
+                $imagePath = [];
+                if (!empty($prod->image)) {
+                    $imagePath[] = $prod->image;
+                }
+                if (!empty($prod->thumbnail) && $prod->thumbnail !== $prod->image) {
+                    $imagePath[] = $prod->thumbnail;
+                }
+
+                $design = ProductDesign::updateOrCreate(
+                    ['design_no' => $code],
+                    [
+                        'net_wt' => $netWt,
+                        'gold_type' => $purity,
+                        'setting_style' => $settingStyle,
+                        'dia_wt_ct' => $diaWt,
+                        'image_path' => $imagePath,
+                        'status' => 'Uploaded',
+                    ]
+                );
+
+                $syncedCount++;
+
+                if (!empty($settingStyle)) {
+                    Style::firstOrCreate(['name' => $settingStyle]);
+                }
+            }
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::warning('Inventory sync error: ' . $e->getMessage());
+        }
+
+        return $syncedCount;
     }
 }

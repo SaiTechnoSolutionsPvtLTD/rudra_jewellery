@@ -3,6 +3,9 @@ import { Link, useSearchParams } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import ConfirmModal from '../../components/ConfirmModal';
+import { getStoredDefaultBankAccount } from '../masters/BankAccounts';
+import { getStoredCompanyInfo, fetchCompanyInfo } from '../../utils/companyInfoService';
+import { printElement } from '../../utils/printHelper';
 
 // Number to Indian Rupees Words Helper
 function numberToWordsINR(amount) {
@@ -49,6 +52,18 @@ export default function BillingDashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [clientsList, setClientsList] = useState([]);
+  const [companyInfo, setCompanyInfo] = useState(() => getStoredCompanyInfo());
+
+  useEffect(() => {
+    fetchCompanyInfo().then(info => {
+      if (info) setCompanyInfo(info);
+    });
+    const handleCompanyUpdate = (e) => {
+      if (e?.detail) setCompanyInfo(e.detail);
+    };
+    window.addEventListener('rudhra_company_info_updated', handleCompanyUpdate);
+    return () => window.removeEventListener('rudhra_company_info_updated', handleCompanyUpdate);
+  }, []);
 
   // Filters
   const [clientFilter, setClientFilter] = useState(clientIdParam || 'all');
@@ -88,16 +103,16 @@ export default function BillingDashboard() {
   const [invoiceItems, setInvoiceItems] = useState([
     {
       sno: 1,
-      desc: '22KT Hallmarked Gold Antique Necklace',
-      code: 'RJ-NCK-102',
+      desc: '',
+      code: 'RJ-ITM-001',
       hsn: '711319',
       purity: '22KT (916)',
-      gross_wt: '14.850',
-      net_wt: '14.200',
+      gross_wt: '',
+      net_wt: '',
       dia_wt: '-',
-      rate: '6850',
-      making: '4500',
-      taxable: 101770
+      rate: '',
+      making: '',
+      taxable: 0
     }
   ]);
 
@@ -572,16 +587,16 @@ export default function BillingDashboard() {
         setInvoiceItems([
           {
             sno: 1,
-            desc: '22KT Hallmarked Gold Antique Necklace',
-            code: 'RJ-NCK-102',
+            desc: '',
+            code: 'RJ-ITM-001',
             hsn: '711319',
             purity: '22KT (916)',
-            gross_wt: '14.850',
-            net_wt: '14.200',
+            gross_wt: '',
+            net_wt: '',
             dia_wt: '-',
-            rate: '6850',
-            making: '4500',
-            taxable: 101770
+            rate: '',
+            making: '',
+            taxable: 0
           }
         ]);
       }
@@ -821,7 +836,7 @@ export default function BillingDashboard() {
   };
 
   return (
-    <div className="w-full pb-14 font-sans antialiased text-gray-800">
+    <div className={`w-full pb-14 font-sans antialiased text-gray-800 ${selectedInvoice ? 'print:hidden' : ''}`}>
       
       {/* Top Breadcrumb & Actions Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
@@ -894,8 +909,8 @@ export default function BillingDashboard() {
             </div>
             <div className="flex items-center text-xs font-semibold text-emerald-600 gap-1">
               <i className="fa-solid fa-arrow-trend-up text-[10px]"></i>
-              <span>16.2%</span>
-              <span className="text-gray-400 font-normal ml-0.5">vs last month</span>
+              <span>{stats.todayInvoicesGrowth || '+0.0%'}</span>
+              <span className="text-gray-400 font-normal ml-0.5">vs yesterday</span>
             </div>
           </div>
         </div>
@@ -914,7 +929,7 @@ export default function BillingDashboard() {
             </div>
             <div className="flex items-center text-xs font-semibold text-emerald-600 gap-1">
               <i className="fa-solid fa-arrow-trend-up text-[10px]"></i>
-              <span>18.8%</span>
+              <span>{stats.todayBillingsGrowth || '+0.0%'}</span>
               <span className="text-gray-400 font-normal ml-0.5">vs yesterday</span>
             </div>
           </div>
@@ -934,7 +949,7 @@ export default function BillingDashboard() {
             </div>
             <div className="flex items-center text-xs font-semibold text-rose-500 gap-1">
               <i className="fa-solid fa-arrow-trend-down text-[10px]"></i>
-              <span>6.5%</span>
+              <span>{stats.pendingBillsChange || '+0.0%'}</span>
               <span className="text-gray-400 font-normal ml-0.5">vs last month</span>
             </div>
           </div>
@@ -954,7 +969,7 @@ export default function BillingDashboard() {
             </div>
             <div className="flex items-center text-xs font-semibold text-emerald-600 gap-1">
               <i className="fa-solid fa-arrow-trend-up text-[10px]"></i>
-              <span>8.2%</span>
+              <span>{stats.totalRevenueGrowth || '+0.0%'}</span>
               <span className="text-gray-400 font-normal ml-0.5">vs last year</span>
             </div>
           </div>
@@ -2472,25 +2487,28 @@ export default function BillingDashboard() {
         <div className="fixed inset-0 bg-black/65 backdrop-blur-xs z-[70] flex items-center justify-center p-2 sm:p-4 overflow-y-auto font-['Inter',-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif]">
           <style>{`
             @media print {
-              body * {
-                visibility: hidden !important;
+              .no-print, .print\\:hidden {
+                display: none !important;
               }
-              #printable-tax-invoice-sheet, #printable-tax-invoice-sheet * {
-                visibility: visible !important;
+              html, body {
+                background: white !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 100% !important;
+                height: auto !important;
+                overflow: visible !important;
               }
               #printable-tax-invoice-sheet {
-                position: absolute !important;
-                left: 0 !important;
-                top: 0 !important;
+                display: block !important;
+                position: static !important;
                 width: 100% !important;
                 margin: 0 !important;
                 padding: 15px !important;
                 background: white !important;
                 border: none !important;
                 box-shadow: none !important;
-              }
-              .print\\:hidden {
-                display: none !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
               }
             }
           `}</style>
@@ -2515,7 +2533,7 @@ export default function BillingDashboard() {
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={() => printElement('printable-tax-invoice-sheet', `Tax Invoice #${selectedInvoice?.invoice_no || selectedInvoice?.id}`)}
                   className="px-4 py-2 bg-[#b01622] hover:bg-[#8e111a] text-white text-xs font-bold rounded-lg flex items-center gap-2 transition-colors cursor-pointer shadow-xs tracking-wide"
                 >
                   <i className="fa-solid fa-print"></i> PRINT / SAVE PDF
@@ -2560,7 +2578,7 @@ export default function BillingDashboard() {
                 <div className="text-center flex-1">
                   <h1 className="text-2xl font-black text-[#b01622] tracking-wider uppercase">TAX INVOICE</h1>
                   <div className="text-[11px] font-semibold text-gray-600 mt-0.5">
-                    Original for Recipient &nbsp;|&nbsp; GSTIN: <span className="font-mono font-bold text-gray-900">33AAAAA0000A1Z5</span>
+                    Original for Recipient &nbsp;|&nbsp; GSTIN: <span className="font-mono font-bold text-gray-900">{companyInfo?.gstin || '33AAACR1234F1Z0'}</span>
                   </div>
                   <div className="w-16 h-0.5 bg-[#b01622] mx-auto mt-2 mb-1"></div>
                   <div className="text-xs font-bold text-[#801824] tracking-tight font-mono">
@@ -2759,47 +2777,54 @@ export default function BillingDashboard() {
                 
                 {/* Left: Bank Details & Amount in Words */}
                 <div className="col-span-7 space-y-3">
-                  <div className="bg-gray-50/70 p-3.5 rounded-xl border border-gray-200 text-xs space-y-2 text-gray-700">
-                    <div className="font-bold text-[#b01622] uppercase tracking-wider text-[10.5px] border-b border-gray-200/80 pb-1 flex items-center gap-1.5">
-                      <i className="fa-solid fa-building-columns"></i> BANK & NEFT/RTGS REMITTANCE DETAILS
-                    </div>
+                  {(() => {
+                    const activeBank = getStoredDefaultBankAccount();
+                    return (
+                      <div className="bg-gray-50/70 p-3.5 rounded-xl border border-gray-200 text-xs space-y-2 text-gray-700">
+                        <div className="font-bold text-[#b01622] uppercase tracking-wider text-[10.5px] border-b border-gray-200/80 pb-1 flex items-center gap-1.5">
+                          <i className="fa-solid fa-building-columns"></i> BANK &amp; NEFT/RTGS REMITTANCE DETAILS
+                        </div>
 
-                    <div className="flex items-center leading-relaxed">
-                      <span className="w-28 text-gray-500 font-medium shrink-0">Bank Name</span>
-                      <span className="text-gray-400 font-bold w-4 shrink-0 text-center">:</span>
-                      <span className="font-semibold text-gray-900 flex-1">HDFC Bank Ltd</span>
-                    </div>
+                        <div className="flex items-center leading-relaxed">
+                          <span className="w-28 text-gray-500 font-medium shrink-0">Bank Name</span>
+                          <span className="text-gray-400 font-bold w-4 shrink-0 text-center">:</span>
+                          <span className="font-semibold text-gray-900 flex-1">{activeBank?.bank_name || 'HDFC Bank'}</span>
+                        </div>
 
-                    <div className="flex items-center leading-relaxed">
-                      <span className="w-28 text-gray-500 font-medium shrink-0">Account Name</span>
-                      <span className="text-gray-400 font-bold w-4 shrink-0 text-center">:</span>
-                      <span className="font-semibold text-gray-900 flex-1">Rudra Jewellers Chennai Pvt Ltd</span>
-                    </div>
+                        <div className="flex items-center leading-relaxed">
+                          <span className="w-28 text-gray-500 font-medium shrink-0">Account Name</span>
+                          <span className="text-gray-400 font-bold w-4 shrink-0 text-center">:</span>
+                          <span className="font-semibold text-gray-900 flex-1">{activeBank?.account_name || 'Rudra Jewellers Pvt Ltd'}</span>
+                        </div>
 
-                    <div className="flex items-center leading-relaxed">
-                      <span className="w-28 text-gray-500 font-medium shrink-0">Account Number</span>
-                      <span className="text-gray-400 font-bold w-4 shrink-0 text-center">:</span>
-                      <span className="font-mono font-bold text-gray-900 flex-1 tracking-wider">
-                        50200084920194 <span className="text-gray-500 font-normal text-[11px]">(Current A/C)</span>
-                      </span>
-                    </div>
+                        <div className="flex items-center leading-relaxed">
+                          <span className="w-28 text-gray-500 font-medium shrink-0">Account Number</span>
+                          <span className="text-gray-400 font-bold w-4 shrink-0 text-center">:</span>
+                          <span className="font-mono font-bold text-gray-900 flex-1 tracking-wider">
+                            {activeBank?.account_number || '50200018899221'} <span className="text-gray-500 font-normal text-[11px]">({activeBank?.account_type || 'Current A/C'})</span>
+                          </span>
+                        </div>
 
-                    <div className="flex items-center leading-relaxed">
-                      <span className="w-28 text-gray-500 font-medium shrink-0">IFSC / Branch</span>
-                      <span className="text-gray-400 font-bold w-4 shrink-0 text-center">:</span>
-                      <span className="font-mono font-semibold text-gray-800 flex-1">
-                        HDFC0001234 &nbsp;|&nbsp; T. Nagar, Chennai
-                      </span>
-                    </div>
+                        <div className="flex items-center leading-relaxed">
+                          <span className="w-28 text-gray-500 font-medium shrink-0">IFSC / Branch</span>
+                          <span className="text-gray-400 font-bold w-4 shrink-0 text-center">:</span>
+                          <span className="font-mono font-semibold text-gray-800 flex-1">
+                            {activeBank?.ifsc_code || 'HDFC0000124'} &nbsp;|&nbsp; {activeBank?.branch || 'Sowcarpet, Chennai'}
+                          </span>
+                        </div>
 
-                    <div className="flex items-center leading-relaxed">
-                      <span className="w-28 text-gray-500 font-medium shrink-0">UPI ID</span>
-                      <span className="text-gray-400 font-bold w-4 shrink-0 text-center">:</span>
-                      <span className="font-mono font-semibold text-[#b01622] flex-1">
-                        rudrajewellers@hdfcbank
-                      </span>
-                    </div>
-                  </div>
+                        {activeBank?.upi_id && (
+                          <div className="flex items-center leading-relaxed">
+                            <span className="w-28 text-gray-500 font-medium shrink-0">UPI ID</span>
+                            <span className="text-gray-400 font-bold w-4 shrink-0 text-center">:</span>
+                            <span className="font-mono font-semibold text-[#b01622] flex-1">
+                              {activeBank.upi_id}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {/* Amount in Words */}
                   <div className="p-3 bg-red-50/30 border border-red-100 rounded-xl">
@@ -2871,7 +2896,7 @@ export default function BillingDashboard() {
                   <div className="font-serif italic font-bold text-[#b01622] text-lg leading-none">Rudhra</div>
                   <div className="w-36 h-0.5 bg-gray-300 ml-auto"></div>
                   <div className="text-[10px] font-bold text-gray-800 uppercase tracking-wider">AUTHORIZED SIGNATORY</div>
-                  <div className="text-[8px] text-gray-400">Rudra Jewellers, Chennai</div>
+                  <div className="text-[8px] text-gray-400">{companyInfo?.company_name || ''} {companyInfo?.city ? `, ${companyInfo.city}` : ''}</div>
                 </div>
               </div>
 

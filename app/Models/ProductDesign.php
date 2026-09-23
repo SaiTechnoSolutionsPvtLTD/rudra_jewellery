@@ -18,6 +18,14 @@ class ProductDesign extends Model
         'size',
         'gold_type',
         'setting_style',
+        'stamp',
+        'stone_size',
+        'stone_color',
+        'variants',
+    ];
+
+    protected $casts = [
+        'variants' => 'array',
     ];
 
     public function getImagePathAttribute($value)

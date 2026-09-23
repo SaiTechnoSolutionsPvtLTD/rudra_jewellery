@@ -31,6 +31,8 @@ import SettingStyles from './pages/masters/SettingStyles';
 import GoldTypes from './pages/masters/GoldTypes';
 import DiamondRanges from './pages/masters/DiamondRanges';
 import WorkSpecifications from './pages/masters/WorkSpecifications';
+import BankAccounts from './pages/masters/BankAccounts';
+import CompanyInfoMaster from './pages/masters/CompanyInfoMaster';
 const KarigarManagement = lazy(() => import('./pages/karigar/KarigarManagement'));
 const SalesModule = lazy(() => import('./pages/sales/SalesModule'));
 const ReportModule = lazy(() => import('./pages/reports/ReportModule'));
@@ -49,6 +51,7 @@ import InventoryBarcodeTag from './pages/inventory/InventoryBarcodeTag';
 
 // Job Order / Karigar Workflow Module
 const JobCreationDashboard = lazy(() => import('./pages/job-order/JobCreationDashboard'));
+const JobOrdersList = lazy(() => import('./pages/job-order/JobOrdersList'));
 const NewWorkOrder = lazy(() => import('./pages/job-order/NewWorkOrder'));
 const ReceiverWork = lazy(() => import('./pages/job-order/ReceiverWork'));
 const WorkInProgress = lazy(() => import('./pages/job-order/WorkInProgress'));
@@ -119,7 +122,9 @@ function App() {
               <Route path="/sales/list" element={<SalesModule view="list" />} />
               <Route path="/sales/create" element={<SalesModule view="create" />} />
               <Route path="/sales/customer" element={<SalesModule view="create" />} />
-              <Route path="/sales/profit" element={<SalesModule view="profit" />} />
+              <Route path="/sales/profit" element={<SalesModule view="profit-per-invoice" />} />
+              <Route path="/sales/profit-per-invoice" element={<SalesModule view="profit-per-invoice" />} />
+              <Route path="/sales/profit-per-metal" element={<SalesModule view="profit-per-metal" />} />
               <Route path="/sales/rates" element={<SalesModule view="rates" />} />
               <Route path="/sales/customers" element={<SalesModule view="customer-index" />} />
               <Route path="/sales/customers/:clientId" element={<SalesModule view="customer" />} />
@@ -156,6 +161,9 @@ function App() {
               <Route path="/masters/gold-types" element={<GoldTypes />} />
               <Route path="/masters/diamond-ranges" element={<DiamondRanges />} />
               <Route path="/masters/work-specifications" element={<WorkSpecifications />} />
+              <Route path="/masters/bank-accounts" element={<BankAccounts />} />
+              <Route path="/masters/info" element={<CompanyInfoMaster />} />
+              <Route path="/masters/company-info" element={<CompanyInfoMaster />} />
               <Route path="/masters/specifications" element={<Navigate to="/masters/work-specifications" replace />} />
               <Route path="/settings-style" element={<Navigate to="/masters/setting-styles" replace />} />
 
@@ -173,8 +181,8 @@ function App() {
               {/* Job Order / Karigar Workflow Routes */}
               <Route path="/job-creation" element={<JobCreationDashboard />} />
               <Route path="/job-creation/dashboard" element={<JobCreationDashboard />} />
-              <Route path="/job-order" element={<WorkInProgress />} />
-              <Route path="/job-orders" element={<NewWorkOrder initialMode="list" />} />
+              <Route path="/job-order" element={<JobOrdersList />} />
+              <Route path="/job-orders" element={<JobOrdersList />} />
               <Route path="/job-order/new" element={<NewWorkOrder initialMode="create" />} />
               <Route path="/job-order/receive" element={<ReceiverWork />} />
               <Route path="/job-order/in-progress" element={<WorkInProgress />} />

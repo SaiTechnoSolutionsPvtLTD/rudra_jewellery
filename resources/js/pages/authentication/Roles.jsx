@@ -38,6 +38,8 @@ export default function Roles() {
     'IT / System'
   ];
 
+  const [usersCount, setUsersCount] = useState(0);
+
   const fetchRoles = async () => {
     try {
       const res = await api.get('/roles');
@@ -50,8 +52,20 @@ export default function Roles() {
     }
   };
 
+  const fetchUsersCount = async () => {
+    try {
+      const res = await api.get('/users');
+      if (Array.isArray(res.data)) {
+        setUsersCount(res.data.length);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   useEffect(() => {
     fetchRoles();
+    fetchUsersCount();
   }, []);
 
   const handleOpenCreateModal = () => {
@@ -192,7 +206,7 @@ export default function Roles() {
           </div>
           <div>
             <p className="text-xs font-medium text-gray-400 mb-1">Active Staff Users</p>
-            <div className="text-2xl font-bold text-gray-900 tracking-tight">42</div>
+            <div className="text-2xl font-bold text-gray-900 tracking-tight">{usersCount}</div>
           </div>
         </div>
       </div>

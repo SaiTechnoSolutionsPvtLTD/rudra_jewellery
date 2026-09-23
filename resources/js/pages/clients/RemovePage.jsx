@@ -154,10 +154,13 @@ export default function RemovePage() {
               onChange={(e) => setMonthFilter(e.target.value)}
               className="appearance-none bg-white border border-gray-200 hover:border-gray-300 text-gray-700 text-xs font-semibold rounded-xl px-4 py-2 pr-8 shadow-2xs cursor-pointer focus:outline-none focus:border-[#a91d22]"
             >
-              <option value="Month">Month</option>
-              <option value="July 2026">July 2026</option>
-              <option value="June 2026">June 2026</option>
-              <option value="May 2026">May 2026</option>
+              <option value="Month">This Month</option>
+              {Array.from({ length: 6 }).map((_, i) => {
+                const d = new Date();
+                d.setMonth(d.getMonth() - i);
+                const val = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                return <option key={val} value={val}>{val}</option>;
+              })}
               <option value="All">All Time</option>
             </select>
             <i className="fa-solid fa-chevron-down text-[9px] text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>

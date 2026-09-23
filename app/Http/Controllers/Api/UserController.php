@@ -50,20 +50,13 @@ class UserController extends Controller
         try {
             if (Schema::hasTable('users')) {
                 $users = User::orderBy('id', 'desc')->get(['id', 'name', 'email', 'mobile_number', 'role', 'created_at']);
-                if ($users->count() === 0) {
-                    foreach ($this->getInitialUsers() as $initial) {
-                        User::create(array_merge($initial, ['password' => Hash::make('password123')]));
-                    }
-                    $users = User::orderBy('id', 'desc')->get(['id', 'name', 'email', 'mobile_number', 'role', 'created_at']);
-                }
                 return response()->json($users);
             }
         } catch (\Exception $e) {
             // Fallback
         }
 
-        $users = Cache::get('mock_users', $this->getInitialUsers());
-        return response()->json($users);
+        return response()->json([]);
     }
 
     public function store(Request $request)

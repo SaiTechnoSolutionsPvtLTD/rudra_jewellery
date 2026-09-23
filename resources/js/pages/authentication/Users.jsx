@@ -209,7 +209,9 @@ export default function Users() {
           </div>
           <div>
             <p className="text-xs font-medium text-gray-400 mb-1">Active Staff Members</p>
-            <div className="text-2xl font-bold text-gray-900 tracking-tight">{users.length}</div>
+            <div className="text-2xl font-bold text-gray-900 tracking-tight">
+              {users.filter(u => !u.status || String(u.status).toLowerCase() === 'active').length}
+            </div>
           </div>
         </div>
 

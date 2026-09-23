@@ -438,7 +438,7 @@ export default function SupplierManagement() {
                       {/* City / Location */}
                       <td className="py-3.5 px-4">
                         <div className="font-semibold text-gray-800">{item.city || 'N/A'}</div>
-                        <div className="text-gray-500 text-[11px]">{item.state || 'Tamil Nadu'}</div>
+                        <div className="text-gray-500 text-[11px]">{item.state || '-'}</div>
                       </td>
 
                       {/* Status */}

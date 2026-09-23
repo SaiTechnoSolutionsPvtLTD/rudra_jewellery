@@ -60,24 +60,12 @@ class SalesController extends Controller
                 $rawItems = $inv->itemsRelation->toArray();
             }
             if (empty($rawItems)) {
-                $rawItems = [[
-                    'desc' => $inv->notes ? substr($inv->notes, 0, 40) : '22KT Gold Jewellery Item',
-                    'gross_wt' => 12.5,
-                    'quantity' => 1,
-                    'rate' => $inv->amount ?: ($inv->total_amount * 0.95),
-                    'making' => 4500,
-                    'taxable' => $inv->amount ?: ($inv->total_amount * 0.95),
-                ]];
-            }
-
-            foreach ($rawItems as $itm) {
-                $qty = (float) ($itm['quantity'] ?? $itm['qty'] ?? 1);
-                $gross = (float) ($itm['gross_wt'] ?? $itm['gross_weight'] ?? 0);
-                $stone = (float) ($itm['stone_weight'] ?? $itm['dia_wt'] ?? 0);
-                $rate = (float) ($itm['rate'] ?? 0);
-                $taxable = (float) ($itm['taxable'] ?? $itm['line_total'] ?? ($rate * $qty));
-                $making = (float) ($itm['making'] ?? $itm['making_charge'] ?? 0);
-                $stoneChg = (float) ($itm['stone_charge'] ?? $itm['diamond_charge'] ?? 0);
+                $qty = (float) ($inv->total_items ?: 1);
+                $gross = (float) ($inv->gross_weight ?: 0);
+                $stone = (float) ($inv->stone_weight ?: 0);
+                $making = (float) ($inv->making_charge ?: 0);
+                $stoneChg = (float) ($inv->stone_charge ?: 0);
+                $taxable = max(0, (float)$inv->total_amount - $making - $stoneChg);
 
                 $totalQty += $qty;
                 $totalGoldWgt += $gross;
@@ -85,6 +73,23 @@ class SalesController extends Controller
                 $goldValue += $taxable;
                 $makingCharges += $making;
                 $stoneCharges += $stoneChg;
+            } else {
+                foreach ($rawItems as $itm) {
+                    $qty = (float) ($itm['quantity'] ?? $itm['qty'] ?? 1);
+                    $gross = (float) ($itm['gross_wt'] ?? $itm['gross_weight'] ?? 0);
+                    $stone = (float) ($itm['stone_weight'] ?? $itm['dia_wt'] ?? 0);
+                    $rate = (float) ($itm['rate'] ?? 0);
+                    $taxable = (float) ($itm['taxable'] ?? $itm['line_total'] ?? ($rate * $qty));
+                    $making = (float) ($itm['making'] ?? $itm['making_charge'] ?? 0);
+                    $stoneChg = (float) ($itm['stone_charge'] ?? $itm['diamond_charge'] ?? 0);
+
+                    $totalQty += $qty;
+                    $totalGoldWgt += $gross;
+                    $totalDiamondWgt += $stone;
+                    $goldValue += $taxable;
+                    $makingCharges += $making;
+                    $stoneCharges += $stoneChg;
+                }
             }
         }
 
@@ -128,14 +133,20 @@ class SalesController extends Controller
             $q = 0; $gw = 0; $dw = 0;
             foreach ($clientInvoices as $ci) {
                 $rawItems = is_array($ci->items) ? $ci->items : (json_decode($ci->items, true) ?: []);
-                foreach ($rawItems as $itm) {
-                    $q += (float) ($itm['quantity'] ?? $itm['qty'] ?? 1);
-                    $gw += (float) ($itm['gross_wt'] ?? $itm['gross_weight'] ?? 10.5);
-                    $dw += (float) ($itm['stone_weight'] ?? $itm['dia_wt'] ?? 0);
+                if (empty($rawItems)) {
+                    $q += (float) ($ci->total_items ?: 1);
+                    $gw += (float) ($ci->gross_weight ?: 0);
+                    $dw += (float) ($ci->stone_weight ?: 0);
+                } else {
+                    foreach ($rawItems as $itm) {
+                        $q += (float) ($itm['quantity'] ?? $itm['qty'] ?? 1);
+                        $gw += (float) ($itm['gross_wt'] ?? $itm['gross_weight'] ?? 0);
+                        $dw += (float) ($itm['stone_weight'] ?? $itm['dia_wt'] ?? 0);
+                    }
                 }
             }
-            $row->quantity = round($q ?: 1, 3);
-            $row->gold_weight = round($gw ?: 12.5, 3);
+            $row->quantity = round($q, 3);
+            $row->gold_weight = round($gw, 3);
             $row->diamond_weight = round($dw, 3);
             return $row;
         });
@@ -268,18 +279,45 @@ class SalesController extends Controller
 
     public function profit(Request $request)
     {
+        $purchases = \App\Models\PurchaseEntry::all();
+        $totalGoldAmount = 0.0;
+        $totalGold24kFineGrams = 0.0;
+        $totalDiamondAmount = 0.0;
+        $totalDiamondCarats = 0.0;
+
+        foreach ($purchases as $pu) {
+            $amt = (float) $pu->total_amount;
+            $wt = (float) $pu->weight;
+            $touch = \App\Helpers\GoldConversionHelper::getTouchPercent($pu->touch ?: 91.66);
+            $fineWt = $pu->fine_weight > 0 ? (float)$pu->fine_weight : \App\Helpers\GoldConversionHelper::convertTo24kFineWeight($wt, $touch);
+
+            $pName = strtolower($pu->product->name ?? $pu->metal_type ?? '');
+            if (str_contains($pName, 'diamond')) {
+                $totalDiamondAmount += $amt;
+                $totalDiamondCarats += max(0.001, $wt);
+            } else {
+                $totalGoldAmount += $amt;
+                $totalGold24kFineGrams += $fineWt;
+            }
+        }
+
+        if ($totalDiamondCarats <= 0) {
+            $diamondRanges = \App\Models\DiamondRange::all();
+            foreach ($diamondRanges as $dr) {
+                $totalDiamondAmount += (float) ($dr->value ?: ($dr->rate * $dr->wt_ct));
+                $totalDiamondCarats += (float) ($dr->wt_ct ?: 1.0);
+            }
+        }
+
+        $avgGoldBuyingRateGram = $totalGold24kFineGrams > 0 ? ($totalGoldAmount / $totalGold24kFineGrams) : 0.0;
+        $avgDiamondBuyingRatePerCt = $totalDiamondCarats > 0 ? round($totalDiamondAmount / $totalDiamondCarats, 2) : 0.0;
+
         $query = $this->filteredQuery($request);
         $invoices = (clone $query)->get();
 
-        // Compute cost, profit, and margin dynamically for each invoice
-        $invoices->transform(function ($inv) {
-            $tot = (float) $inv->total_amount;
-            $cost = (float) ($inv->cost_amount ?: ($tot * 0.76));
-            $prof = (float) ($inv->profit_amount ?: ($tot - $cost));
-            $inv->cost_amount = round($cost, 2);
-            $inv->profit_amount = round($prof, 2);
-            $inv->profit_margin = $tot > 0 ? round(($prof / $tot) * 100, 2) : 0;
-            return $inv;
+        // Compute 24K fine weight, purchase rates, cost, profit, and margin dynamically for each invoice
+        $invoices->transform(function ($inv) use ($avgGoldBuyingRateGram, $avgDiamondBuyingRatePerCt) {
+            return $this->computeInvoiceProfitDetails($inv, $avgGoldBuyingRateGram, $avgDiamondBuyingRatePerCt);
         });
 
         $totalRev = round((float) $invoices->sum('total_amount'), 2);
@@ -287,15 +325,25 @@ class SalesController extends Controller
         $totalProfit = round((float) $invoices->sum('profit_amount'), 2);
 
         $salesPaginated = (clone $query)->paginate((int) min(100, max(1, $request->integer('per_page', 15))));
-        $salesPaginated->getCollection()->transform(function ($inv) {
-            $tot = (float) $inv->total_amount;
-            $cost = (float) ($inv->cost_amount ?: ($tot * 0.76));
-            $prof = (float) ($inv->profit_amount ?: ($tot - $cost));
-            $inv->cost_amount = round($cost, 2);
-            $inv->profit_amount = round($prof, 2);
-            $inv->profit_margin = $tot > 0 ? round(($prof / $tot) * 100, 2) : 0;
-            return $inv;
+        $salesPaginated->getCollection()->transform(function ($inv) use ($avgGoldBuyingRateGram, $avgDiamondBuyingRatePerCt) {
+            return $this->computeInvoiceProfitDetails($inv, $avgGoldBuyingRateGram, $avgDiamondBuyingRatePerCt);
         });
+
+        // Compute dynamic period-over-period growth rates
+        $prevPeriodSales = (float) \App\Models\Invoice::whereBetween('created_at', [\Carbon\Carbon::now()->subMonth()->startOfMonth(), \Carbon\Carbon::now()->subMonth()->endOfMonth()])->sum('total_amount');
+        $currSales = (float) \App\Models\Invoice::where('created_at', '>=', \Carbon\Carbon::now()->startOfMonth())->sum('total_amount');
+        $salesGrowthPct = $prevPeriodSales > 0 ? round((($currSales - $prevPeriodSales) / $prevPeriodSales) * 100, 1) : ($currSales > 0 ? 100.0 : 0.0);
+        $salesGrowth = ($salesGrowthPct >= 0 ? '+' : '') . number_format($salesGrowthPct, 1) . '%';
+
+        $prevClientsCount = \App\Models\Client::where('created_at', '<', \Carbon\Carbon::now()->startOfMonth())->count();
+        $currClientsCount = \App\Models\Client::where('created_at', '>=', \Carbon\Carbon::now()->startOfMonth())->count();
+        $customerGrowthPct = $prevClientsCount > 0 ? round(($currClientsCount / $prevClientsCount) * 100, 1) : ($currClientsCount > 0 ? 100.0 : 0.0);
+        $customerGrowth = ($customerGrowthPct >= 0 ? '+' : '') . number_format($customerGrowthPct, 1) . '%';
+
+        $prevInvoiceCount = \App\Models\Invoice::whereBetween('created_at', [\Carbon\Carbon::now()->subMonth()->startOfMonth(), \Carbon\Carbon::now()->subMonth()->endOfMonth()])->count();
+        $currInvoiceCount = \App\Models\Invoice::where('created_at', '>=', \Carbon\Carbon::now()->startOfMonth())->count();
+        $invoiceGrowthPct = $prevInvoiceCount > 0 ? round((($currInvoiceCount - $prevInvoiceCount) / $prevInvoiceCount) * 100, 1) : ($currInvoiceCount > 0 ? 100.0 : 0.0);
+        $invoiceGrowth = ($invoiceGrowthPct >= 0 ? '+' : '') . number_format($invoiceGrowthPct, 1) . '%';
 
         return response()->json([
             'summary' => [
@@ -303,24 +351,91 @@ class SalesController extends Controller
                 'cost' => $totalCost,
                 'profit' => $totalProfit,
                 'margin' => $totalRev > 0 ? round(($totalProfit / $totalRev) * 100, 2) : 0,
+                'avgGoldBuyingRateGram' => round($avgGoldBuyingRateGram, 2),
+                'avgGoldBuyingRate10g' => round($avgGoldBuyingRateGram * 10, 2),
+                'avgDiamondBuyingRatePerCt' => round($avgDiamondBuyingRatePerCt, 2),
+                'salesGrowth' => $salesGrowth,
+                'customerGrowth' => $customerGrowth,
+                'invoiceGrowth' => $invoiceGrowth,
             ],
             'sales' => $salesPaginated
         ]);
     }
 
-    public function products(Request $request)
+    private function computeInvoiceProfitDetails(Invoice $inv, float $avgGoldGramRate, float $avgDiamondCtRate)
     {
-        return response()->json(Product::with(['category', 'subcategory'])->where('status', 'active')->when($request->filled('search'), fn ($q) => $q->where(fn ($inner) => $inner->where('name', 'like', '%' . $request->search . '%')->orWhere('product_code', 'like', '%' . $request->search . '%')))->orderBy('name')->paginate(30));
-    }
+        $rawItems = is_array($inv->items) ? $inv->items : (json_decode($inv->items, true) ?: []);
+        if (empty($rawItems) && $inv->itemsRelation) {
+            $rawItems = $inv->itemsRelation->toArray();
+        }
 
-    private function filteredQuery(Request $request)
-    {
-        return Invoice::with(['client', 'itemsRelation'])->when($request->filled('search'), fn ($q) => $q->where(fn ($inner) => $inner->where('invoice_no', 'like', '%' . $request->search . '%')->orWhere('client_name', 'like', '%' . $request->search . '%')->orWhereHas('itemsRelation', fn ($items) => $items->where('product_name', 'like', '%' . $request->search . '%')->orWhere('product_code', 'like', '%' . $request->search . '%'))))->when($request->filled('client_id') && $request->client_id !== 'all', fn ($q) => $q->where('client_id', $request->client_id))->when($request->filled('status') && $request->status !== 'all', fn ($q) => $q->where('status', $request->status))->when($request->filled('from'), fn ($q) => $q->whereDate('invoice_date', '>=', $request->date('from')))->when($request->filled('to'), fn ($q) => $q->whereDate('invoice_date', '<=', $request->date('to')))->latest('invoice_date');
-    }
+        $grossWt = 0.0;
+        $netWt = 0.0;
+        $fineWt24k = 0.0;
+        $diamondCt = 0.0;
+        $makingChg = 0.0;
+        $stoneChg = 0.0;
+        $otherChg = 0.0;
+        $purityStr = '22K (916)';
+        $touchPct = 91.66;
 
-    public function products(Request $request)
-    {
-        return response()->json(Product::with(['category', 'subcategory'])->where('status', 'active')->when($request->filled('search'), fn ($q) => $q->where(fn ($inner) => $inner->where('name', 'like', '%' . $request->search . '%')->orWhere('product_code', 'like', '%' . $request->search . '%')))->orderBy('name')->paginate(30));
+        if (empty($rawItems)) {
+            $grossWt = (float) ($inv->gross_weight ?: 0);
+            $netWt = (float) ($inv->net_weight ?: $grossWt);
+            $purityStr = $inv->purity ?: '22K (916)';
+            $touchPct = \App\Helpers\GoldConversionHelper::getTouchPercent($purityStr);
+            $fineWt24k = \App\Helpers\GoldConversionHelper::convertTo24kFineWeight($grossWt ?: $netWt, $touchPct);
+            $diamondCt = (float) ($inv->stone_weight ?: 0);
+            $makingChg = (float) ($inv->making_charge ?: 0);
+            $stoneChg = (float) ($inv->stone_charge ?: 0);
+            $otherChg = (float) ($inv->other_charge ?: 0);
+        } else {
+            foreach ($rawItems as $itm) {
+                $g = (float) ($itm['gross_wt'] ?? $itm['gross_weight'] ?? 0);
+                $n = (float) ($itm['net_wt'] ?? $itm['net_weight'] ?? $g);
+                $pur = $itm['purity'] ?? '22K (916)';
+                $touch = \App\Helpers\GoldConversionHelper::getTouchPercent($pur);
+                $fine = \App\Helpers\GoldConversionHelper::convertTo24kFineWeight($g ?: $n, $touch);
+
+                $grossWt += $g;
+                $netWt += $n;
+                $fineWt24k += $fine;
+                $diamondCt += (float) ($itm['stone_weight'] ?? $itm['diamond_weight'] ?? $itm['dia_wt'] ?? 0);
+                $makingChg += (float) ($itm['making'] ?? $itm['making_charge'] ?? $itm['labour_charge'] ?? 0);
+                $stoneChg += (float) ($itm['stone_charge'] ?? $itm['diamond_charge'] ?? 0);
+                $otherChg += (float) ($itm['other_charge'] ?? 0);
+                $purityStr = $pur;
+                $touchPct = $touch;
+            }
+        }
+
+        $goldCost = round($fineWt24k * $avgGoldGramRate, 2);
+        $diamondCost = round($diamondCt * $avgDiamondCtRate, 2);
+        $computedTotalCost = round($goldCost + $diamondCost + $makingChg + $stoneChg + $otherChg, 2);
+
+        $totAmount = (float) $inv->total_amount;
+        $finalCost = ($inv->cost_amount > 0) ? (float)$inv->cost_amount : $computedTotalCost;
+        $finalProfit = ($inv->profit_amount > 0) ? (float)$inv->profit_amount : round($totAmount - $finalCost, 2);
+        $profitMargin = $totAmount > 0 ? round(($finalProfit / $totAmount) * 100, 2) : 0.0;
+
+        $inv->gross_weight = round($grossWt, 3);
+        $inv->net_weight = round($netWt, 3);
+        $inv->purity = $purityStr;
+        $inv->touch_percent = $touchPct;
+        $inv->fine_weight_24k = round($fineWt24k, 3);
+        $inv->avg_gold_rate_gram = round($avgGoldGramRate, 2);
+        $inv->gold_cost = $goldCost;
+        $inv->diamond_carat = round($diamondCt, 3);
+        $inv->avg_diamond_stamp_price = round($avgDiamondCtRate, 2);
+        $inv->diamond_cost = $diamondCost;
+        $inv->making_charges = round($makingChg, 2);
+        $inv->stone_charges = round($stoneChg, 2);
+        $inv->other_costs = round($otherChg, 2);
+        $inv->cost_amount = round($finalCost, 2);
+        $inv->profit_amount = round($finalProfit, 2);
+        $inv->profit_margin = $profitMargin;
+
+        return $inv;
     }
 
     private function filteredQuery(Request $request)

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import ConfirmModal from './ConfirmModal';
+import GoldRateEditModal from './GoldRateEditModal';
 
 import { SHOW_STOCK_MANAGEMENT } from './Sidebar';
 
@@ -26,6 +27,8 @@ const QUICK_SEARCH_ITEMS = [
   { label: 'Gold Types Master', path: '/masters/gold-types', section: 'Masters', icon: 'fa-solid fa-coins' },
   { label: 'Diamond Ranges Master', path: '/masters/diamond-ranges', section: 'Masters', icon: 'fa-solid fa-certificate' },
   { label: 'Memberships Master', path: '/masters/memberships', section: 'Masters', icon: 'fa-solid fa-id-card' },
+  { label: 'Bank Accounts Master', path: '/masters/bank-accounts', section: 'Masters', icon: 'fa-solid fa-building-columns' },
+  { label: 'Company Info Master', path: '/masters/info', section: 'Masters', icon: 'fa-solid fa-building' },
   { label: 'User Accounts', path: '/authentication/users', section: 'Security', icon: 'fa-solid fa-users-gear' },
   { label: 'Roles & Permissions', path: '/authentication/roles', section: 'Security', icon: 'fa-solid fa-user-shield' },
 ];
@@ -38,6 +41,7 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
 
   const [rates, setRates] = useState(null);
   const [loadingRates, setLoadingRates] = useState(true);
+  const [isRateModalOpen, setIsRateModalOpen] = useState(false);
 
   // Quick Auto-Search
   const [globalSearch, setGlobalSearch] = useState('');
@@ -60,7 +64,20 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
   useEffect(() => {
     fetchMetalRates();
     const interval = setInterval(fetchMetalRates, 60000);
-    return () => clearInterval(interval);
+    const handleSync = (e) => {
+      if (e?.detail) setRates(prev => ({ ...prev, ...e.detail }));
+      fetchMetalRates();
+    };
+    const handleOpenModal = () => setIsRateModalOpen(true);
+    window.addEventListener('rudhra_price_list_updated', handleSync);
+    window.addEventListener('rudhra_metal_rates_updated', handleSync);
+    window.addEventListener('open_gold_rate_edit_modal', handleOpenModal);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('rudhra_price_list_updated', handleSync);
+      window.removeEventListener('rudhra_metal_rates_updated', handleSync);
+      window.removeEventListener('open_gold_rate_edit_modal', handleOpenModal);
+    };
   }, []);
 
   // Keyboard shortcut Ctrl+F or Cmd+F
@@ -89,7 +106,8 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
     try {
       const res = await api.get('/notifications');
       if (res.data?.status === 'success') {
-        setNotifications(res.data.data || []);
+        const unreadList = (res.data.data || []).filter(n => !n.is_read);
+        setNotifications(unreadList);
         setUnreadCount(res.data.unread_count || 0);
       }
     } catch (e) {
@@ -121,8 +139,8 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
     try {
       await api.post('/notifications/mark-all-read');
       setUnreadCount(0);
-      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-    } catch (e) {}
+      setNotifications([]);
+    } catch (e) { }
   };
 
   const handleNotificationClick = async (notif) => {
@@ -131,9 +149,12 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
         await api.post(`/notifications/${notif.id}/read`);
         setUnreadCount(prev => Math.max(0, prev - 1));
       }
-    } catch (e) {}
+    } catch (e) { }
 
+    // Remove ONLY the clicked notification from active feed while keeping all others
+    setNotifications(prev => prev.filter(item => item.id !== notif.id));
     setNotifOpen(false);
+
     const orderId = notif.data?.order_id || notif.work_order_id;
     if (orderId) {
       if (user?.role === 'Karigar' || user?.role === 'Master Karigar') {
@@ -146,9 +167,9 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
 
   const searchResults = globalSearch.trim()
     ? QUICK_SEARCH_ITEMS.filter(item =>
-        item.label.toLowerCase().includes(globalSearch.toLowerCase()) ||
-        item.section.toLowerCase().includes(globalSearch.toLowerCase())
-      )
+      item.label.toLowerCase().includes(globalSearch.toLowerCase()) ||
+      item.section.toLowerCase().includes(globalSearch.toLowerCase())
+    )
     : [];
 
   const handleSelectResult = (path) => {
@@ -181,7 +202,7 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
             <line x1="3" y1="18" x2="21" y2="18"></line>
           </svg>
         </button>
-        
+
         {/* Global Auto Search */}
         <div ref={searchContainerRef} className="relative w-80 max-w-sm hidden sm:block">
           <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
@@ -269,33 +290,48 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
 
       {/* Right Side */}
       <div className="flex items-center gap-3">
-        {/* Today's Gold Rate Widget */}
-        <div className="hidden lg:flex items-center gap-3 bg-[#fdf6ea] border border-[#f5e7c8] rounded-full px-4 py-1.5 shadow-2xs">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-b from-[#f5ca56] via-[#d69f2e] to-[#b37f1a] p-[1.5px] shadow-2xs shrink-0 flex items-center justify-center">
+        {/* Today's Gold Rate Widget (Clickable to Edit Rates) */}
+        <div
+          onClick={() => setIsRateModalOpen(true)}
+          className="hidden lg:flex items-center gap-3 bg-[#fdf6ea] hover:bg-[#faeed6] border border-[#f5e7c8] hover:border-[#d69f2e] rounded-full px-4 py-1.5 shadow-2xs cursor-pointer group transition-all select-none"
+          title="Click to edit or view today's gold rates"
+        >
+          <div className="w-8 h-8 rounded-full bg-gradient-to-b from-[#f5ca56] via-[#d69f2e] to-[#b37f1a] p-[1.5px] shadow-2xs shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
             <div className="w-full h-full rounded-full bg-gradient-to-b from-[#ffdb73] via-[#e5aa32] to-[#bc8320] flex items-center justify-center border border-[#ffea9f]/60">
               <span className="text-white font-serif font-black text-sm drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)] leading-none">₹</span>
             </div>
           </div>
           <div className="flex flex-col">
-            <div className="text-[11px] font-semibold text-[#2D2A26] leading-tight whitespace-nowrap">
-              Today's Gold Rate : <span className="font-normal text-[#4A4641]">{rates?.date || new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+            <div className="text-[11px] font-semibold text-[#2D2A26] leading-tight whitespace-nowrap flex items-center gap-1.5">
+              <span>Today's Gold Rate : <span className="font-normal text-[#4A4641]">{rates?.date || new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</span></span>
+              <i className="fa-solid fa-pen text-[9px] text-[#a38749] opacity-60 group-hover:opacity-100 transition-opacity"></i>
             </div>
             <div className="flex items-center gap-2 text-[10px] mt-0.5 whitespace-nowrap">
-              <span className="text-[#a38749] font-semibold">24K (999) <span className="text-[#b01622] font-bold text-[11px]">₹{rates?.gold24k || '14,256'}</span></span>
+              <span className="text-[#a38749] font-semibold">24K (999) <span className="text-[#b01622] font-bold text-[11px]">₹{rates?.gold24k || '14,634'}</span></span>
               <span className="text-stone-300">|</span>
-              <span className="text-[#a38749] font-semibold">22K (916) <span className="text-[#b01622] font-bold text-[11px]">₹{rates?.gold22k || '13,068'}</span></span>
+              <span className="text-[#a38749] font-semibold">22K (916) <span className="text-[#b01622] font-bold text-[11px]">₹{rates?.gold22k || '13,414'}</span></span>
+              {rates?.isManual && (
+                <span className="text-[8px] font-extrabold bg-amber-200/80 text-amber-900 px-1 rounded uppercase tracking-wider">Manual</span>
+              )}
             </div>
           </div>
         </div>
+
+        {/* Modal for editing Gold & Silver Rates */}
+        <GoldRateEditModal
+          isOpen={isRateModalOpen}
+          onClose={() => setIsRateModalOpen(false)}
+          currentRates={rates}
+          onSaved={(updated) => setRates(updated)}
+        />
 
         {/* Live Notification Bell & Dropdown */}
         <div className="relative" ref={notifContainerRef}>
           <button
             type="button"
             onClick={() => setNotifOpen(!notifOpen)}
-            className={`relative w-9 h-9 flex items-center justify-center text-gray-700 hover:text-gray-900 rounded-full hover:bg-gray-50 transition-colors border ${
-              notifOpen ? 'border-[#b01622] bg-red-50/30' : 'border-gray-200'
-            } cursor-pointer shadow-2xs`}
+            className={`relative w-9 h-9 flex items-center justify-center text-gray-700 hover:text-gray-900 rounded-full hover:bg-gray-50 transition-colors border ${notifOpen ? 'border-[#b01622] bg-red-50/30' : 'border-gray-200'
+              } cursor-pointer shadow-2xs`}
             title="Notifications"
           >
             <i className="fa-regular fa-bell text-sm"></i>
@@ -335,35 +371,32 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
                     <div
                       key={n.id}
                       onClick={() => handleNotificationClick(n)}
-                      className={`p-3 px-4 flex items-start gap-3 cursor-pointer hover:bg-stone-50 transition-colors ${
-                        !n.is_read ? 'bg-red-50/30 font-medium' : 'bg-white text-stone-600'
-                      }`}
+                      className={`p-3 px-4 flex items-start gap-3 cursor-pointer hover:bg-stone-50 transition-colors ${!n.is_read ? 'bg-red-50/30 font-medium' : 'bg-white text-stone-600'
+                        }`}
                     >
                       <div
-                        className={`w-8 h-8 rounded-xl shrink-0 flex items-center justify-center text-xs mt-0.5 shadow-2xs ${
-                          n.type === 'submitted'
+                        className={`w-8 h-8 rounded-xl shrink-0 flex items-center justify-center text-xs mt-0.5 shadow-2xs ${n.type === 'submitted'
                             ? 'bg-blue-100 text-blue-700'
                             : n.type === 'rework_resubmitted'
-                            ? 'bg-purple-100 text-purple-700'
-                            : n.type === 'returned'
-                            ? 'bg-rose-100 text-rose-700'
-                            : n.type === 'approved'
-                            ? 'bg-emerald-100 text-emerald-700'
-                            : 'bg-amber-100 text-amber-700'
-                        }`}
+                              ? 'bg-purple-100 text-purple-700'
+                              : n.type === 'returned'
+                                ? 'bg-rose-100 text-rose-700'
+                                : n.type === 'approved'
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : 'bg-amber-100 text-amber-700'
+                          }`}
                       >
                         <i
-                          className={`fa-solid ${
-                            n.type === 'submitted'
+                          className={`fa-solid ${n.type === 'submitted'
                               ? 'fa-paper-plane'
                               : n.type === 'rework_resubmitted'
-                              ? 'fa-arrows-rotate'
-                              : n.type === 'returned'
-                              ? 'fa-rotate-left'
-                              : n.type === 'approved'
-                              ? 'fa-check-double'
-                              : 'fa-bell'
-                          }`}
+                                ? 'fa-arrows-rotate'
+                                : n.type === 'returned'
+                                  ? 'fa-rotate-left'
+                                  : n.type === 'approved'
+                                    ? 'fa-check-double'
+                                    : 'fa-bell'
+                            }`}
                         ></i>
                       </div>
                       <div className="flex-1 text-xs">

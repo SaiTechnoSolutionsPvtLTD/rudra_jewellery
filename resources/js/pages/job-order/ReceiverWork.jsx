@@ -3,6 +3,8 @@ import { useLocation, useNavigate, Link } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
+import { getStoredCompanyInfo, fetchCompanyInfo } from '../../utils/companyInfoService';
+import { printElement } from '../../utils/printHelper';
 
 const SAMPLE_IMAGES = [
   { label: '22K Gold Peacock Choker', url: '/images/samples/peacock_choker.jpg' },
@@ -63,8 +65,18 @@ export default function ReceiverWork() {
     }
   };
 
+  const [companyInfo, setCompanyInfo] = useState(() => getStoredCompanyInfo());
+
   useEffect(() => {
     fetchSettingStyles();
+    fetchCompanyInfo().then(info => {
+      if (info) setCompanyInfo(info);
+    });
+    const handleCompanyUpdate = (e) => {
+      if (e?.detail) setCompanyInfo(e.detail);
+    };
+    window.addEventListener('rudhra_company_info_updated', handleCompanyUpdate);
+    return () => window.removeEventListener('rudhra_company_info_updated', handleCompanyUpdate);
   }, []);
 
   const designFileInputRef = useRef(null);
@@ -548,8 +560,29 @@ export default function ReceiverWork() {
 
   // Tracking Timeline Stage Click Handler (Instant Persistence)
   const handleStageClick = async (stageKey) => {
-    setCurrentStageKey(stageKey);
     if (!currentOrder) return;
+    const STAGE_RANKS = {
+      created: 1,
+      allocated: 2,
+      received_by_artisan: 3,
+      work_started: 4,
+      work_in_progress: 5,
+      work_completed: 6,
+      sent_for_approval: 7,
+      quality_check: 8,
+      approved: 9,
+      ready: 10,
+      delivered: 11,
+      final_received: 12,
+    };
+    const targetRank = STAGE_RANKS[stageKey] || 0;
+    const currentRank = STAGE_RANKS[currentOrder?.current_stage] || 0;
+    if (targetRank < currentRank && !['returned', 'rework'].includes(currentOrder?.status)) {
+      showToast?.('Workflow tracking can only move forward. Previous stages cannot be selected reversely.', 'warning');
+      return;
+    }
+
+    setCurrentStageKey(stageKey);
     try {
       await api.post(`/work-orders/${currentOrder.id}/receiver-update`, {
         current_stage: stageKey,
@@ -561,6 +594,8 @@ export default function ReceiverWork() {
       fetchWorkOrders();
     } catch (err) {
       console.warn('Stage update error:', err);
+      const msg = err.response?.data?.message || 'Failed to update stage';
+      showToast?.(msg, 'error');
     }
   };
 
@@ -905,12 +940,12 @@ export default function ReceiverWork() {
                               <i className="fa-solid fa-user"></i>
                             </div>
                             <span className="font-semibold text-stone-800">
-                              {order.karigar_name || 'Rajesh Vishwakarma'}
+                              {order.karigar_name || order.karigar?.name || 'Unassigned'}
                             </span>
                           </div>
                         </td>
                         <td className="py-3.5 px-4 text-center text-stone-500 font-medium whitespace-nowrap">
-                          {order.allotted_date ? new Date(order.allotted_date).toLocaleDateString('en-GB') : '24/10/2024'}
+                          {order.allotted_date ? new Date(order.allotted_date).toLocaleDateString('en-GB') : '—'}
                         </td>
                         <td className="py-3.5 px-4 text-center whitespace-nowrap">
                           <span
@@ -919,7 +954,7 @@ export default function ReceiverWork() {
                               : 'text-stone-600'
                               }`}
                           >
-                            {order.delivery_date ? new Date(order.delivery_date).toLocaleDateString('en-GB') : '26/10/2024'}
+                            {order.delivery_date ? new Date(order.delivery_date).toLocaleDateString('en-GB') : '—'}
                           </span>
                         </td>
                         <td className="py-3.5 px-4 text-right font-mono font-bold text-stone-700 whitespace-nowrap">
@@ -1018,21 +1053,21 @@ export default function ReceiverWork() {
   // ==========================================
   // VIEW MODE 2: EXACT MATCH TO USER'S SCREENSHOT
   // ==========================================
-  const orderNumber = currentOrder?.work_order_number || 'WO-2024-0012';
-  const artisanName = currentOrder?.karigar_name || 'Rajesh Vishwakarma';
-  const customerName = currentOrder?.customer_name || currentOrder?.client?.full_name || currentOrder?.client?.name || 'Internal Showroom';
-  const designRefCode = currentOrder?.design_code || `BR-SKU-${currentOrder?.id ? currentOrder.id + 9900 : 9921}`;
+  const orderNumber = currentOrder?.work_order_number || (currentOrder?.id ? `WO-${currentOrder.id}` : '—');
+  const artisanName = currentOrder?.karigar_name || currentOrder?.karigar?.name || 'Unassigned';
+  const customerName = currentOrder?.customer_name || currentOrder?.client?.full_name || currentOrder?.client?.name || 'Customer Order';
+  const designRefCode = currentOrder?.design_code || (currentOrder?.id ? `SKU-${currentOrder.id}` : '—');
   const estDeliveryDate = currentOrder?.delivery_date
     ? new Date(currentOrder.delivery_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-    : 'Oct 26, 2024';
+    : '—';
   const displayReceiveDate = receiveDate
     ? new Date(receiveDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-    : 'October 24, 2024';
+    : new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
   const stoneVariance = stoneAllocated - stoneReceived;
 
   return (
-    <div className="w-full pb-20 space-y-6 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif]">
+    <div className={`w-full pb-20 space-y-6 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif] ${isPrintModalOpen ? 'print:hidden' : ''}`}>
 
       {/* 1. TOP HEADER & BREADCRUMBS */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1090,7 +1125,13 @@ export default function ReceiverWork() {
           </Link>
           <button
             type="button"
-            onClick={() => setIsPrintModalOpen(true)}
+            onClick={() => {
+              setIsPrintModalOpen(true);
+              const activeId = selectedOrderId || currentOrder?.id;
+              if (activeId) {
+                window.open(`/work-orders/${activeId}/pdf`, '_blank');
+              }
+            }}
             className="px-4 py-2 bg-white border border-stone-300 hover:border-stone-400 text-stone-800 text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center gap-2 cursor-pointer"
           >
             <i className="fa-solid fa-print text-stone-500 text-sm"></i>
@@ -2097,9 +2138,24 @@ export default function ReceiverWork() {
               </div>
 
               <div className="flex items-center gap-2.5">
+                {(selectedOrderId || currentOrder?.id) && (
+                  <a
+                    href={`/work-orders/${selectedOrderId || currentOrder?.id}/pdf`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-4 py-2 bg-stone-900 hover:bg-black text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-2 cursor-pointer no-underline"
+                  >
+                    <i className="fa-solid fa-file-pdf text-red-400"></i>
+                    <span>Download Job Order (PDF)</span>
+                  </a>
+                )}
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    printElement('job-order-voucher-sheet', `Job Order Voucher #${orderNumber}`);
+                  }}
                   className="px-4 py-2 bg-[#801824] hover:bg-[#6b1019] text-white rounded-xl text-xs font-bold shadow-md shadow-red-900/20 transition-all flex items-center gap-2 cursor-pointer"
                 >
                   <i className="fa-solid fa-print"></i>
@@ -2127,16 +2183,20 @@ export default function ReceiverWork() {
                 {/* Print specific CSS */}
                 <style>{`
                   @media print {
-                    body * {
-                      visibility: hidden !important;
+                    .no-print, .print\\:hidden {
+                      display: none !important;
                     }
-                    #job-order-voucher-sheet, #job-order-voucher-sheet * {
-                      visibility: visible !important;
+                    html, body {
+                      background: white !important;
+                      margin: 0 !important;
+                      padding: 0 !important;
+                      width: 100% !important;
+                      height: auto !important;
+                      overflow: visible !important;
                     }
                     #job-order-voucher-sheet {
-                      position: absolute !important;
-                      left: 0 !important;
-                      top: 0 !important;
+                      display: block !important;
+                      position: static !important;
                       width: 100% !important;
                       max-width: 100% !important;
                       margin: 0 !important;
@@ -2147,9 +2207,6 @@ export default function ReceiverWork() {
                       background: white !important;
                       -webkit-print-color-adjust: exact !important;
                       print-color-adjust: exact !important;
-                    }
-                    .no-print {
-                      display: none !important;
                     }
                   }
                 `}</style>
@@ -2176,16 +2233,16 @@ export default function ReceiverWork() {
 
                     <div>
                       <h1 className="text-xl sm:text-2xl font-black text-[#801824] tracking-wider uppercase font-serif leading-none">
-                        RUDRA JEWELLERS
+                        {companyInfo?.company_name || 'RUDRA JEWELLERS'}
                       </h1>
                       <span className="text-[10px] font-extrabold text-stone-400 uppercase tracking-widest block mt-1">
-                        ENTERPRISE ERP SYSTEM
+                        {companyInfo?.tagline || 'ENTERPRISE ERP SYSTEM'}
                       </span>
                       <p className="text-[11px] text-stone-500 mt-2 leading-tight">
-                        Regd. Office: 402, Heritage Plaza, MG Road
+                        {[companyInfo?.address_line1, companyInfo?.address_line2, companyInfo?.city, companyInfo?.state && `${companyInfo.state} - ${companyInfo?.pincode || ''}`].filter(Boolean).join(', ')}
                       </p>
                       <p className="text-[11px] text-stone-500 leading-tight">
-                        Contact: +91 22 4000 8888 | erp@rudrajewellers.com
+                        Contact: {companyInfo?.phone || '+91 98400 12345'} | {companyInfo?.email || 'info@rudrajewellers.com'}
                       </p>
                     </div>
                   </div>

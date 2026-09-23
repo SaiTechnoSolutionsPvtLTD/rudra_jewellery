@@ -2,6 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import { getStoredDefaultBankAccount } from '../masters/BankAccounts';
+import { getStoredCompanyInfo, fetchCompanyInfo } from '../../utils/companyInfoService';
+import { printElement } from '../../utils/printHelper';
 
 const money = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 const dateText = (value) => value ? new Date(value).toLocaleDateString('en-IN') : '—';
@@ -48,74 +51,169 @@ function numberToWordsINR(amount) {
   return str + ' Only';
 }
 
-const sampleRichItems = [
-  { s_no: 1, code: 'GR-1024', desc: 'Gold Ring', gross_wt: 2.875, net_wt: 2.650, purity: '22K', gold_rate: 7225, gold_value: 19136.25, making_rate: 500.00, making_charges: 1325.00, fixed_amount: '', wastage: '10.00', discount: 1000.00, total_mc: 26461.25 },
-  { s_no: 2, code: 'BG-2058', desc: 'Gold Bangle', gross_wt: 15.125, net_wt: 13.850, purity: '22K', gold_rate: 7225, gold_value: 99711.25, making_rate: 500.00, making_charges: 6925.00, fixed_amount: '', wastage: '10.00', discount: 2000.00, total_mc: 110536.25 },
-  { s_no: 3, code: 'CH-3001', desc: 'Gold Chain', gross_wt: 10.250, net_wt: 9.250, purity: '22K', gold_rate: 7225, gold_value: 66756.25, making_rate: 500.00, making_charges: 4625.00, fixed_amount: '', wastage: '10.00', discount: 1000.00, total_mc: 75381.25 },
-  { s_no: 4, code: 'EJ-4102', desc: 'Gold Earrings', gross_wt: 4.320, net_wt: 3.800, purity: '22K', gold_rate: 7225, gold_value: 27455.00, making_rate: 500.00, making_charges: 1900.00, fixed_amount: 7000.00, wastage: '10.00', discount: 500.00, total_mc: 28627.50 },
-  { s_no: 5, code: 'PN-5123', desc: 'Gold Pendant', gross_wt: 3.200, net_wt: 2.900, purity: '22K', gold_rate: 7225, gold_value: 20952.50, making_rate: 500.00, making_charges: 1450.00, fixed_amount: '', wastage: '10.00', discount: 200.00, total_mc: 22202.50 },
-  { s_no: 6, code: 'BR-6231', desc: 'Gold Bracelet', gross_wt: 6.760, net_wt: 6.100, purity: '22K', gold_rate: 7225, gold_value: 44072.50, making_rate: 500.00, making_charges: 3050.00, fixed_amount: '', wastage: '10.00', discount: 100.00, total_mc: 47022.50 },
-  { s_no: 7, code: 'RM-7345', desc: 'Gold Mangalsutra', gross_wt: 9.840, net_wt: 9.140, purity: '22K', gold_rate: 7225, gold_value: 58826.50, making_rate: 500.00, making_charges: 4570.00, fixed_amount: '', wastage: '10.00', discount: 100.00, total_mc: 62794.50 },
-];
-const navItems = [
-  ['Sales List', '/sales/list'], ['Profit Management', '/sales/profit'],
-];
+export const getStoredMasterLiveRates = () => {
+  try {
+    const raw = localStorage.getItem('rudhra_master_live_rates');
+    if (raw) return JSON.parse(raw);
+  } catch (e) { }
+  return null;
+};
 
-function Shell({ title, subtitle, children, actions }) {
-  const location = useLocation();
-  const currentPath = location.pathname;
+export const saveStoredMasterLiveRates = (data) => {
+  try {
+    const existing = getStoredMasterLiveRates() || {};
+    const updated = { ...existing, ...data, lastUpdated: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) };
+    localStorage.setItem('rudhra_master_live_rates', JSON.stringify(updated));
+    window.dispatchEvent(new CustomEvent('rudhra_price_list_updated', { detail: updated }));
+  } catch (e) { }
+};
 
+export const getStoredCustomerPriceList = (customerKey) => {
+  try {
+    if (!customerKey || customerKey === 'Select Customer') return null;
+    const raw = localStorage.getItem('rudhra_customer_price_lists');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return parsed[customerKey] || null;
+    }
+  } catch (e) { }
+  return null;
+};
+
+export const saveStoredCustomerPriceList = (customerKey, priceListData) => {
+  try {
+    if (!customerKey || customerKey === 'Select Customer') return;
+    const raw = localStorage.getItem('rudhra_customer_price_lists');
+    const all = raw ? JSON.parse(raw) : {};
+    all[customerKey] = { ...all[customerKey], ...priceListData, updatedAt: Date.now() };
+    localStorage.setItem('rudhra_customer_price_lists', JSON.stringify(all));
+    window.dispatchEvent(new CustomEvent('rudhra_price_list_updated', { detail: all[customerKey] }));
+  } catch (e) { }
+};
+
+const sampleRichItems = [];
+const masterDemoSalesList = [];
+
+function Shell({ title, subtitle, actions, children }) {
   return (
-    <div className="w-full min-h-screen pb-16 space-y-5 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif] text-gray-800">
-      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+    <div className="space-y-6 pb-12">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-stone-200/90 shadow-2xs">
         <div>
-          <div className="flex items-center gap-2 text-xs text-stone-400 font-semibold mb-1.5">
-            <Link to="/dashboard" className="hover:text-stone-900">Dashboard</Link>
-            <span>&gt;</span>
-            <span>Sales</span>
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{title}</h1>
-          <p className="text-xs text-stone-500 mt-1">{subtitle}</p>
+          <h1 className="text-xl font-bold text-gray-900 tracking-tight">{title}</h1>
+          {subtitle && <p className="text-xs text-stone-500 mt-0.5">{subtitle}</p>}
         </div>
-        <div className="flex items-center gap-2">{actions}</div>
+        {actions && <div className="flex items-center gap-2.5">{actions}</div>}
       </div>
-
-      <nav className="bg-white border border-stone-200/90 rounded-2xl p-2.5 flex items-center gap-2.5 overflow-x-auto no-scrollbar shadow-2xs">
-        {navItems.map(([label, path]) => {
-          const isActive = currentPath === path ||
-            (path === '/sales/list' && (currentPath === '/sales' || currentPath === '/sales/'));
-
-          return (
-            <Link
-              key={path}
-              to={path}
-              className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all duration-150 cursor-pointer ${isActive
-                  ? 'bg-[#b01622] text-white border-2 border-[#b01622] shadow-xs'
-                  : 'bg-stone-50 text-stone-700 border border-stone-200 hover:bg-stone-100 hover:text-stone-900 hover:border-stone-300'
-                }`}
-            >
-              {label}
-            </Link>
-          );
-        })}
-      </nav>
       {children}
     </div>
   );
 }
 
-const masterDemoSalesList = [
-  { id: 1, invoice_no: 'INV-2026-1001', client_name: 'Vikram Malhotra', phone: '+91 98401 23456', account_code: 'RJ-CL-1001', invoice_date: '2026-09-12', total_amount: 174058.50, paid_amount: 174058.50, due_amount: 0, status: 'paid', items: [{ id: 1, product_name: '22K Gold Antique Designer Necklace & Earring Set', product_code: 'RJ-GLD-1001', gross_weight: '24.800', quantity: 1, rate: 174058.50, line_total: 174058.50 }] },
-  { id: 2, invoice_no: 'INV-2026-1002', client_name: 'Priya Sharma', phone: '+91 98765 43210', account_code: 'RJ-CL-1002', invoice_date: '2026-09-12', total_amount: 132450.00, paid_amount: 100000.00, due_amount: 32450.00, status: 'partial', items: [{ id: 1, product_name: '22K Gold Temple Choker with Uncut Diamonds', product_code: 'RJ-GLD-1002', gross_weight: '22.850', quantity: 1, rate: 132450.00, line_total: 132450.00 }] },
-  { id: 3, invoice_no: 'INV-2026-1003', client_name: 'Kesavaraj', phone: '+91 99402 11223', account_code: 'RJ-CL-1003', invoice_date: '2026-09-12', total_amount: 152250.00, paid_amount: 152250.00, due_amount: 0, status: 'paid', items: [{ id: 1, product_name: '22K Traditional Bridal Haram Set', product_code: 'RJ-GLD-1003', gross_weight: '18.200', quantity: 1, rate: 152250.00, line_total: 152250.00 }] },
-  { id: 4, invoice_no: 'INV-2026-1004', client_name: 'Rajesh Khanna', phone: '+91 91760 99887', account_code: 'RJ-CL-1004', invoice_date: '2026-09-11', total_amount: 118676.25, paid_amount: 118676.25, due_amount: 0, status: 'paid', items: [{ id: 1, product_name: '22K Solid Gold Bangle Duo', product_code: 'RJ-GLD-1004', gross_weight: '14.600', quantity: 1, rate: 118676.25, line_total: 118676.25 }] },
-  { id: 5, invoice_no: 'INV-2026-1005', client_name: 'Meera Singhania', phone: '+91 98410 55667', account_code: 'RJ-CL-1005', invoice_date: '2026-09-12', total_amount: 106858.50, paid_amount: 106858.50, due_amount: 0, status: 'paid', items: [{ id: 1, product_name: '18K Diamond Studded Solitaire Pendant', product_code: 'RJ-GLD-1005', gross_weight: '14.850', quantity: 1, rate: 106858.50, line_total: 106858.50 }] },
-  { id: 6, invoice_no: 'INV-2026-1006', client_name: 'Anand Kumar', phone: '+91 97909 33445', account_code: 'RJ-CL-1006', invoice_date: '2026-09-10', total_amount: 215000.00, paid_amount: 200000.00, due_amount: 15000.00, status: 'partial', items: [{ id: 1, product_name: '22K Heavy Kundan Royal Necklace', product_code: 'RJ-GLD-1006', gross_weight: '28.500', quantity: 1, rate: 215000.00, line_total: 215000.00 }] },
-  { id: 7, invoice_no: 'INV-2026-1007', client_name: 'Sunita Reddy', phone: '+91 98840 88776', account_code: 'RJ-CL-1007', invoice_date: '2026-09-09', total_amount: 95400.00, paid_amount: 95400.00, due_amount: 0, status: 'paid', items: [{ id: 1, product_name: '22K Lightweight Fancy Gold Bracelet', product_code: 'RJ-GLD-1007', gross_weight: '11.400', quantity: 1, rate: 95400.00, line_total: 95400.00 }] },
-  { id: 8, invoice_no: 'INV-2026-1008', client_name: 'Ramesh Patel', phone: '+91 98400 11998', account_code: 'RJ-CL-1008', invoice_date: '2026-09-08', total_amount: 310500.00, paid_amount: 150000.00, due_amount: 160500.00, status: 'partial', items: [{ id: 1, product_name: '22K Complete Wedding Jewellery Collection', product_code: 'RJ-GLD-1008', gross_weight: '42.000', quantity: 1, rate: 310500.00, line_total: 310500.00 }] }
-];
+function SalesNavTabs({ active = 'dashboard' }) {
+  const [profitsOpen, setProfitsOpen] = useState(false);
+  const location = useLocation();
 
-function StatCard({ label, value, accent = false }) { return <div className="bg-white border border-stone-200 rounded-xl p-4"><span className="text-[11px] uppercase tracking-wider font-bold text-stone-400">{label}</span><div className={`text-2xl font-bold mt-2 ${accent ? 'text-[#b01622]' : 'text-gray-900'}`}>{value}</div></div>; }
+  const isOverviewActive = active === 'dashboard' || active === 'customer-index' || location.pathname === '/sales' || location.pathname === '/sales/' || location.pathname.includes('/sales/customers');
+  const isListActive = active === 'list' || location.pathname.includes('/sales/list');
+  const isProfitActive = active === 'profit-per-invoice' || active === 'profit-per-metal' || location.pathname.includes('/sales/profit');
+  const isRatesActive = active === 'rates' || location.pathname.includes('/sales/rates');
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-2.5 rounded-2xl border border-stone-200/90 shadow-2xs mb-6">
+      <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold">
+        <Link
+          to="/sales"
+          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-2 ${
+            isOverviewActive
+              ? 'bg-[#b01622] text-white font-bold shadow-2xs'
+              : 'text-stone-600 hover:bg-red-50 hover:text-[#b01622]'
+          }`}
+        >
+          <i className="fa-solid fa-chart-pie"></i>
+          <span>Overview</span>
+        </Link>
+
+        <Link
+          to="/sales/list"
+          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-2 ${
+            isListActive
+              ? 'bg-[#b01622] text-white font-bold shadow-2xs'
+              : 'text-stone-600 hover:bg-red-50 hover:text-[#b01622]'
+          }`}
+        >
+          <i className="fa-solid fa-list-check"></i>
+          <span>Sales List</span>
+        </Link>
+
+        {/* Profits Dropdown */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setProfitsOpen((prev) => !prev)}
+            className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-2 cursor-pointer ${
+              isProfitActive
+                ? 'bg-[#b01622] text-white font-bold shadow-2xs'
+                : 'text-stone-600 hover:bg-red-50 hover:text-[#b01622]'
+            }`}
+          >
+            <i className="fa-solid fa-chart-line"></i>
+            <span>Profits</span>
+            <i className={`fa-solid fa-chevron-down text-[10px] transition-transform ${profitsOpen ? 'rotate-180' : ''}`}></i>
+          </button>
+
+          {profitsOpen && (
+            <div className="absolute left-0 mt-1.5 w-52 bg-white border border-stone-200 rounded-xl shadow-xl z-50 p-1 space-y-1 font-semibold text-xs">
+              <Link
+                to="/sales/profit-per-invoice"
+                onClick={() => setProfitsOpen(false)}
+                className={`flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors ${
+                  active === 'profit-per-invoice'
+                    ? 'bg-red-50 text-[#b01622] font-bold'
+                    : 'text-stone-700 hover:bg-red-50 hover:text-[#b01622]'
+                }`}
+              >
+                <i className="fa-solid fa-file-invoice-dollar text-stone-400"></i>
+                <span>Profit Per Invoice</span>
+              </Link>
+              <Link
+                to="/sales/profit-per-metal"
+                onClick={() => setProfitsOpen(false)}
+                className={`flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors ${
+                  active === 'profit-per-metal'
+                    ? 'bg-red-50 text-[#b01622] font-bold'
+                    : 'text-stone-700 hover:bg-red-50 hover:text-[#b01622]'
+                }`}
+              >
+                <i className="fa-solid fa-coins text-stone-400"></i>
+                <span>Profit Per Metal</span>
+              </Link>
+            </div>
+          )}
+        </div>
+
+        <Link
+          to="/sales/rates"
+          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-2 ${
+            isRatesActive
+              ? 'bg-[#b01622] text-white font-bold shadow-2xs'
+              : 'text-stone-600 hover:bg-red-50 hover:text-[#b01622]'
+          }`}
+        >
+          <i className="fa-solid fa-tags"></i>
+          <span>Live Price Rates</span>
+        </Link>
+      </div>
+
+      <Link
+        to="/sales/create"
+        className="px-4 py-2 bg-[#b01622] hover:bg-[#8e111a] text-white text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center gap-2"
+      >
+        <i className="fa-solid fa-plus"></i>
+        <span>Create Invoice</span>
+      </Link>
+    </div>
+  );
+}
 
 export default function SalesModule({ view = 'dashboard' }) {
   const { showToast } = useToast();
@@ -133,6 +231,19 @@ export default function SalesModule({ view = 'dashboard' }) {
   const [filters, setFilters] = useState({ search: '', status: 'all', client_id: 'all', from: '', to: '' });
   const [form, setForm] = useState({ client_id: '', client_name: '', quantity: 1, product_id: '', rate: '', gross_weight: '', net_weight: '', purity: '', making_charge: 0, labour_charge: 0, stone_charge: 0, diamond_charge: 0, other_charge: 0, discount: 0, gst_rate: 5, paid_amount: 0, payment_method: 'cash', due_date: '', notes: '' });
   const [payment, setPayment] = useState({ amount: '', payment_method: 'cash', reference: '' });
+  const [companyInfo, setCompanyInfo] = useState(() => getStoredCompanyInfo());
+
+  useEffect(() => {
+    fetchCompanyInfo().then(info => {
+      if (info) setCompanyInfo(info);
+    });
+    loadBase();
+    const handleCompanyUpdate = (e) => {
+      if (e?.detail) setCompanyInfo(e.detail);
+    };
+    window.addEventListener('rudhra_company_info_updated', handleCompanyUpdate);
+    return () => window.removeEventListener('rudhra_company_info_updated', handleCompanyUpdate);
+  }, []);
 
   const loadBase = async () => {
     try {
@@ -151,7 +262,7 @@ export default function SalesModule({ view = 'dashboard' }) {
   const loadData = async (activeFilters = filters) => {
     setLoading(true);
     try {
-      if (view === 'dashboard') {
+      if (view === 'customer-index') {
         const [reportResponse, clientResponse] = await Promise.all([
           api.get('/sales/customer-report', { params: activeFilters }).catch(() => ({ data: null })),
           api.get('/clients').catch(() => ({ data: null }))
@@ -159,7 +270,7 @@ export default function SalesModule({ view = 'dashboard' }) {
         if (reportResponse?.data) setDashboard(reportResponse.data);
         if (clientResponse) setClients(normalizeClients(clientResponse));
       }
-      if (view === 'list') {
+      if (view === 'dashboard' || view === 'list') {
         const res = await api.get('/sales', { params: activeFilters }).catch(() => ({ data: null }));
         if (res?.data) setSales(res.data);
       }
@@ -179,19 +290,7 @@ export default function SalesModule({ view = 'dashboard' }) {
           if (res?.data) {
             setSale(res.data);
           } else {
-            const cleanId = String(id).toLowerCase().replaceAll('-', '').replaceAll(' ', '');
-            const match = masterDemoSalesList.find(
-              (item) => String(item.id) === String(id) ||
-                item.invoice_no.toLowerCase().includes(String(id).toLowerCase()) ||
-                item.invoice_no.toLowerCase().replaceAll('-', '').replaceAll(' ', '').includes(cleanId)
-            );
-            if (match) {
-              setSale(match);
-            } else {
-              const numericId = parseInt(id, 10);
-              const fallbackIdx = (!isNaN(numericId) && numericId >= 1 && numericId <= masterDemoSalesList.length) ? numericId - 1 : 0;
-              setSale(masterDemoSalesList[fallbackIdx] || masterDemoSalesList[0]);
-            }
+            setSale(null);
           }
         }
       }
@@ -199,15 +298,18 @@ export default function SalesModule({ view = 'dashboard' }) {
         const res = await api.get(`/sales/customers/${clientId}`).catch(() => ({ data: null }));
         if (res?.data) setSale(res.data);
       }
-      if (view === 'profit') {
+      if (view === 'profit' || view === 'profit-per-invoice') {
         const res = await api.get('/sales/profit', { params: activeFilters }).catch(() => ({ data: null }));
+        if (res?.data) setSales(res.data);
+      }
+      if (view === 'profit-per-metal') {
+        const res = await api.get('/reports/profit-per-metal', { params: activeFilters }).catch(() => ({ data: null }));
         if (res?.data) setSales(res.data);
       }
       if (view === 'rates') {
         const res = await api.get('/metal-rates').catch(() => ({ data: null }));
         if (res?.data) setLiveRates(res.data);
       }
-      if (view === 'create' || view === 'list' || view === 'customer' || view === 'customer-index') await loadBase();
     } catch (error) {
       console.warn('Sales module load notice:', error);
     } finally {
@@ -326,7 +428,11 @@ export default function SalesModule({ view = 'dashboard' }) {
           <div className="flex items-center gap-2 print:hidden">
             <button
               type="button"
-              onClick={() => window.print()}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                printElement('printable-invoice-sheet', `Tax Invoice ${invoiceNo}`);
+              }}
               className="px-4 py-2 bg-[#b01622] hover:bg-[#8e111a] text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer"
             >
               <i className="fa-solid fa-print"></i>
@@ -345,7 +451,7 @@ export default function SalesModule({ view = 'dashboard' }) {
         <div className="w-full flex justify-center py-2">
           {/* Main Container mirroring image sheet */}
           <div
-            id="printable-report-sheet"
+            id="printable-invoice-sheet"
             className="w-full max-w-[1100px] bg-white border border-stone-200 shadow-md p-6 sm:p-10 space-y-6 text-stone-800 font-['Inter',sans-serif] print:p-0 print:border-0 print:shadow-none"
           >
             {/* 1. Header Section */}
@@ -358,15 +464,19 @@ export default function SalesModule({ view = 'dashboard' }) {
                     <i className="fa-solid fa-gem text-lg text-amber-300"></i>
                   </div>
                   <span className="text-[9px] uppercase font-bold tracking-wider mt-1 text-center leading-tight">
-                    RUDRA JEWELLERS
+                    {companyInfo?.company_name || 'RUDRA JEWELLERS'}
                   </span>
-                  <span className="text-[7px] text-white/70 uppercase tracking-widest">chennai</span>
+                  <span className="text-[7px] text-white/70 uppercase tracking-widest">{companyInfo?.city || ''}</span>
                 </div>
                 <div>
-                  <h1 className="text-2xl font-black text-[#b01622] tracking-tight uppercase">RUDRA JEWELLERS</h1>
-                  <div className="text-[11px] font-bold text-stone-500 uppercase tracking-widest">ENTERPRISE ERP SYSTEM</div>
-                  <p className="text-xs text-stone-600 mt-2">Regd. Office: 402, Heritage Plaza, MG Road</p>
-                  <p className="text-xs text-stone-600">Contact: +91 22 4000 8888 | erp@rudrajewellors.com</p>
+                  <h1 className="text-2xl font-black text-[#b01622] tracking-tight uppercase">{companyInfo?.company_name || 'RUDRA JEWELLERS'}</h1>
+                  <div className="text-[11px] font-bold text-stone-500 uppercase tracking-widest">{companyInfo?.tagline || 'ENTERPRISE ERP SYSTEM'}</div>
+                  <p className="text-xs text-stone-600 mt-2">
+                    {[companyInfo?.address_line1, companyInfo?.address_line2, companyInfo?.city, companyInfo?.state && `${companyInfo.state} - ${companyInfo?.pincode || ''}`].filter(Boolean).join(', ')}
+                  </p>
+                  <p className="text-xs text-stone-600">
+                    Contact: {companyInfo?.phone || '+91 98400 12345'} | {companyInfo?.email || 'info@rudrajewellers.com'}
+                  </p>
                 </div>
               </div>
 
@@ -635,22 +745,33 @@ export default function SalesModule({ view = 'dashboard' }) {
             {/* 6. Footer Section: Bank Details, Terms & Conditions, Signature */}
             <div className="pt-4 border-t border-stone-200 grid grid-cols-1 md:grid-cols-3 gap-5 text-[11px] text-stone-600">
               {/* Bank Details */}
-              <div className="space-y-1">
-                <div className="flex items-center gap-1.5 text-[#b01622] font-bold uppercase text-[10px] tracking-wider mb-1">
-                  <i className="fa-solid fa-building-columns text-[#b01622]"></i>
-                  <span>BANK DETAILS</span>
-                </div>
-                <div className="grid grid-cols-2 gap-x-1">
-                  <span className="text-stone-500">Bank Name</span>
-                  <span className="font-semibold text-stone-800">: HDFC Bank</span>
-                  <span className="text-stone-500">A/C Name</span>
-                  <span className="font-semibold text-stone-800">: Rudra Jewellers</span>
-                  <span className="text-stone-500">A/C No.</span>
-                  <span className="font-semibold font-mono text-stone-800">: 5010 0123 4567 89</span>
-                  <span className="text-stone-500">IFSC Code</span>
-                  <span className="font-semibold font-mono text-stone-800">: HDFC0005010</span>
-                </div>
-              </div>
+              {(() => {
+                const activeBank = getStoredDefaultBankAccount();
+                return (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5 text-[#b01622] font-bold uppercase text-[10px] tracking-wider mb-1">
+                      <i className="fa-solid fa-building-columns text-[#b01622]"></i>
+                      <span>BANK DETAILS</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-1">
+                      <span className="text-stone-500">Bank Name</span>
+                      <span className="font-semibold text-stone-800">: {activeBank?.bank_name || 'HDFC Bank'}</span>
+                      <span className="text-stone-500">A/C Name</span>
+                      <span className="font-semibold text-stone-800">: {activeBank?.account_name || 'Rudra Jewellers'}</span>
+                      <span className="text-stone-500">A/C No.</span>
+                      <span className="font-semibold font-mono text-stone-800">: {activeBank?.account_number || '50200018899221'}</span>
+                      <span className="text-stone-500">IFSC Code</span>
+                      <span className="font-semibold font-mono text-stone-800">: {activeBank?.ifsc_code || 'HDFC0000124'}</span>
+                      {activeBank?.upi_id && (
+                        <>
+                          <span className="text-stone-500">UPI ID</span>
+                          <span className="font-semibold font-mono text-[#b01622]">: {activeBank.upi_id}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Terms & Conditions */}
               <div className="space-y-1">
@@ -686,45 +807,25 @@ export default function SalesModule({ view = 'dashboard' }) {
 
   if (view === 'customer') {
     const customerObj = sale?.customer || clients.find((c) => String(c.id) === String(clientId)) || {
-      id: clientId || 1,
-      full_name: 'Vikram Malhotra',
-      client_code: `RJ-EL-1027`,
-      primary_phone: '+91 99620 55443',
+      id: clientId || '',
+      full_name: 'Customer',
+      client_code: '',
+      primary_phone: '—',
     };
 
-    const demoCustomerMap = {
-      'vikram malhotra': { total: 174058.50, paid: 174058.50, due: 0, invoices: [masterDemoSalesList[0]] },
-      'priya sharma': { total: 132450.00, paid: 100000.00, due: 32450.00, invoices: [masterDemoSalesList[1]] },
-      'kesavaraj': { total: 152250.00, paid: 152250.00, due: 0, invoices: [masterDemoSalesList[2]] },
-      'rajesh khanna': { total: 118676.25, paid: 118676.25, due: 0, invoices: [masterDemoSalesList[3]] },
-      'meera singhania': { total: 106858.50, paid: 106858.50, due: 0, invoices: [masterDemoSalesList[4]] },
-      'anand kumar': { total: 215000.00, paid: 200000.00, due: 15000.00, invoices: [masterDemoSalesList[5]] },
-      'sunita reddy': { total: 95400.00, paid: 95400.00, due: 0, invoices: [masterDemoSalesList[6]] },
-      'ramesh patel': { total: 310500.00, paid: 150000.00, due: 160500.00, invoices: [masterDemoSalesList[7]] },
-    };
-
-    const nameKey = (customerObj.full_name || '').toLowerCase().trim();
-    const demoInfo = demoCustomerMap[nameKey] || {
-      total: 174058.50,
-      paid: 100000.00,
-      due: 74058.50,
-      invoices: [{ id: 13, invoice_no: 'INV - 2026-1266', client_name: customerObj.full_name, invoice_date: '2026-09-10', total_amount: 174058.50, paid_amount: 100000.00, due_amount: 74058.50, status: 'partial' }]
-    };
-
-    const rawSales = Array.isArray(sale?.sales) ? sale.sales : [];
-    const customerSales = rawSales.length > 0 ? rawSales : demoInfo.invoices;
+    const customerSales = Array.isArray(sale?.sales) ? sale.sales : [];
 
     const stats = {
-      total_purchases: rawSales.length > 0 ? Number(sale?.stats?.total_purchases || 0) : demoInfo.total,
-      paid_amount: rawSales.length > 0 ? Number(sale?.stats?.paid_amount || 0) : demoInfo.paid,
-      due_amount: rawSales.length > 0 ? Number(sale?.stats?.due_amount || 0) : demoInfo.due,
-      transactions: rawSales.length > 0 ? (sale?.stats?.transactions || rawSales.length) : customerSales.length,
+      total_purchases: Number(sale?.stats?.total_purchases || 0),
+      paid_amount: Number(sale?.stats?.paid_amount || 0),
+      due_amount: Number(sale?.stats?.due_amount || 0),
+      transactions: Number(sale?.stats?.transactions || customerSales.length),
     };
 
     return (
       <Shell
         title={`${customerObj.full_name || 'Customer'} · Purchase Details`}
-        subtitle={`Client Code: ${customerObj.client_code || 'CL-001'} · Phone: ${customerObj.primary_phone || 'N/A'}`}
+        subtitle={`Client Code: ${customerObj.client_code || '—'} · Phone: ${customerObj.primary_phone || '—'}`}
         actions={
           <Link
             to="/sales"
@@ -757,21 +858,42 @@ export default function SalesModule({ view = 'dashboard' }) {
     );
   }
 
-  const defaultSalesList = [
-    { id: 1, invoice_no: 'INV-2026-1001', client_name: 'Vikram Malhotra', invoice_date: '2026-09-12', total_amount: 174058.50, paid_amount: 174058.50, due_amount: 0, status: 'paid' },
-    { id: 2, invoice_no: 'INV-2026-1002', client_name: 'Priya Sharma', invoice_date: '2026-09-12', total_amount: 132450.00, paid_amount: 100000.00, due_amount: 32450.00, status: 'partial' },
-    { id: 3, invoice_no: 'INV-2026-1003', client_name: 'Kesavaraj', invoice_date: '2026-09-12', total_amount: 152250.00, paid_amount: 152250.00, due_amount: 0, status: 'paid' },
-    { id: 4, invoice_no: 'INV-2026-1004', client_name: 'Rajesh Khanna', invoice_date: '2026-09-11', total_amount: 118676.25, paid_amount: 118676.25, due_amount: 0, status: 'paid' },
-    { id: 5, invoice_no: 'INV-2026-1005', client_name: 'Meera Singhania', invoice_date: '2026-09-12', total_amount: 106858.50, paid_amount: 106858.50, due_amount: 0, status: 'paid' },
-    { id: 6, invoice_no: 'INV-2026-1006', client_name: 'Anand Kumar', invoice_date: '2026-09-10', total_amount: 215000.00, paid_amount: 200000.00, due_amount: 15000.00, status: 'partial' },
-    { id: 7, invoice_no: 'INV-2026-1007', client_name: 'Sunita Reddy', invoice_date: '2026-09-09', total_amount: 95400.00, paid_amount: 95400.00, due_amount: 0, status: 'paid' },
-    { id: 8, invoice_no: 'INV-2026-1008', client_name: 'Ramesh Patel', invoice_date: '2026-09-08', total_amount: 310500.00, paid_amount: 150000.00, due_amount: 160500.00, status: 'partial' }
-  ];
+  if (view === 'customer-index') {
+    return <CustomerSalesReport dashboard={dashboard} clients={clients} filters={filters} setFilters={setFilters} reload={loadData} />;
+  }
 
-  if (view === 'profit') return <ProfitManagementReport sales={sales} filters={filters} setFilters={setFilters} reload={loadData} />;
-  if (view === 'customer-index') return <Shell title="Client Accounts" subtitle="Sales activity broken down by customer account."><SalesTable records={sales?.sales?.data || sales?.data || (Array.isArray(sales) && sales.length > 0 ? sales : defaultSalesList)} /></Shell>;
+  if (view === 'profit' || view === 'profit-per-invoice') {
+    return (
+      <div className="w-full">
+        <SalesNavTabs active="profit-per-invoice" />
+        <ProfitManagementReport sales={sales} filters={filters} setFilters={setFilters} reload={loadData} companyInfo={companyInfo} />
+      </div>
+    );
+  }
 
-  return <Shell title="Sales List" subtitle="List of all retail sales, payment status, and invoices." actions={<Link to="/sales/create" className="px-4 py-2.5 bg-[#b01622] text-white rounded-lg text-xs font-bold">+ Create Sale</Link>}><SalesTable records={sales?.sales?.data || sales?.data || (Array.isArray(sales) && sales.length > 0 ? sales : defaultSalesList)} /></Shell>;
+  if (view === 'profit-per-metal') {
+    return (
+      <div className="w-full">
+        <SalesNavTabs active="profit-per-metal" />
+        <ProfitPerMetalReport data={sales} filters={filters} setFilters={setFilters} reload={loadData} companyInfo={companyInfo} />
+      </div>
+    );
+  }
+
+  return (
+    <Shell
+      title="Sales List"
+      subtitle="List of all retail sales, payment status, and invoices."
+      actions={
+        <Link to="/sales/create" className="px-4 py-2.5 bg-[#b01622] text-white rounded-lg text-xs font-bold shadow-xs hover:bg-[#8e111a] transition-all">
+          + Create Sale
+        </Link>
+      }
+    >
+      <SalesNavTabs active="list" />
+      <SalesTable records={sales?.sales?.data || sales?.data || (Array.isArray(sales) ? sales : [])} />
+    </Shell>
+  );
 }
 
 function roundNum(val) {
@@ -785,50 +907,19 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
   const summary = dashboard?.summary || {};
   const invoiceSummary = dashboard?.invoice_summary || {};
   const trend = dashboard?.trend || [];
-
-  const masterDemoRows = [
-    { client_id: 1, client_name: 'Vikram Malhotra', invoice_count: 1, quantity: '24.800', gold_weight: '24.800', diamond_weight: '0.000', total_amount: 174058.50, last_sale_date: '2026-09-12' },
-    { client_id: 2, client_name: 'Priya Sharma', invoice_count: 1, quantity: '22.850', gold_weight: '22.850', diamond_weight: '0.550', total_amount: 132450.00, last_sale_date: '2026-09-12' },
-    { client_id: 3, client_name: 'Kesavaraj', invoice_count: 1, quantity: '18.200', gold_weight: '18.200', diamond_weight: '0.000', total_amount: 152250.00, last_sale_date: '2026-09-12' },
-    { client_id: 4, client_name: 'Rajesh Khanna', invoice_count: 1, quantity: '14.600', gold_weight: '14.600', diamond_weight: '0.250', total_amount: 118676.25, last_sale_date: '2026-09-11' },
-    { client_id: 5, client_name: 'Meera Singhania', invoice_count: 1, quantity: '14.850', gold_weight: '14.850', diamond_weight: '0.000', total_amount: 106858.50, last_sale_date: '2026-09-12' },
-    { client_id: 6, client_name: 'Anand Kumar', invoice_count: 1, quantity: '28.500', gold_weight: '28.500', diamond_weight: '0.000', total_amount: 215000.00, last_sale_date: '2026-09-10' },
-    { client_id: 7, client_name: 'Sunita Reddy', invoice_count: 1, quantity: '11.400', gold_weight: '11.400', diamond_weight: '0.000', total_amount: 95400.00, last_sale_date: '2026-09-09' },
-    { client_id: 8, client_name: 'Ramesh Patel', invoice_count: 1, quantity: '42.000', gold_weight: '42.000', diamond_weight: '0.150', total_amount: 310500.00, last_sale_date: '2026-09-08' },
-  ];
+  const profitSummary = dashboard?.profitSummary || summary || {};
 
   const dropdownClients = useMemo(() => {
-    const list = [...clients];
-    masterDemoRows.forEach((demo) => {
-      if (!list.some((c) => String(c.id) === String(demo.client_id) || c.full_name?.toLowerCase() === demo.client_name.toLowerCase())) {
-        list.push({ id: demo.client_id, full_name: demo.client_name });
-      }
-    });
-    return list;
+    return Array.isArray(clients) ? clients : [];
   }, [clients]);
 
   const selectedCustomerId = filters.client_id && filters.client_id !== 'all' ? String(filters.client_id) : 'all';
 
   const filteredRows = useMemo(() => {
-    const baseList = dbRows.length > 0 ? dbRows : masterDemoRows;
+    const baseList = dbRows;
     if (selectedCustomerId === 'all') return baseList;
-    const match = baseList.filter((r) => String(r.client_id) === selectedCustomerId || r.client_name?.toLowerCase().includes(String(selectedCustomerId).toLowerCase()));
-    if (match.length > 0) return match;
-    const foundObj = dropdownClients.find((c) => String(c.id) === selectedCustomerId);
-    if (foundObj) {
-      return [{
-        client_id: foundObj.id,
-        client_name: foundObj.full_name,
-        invoice_count: 1,
-        quantity: '14.600',
-        gold_weight: '14.600',
-        diamond_weight: '0.250',
-        total_amount: 118676.25,
-        last_sale_date: '2026-09-11',
-      }];
-    }
-    return baseList;
-  }, [dbRows, selectedCustomerId, dropdownClients]);
+    return baseList.filter((r) => String(r.client_id) === selectedCustomerId || r.client_name?.toLowerCase().includes(String(selectedCustomerId).toLowerCase()));
+  }, [dbRows, selectedCustomerId]);
 
   const isFiltered = selectedCustomerId !== 'all';
 
@@ -836,16 +927,16 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
 
   const totalCustomersVal = isFiltered
     ? 1
-    : Number(summary.customers || dropdownClients.length || 8);
+    : Number(summary.customers || dropdownClients.length || 0);
 
   const totalInvoicesVal = filteredRows.reduce((acc, r) => acc + Number(r.invoice_count || 0), 0);
 
-  const goldValueVal = roundNum(totalSalesAmountVal * 0.83);
-  const makingChargesVal = roundNum(totalSalesAmountVal * 0.10);
-  const stoneChargesVal = roundNum(totalSalesAmountVal * 0.05);
-  const discountVal = roundNum(totalSalesAmountVal * 0.01);
-  const gstVal = roundNum((goldValueVal + makingChargesVal + stoneChargesVal - discountVal) * 0.03);
-  const grandTotalVal = totalSalesAmountVal;
+  const goldValueVal = invoiceSummary.gold_value !== undefined ? Number(invoiceSummary.gold_value) : roundNum(totalSalesAmountVal * 0.83);
+  const makingChargesVal = invoiceSummary.making_charges !== undefined ? Number(invoiceSummary.making_charges) : roundNum(totalSalesAmountVal * 0.10);
+  const stoneChargesVal = invoiceSummary.stone_charges !== undefined ? Number(invoiceSummary.stone_charges) : roundNum(totalSalesAmountVal * 0.05);
+  const discountVal = invoiceSummary.discount !== undefined ? Number(invoiceSummary.discount) : roundNum(totalSalesAmountVal * 0.01);
+  const gstVal = invoiceSummary.gst !== undefined ? Number(invoiceSummary.gst) : roundNum((goldValueVal + makingChargesVal + stoneChargesVal - discountVal) * 0.03);
+  const grandTotalVal = invoiceSummary.grand_total !== undefined ? Number(invoiceSummary.grand_total) : totalSalesAmountVal;
 
   // Pagination calculations
   const totalEntries = filteredRows.length;
@@ -884,27 +975,29 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
   const handleExportExcel = () => {
     const selectedCustName = isFiltered ? (dropdownClients.find((c) => String(c.id) === selectedCustomerId)?.full_name || 'Selected Customer') : 'All Customers';
     const lines = [
-      ['RUDHRA JEWELLERS - CUSTOMER SALES REPORT'],
+      [`${company?.company_name || 'RUDRA JEWELLERS'} - CUSTOMER SALES REPORT`],
       [`Date Range: ${filters.from || '2025-04-01'} to ${filters.to || '2025-04-30'}`],
       [`Customer Filter: ${selectedCustName}`],
-      [`Total Sales Amount: ₹${totalSalesAmountVal}`],
+      [`Total Sales Amount (Rs): ${totalSalesAmountVal}`],
       [`Total Invoices: ${totalInvoicesVal}`],
       [''],
-      ['S No', 'Customer Name', 'No. of Invoices', 'Total Quantity (Pcs)', 'Total Gold Weight (g)', 'Total Diamond Weight (ct)', 'Total Sales Amount (₹)', 'Last Sale Date'],
-      ...filteredRows.map((row, idx) => [
-        idx + 1,
-        row.client_name,
-        row.invoice_count,
-        row.quantity,
-        row.gold_weight,
-        row.diamond_weight,
-        row.total_amount,
-        row.last_sale_date
-      ]),
-      ['Total', '', totalInvoicesSum, totalQtySum, totalGoldWgtSum, totalDiamondWgtSum, totalSalesSum, '']
+      ['S No', 'Customer Name', 'No. of Invoices', 'Total Quantity (Pcs)', 'Total Gold Weight (g)', 'Total Diamond Weight (ct)', 'Total Sales Amount (Rs)', 'Last Sale Date'],
+      ...(filteredRows.length > 0
+        ? filteredRows.map((row, idx) => [
+            idx + 1,
+            row.client_name ?? 'null',
+            row.invoice_count ?? 0,
+            row.quantity ?? 0,
+            row.gold_weight ?? '0.000',
+            row.diamond_weight ?? '0.000',
+            row.total_amount ?? 0,
+            row.last_sale_date ?? 'null'
+          ])
+        : [['null', 'null', 'null', 'null', 'null', 'null', 'null', 'null']]),
+      ['Total Summary', '', totalInvoicesSum, totalQtySum, totalGoldWgtSum, totalDiamondWgtSum, totalSalesSum, '']
     ];
 
-    const csvContent = lines.map((l) => l.map((v) => `"${String(v ?? '').replaceAll('"', '""')}"`).join(',')).join('\n');
+    const csvContent = '\uFEFF' + lines.map((l) => l.map((v) => `"${String(v === null || v === undefined ? 'null' : v).replaceAll('₹', 'Rs. ').replaceAll('"', '""')}"`).join(',')).join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -920,41 +1013,77 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
     setShowPrintModal(true);
   };
 
-  // Graph metric configuration mapping
-  const graphConfigs = {
-    amount: {
-      yLabels: ['40L', '30L', '20L', '10L', '0'],
-      polygon: '3,100 3,70 18.3,50 33.6,35 48.9,42 64.2,26 79.5,45 96,52 96,100',
-      polyline: '3,70 18.3,50 33.6,35 48.9,42 64.2,26 79.5,45 96,52',
-      dots: [[3, 70], [18.3, 50], [33.6, 35], [48.9, 42], [64.2, 26], [79.5, 45], [96, 52]],
-    },
-    quantity: {
-      yLabels: ['400 Pcs', '300 Pcs', '200 Pcs', '100 Pcs', '0'],
-      polygon: '3,100 3,60 18.3,42 33.6,28 48.9,38 64.2,20 79.5,35 96,40 96,100',
-      polyline: '3,60 18.3,42 33.6,28 48.9,38 64.2,20 79.5,35 96,40',
-      dots: [[3, 60], [18.3, 42], [33.6, 28], [48.9, 38], [64.2, 20], [79.5, 35], [96, 40]],
-    },
-    gold_weight: {
-      yLabels: ['400g', '300g', '200g', '100g', '0'],
-      polygon: '3,100 3,65 18.3,45 33.6,30 48.9,40 64.2,22 79.5,38 96,48 96,100',
-      polyline: '3,65 18.3,45 33.6,30 48.9,40 64.2,22 79.5,38 96,48',
-      dots: [[3, 65], [18.3, 45], [33.6, 30], [48.9, 40], [64.2, 22], [79.5, 38], [96, 48]],
-    },
-    diamond_weight: {
-      yLabels: ['40ct', '30ct', '20ct', '10ct', '0'],
-      polygon: '3,100 3,80 18.3,60 33.6,45 48.9,55 64.2,35 79.5,50 96,58 96,100',
-      polyline: '3,80 18.3,60 33.6,45 48.9,55 64.2,35 79.5,50 96,58',
-      dots: [[3, 80], [18.3, 60], [33.6, 45], [48.9, 55], [64.2, 35], [79.5, 50], [96, 58]],
-    },
-    invoices: {
-      yLabels: ['40', '30', '20', '10', '0'],
-      polygon: '3,100 3,75 18.3,55 33.6,40 48.9,50 64.2,30 79.5,42 96,50 96,100',
-      polyline: '3,75 18.3,55 33.6,40 48.9,50 64.2,30 79.5,42 96,50',
-      dots: [[3, 75], [18.3, 55], [33.6, 40], [48.9, 50], [64.2, 30], [79.5, 42], [96, 50]],
-    },
-  };
+  const dynamicGraphData = useMemo(() => {
+    let pointsData = Array.isArray(trend) && trend.length > 0 ? trend : [];
 
-  const currentGraph = graphConfigs[graphMetric] || graphConfigs.amount;
+    if (pointsData.length === 0) {
+      const slots = [];
+      const now = new Date();
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const monthLabel = d.toLocaleString('en-US', { month: 'short' }) + " '" + String(d.getFullYear()).slice(-2);
+        slots.push({ label: monthLabel, val: 0 });
+      }
+      return {
+        yLabels: graphMetric === 'quantity' ? ['400 Pcs', '300 Pcs', '200 Pcs', '100 Pcs', '0 Pcs'] :
+          graphMetric === 'gold_weight' ? ['400g', '300g', '200g', '100g', '0g'] :
+            graphMetric === 'diamond_weight' ? ['40ct', '30ct', '20ct', '10ct', '0ct'] :
+              graphMetric === 'invoices' ? ['40', '30', '20', '10', '0'] :
+                ['₹10L', '₹7.5L', '₹5L', '₹2.5L', '₹0'],
+        xLabels: slots.map((s) => s.label),
+        polygon: '3,98 3,98 96,98 96,98',
+        polyline: '3,98 96,98',
+        dots: slots.map((_, idx) => [3 + idx * (93 / (slots.length - 1 || 1)), 98]),
+      };
+    }
+
+    const labels = pointsData.map((p) => {
+      if (!p.date) return '—';
+      const d = new Date(p.date);
+      return d.toLocaleString('en-US', { month: 'short' }) + " '" + String(d.getFullYear()).slice(-2);
+    });
+
+    const values = pointsData.map((p) => Number(p.amount || p.value || 0));
+    const maxVal = Math.max(...values, 1);
+
+    const formatY = (val) => {
+      if (graphMetric === 'quantity') return `${Math.round(val)} Pcs`;
+      if (graphMetric === 'gold_weight') return `${val.toFixed(1)}g`;
+      if (graphMetric === 'diamond_weight') return `${val.toFixed(1)}ct`;
+      if (graphMetric === 'invoices') return `${Math.round(val)}`;
+      return money(val);
+    };
+
+    const yLabels = [
+      formatY(maxVal),
+      formatY(maxVal * 0.75),
+      formatY(maxVal * 0.5),
+      formatY(maxVal * 0.25),
+      formatY(0),
+    ];
+
+    const step = pointsData.length > 1 ? 93 / (pointsData.length - 1) : 0;
+    const dots = values.map((v, i) => {
+      const x = pointsData.length > 1 ? 3 + i * step : 50;
+      const y = 98 - (v / maxVal) * 85;
+      return [Number(x.toFixed(1)), Number(y.toFixed(1))];
+    });
+
+    const polyline = dots.map((d) => `${d[0]},${d[1]}`).join(' ');
+    const firstX = dots[0][0];
+    const lastX = dots[dots.length - 1][0];
+    const polygon = `${firstX},100 ${polyline} ${lastX},100`;
+
+    return {
+      yLabels,
+      xLabels: labels,
+      polygon,
+      polyline,
+      dots,
+    };
+  }, [trend, graphMetric]);
+
+  const currentGraph = dynamicGraphData;
 
   React.useEffect(() => {
     if (filters.page) reload();
@@ -962,6 +1091,9 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
 
   return (
     <div className="w-full pb-16 space-y-5 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif] text-gray-800">
+      {/* Sub Navigation Pill Tabs */}
+      <SalesNavTabs active="dashboard" />
+
       {/* 1. Header with Breadcrumbs & Action Controls */}
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
         <div>
@@ -985,14 +1117,14 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
             <i className="fa-regular fa-calendar text-stone-400 text-xs"></i>
             <input
               type="date"
-              value={filters.from || '2025-04-01'}
+              value={filters.from || ''}
               onChange={(e) => setFilters({ ...filters, from: e.target.value })}
               className="bg-transparent text-xs font-semibold focus:outline-hidden cursor-pointer"
             />
             <span className="text-stone-400">-</span>
             <input
               type="date"
-              value={filters.to || '2025-04-30'}
+              value={filters.to || ''}
               onChange={(e) => setFilters({ ...filters, to: e.target.value })}
               className="bg-transparent text-xs font-semibold focus:outline-hidden cursor-pointer"
             />
@@ -1038,219 +1170,7 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
             <i className="fa-solid fa-file-excel text-emerald-600"></i>
             <span>Export Excel</span>
           </button>
-
-          {/* Export Invoice */}
-          <button
-            type="button"
-            onClick={handleExportInvoice}
-            className="px-3 py-2 bg-white border border-red-200 hover:bg-red-50 text-red-700 text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer"
-          >
-            <i className="fa-solid fa-file-invoice text-red-600"></i>
-            <span>Export Invoice</span>
-          </button>
         </div>
-      </div>
-
-      {/* 2. Top 3 KPI Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {/* Card 1: Total Sales Amount */}
-        <div className="bg-white rounded-2xl border border-stone-200/90 p-5 shadow-2xs flex items-center gap-4">
-          <div className="w-12 h-12 rounded-full bg-red-50 text-[#b01622] flex items-center justify-center text-lg shrink-0">
-            <i className="fa-regular fa-user text-base"></i>
-          </div>
-          <div className="min-w-0">
-            <span className="text-xs font-medium text-stone-400 block">
-              Total Sales Amount
-            </span>
-            <div className="text-xl font-bold text-gray-900 tracking-tight mt-0.5">
-              {money(totalSalesAmountVal)}
-            </div>
-            <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-600 mt-1">
-              <span>▲</span>
-              <span>12.5%</span>
-              <span className="text-stone-400 font-normal">vs Previous Period</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Card 2: Total Customers */}
-        <div className="bg-white rounded-2xl border border-stone-200/90 p-5 shadow-2xs flex items-center gap-4">
-          <div className="w-12 h-12 rounded-full bg-red-50 text-[#b01622] flex items-center justify-center text-lg shrink-0">
-            <i className="fa-solid fa-store text-base"></i>
-          </div>
-          <div className="min-w-0">
-            <span className="text-xs font-medium text-stone-400 block">
-              Total Client Accounts
-            </span>
-            <div className="text-xl font-bold text-gray-900 tracking-tight mt-0.5">
-              {totalCustomersVal.toLocaleString()}
-            </div>
-            <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-600 mt-1">
-              <span>▲</span>
-              <span>5.3%</span>
-              <span className="text-stone-400 font-normal">vs Previous Period</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Card 3: Total Invoices */}
-        <div className="bg-white rounded-2xl border border-stone-200/90 p-5 shadow-2xs flex items-center gap-4">
-          <div className="w-12 h-12 rounded-full bg-red-50 text-[#b01622] flex items-center justify-center text-lg shrink-0">
-            <i className="fa-regular fa-file-lines text-base"></i>
-          </div>
-          <div className="min-w-0">
-            <span className="text-xs font-medium text-stone-400 block">
-              Total Invoices
-            </span>
-            <div className="text-xl font-bold text-gray-900 tracking-tight mt-0.5">
-              {totalInvoicesVal.toLocaleString()}
-            </div>
-            <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-600 mt-1">
-              <span>▲</span>
-              <span>8.7%</span>
-              <span className="text-stone-400 font-normal">vs Previous Period</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* 3. Sub-Navigation Tabs Strip */}
-      <div className="border-b border-stone-200 flex items-center gap-8 text-xs font-bold">
-        <button
-          type="button"
-          className="pb-3 border-b-2 border-[#b01622] text-[#b01622] cursor-pointer"
-        >
-          Summary
-        </button>
-        <button
-          type="button"
-          className="pb-3 text-stone-500 hover:text-stone-900 cursor-pointer transition-colors"
-        >
-          Monthly Statement
-        </button>
-        <button
-          type="button"
-          className="pb-3 text-stone-500 hover:text-stone-900 cursor-pointer transition-colors"
-        >
-          Yearly Statement
-        </button>
-      </div>
-
-      {/* 4. Middle Split Row: Monthly Sales Overview Chart + Invoice Summary Card */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        {/* Left Card: Monthly Sales Overview */}
-        <section className="lg:col-span-8 bg-white border border-stone-200/90 rounded-2xl p-5 shadow-2xs flex flex-col justify-between overflow-hidden">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-bold text-gray-900">
-              Monthly Sales Overview
-            </h2>
-
-            {/* Dynamic Graph Metric Selector Dropdown */}
-            <select
-              value={graphMetric}
-              onChange={(e) => setGraphMetric(e.target.value)}
-              className="px-3 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs text-stone-700 font-semibold cursor-pointer focus:outline-hidden focus:border-[#b01622]"
-            >
-              <option value="amount">Amount (₹)</option>
-              <option value="quantity">Quantity (Pcs)</option>
-              <option value="gold_weight">Gold Weight (g)</option>
-              <option value="diamond_weight">Diamond Weight (ct)</option>
-              <option value="invoices">Invoices Count</option>
-            </select>
-          </div>
-
-          {/* Area Chart Visualization strictly contained inside card */}
-          <div className="h-56 relative flex flex-col justify-between pt-2">
-            {/* Horizontal Grid lines with Y-Axis Labels */}
-            <div className="absolute inset-0 flex flex-col justify-between text-[10px] text-stone-400 pointer-events-none pb-6">
-              {currentGraph.yLabels.map((lbl, idx) => (
-                <div key={idx} className="border-b border-stone-100 flex items-center justify-between">
-                  <span>{lbl}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* SVG Red Line & Soft Gradient Fill bounded inside container with horizontal padding */}
-            <div className="w-full h-44 relative z-10 pl-8 pr-4 overflow-hidden">
-              <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
-                <defs>
-                  <linearGradient id="salesGrad" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="#b01622" stopOpacity="0.25" />
-                    <stop offset="100%" stopColor="#b01622" stopOpacity="0.0" />
-                  </linearGradient>
-                </defs>
-                <polygon
-                  points={currentGraph.polygon}
-                  fill="url(#salesGrad)"
-                />
-                <polyline
-                  points={currentGraph.polyline}
-                  fill="none"
-                  stroke="#b01622"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  vectorEffect="non-scaling-stroke"
-                />
-                {/* Dots at data points */}
-                {currentGraph.dots.map(([x, y], idx) => (
-                  <circle key={idx} cx={x} cy={y} r="2.5" fill="#b01622" stroke="#ffffff" strokeWidth="1.2" />
-                ))}
-              </svg>
-            </div>
-
-            {/* X-Axis Month Labels matching screenshot */}
-            <div className="flex justify-between text-[11px] text-stone-400 font-medium pl-8 pr-4 pt-2">
-              <span>Oct '24</span>
-              <span>Nov '24</span>
-              <span>Dec '24</span>
-              <span>Jan '25</span>
-              <span>Feb '25</span>
-              <span>Mar '25</span>
-              <span>Apr '25</span>
-            </div>
-          </div>
-        </section>
-
-        {/* Right Card: Invoice Summary */}
-        <section className="lg:col-span-4 bg-white border border-stone-200/90 rounded-2xl p-5 shadow-2xs flex flex-col justify-between">
-          <div>
-            <h2 className="text-sm font-bold text-gray-900 mb-4">
-              Invoice Summary
-            </h2>
-            <div className="space-y-3.5 text-xs">
-              <div className="flex justify-between items-center">
-                <span className="text-stone-500">Total Gold Value</span>
-                <span className="font-bold text-gray-900">{money(goldValueVal)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-stone-500">Making Charges (12%)</span>
-                <span className="font-bold text-gray-900">{money(makingChargesVal)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-stone-500">Stone Charges</span>
-                <span className="font-bold text-gray-900">{money(stoneChargesVal)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-stone-500">Discount</span>
-                <span className="font-bold text-gray-900">{money(discountVal)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-stone-500">GST (3%)</span>
-                <span className="font-bold text-gray-900">{money(gstVal)}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="border-t border-stone-200 pt-4 mt-4 flex items-center justify-between">
-            <span className="text-sm font-extrabold text-[#b01622]">
-              Grand Total
-            </span>
-            <span className="text-xl font-black text-[#b01622]">
-              {money(grandTotalVal)}
-            </span>
-          </div>
-        </section>
       </div>
 
       {/* 5. Bottom Table: Customer Wise Sales Report */}
@@ -1277,38 +1197,54 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
-              {tableRows.map((row, index) => (
-                <tr key={`${row.client_name}-${index}`} className="hover:bg-stone-50/80 transition-colors">
-                  <td className="px-4 py-3 text-center font-medium text-stone-500">
-                    {(currentPage - 1) * itemsPerPage + index + 1}
-                  </td>
-                  <td className="px-4 py-3 font-bold text-gray-900">{row.client_name}</td>
-                  <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.invoice_count}</td>
-                  <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.quantity}</td>
-                  <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.gold_weight}</td>
-                  <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.diamond_weight}</td>
-                  <td className="px-4 py-3 text-right font-bold text-stone-900">{money(row.total_amount)}</td>
-                  <td className="px-4 py-3 text-center text-stone-500">{dateText(row.last_sale_date)}</td>
-                  <td className="px-4 py-3 text-center">
-                    <Link
-                      to={`/sales/customers/${row.client_id || index + 1}`}
-                      className="inline-block px-3 py-1 bg-white border border-[#b01622] text-[#b01622] hover:bg-red-50 text-xs font-bold rounded-lg transition-all cursor-pointer"
-                    >
-                      View
-                    </Link>
+              {tableRows.length > 0 ? (
+                tableRows.map((row, index) => (
+                  <tr key={`${row.client_name}-${index}`} className="hover:bg-stone-50/80 transition-colors">
+                    <td className="px-4 py-3 text-center font-medium text-stone-500">
+                      {(currentPage - 1) * itemsPerPage + index + 1}
+                    </td>
+                    <td className="px-4 py-3 font-bold text-gray-900">{row.client_name}</td>
+                    <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.invoice_count}</td>
+                    <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.quantity}</td>
+                    <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.gold_weight}</td>
+                    <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.diamond_weight}</td>
+                    <td className="px-4 py-3 text-right font-bold text-stone-900">{money(row.total_amount)}</td>
+                    <td className="px-4 py-3 text-center text-stone-500">{dateText(row.last_sale_date)}</td>
+                    <td className="px-4 py-3 text-center">
+                      <Link
+                        to={`/sales/customers/${row.client_id || index + 1}`}
+                        className="inline-block px-3 py-1 bg-white border border-[#b01622] text-[#b01622] hover:bg-red-50 text-xs font-bold rounded-lg transition-all cursor-pointer"
+                      >
+                        View
+                      </Link>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="9" className="px-4 py-12 text-center text-stone-500">
+                    <div className="flex flex-col items-center justify-center space-y-3">
+                      <div className="w-12 h-12 rounded-full bg-red-50 text-[#b01622] flex items-center justify-center text-xl">
+                        <i className="fa-solid fa-folder-open"></i>
+                      </div>
+                      <div className="text-sm font-bold text-stone-800">No Sales Data Available</div>
+                      <p className="text-xs text-stone-400 max-w-md">
+                        There are no customer sales records matching your selected filter criteria.
+                      </p>
+                    </div>
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
             <tfoot>
               <tr className="bg-red-50/40 border-t-2 border-stone-200 font-bold text-xs">
                 <td className="px-4 py-3 text-center"></td>
                 <td className="px-4 py-3 text-[#b01622] font-black">Total</td>
-                <td className="px-4 py-3 text-center text-[#b01622] font-black">{totalInvoicesSum || summary.invoices || 6}</td>
+                <td className="px-4 py-3 text-center text-[#b01622] font-black">{totalInvoicesSum || Number(summary.invoices || 0)}</td>
                 <td className="px-4 py-3 text-center text-[#b01622] font-black">{totalQtySum.toFixed(3)}</td>
                 <td className="px-4 py-3 text-center text-[#b01622] font-black">{totalGoldWgtSum.toFixed(3)}</td>
                 <td className="px-4 py-3 text-center text-[#b01622] font-black">{totalDiamondWgtSum.toFixed(3)}</td>
-                <td className="px-4 py-3 text-right text-[#b01622] font-black">{money(totalSalesSum || summary.sales || 706662.60)}</td>
+                <td className="px-4 py-3 text-right text-[#b01622] font-black">{money(totalSalesSum || Number(summary.sales || 0))}</td>
                 <td className="px-4 py-3 text-center text-stone-400">-</td>
                 <td className="px-4 py-3 text-center text-stone-400">-</td>
               </tr>
@@ -1322,46 +1258,86 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
             Showing {displayStart} to {displayEnd} of {totalEntries} entries
           </div>
 
-          {totalPages > 1 && (
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                disabled={currentPage <= 1}
-                onClick={() => handlePageClick(currentPage - 1)}
-                className="w-7 h-7 rounded-md border border-stone-200 hover:bg-stone-100 flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 cursor-pointer"
-              >
-                &lt;
-              </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              disabled={currentPage <= 1}
+              onClick={() => handlePageClick(currentPage - 1)}
+              className="w-7 h-7 rounded-md border border-stone-200 hover:bg-stone-100 flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 cursor-pointer"
+            >
+              &lt;
+            </button>
 
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((pg) => (
-                <button
-                  key={pg}
-                  type="button"
-                  onClick={() => handlePageClick(pg)}
-                  className={`w-7 h-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors cursor-pointer ${currentPage === pg
-                      ? 'bg-[#b01622] text-white'
-                      : 'border border-stone-200 hover:bg-stone-100 text-stone-700'
-                    }`}
-                >
-                  {pg}
-                </button>
-              ))}
-
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((pg) => (
               <button
+                key={pg}
                 type="button"
-                disabled={currentPage >= totalPages}
-                onClick={() => handlePageClick(currentPage + 1)}
-                className="w-7 h-7 rounded-md border border-stone-200 hover:bg-stone-100 flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 cursor-pointer"
+                onClick={() => handlePageClick(pg)}
+                className={`w-7 h-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors cursor-pointer ${currentPage === pg
+                  ? 'bg-[#b01622] text-white'
+                  : 'border border-stone-200 hover:bg-stone-100 text-stone-700'
+                  }`}
               >
-                &gt;
+                {pg}
               </button>
-            </div>
-          )}
+            ))}
+
+            <button
+              type="button"
+              disabled={currentPage >= totalPages}
+              onClick={() => handlePageClick(currentPage + 1)}
+              className="w-7 h-7 rounded-md border border-stone-200 hover:bg-stone-100 flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 cursor-pointer"
+            >
+              &gt;
+            </button>
+          </div>
         </div>
       </section>
       {/* 6. Professional A4 Tax Report & Remittance Statement Print Sheet Modal */}
       {showPrintModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-xs z-[99] flex items-center justify-center p-2 sm:p-4 overflow-y-auto font-['Inter',-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif]">
+          <style>{`
+            @media print {
+              .no-print, .print\\:hidden {
+                display: none !important;
+              }
+              body {
+                background: white !important;
+                margin: 0 !important;
+                padding: 0 !important;
+              }
+              .print\\:hidden, .no-print, header, nav, sidebar, button {
+                display: none !important;
+              }
+              #printable-report-sheet,
+              #printable-invoice-sheet {
+                position: fixed !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 100% !important;
+                height: auto !important;
+                margin: 0 !important;
+                padding: 10mm !important;
+                background: white !important;
+                border: none !important;
+                box-shadow: none !important;
+                visibility: visible !important;
+                opacity: 1 !important;
+                z-index: 999999 !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+              }
+              #printable-report-sheet *,
+              #printable-invoice-sheet * {
+                visibility: visible !important;
+                opacity: 1 !important;
+              }
+              @page {
+                size: A4 portrait;
+                margin: 8mm;
+              }
+            }
+          `}</style>
           <div className="bg-white rounded-2xl max-w-4xl w-full p-4 sm:p-6 shadow-2xl border border-stone-200 space-y-4 max-h-[94vh] flex flex-col">
             {/* Modal Control Action Bar */}
             <div className="flex items-center justify-between border-b border-stone-100 pb-3 shrink-0 print:hidden">
@@ -1381,7 +1357,7 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={() => printElement('printable-report-sheet', printModalTitle)}
                   className="px-4 py-2 bg-[#b01622] hover:bg-[#8e111a] text-white text-xs font-bold rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-xs tracking-wide"
                 >
                   <i className="fa-solid fa-print"></i> PRINT / SAVE PDF
@@ -1565,64 +1541,116 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
   );
 }
 
-function ProfitManagementReport({ sales, filters, setFilters, reload }) {
+function ProfitManagementReport({ sales, filters, setFilters, reload, companyInfo }) {
+  const company = companyInfo || getStoredCompanyInfo();
   const summary = sales?.summary || {};
   const rawList = Array.isArray(sales?.sales?.data)
     ? sales.sales.data
     : (Array.isArray(sales?.data) ? sales.data : (Array.isArray(sales) ? sales : []));
 
-  const demoProfitRows = [
-    { id: 1, invoice_no: 'INV-2026-1001', client_name: 'Vikram Malhotra', invoice_date: '2026-09-12', total_amount: 174058.50, cost_amount: 132000.00, profit_amount: 42058.50, margin: '24.16', status: 'paid' },
-    { id: 2, invoice_no: 'INV-2026-1002', client_name: 'Priya Sharma', invoice_date: '2026-09-12', total_amount: 132450.00, cost_amount: 100000.00, profit_amount: 32450.00, margin: '24.50', status: 'partial' },
-    { id: 3, invoice_no: 'INV-2026-1003', client_name: 'Kesavaraj', invoice_date: '2026-09-12', total_amount: 152250.00, cost_amount: 116000.00, profit_amount: 36250.00, margin: '23.81', status: 'paid' },
-    { id: 4, invoice_no: 'INV-2026-1004', client_name: 'Rajesh Khanna', invoice_date: '2026-09-11', total_amount: 118676.25, cost_amount: 90000.00, profit_amount: 28676.25, margin: '24.16', status: 'paid' },
-    { id: 5, invoice_no: 'INV-2026-1005', client_name: 'Meera Singhania', invoice_date: '2026-09-12', total_amount: 106858.50, cost_amount: 81000.00, profit_amount: 25858.50, margin: '24.20', status: 'paid' },
-    { id: 6, invoice_no: 'INV-2026-1006', client_name: 'Anand Kumar', invoice_date: '2026-09-10', total_amount: 215000.00, cost_amount: 162000.00, profit_amount: 53000.00, margin: '24.65', status: 'partial' },
-    { id: 7, invoice_no: 'INV-2026-1007', client_name: 'Sunita Reddy', invoice_date: '2026-09-09', total_amount: 95400.00, cost_amount: 72000.00, profit_amount: 23400.00, margin: '24.53', status: 'paid' },
-    { id: 8, invoice_no: 'INV-2026-1008', client_name: 'Ramesh Patel', invoice_date: '2026-09-08', total_amount: 310500.00, cost_amount: 235000.00, profit_amount: 75500.00, margin: '24.32', status: 'partial' }
-  ];
+  const [localFilters, setLocalFilters] = useState({
+    search: filters?.search || '',
+    from: filters?.from || '',
+    to: filters?.to || '',
+  });
 
-  const profitRows = rawList.length > 0
-    ? rawList.map((row) => {
+  useEffect(() => {
+    setLocalFilters({
+      search: filters?.search || '',
+      from: filters?.from || '',
+      to: filters?.to || '',
+    });
+  }, [filters]);
+
+  const profitRows = useMemo(() => {
+    return rawList.map((row) => {
       const rev = Number(row.total_amount || 0);
       const cost = Number(row.cost_amount || (rev * 0.76));
       const prof = Number(row.profit_amount || (rev - cost));
       const mgn = rev > 0 ? ((prof / rev) * 100).toFixed(2) : '0.00';
       return { ...row, total_amount: rev, cost_amount: cost, profit_amount: prof, margin: mgn };
-    })
-    : demoProfitRows;
+    }).filter((r) => {
+      if (localFilters.search) {
+        const q = String(localFilters.search).toLowerCase();
+        const invMatch = String(r.invoice_no || '').toLowerCase().includes(q);
+        const nameMatch = String(r.client_name || '').toLowerCase().includes(q);
+        if (!invMatch && !nameMatch) return false;
+      }
+      if (localFilters.from && r.invoice_date) {
+        if (r.invoice_date < localFilters.from) return false;
+      }
+      if (localFilters.to && r.invoice_date) {
+        if (r.invoice_date > localFilters.to) return false;
+      }
+      return true;
+    });
+  }, [rawList, localFilters]);
+
+  const [invoicePage, setInvoicePage] = useState(1);
+  const invoicePageSize = 5;
+
+  useEffect(() => {
+    setInvoicePage(1);
+  }, [profitRows.length, localFilters.search, localFilters.from, localFilters.to]);
+
+  const totalInvoiceEntries = profitRows.length;
+  const totalInvoicePages = Math.max(1, Math.ceil(totalInvoiceEntries / invoicePageSize));
+  const validInvoicePage = Math.min(invoicePage, totalInvoicePages);
+
+  const paginatedInvoiceRows = useMemo(() => {
+    return profitRows.slice((validInvoicePage - 1) * invoicePageSize, validInvoicePage * invoicePageSize);
+  }, [profitRows, validInvoicePage, invoicePageSize]);
+
+  const displayInvoiceStart = totalInvoiceEntries > 0 ? (validInvoicePage - 1) * invoicePageSize + 1 : 0;
+  const displayInvoiceEnd = Math.min(validInvoicePage * invoicePageSize, totalInvoiceEntries);
 
   const totalRevenueSum = summary.revenue || profitRows.reduce((a, b) => a + Number(b.total_amount || 0), 0);
   const totalCostSum = summary.cost || profitRows.reduce((a, b) => a + Number(b.cost_amount || 0), 0);
   const totalProfitSum = summary.profit || profitRows.reduce((a, b) => a + Number(b.profit_amount || 0), 0);
-  const avgMarginVal = totalRevenueSum > 0 ? ((totalProfitSum / totalRevenueSum) * 100).toFixed(2) : '24.10';
+  const avgMarginVal = totalRevenueSum > 0 ? ((totalProfitSum / totalRevenueSum) * 100).toFixed(2) : '0.00';
+  const profitSummary = sales?.profitSummary || summary;
 
   const [showPrintModal, setShowPrintModal] = useState(false);
 
+  const handleFilterSubmit = (e) => {
+    e.preventDefault();
+    if (setFilters) setFilters(localFilters);
+    if (reload) reload(localFilters);
+  };
+
+  const handleResetFilters = () => {
+    const empty = { search: '', from: '', to: '' };
+    setLocalFilters(empty);
+    if (setFilters) setFilters(empty);
+    if (reload) reload(empty);
+  };
+
   const handleExportExcel = () => {
     const lines = [
-      ['RUDHRA JEWELLERS - PROFIT MANAGEMENT REPORT'],
+      [`${company.company_name || 'RUDHRA JEWELLERS'} - PROFIT MANAGEMENT REPORT`],
       [`Generated Date: ${new Date().toLocaleDateString('en-IN')}`],
-      [`Total Revenue: ₹${totalRevenueSum}`],
-      [`Total Cost: ₹${totalCostSum}`],
-      [`Gross Profit: ₹${totalProfitSum} (${avgMarginVal}%)`],
+      [`Total Revenue (Rs): ${totalRevenueSum}`],
+      [`Total Cost (Rs): ${totalCostSum}`],
+      [`Gross Profit (Rs): ${totalProfitSum} (${avgMarginVal}%)`],
       [''],
-      ['S No', 'Invoice No', 'Customer Name', 'Date', 'Sale Amount (₹)', 'Cost Amount (₹)', 'Gross Profit (₹)', 'Margin (%)', 'Status'],
-      ...profitRows.map((r, idx) => [
-        idx + 1,
-        r.invoice_no,
-        r.client_name,
-        r.invoice_date,
-        r.total_amount,
-        r.cost_amount,
-        r.profit_amount,
-        `${r.margin}%`,
-        r.status || 'paid'
-      ]),
-      ['Total', '', '', '', totalRevenueSum, totalCostSum, totalProfitSum, `${avgMarginVal}%`, '']
+      ['S No', 'Invoice No', 'Customer Name', 'Date', 'Sale Amount (Rs)', 'Cost Amount (Rs)', 'Gross Profit (Rs)', 'Margin (%)', 'Status'],
+      ...(profitRows.length > 0
+        ? profitRows.map((r, idx) => [
+            idx + 1,
+            r.invoice_no ?? 'null',
+            r.client_name ?? 'null',
+            r.invoice_date ?? 'null',
+            r.total_amount ?? 0,
+            r.cost_amount ?? 0,
+            r.profit_amount ?? 0,
+            `${r.margin ?? 0}%`,
+            r.status ?? 'paid'
+          ])
+        : [['null', 'null', 'null', 'null', 0, 0, 0, '0%', 'null']]),
+      ['Total Summary', '', '', '', totalRevenueSum, totalCostSum, totalProfitSum, `${avgMarginVal}%`, '']
     ];
 
-    const csvContent = lines.map((l) => l.map((v) => `"${String(v ?? '').replaceAll('"', '""')}"`).join(',')).join('\n');
+    const csvContent = '\uFEFF' + lines.map((l) => l.map((v) => `"${String(v === null || v === undefined ? 'null' : v).replaceAll('₹', 'Rs. ').replaceAll('"', '""')}"`).join(',')).join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1634,7 +1662,7 @@ function ProfitManagementReport({ sales, filters, setFilters, reload }) {
 
   return (
     <Shell
-      title="Profit Management"
+      title="Profit Per Invoice"
       subtitle="Cost vs Sale price and gross profit margin analysis on sold jewellery."
       actions={
         <div className="flex items-center gap-2">
@@ -1662,7 +1690,7 @@ function ProfitManagementReport({ sales, filters, setFilters, reload }) {
         <div className="bg-white rounded-2xl border border-stone-200/90 p-5 shadow-2xs">
           <span className="text-xs font-medium text-stone-400 block">Total Sales Revenue</span>
           <div className="text-xl font-bold text-gray-900 tracking-tight mt-1">{money(totalRevenueSum)}</div>
-          <div className="text-[11px] font-bold text-emerald-600 mt-1">▲ 14.2% vs prev</div>
+          <div className="text-[11px] font-bold text-emerald-600 mt-1">▲ {profitSummary?.salesGrowth || '+0.0%'} vs prev</div>
         </div>
 
         <div className="bg-white rounded-2xl border border-stone-200/90 p-5 shadow-2xs">
@@ -1674,7 +1702,7 @@ function ProfitManagementReport({ sales, filters, setFilters, reload }) {
         <div className="bg-white rounded-2xl border border-stone-200/90 p-5 shadow-2xs">
           <span className="text-xs font-medium text-stone-400 block">Gross Profit</span>
           <div className="text-xl font-bold text-[#b01622] tracking-tight mt-1">{money(totalProfitSum)}</div>
-          <div className="text-[11px] font-bold text-emerald-600 mt-1">▲ 18.5% net margin</div>
+          <div className="text-[11px] font-bold text-emerald-600 mt-1">▲ {avgMarginVal}% net margin</div>
         </div>
 
         <div className="bg-white rounded-2xl border border-stone-200/90 p-5 shadow-2xs">
@@ -1684,23 +1712,56 @@ function ProfitManagementReport({ sales, filters, setFilters, reload }) {
         </div>
       </div>
 
+      {/* Filter Bar */}
+      <div className="bg-white border border-stone-200/90 rounded-2xl p-4 shadow-2xs">
+        <form onSubmit={handleFilterSubmit} className="flex flex-wrap items-center gap-3">
+          <div className="flex-1 min-w-[200px]">
+            <input
+              type="text"
+              placeholder="Search invoice no or customer name..."
+              value={localFilters.search}
+              onChange={(e) => setLocalFilters({ ...localFilters, search: e.target.value })}
+              className="w-full text-xs px-3.5 py-2 border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#b01622]/20 focus:border-[#b01622]"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={localFilters.from}
+              onChange={(e) => setLocalFilters({ ...localFilters, from: e.target.value })}
+              className="text-xs px-3 py-2 border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#b01622]/20 focus:border-[#b01622]"
+            />
+            <span className="text-xs text-stone-400">to</span>
+            <input
+              type="date"
+              value={localFilters.to}
+              onChange={(e) => setLocalFilters({ ...localFilters, to: e.target.value })}
+              className="text-xs px-3 py-2 border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#b01622]/20 focus:border-[#b01622]"
+            />
+          </div>
+          <button
+            type="submit"
+            className="px-4 py-2 bg-[#b01622] text-white rounded-xl text-xs font-bold shadow-2xs hover:bg-[#8e111a] cursor-pointer"
+          >
+            Filter
+          </button>
+          {(localFilters.search || localFilters.from || localFilters.to) && (
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              className="px-3 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-semibold cursor-pointer"
+            >
+              Reset
+            </button>
+          )}
+        </form>
+      </div>
+
       {/* Table Section */}
       <section className="bg-white border border-stone-200/90 rounded-2xl overflow-hidden shadow-2xs">
         <div className="px-5 py-4 border-b border-stone-200 flex flex-col sm:flex-row items-center justify-between gap-3">
           <h2 className="text-sm font-bold text-gray-900">Profit Breakdown by Invoice</h2>
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              placeholder="Search invoice or customer..."
-              value={filters?.search || ''}
-              onChange={(e) => {
-                const next = { ...filters, search: e.target.value };
-                setFilters(next);
-                reload(next);
-              }}
-              className="px-3 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs focus:outline-hidden focus:border-[#b01622]"
-            />
-          </div>
+          <span className="text-xs text-stone-400 font-medium">Showing {displayInvoiceStart} to {displayInvoiceEnd} of {totalInvoiceEntries} invoice records</span>
         </div>
 
         <div className="overflow-x-auto">
@@ -1719,30 +1780,46 @@ function ProfitManagementReport({ sales, filters, setFilters, reload }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
-              {profitRows.map((row, idx) => (
-                <tr key={row.id || idx} className="hover:bg-stone-50 transition-colors">
-                  <td className="px-4 py-3 text-center font-medium text-stone-500">{idx + 1}</td>
-                  <td className="px-4 py-3 font-mono font-bold text-[#b01622]">{row.invoice_no}</td>
-                  <td className="px-4 py-3 font-semibold text-gray-900">{row.client_name}</td>
-                  <td className="px-4 py-3 text-center text-stone-500">{dateText(row.invoice_date)}</td>
-                  <td className="px-4 py-3 text-right font-bold text-gray-900">{money(row.total_amount)}</td>
-                  <td className="px-4 py-3 text-right text-stone-600 font-medium">{money(row.cost_amount)}</td>
-                  <td className="px-4 py-3 text-right font-bold text-emerald-700">{money(row.profit_amount)}</td>
-                  <td className="px-4 py-3 text-center">
-                    <span className="inline-block px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-bold border border-emerald-200">
-                      {row.margin}%
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <Link
-                      to={`/sales/${row.id}`}
-                      className="inline-block px-3 py-1 bg-white border border-[#b01622] text-[#b01622] hover:bg-red-50 text-xs font-bold rounded-lg transition-all cursor-pointer"
-                    >
-                      View
-                    </Link>
+              {paginatedInvoiceRows.length > 0 ? (
+                paginatedInvoiceRows.map((row, idx) => (
+                  <tr key={row.id || idx} className="hover:bg-stone-50 transition-colors">
+                    <td className="px-4 py-3 text-center font-medium text-stone-500">{(validInvoicePage - 1) * invoicePageSize + idx + 1}</td>
+                    <td className="px-4 py-3 font-mono font-bold text-[#b01622]">{row.invoice_no}</td>
+                    <td className="px-4 py-3 font-semibold text-gray-900">{row.client_name}</td>
+                    <td className="px-4 py-3 text-center text-stone-500">{dateText(row.invoice_date)}</td>
+                    <td className="px-4 py-3 text-right font-bold text-gray-900">{money(row.total_amount)}</td>
+                    <td className="px-4 py-3 text-right text-stone-600 font-medium">{money(row.cost_amount)}</td>
+                    <td className="px-4 py-3 text-right font-bold text-emerald-700">{money(row.profit_amount)}</td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="inline-block px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-bold border border-emerald-200">
+                        {row.margin}%
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <Link
+                        to={`/sales/${row.id}`}
+                        className="inline-block px-3 py-1 bg-white border border-[#b01622] text-[#b01622] hover:bg-red-50 text-xs font-bold rounded-lg transition-all cursor-pointer"
+                      >
+                        View
+                      </Link>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="9" className="px-4 py-12 text-center text-stone-500">
+                    <div className="flex flex-col items-center justify-center space-y-3">
+                      <div className="w-12 h-12 rounded-full bg-red-50 text-[#b01622] flex items-center justify-center text-xl">
+                        <i className="fa-solid fa-receipt"></i>
+                      </div>
+                      <div className="text-sm font-bold text-stone-800">No Invoice Profit Data Available</div>
+                      <p className="text-xs text-stone-400 max-w-md">
+                        No customer invoices have been created yet. Once customer sales invoices are created, profit margins and invoice breakdowns will be displayed here automatically.
+                      </p>
+                    </div>
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
             <tfoot>
               <tr className="bg-red-50/40 border-t-2 border-stone-200 font-bold text-xs">
@@ -1757,6 +1834,39 @@ function ProfitManagementReport({ sales, filters, setFilters, reload }) {
             </tfoot>
           </table>
         </div>
+
+        {/* Pagination Footer */}
+        <div className="p-4 border-t border-stone-200/80 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-stone-500 bg-stone-50/50">
+          <div>Showing {displayInvoiceStart} to {displayInvoiceEnd} of {totalInvoiceEntries} invoice records</div>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              disabled={validInvoicePage === 1}
+              onClick={() => setInvoicePage((prev) => Math.max(1, prev - 1))}
+              className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs transition-all ${validInvoicePage === 1 ? 'border-stone-200 text-stone-300 cursor-not-allowed' : 'border-stone-200 text-stone-600 hover:bg-stone-100 cursor-pointer'}`}
+            >
+              <i className="fa-solid fa-chevron-left text-[10px]"></i>
+            </button>
+            {Array.from({ length: totalInvoicePages }, (_, i) => i + 1).map((pg) => (
+              <button
+                key={pg}
+                type="button"
+                onClick={() => setInvoicePage(pg)}
+                className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs font-bold transition-all cursor-pointer ${validInvoicePage === pg ? 'bg-red-50 text-[#b01622] border-red-200 shadow-2xs' : 'border-stone-200 text-stone-600 hover:bg-stone-50'}`}
+              >
+                {pg}
+              </button>
+            ))}
+            <button
+              type="button"
+              disabled={validInvoicePage === totalInvoicePages}
+              onClick={() => setInvoicePage((prev) => Math.min(totalInvoicePages, prev + 1))}
+              className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs transition-all ${validInvoicePage === totalInvoicePages ? 'border-stone-200 text-stone-300 cursor-not-allowed' : 'border-stone-200 text-stone-600 hover:bg-stone-100 cursor-pointer'}`}
+            >
+              <i className="fa-solid fa-chevron-right text-[10px]"></i>
+            </button>
+          </div>
+        </div>
       </section>
 
       {/* Print Sheet Modal */}
@@ -1770,14 +1880,14 @@ function ProfitManagementReport({ sales, filters, setFilters, reload }) {
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-gray-900">Profit Management &amp; Gross Margin Report</h3>
-                  <span className="text-[11px] text-stone-400">Official Rudra Jewellers Audited Financial Statement</span>
+                  <span className="text-[11px] text-stone-400">Official Audited Financial Statement</span>
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => window.print()}
-                  className="px-4 py-2 bg-[#b01622] text-white text-xs font-bold rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-xs"
+                  onClick={() => printElement('printable-profit-invoice-sheet', 'Profit Per Invoice Statement - Rudra Jewellers')}
+                  className="px-4 py-2 bg-[#b01622] text-white text-xs font-bold rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-xs hover:bg-[#8e111a]"
                 >
                   <i className="fa-solid fa-print"></i> PRINT / SAVE PDF
                 </button>
@@ -1791,39 +1901,52 @@ function ProfitManagementReport({ sales, filters, setFilters, reload }) {
               </div>
             </div>
 
-            <div id="printable-report-sheet" className="relative overflow-y-auto flex-1 p-6 bg-white rounded-xl border border-stone-200 space-y-5 text-xs text-stone-800 print:p-0 print:border-0 print:overflow-visible">
+            <div id="printable-profit-invoice-sheet" className="relative overflow-y-auto flex-1 p-6 bg-white rounded-xl border border-stone-200 space-y-5 text-xs text-stone-800">
               <div className="flex items-start justify-between border-b-2 border-stone-200 pb-4">
-                <img src="/logo.png" alt="Rudra Jewellers" className="h-16 w-auto max-w-[200px] object-contain" />
-                <div className="text-center flex-1">
-                  <h1 className="text-2xl font-black text-[#b01622] tracking-wider uppercase">GROSS PROFIT STATEMENT</h1>
-                  <div className="text-[11px] font-semibold text-stone-600 mt-0.5">Rudra Jewellers Pvt Ltd • Chennai</div>
+                <div className="flex items-center gap-4">
+                  <img src={company.logo_url || '/logo.png'} alt={company.company_name || 'Rudra Jewellers'} className="h-16 w-auto max-w-[180px] object-contain" />
+                  <div>
+                    <h2 className="text-xl font-black text-gray-900 tracking-tight uppercase">{company.company_name || 'RUDRA JEWELLERS'}</h2>
+                    <p className="text-[11px] text-stone-600 font-medium">{company.tagline || 'Exclusive Fine Gold, Diamond & Gemstone Jewellery'}</p>
+                    <p className="text-[10px] text-stone-500 mt-0.5">{[company.address_line1, company.address_line2, company.city, company.pincode].filter(Boolean).join(', ')}</p>
+                    <p className="text-[10px] text-stone-500">Phone: {company.phone || '+91 98400 12345'} | GSTIN: {company.gstin || '33AAACR1234F1Z0'}</p>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <div className="text-[11px] font-mono">DATE: {new Date().toLocaleDateString('en-IN')}</div>
+                <div className="text-right shrink-0">
+                  <span className="inline-block px-3 py-1 rounded-lg bg-red-50 text-[#b01622] font-black text-xs uppercase tracking-wider border border-red-200 mb-1">
+                    AUDITED FINANCIALS
+                  </span>
+                  <h1 className="text-lg font-black text-[#b01622] tracking-wider uppercase">PROFIT PER INVOICE</h1>
+                  <div className="text-[11px] font-mono text-stone-500 mt-1">DATE: {new Date().toLocaleDateString('en-IN')}</div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3 text-center">
-                <div className="p-3 bg-stone-50 border rounded-xl">
+              <div className="grid grid-cols-4 gap-3 text-center">
+                <div className="p-3 bg-stone-50 border border-stone-200 rounded-xl">
                   <span className="text-[10px] font-bold uppercase text-stone-400 block">Total Revenue</span>
-                  <strong className="text-base text-gray-900">{money(totalRevenueSum)}</strong>
+                  <strong className="text-base font-black text-gray-900">{money(totalRevenueSum)}</strong>
                 </div>
-                <div className="p-3 bg-stone-50 border rounded-xl">
+                <div className="p-3 bg-stone-50 border border-stone-200 rounded-xl">
                   <span className="text-[10px] font-bold uppercase text-stone-400 block">Total Cost</span>
-                  <strong className="text-base text-stone-700">{money(totalCostSum)}</strong>
+                  <strong className="text-base font-bold text-stone-700">{money(totalCostSum)}</strong>
                 </div>
-                <div className="p-3 bg-stone-50 border rounded-xl">
+                <div className="p-3 bg-stone-50 border border-stone-200 rounded-xl">
                   <span className="text-[10px] font-bold uppercase text-stone-400 block">Gross Profit</span>
-                  <strong className="text-base text-emerald-700">{money(totalProfitSum)} ({avgMarginVal}%)</strong>
+                  <strong className="text-base font-black text-[#b01622]">{money(totalProfitSum)}</strong>
+                </div>
+                <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl">
+                  <span className="text-[10px] font-bold uppercase text-emerald-700 block">Avg Margin</span>
+                  <strong className="text-base font-black text-emerald-700">{avgMarginVal}%</strong>
                 </div>
               </div>
 
               <table className="w-full text-left text-xs border border-stone-200 rounded-xl overflow-hidden">
-                <thead className="bg-[#b01622] text-white uppercase text-[10px]">
+                <thead className="bg-[#b01622] text-white uppercase text-[10px] font-bold" style={{ backgroundColor: '#b01622', color: '#ffffff', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                   <tr>
-                    <th className="p-2.5">S No</th>
-                    <th className="p-2.5">Invoice</th>
-                    <th className="p-2.5">Customer</th>
+                    <th className="p-2.5 text-center w-10">S No</th>
+                    <th className="p-2.5">Invoice No</th>
+                    <th className="p-2.5">Customer Name</th>
+                    <th className="p-2.5 text-center">Date</th>
                     <th className="p-2.5 text-right">Revenue (₹)</th>
                     <th className="p-2.5 text-right">Cost (₹)</th>
                     <th className="p-2.5 text-right">Profit (₹)</th>
@@ -1831,19 +1954,609 @@ function ProfitManagementReport({ sales, filters, setFilters, reload }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-200">
-                  {profitRows.map((r, idx) => (
-                    <tr key={idx}>
-                      <td className="p-2">{idx + 1}</td>
-                      <td className="p-2 font-mono font-bold text-[#b01622]">{r.invoice_no}</td>
-                      <td className="p-2 font-bold">{r.client_name}</td>
-                      <td className="p-2 text-right">{money(r.total_amount)}</td>
-                      <td className="p-2 text-right">{money(r.cost_amount)}</td>
-                      <td className="p-2 text-right font-bold text-emerald-700">{money(r.profit_amount)}</td>
-                      <td className="p-2 text-center font-bold">{r.margin}%</td>
+                  {profitRows.length > 0 ? (
+                    profitRows.map((r, idx) => (
+                      <tr key={idx} className="hover:bg-stone-50">
+                        <td className="p-2 text-center text-stone-500">{idx + 1}</td>
+                        <td className="p-2 font-mono font-bold text-[#b01622]">{r.invoice_no}</td>
+                        <td className="p-2 font-bold text-gray-900">{r.client_name}</td>
+                        <td className="p-2 text-center text-stone-500">{dateText(r.invoice_date)}</td>
+                        <td className="p-2 text-right font-semibold">{money(r.total_amount)}</td>
+                        <td className="p-2 text-right text-stone-600">{money(r.cost_amount)}</td>
+                        <td className="p-2 text-right font-bold text-emerald-700">{money(r.profit_amount)}</td>
+                        <td className="p-2 text-center font-bold text-emerald-700">{r.margin}%</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="8" className="p-6 text-center text-stone-500 font-semibold">
+                        No customer invoice data recorded yet.
+                      </td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
+                <tfoot className="bg-stone-100 font-bold border-t-2 border-stone-300">
+                  <tr>
+                    <td colSpan="4" className="p-2.5 text-[#b01622] font-black">Total Summary</td>
+                    <td className="p-2.5 text-right font-black text-gray-900">{money(totalRevenueSum)}</td>
+                    <td className="p-2.5 text-right font-bold text-stone-800">{money(totalCostSum)}</td>
+                    <td className="p-2.5 text-right font-black text-emerald-700">{money(totalProfitSum)}</td>
+                    <td className="p-2.5 text-center font-black text-[#b01622]">{avgMarginVal}%</td>
+                  </tr>
+                </tfoot>
               </table>
+
+              <div className="flex justify-between items-end pt-6 relative z-10 border-t border-stone-200 mt-6">
+                <span className="text-[10px] text-stone-400">Computer Generated Statement • {new Date().toLocaleString('en-IN')}</span>
+                <div className="text-center">
+                  <div className="w-44 border-b border-stone-400 mb-1"></div>
+                  <span className="text-[11px] font-bold text-stone-800 block">Authorised Signatory</span>
+                  <span className="text-[9px] text-stone-400 block uppercase tracking-wider">For {company.company_name || 'RUDRA JEWELLERS'}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </Shell>
+  );
+}
+
+function ProfitPerMetalReport({ data, filters, setFilters, reload, companyInfo }) {
+  const company = companyInfo || getStoredCompanyInfo();
+  const [showPrintModal, setShowPrintModal] = useState(false);
+
+  const [localFilters, setLocalFilters] = useState({
+    search: filters?.search || '',
+    from: filters?.from || '',
+    to: filters?.to || '',
+  });
+
+  useEffect(() => {
+    setLocalFilters({
+      search: filters?.search || '',
+      from: filters?.from || '',
+      to: filters?.to || '',
+    });
+  }, [filters]);
+
+  const summary = data?.summary || {
+    totalRevenue: 0,
+    totalRevenueFormatted: '₹0',
+    totalCost: 0,
+    totalCostFormatted: '₹0',
+    totalNetProfit: 0,
+    totalNetProfitFormatted: '₹0',
+    totalMargin: '0.0%',
+  };
+
+  const metalsList = data?.metals || [
+    {
+      id: 'gold',
+      name: 'Gold (24K Fine Converted)',
+      purity: 'Converted to 24K (999)',
+      purchased_wt: '0.000 g',
+      purchased_24k_fine: '0.000 g',
+      buying_rate_10g: '₹0',
+      buying_rate_gram: '₹0.00',
+      sold_wt: '0.000 g',
+      sold_24k_fine: '0.000 g',
+      selling_rate_10g: '₹0',
+      selling_rate_gram: '₹0.00',
+      revenue: 0,
+      cost: 0,
+      profit: 0,
+      margin_percent: '0.0%',
+    },
+    {
+      id: 'silver',
+      name: 'Silver (Fine Bullion)',
+      purity: '999 Fine Silver',
+      purchased_wt: '0.00 kg',
+      buying_rate_kg: '₹0',
+      sold_wt: '0.00 kg',
+      selling_rate_kg: '₹0',
+      revenue: 0,
+      cost: 0,
+      profit: 0,
+      margin_percent: '0.0%',
+    },
+    {
+      id: 'diamond',
+      name: 'Diamond (Solitaires & Accents)',
+      purity: 'VVS-VS / EF Sieve',
+      purchased_carats: '0.00 ct',
+      buying_rate_ct: '₹0',
+      sold_carats: '0.00 ct',
+      selling_rate_ct: '₹0',
+      revenue: 0,
+      cost: 0,
+      profit: 0,
+      margin_percent: '0.0%',
+    },
+    {
+      id: 'stone',
+      name: 'Precious & Gemstones',
+      purity: 'Natural Gems',
+      purchased_units: '0 units',
+      buying_rate_unit: '₹0',
+      sold_units: '0 units',
+      selling_rate_unit: '₹0',
+      revenue: 0,
+      cost: 0,
+      profit: 0,
+      margin_percent: '0.0%',
+    },
+  ];
+
+  const [metalPage, setMetalPage] = useState(1);
+  const metalPageSize = 4;
+
+  useEffect(() => {
+    setMetalPage(1);
+  }, [metalsList.length, localFilters.search, localFilters.from, localFilters.to]);
+
+  const totalMetalEntries = metalsList.length;
+  const totalMetalPages = Math.max(1, Math.ceil(totalMetalEntries / metalPageSize));
+  const validMetalPage = Math.min(metalPage, totalMetalPages);
+
+  const paginatedMetals = useMemo(() => {
+    return metalsList.slice((validMetalPage - 1) * metalPageSize, validMetalPage * metalPageSize);
+  }, [metalsList, validMetalPage, metalPageSize]);
+
+  const displayMetalStart = totalMetalEntries > 0 ? (validMetalPage - 1) * metalPageSize + 1 : 0;
+  const displayMetalEnd = Math.min(validMetalPage * metalPageSize, totalMetalEntries);
+
+  const handleSearchSubmit = (e) => {
+    e.preventDefault();
+    if (setFilters) setFilters(localFilters);
+    if (reload) reload(localFilters);
+  };
+
+  const handleResetFilters = () => {
+    const empty = { search: '', from: '', to: '' };
+    setLocalFilters(empty);
+    if (setFilters) setFilters(empty);
+    if (reload) reload(empty);
+  };
+
+  const exportCSV = () => {
+    const lines = [
+      [`${company.company_name || 'RUDRA JEWELLERS'} - PROFIT PER METAL REPORT`],
+      [`Generated Date: ${new Date().toLocaleDateString('en-IN')}`],
+      [`Total Revenue (Rs): ${summary.totalRevenue ?? 0}`, `Total Cost (Rs): ${summary.totalCost ?? 0}`, `Net Profit (Rs): ${summary.totalNetProfit ?? 0}`, `Margin: ${summary.totalMargin ?? '0%'}`],
+      [],
+      ['Metal Category', 'Purity / Touch Basis', 'Purchase Buying Rate', 'Sales Selling Rate', 'Sales Revenue (Rs)', 'Purchase Cost (Rs)', 'Net Profit (Rs)', 'Margin (%)'],
+    ];
+
+    if (metalsList.length > 0) {
+      metalsList.forEach((m) => {
+        const bRate = m.buying_rate_10g ? `${m.buying_rate_10g}/10g` : (m.buying_rate_kg ? `${m.buying_rate_kg}/kg` : (m.buying_rate_ct ? `${m.buying_rate_ct}/ct` : `${m.buying_rate_unit}/unit`));
+        const sRate = m.selling_rate_10g ? `${m.selling_rate_10g}/10g` : (m.selling_rate_kg ? `${m.selling_rate_kg}/kg` : (m.selling_rate_ct ? `${m.selling_rate_ct}/ct` : `${m.selling_rate_unit}/unit`));
+        lines.push([
+          m.name ?? 'null',
+          m.purity ?? 'null',
+          bRate ?? 'null',
+          sRate ?? 'null',
+          m.revenue ?? 0,
+          m.cost ?? 0,
+          m.profit ?? 0,
+          m.margin_percent ?? '0%',
+        ]);
+      });
+    } else {
+      lines.push(['null', 'null', 'null', 'null', 0, 0, 0, '0%']);
+    }
+
+    lines.push([]);
+    lines.push(['Total Grand Summary', '', '', '', summary.totalRevenue ?? 0, summary.totalCost ?? 0, summary.totalNetProfit ?? 0, summary.totalMargin ?? '0%']);
+
+    const csvContent = '\uFEFF' + lines.map((l) => l.map((v) => `"${String(v === null || v === undefined ? 'null' : v).replaceAll('₹', 'Rs. ').replaceAll('"', '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Profit_Per_Metal_Report_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <Shell
+      title="Profit Per Metal"
+      subtitle="Raw material buying prices (sourced from Purchase Entries) vs sales prices converted to 24K fine gold equivalent & sieve rates."
+      actions={
+        <div className="flex items-center gap-2 print:hidden">
+          <button
+            type="button"
+            onClick={() => setShowPrintModal(true)}
+            className="px-3.5 py-2 bg-[#b01622] hover:bg-[#8e111a] text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+          >
+            <i className="fa-solid fa-print"></i>
+            <span>Print Report</span>
+          </button>
+          <button
+            type="button"
+            onClick={exportCSV}
+            className="px-3.5 py-2 bg-white border border-emerald-200 hover:bg-emerald-50 text-emerald-700 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+          >
+            <i className="fa-solid fa-file-csv text-emerald-600"></i>
+            <span>Export CSV</span>
+          </button>
+        </div>
+      }
+    >
+      <div className="space-y-5">
+        {/* KPI Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-white border border-stone-200 rounded-2xl p-4 shadow-2xs">
+            <span className="text-[11px] uppercase tracking-wider font-bold text-stone-400 block">Total Metal Revenue</span>
+            <div className="text-2xl font-black text-gray-900 mt-2">{summary.totalRevenueFormatted || money(summary.totalRevenue)}</div>
+            <div className="text-[11px] font-semibold text-stone-500 mt-1 flex items-center gap-1">
+              <i className="fa-solid fa-cash-register text-emerald-600"></i>
+              <span>Aggregate sales from all invoices</span>
+            </div>
+          </div>
+          <div className="bg-white border border-stone-200 rounded-2xl p-4 shadow-2xs">
+            <span className="text-[11px] uppercase tracking-wider font-bold text-stone-400 block">Total Raw Material Cost</span>
+            <div className="text-2xl font-black text-stone-800 mt-2">{summary.totalCostFormatted || money(summary.totalCost)}</div>
+            <div className="text-[11px] font-semibold text-stone-500 mt-1 flex items-center gap-1">
+              <i className="fa-solid fa-boxes-packing text-amber-600"></i>
+              <span>Purchase entries at 24K Touch % rate</span>
+            </div>
+          </div>
+          <div className="bg-white border border-stone-200 rounded-2xl p-4 shadow-2xs">
+            <span className="text-[11px] uppercase tracking-wider font-bold text-stone-400 block">Net Metal Profit</span>
+            <div className="text-2xl font-black text-[#b01622] mt-2">{summary.totalNetProfitFormatted || money(summary.totalNetProfit)}</div>
+            <div className="text-[11px] font-semibold text-emerald-600 mt-1 flex items-center gap-1">
+              <i className="fa-solid fa-chart-line text-[#b01622]"></i>
+              <span>Revenue minus raw metal cost</span>
+            </div>
+          </div>
+          <div className="bg-white border border-stone-200 rounded-2xl p-4 shadow-2xs">
+            <span className="text-[11px] uppercase tracking-wider font-bold text-stone-400 block">Overall Profit Margin</span>
+            <div className="text-2xl font-black text-emerald-700 mt-2">{summary.totalMargin}</div>
+            <div className="text-[11px] font-semibold text-stone-500 mt-1 flex items-center gap-1">
+              <i className="fa-solid fa-percent text-blue-600"></i>
+              <span>Weighted margin across all categories</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Search & Filter Bar */}
+        <div className="bg-white border border-stone-200/90 rounded-2xl p-4 shadow-2xs">
+          <form onSubmit={handleSearchSubmit} className="flex flex-wrap items-center gap-3">
+            <div className="flex-1 min-w-[200px]">
+              <input
+                type="text"
+                placeholder="Search metal category or code..."
+                value={localFilters.search}
+                onChange={(e) => setLocalFilters({ ...localFilters, search: e.target.value })}
+                className="w-full text-xs px-3.5 py-2 border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#b01622]/20 focus:border-[#b01622]"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={localFilters.from}
+                onChange={(e) => setLocalFilters({ ...localFilters, from: e.target.value })}
+                className="text-xs px-3 py-2 border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#b01622]/20 focus:border-[#b01622]"
+              />
+              <span className="text-xs text-stone-400">to</span>
+              <input
+                type="date"
+                value={localFilters.to}
+                onChange={(e) => setLocalFilters({ ...localFilters, to: e.target.value })}
+                className="text-xs px-3 py-2 border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#b01622]/20 focus:border-[#b01622]"
+              />
+            </div>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-[#b01622] text-white rounded-xl text-xs font-bold shadow-2xs hover:bg-[#8e111a] cursor-pointer"
+            >
+              Filter
+            </button>
+            {(localFilters.search || localFilters.from || localFilters.to) && (
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="px-3 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-semibold cursor-pointer"
+              >
+                Reset
+              </button>
+            )}
+          </form>
+        </div>
+
+        {/* Detailed Cards Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {paginatedMetals.map((m) => (
+            <div key={m.id} className="bg-white border border-stone-200 rounded-2xl p-5 shadow-2xs space-y-4">
+              <div className="flex items-start justify-between border-b border-stone-100 pb-3">
+                <div>
+                  <h3 className="font-bold text-stone-900 text-sm flex items-center gap-2">
+                    <i className={`fa-solid ${m.id === 'gold' ? 'fa-coins text-amber-500' : m.id === 'silver' ? 'fa-gem text-stone-400' : m.id === 'diamond' ? 'fa-diamond text-blue-500' : 'fa-certificate text-purple-500'}`}></i>
+                    <span>{m.name}</span>
+                  </h3>
+                  <span className="text-[11px] font-semibold text-stone-400 block mt-0.5">{m.purity}</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-xs uppercase tracking-wider font-bold text-stone-400 block">Margin</span>
+                  <span className="text-lg font-black text-emerald-700">{m.margin_percent}</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-xs bg-stone-50/70 p-3.5 rounded-xl border border-stone-200/80">
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block">Raw Purchase (Entry)</span>
+                  <div className="font-semibold text-stone-800">
+                    {m.buying_rate_10g ? (
+                      <>
+                        <div className="text-stone-900 font-bold">{m.buying_rate_10g} / 10g 24K</div>
+                        <div className="text-[11px] text-stone-500">({m.buying_rate_gram}/g fine)</div>
+                      </>
+                    ) : m.buying_rate_kg ? (
+                      <div className="text-stone-900 font-bold">{m.buying_rate_kg} / kg</div>
+                    ) : m.buying_rate_ct ? (
+                      <div className="text-stone-900 font-bold">{m.buying_rate_ct} / ct (Sieve)</div>
+                    ) : (
+                      <div className="text-stone-900 font-bold">{m.buying_rate_unit} / unit</div>
+                    )}
+                  </div>
+                  {m.purchased_24k_fine && <div className="text-[11px] text-amber-700 font-medium pt-0.5">24K Fine Wt: {m.purchased_24k_fine}</div>}
+                </div>
+
+                <div className="space-y-1 border-l border-stone-200 pl-3">
+                  <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block">Retail Sales (Invoice)</span>
+                  <div className="font-semibold text-stone-800">
+                    {m.selling_rate_10g ? (
+                      <>
+                        <div className="text-stone-900 font-bold">{m.selling_rate_10g} / 10g 24K</div>
+                        <div className="text-[11px] text-stone-500">({m.selling_rate_gram}/g fine)</div>
+                      </>
+                    ) : m.selling_rate_kg ? (
+                      <div className="text-stone-900 font-bold">{m.selling_rate_kg} / kg</div>
+                    ) : m.selling_rate_ct ? (
+                      <div className="text-stone-900 font-bold">{m.selling_rate_ct} / ct</div>
+                    ) : (
+                      <div className="text-stone-900 font-bold">{m.selling_rate_unit} / unit</div>
+                    )}
+                  </div>
+                  {m.sold_24k_fine && <div className="text-[11px] text-amber-700 font-medium pt-0.5">24K Sold Fine: {m.sold_24k_fine}</div>}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 pt-1 text-center">
+                <div className="bg-stone-50 p-2.5 rounded-xl border border-stone-100">
+                  <span className="text-[10px] uppercase font-bold text-stone-400 block">Sales Revenue</span>
+                  <span className="text-xs font-black text-stone-900 block mt-0.5">{money(m.revenue)}</span>
+                </div>
+                <div className="bg-stone-50 p-2.5 rounded-xl border border-stone-100">
+                  <span className="text-[10px] uppercase font-bold text-stone-400 block">Raw Cost</span>
+                  <span className="text-xs font-bold text-stone-600 block mt-0.5">{money(m.cost)}</span>
+                </div>
+                <div className="bg-emerald-50/60 p-2.5 rounded-xl border border-emerald-200/80">
+                  <span className="text-[10px] uppercase font-bold text-emerald-800 block">Net Profit</span>
+                  <span className="text-xs font-black text-emerald-700 block mt-0.5">{money(m.profit)}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Detailed Breakdown Table */}
+        <div className="bg-white border border-stone-200 rounded-2xl p-5 shadow-2xs space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-stone-900 text-sm flex items-center gap-2">
+              <i className="fa-solid fa-table-list text-[#b01622]"></i>
+              <span>Metal-by-Metal Comprehensive Profit Breakdown</span>
+            </h3>
+            <span className="text-xs text-stone-400 font-medium">Showing {displayMetalStart} to {displayMetalEnd} of {totalMetalEntries} metal categories</span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left border-collapse">
+              <thead className="bg-stone-50 text-stone-500 uppercase font-bold tracking-wider text-[10px] border-b border-stone-200">
+                <tr>
+                  <th className="p-3">Metal Category</th>
+                  <th className="p-3">Purity / Touch Basis</th>
+                  <th className="p-3 text-right">Avg Buying Rate</th>
+                  <th className="p-3 text-right">Avg Selling Rate</th>
+                  <th className="p-3 text-right">Sales Revenue (₹)</th>
+                  <th className="p-3 text-right">Raw Material Cost (₹)</th>
+                  <th className="p-3 text-right">Net Profit (₹)</th>
+                  <th className="p-3 text-center">Margin (%)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100 font-medium text-stone-700">
+                {paginatedMetals.map((m) => {
+                  const bRate = m.buying_rate_10g ? `${m.buying_rate_10g}/10g` : (m.buying_rate_kg ? `${m.buying_rate_kg}/kg` : (m.buying_rate_ct ? `${m.buying_rate_ct}/ct` : `${m.buying_rate_unit}/unit`));
+                  const sRate = m.selling_rate_10g ? `${m.selling_rate_10g}/10g` : (m.selling_rate_kg ? `${m.selling_rate_kg}/kg` : (m.selling_rate_ct ? `${m.selling_rate_ct}/ct` : `${m.selling_rate_unit}/unit`));
+                  return (
+                    <tr key={m.id} className="hover:bg-stone-50/60 transition-colors">
+                      <td className="p-3 font-bold text-stone-900">{m.name}</td>
+                      <td className="p-3 text-stone-500">{m.purity}</td>
+                      <td className="p-3 text-right font-mono text-stone-600">{bRate}</td>
+                      <td className="p-3 text-right font-mono text-stone-600">{sRate}</td>
+                      <td className="p-3 text-right font-mono font-bold text-stone-900">{money(m.revenue)}</td>
+                      <td className="p-3 text-right font-mono text-stone-600">{money(m.cost)}</td>
+                      <td className="p-3 text-right font-mono font-black text-emerald-700">{money(m.profit)}</td>
+                      <td className="p-3 text-center font-bold text-stone-800">{m.margin_percent}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot className="bg-stone-100/80 font-bold border-t-2 border-stone-300 text-stone-900">
+                <tr>
+                  <td className="p-3">Grand Total</td>
+                  <td className="p-3 text-stone-500">All Metals Combined</td>
+                  <td className="p-3 text-right">—</td>
+                  <td className="p-3 text-right">—</td>
+                  <td className="p-3 text-right font-mono">{summary.totalRevenueFormatted || money(summary.totalRevenue)}</td>
+                  <td className="p-3 text-right font-mono">{summary.totalCostFormatted || money(summary.totalCost)}</td>
+                  <td className="p-3 text-right font-mono text-emerald-700">{summary.totalNetProfitFormatted || money(summary.totalNetProfit)}</td>
+                  <td className="p-3 text-center text-[#b01622]">{summary.totalMargin}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {/* Metal Pagination Footer */}
+          <div className="pt-3 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-stone-500 border-t border-stone-200">
+            <div>Showing {displayMetalStart} to {displayMetalEnd} of {totalMetalEntries} metal categories</div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                disabled={validMetalPage === 1}
+                onClick={() => setMetalPage((prev) => Math.max(1, prev - 1))}
+                className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs transition-all ${validMetalPage === 1 ? 'border-stone-200 text-stone-300 cursor-not-allowed' : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'}`}
+              >
+                <i className="fa-solid fa-chevron-left text-[10px]"></i>
+              </button>
+              {Array.from({ length: totalMetalPages }, (_, i) => i + 1).map((pg) => (
+                <button
+                  key={pg}
+                  type="button"
+                  onClick={() => setMetalPage(pg)}
+                  className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs font-bold transition-all cursor-pointer ${validMetalPage === pg ? 'bg-red-50 text-[#b01622] border-red-200 shadow-2xs' : 'border-stone-200 text-stone-600 hover:bg-stone-50'}`}
+                >
+                  {pg}
+                </button>
+              ))}
+              <button
+                type="button"
+                disabled={validMetalPage === totalMetalPages}
+                onClick={() => setMetalPage((prev) => Math.min(totalMetalPages, prev + 1))}
+                className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs transition-all ${validMetalPage === totalMetalPages ? 'border-stone-200 text-stone-300 cursor-not-allowed' : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'}`}
+              >
+                <i className="fa-solid fa-chevron-right text-[10px]"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Printable Sheet Modal */}
+      {showPrintModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs z-[99] flex items-center justify-center p-2 sm:p-4 overflow-y-auto font-['Inter',-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif]">
+          <div className="bg-white rounded-2xl max-w-4xl w-full p-4 sm:p-6 shadow-2xl border border-stone-200 space-y-4 max-h-[94vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-stone-100 pb-3 shrink-0 print:hidden">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-red-50 text-[#b01622] flex items-center justify-center font-bold text-base">
+                  <i className="fa-solid fa-coins"></i>
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-gray-900">Profit Per Metal Category Statement</h3>
+                  <span className="text-[11px] text-stone-400">Raw Material Buying vs Sales Converted Rates</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => printElement('printable-profit-metal-sheet', 'Profit Per Metal Statement - Rudra Jewellers')}
+                  className="px-4 py-2 bg-[#b01622] text-white text-xs font-bold rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-xs hover:bg-[#8e111a]"
+                >
+                  <i className="fa-solid fa-print"></i> PRINT / SAVE PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowPrintModal(false)}
+                  className="text-stone-400 hover:text-stone-700 text-lg cursor-pointer p-1"
+                >
+                  <i className="fa-solid fa-xmark"></i>
+                </button>
+              </div>
+            </div>
+
+            <div id="printable-profit-metal-sheet" className="relative overflow-y-auto flex-1 p-6 bg-white rounded-xl border border-stone-200 space-y-5 text-xs text-stone-800">
+              <div className="flex items-start justify-between border-b-2 border-stone-200 pb-4">
+                <div className="flex items-center gap-4">
+                  <img src={company.logo_url || '/logo.png'} alt={company.company_name || 'Rudra Jewellers'} className="h-16 w-auto max-w-[180px] object-contain" />
+                  <div>
+                    <h2 className="text-xl font-black text-gray-900 tracking-tight uppercase">{company.company_name || 'RUDRA JEWELLERS'}</h2>
+                    <p className="text-[11px] text-stone-600 font-medium">{company.tagline || 'Exclusive Fine Gold, Diamond & Gemstone Jewellery'}</p>
+                    <p className="text-[10px] text-stone-500 mt-0.5">{[company.address_line1, company.address_line2, company.city, company.pincode].filter(Boolean).join(', ')}</p>
+                    <p className="text-[10px] text-stone-500">Phone: {company.phone || '+91 98400 12345'} | GSTIN: {company.gstin || '33AAACR1234F1Z0'}</p>
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <span className="inline-block px-3 py-1 rounded-lg bg-red-50 text-[#b01622] font-black text-xs uppercase tracking-wider border border-red-200 mb-1">
+                    RAW MATERIAL AUDIT
+                  </span>
+                  <h1 className="text-lg font-black text-[#b01622] tracking-wider uppercase">PROFIT PER METAL STATEMENT</h1>
+                  <div className="text-[11px] font-mono text-stone-500 mt-1">DATE: {new Date().toLocaleDateString('en-IN')}</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-3 text-center">
+                <div className="p-3 bg-stone-50 border border-stone-200 rounded-xl">
+                  <span className="text-[10px] font-bold uppercase text-stone-400 block">Total Revenue</span>
+                  <strong className="text-base font-black text-gray-900">{summary.totalRevenueFormatted || money(summary.totalRevenue)}</strong>
+                </div>
+                <div className="p-3 bg-stone-50 border border-stone-200 rounded-xl">
+                  <span className="text-[10px] font-bold uppercase text-stone-400 block">Total Raw Cost</span>
+                  <strong className="text-base font-bold text-stone-700">{summary.totalCostFormatted || money(summary.totalCost)}</strong>
+                </div>
+                <div className="p-3 bg-stone-50 border border-stone-200 rounded-xl">
+                  <span className="text-[10px] font-bold uppercase text-stone-400 block">Net Profit</span>
+                  <strong className="text-base font-black text-[#b01622]">{summary.totalNetProfitFormatted || money(summary.totalNetProfit)}</strong>
+                </div>
+                <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl">
+                  <span className="text-[10px] font-bold uppercase text-emerald-700 block">Overall Margin</span>
+                  <strong className="text-base font-black text-emerald-700">{summary.totalMargin}</strong>
+                </div>
+              </div>
+
+              <table className="w-full text-left text-xs border border-stone-200 rounded-xl overflow-hidden">
+                <thead className="bg-[#b01622] text-white uppercase text-[10px] font-bold" style={{ backgroundColor: '#b01622', color: '#ffffff', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                  <tr>
+                    <th className="p-2.5">Metal Category</th>
+                    <th className="p-2.5">Purity / Touch Basis</th>
+                    <th className="p-2.5 text-right">Avg Buying Rate</th>
+                    <th className="p-2.5 text-right">Avg Selling Rate</th>
+                    <th className="p-2.5 text-right">Revenue (₹)</th>
+                    <th className="p-2.5 text-right">Cost (₹)</th>
+                    <th className="p-2.5 text-right">Profit (₹)</th>
+                    <th className="p-2.5 text-center">Margin %</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-200">
+                  {metalsList.map((m) => {
+                    const bRate = m.buying_rate_10g ? `${m.buying_rate_10g}/10g` : (m.buying_rate_kg ? `${m.buying_rate_kg}/kg` : (m.buying_rate_ct ? `${m.buying_rate_ct}/ct` : `${m.buying_rate_unit}/unit`));
+                    const sRate = m.selling_rate_10g ? `${m.selling_rate_10g}/10g` : (m.selling_rate_kg ? `${m.selling_rate_kg}/kg` : (m.selling_rate_ct ? `${m.selling_rate_ct}/ct` : `${m.selling_rate_unit}/unit`));
+                    return (
+                      <tr key={m.id} className="hover:bg-stone-50">
+                        <td className="p-2.5 font-bold text-stone-900">{m.name}</td>
+                        <td className="p-2.5 text-stone-500">{m.purity}</td>
+                        <td className="p-2.5 text-right font-mono text-stone-600">{bRate}</td>
+                        <td className="p-2.5 text-right font-mono text-stone-600">{sRate}</td>
+                        <td className="p-2.5 text-right font-mono font-bold text-stone-900">{money(m.revenue)}</td>
+                        <td className="p-2.5 text-right font-mono text-stone-600">{money(m.cost)}</td>
+                        <td className="p-2.5 text-right font-mono font-black text-emerald-700">{money(m.profit)}</td>
+                        <td className="p-2.5 text-center font-bold text-emerald-700">{m.margin_percent}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot className="bg-stone-100 font-bold border-t-2 border-stone-300">
+                  <tr>
+                    <td colSpan="4" className="p-2.5 text-[#b01622] font-black">Grand Total</td>
+                    <td className="p-2.5 text-right font-mono font-black text-gray-900">{summary.totalRevenueFormatted || money(summary.totalRevenue)}</td>
+                    <td className="p-2.5 text-right font-mono font-bold text-stone-800">{summary.totalCostFormatted || money(summary.totalCost)}</td>
+                    <td className="p-2.5 text-right font-mono font-black text-emerald-700">{summary.totalNetProfitFormatted || money(summary.totalNetProfit)}</td>
+                    <td className="p-2.5 text-center font-mono font-black text-[#b01622]">{summary.totalMargin}</td>
+                  </tr>
+                </tfoot>
+              </table>
+
+              <div className="flex justify-between items-end pt-6 relative z-10 border-t border-stone-200 mt-6">
+                <span className="text-[10px] text-stone-400">Computer Generated Statement • {new Date().toLocaleString('en-IN')}</span>
+                <div className="text-center">
+                  <div className="w-44 border-b border-stone-400 mb-1"></div>
+                  <span className="text-[11px] font-bold text-stone-800 block">Authorised Signatory</span>
+                  <span className="text-[9px] text-stone-400 block uppercase tracking-wider">For {company.company_name || 'RUDRA JEWELLERS'}</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1862,30 +2575,211 @@ function SalesTable({ records = [], showProfit = false }) {
   return <div className="bg-white border border-stone-200 rounded-xl overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-xs"><thead className="bg-stone-50 text-stone-500 uppercase"><tr><th className="text-left p-4">Invoice</th><th className="text-left p-4">Customer</th><th className="text-left p-4">Date</th><th className="text-right p-4">Total</th><th className="text-right p-4">Paid</th><th className="text-right p-4">Due</th>{showProfit && <th className="text-right p-4">Profit</th>}<th className="text-center p-4">Status</th><th className="text-right p-4">Action</th></tr></thead><tbody>{list?.map((record) => <tr key={record.id} className="border-t border-stone-100 hover:bg-stone-50"><td className="p-4 font-mono font-bold text-[#b01622]">{record.invoice_no}</td><td className="p-4 font-semibold">{record.client_name}</td><td className="p-4 text-stone-500">{dateText(record.invoice_date)}</td><td className="p-4 text-right font-bold">{money(record.total_amount)}</td><td className="p-4 text-right text-emerald-700">{money(record.paid_amount)}</td><td className="p-4 text-right text-[#b01622]">{money(record.due_amount)}</td>{showProfit && <td className="p-4 text-right font-bold">{money(record.profit_amount)}</td>}<td className="p-4 text-center"><span className="px-2 py-1 rounded bg-stone-100 uppercase font-bold text-[10px]">{record.status}</span></td><td className="p-4 text-right"><Link to={`/sales/${record.id}`} className="text-[#b01622] font-bold hover:underline">View</Link></td></tr>)}</tbody></table></div>{(!list || list.length === 0) && <div className="p-10 text-center text-sm text-stone-400">No sales found.</div>}</div>;
 }
 
-function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
-  const demoCustomers = [
-    { id: '1', name: 'Mr. Karthik Raj', mobile: '+91 98412 34567', address: '85, Santhome High Road, Raja Annamalaipuram, Chennai - 600 028', pan: 'AAQCS2106E' },
-    { id: '2', name: 'Vikram Malhotra', mobile: '+91 98401 23456', address: '42 Usman Road, T. Nagar, Chennai - 600 017', pan: 'BKPM1092F' },
-    { id: '3', name: 'Priya Sharma', mobile: '+91 98765 43210', address: '12 Cathedral Road, Gopalapuram, Chennai - 600 086', pan: 'CPS12984K' },
-    { id: '4', name: 'Kesavaraj', mobile: '+91 99402 11223', address: '15 Anna Salai, Thousand Lights, Chennai - 600 006', pan: 'KSR88392M' },
-    { id: '5', name: 'Rajesh Khanna', mobile: '+91 91760 99887', address: '78 G.N. Chetty Road, T. Nagar, Chennai - 600 017', pan: 'RJK55219L' },
-    { id: '6', name: 'Meera Singhania', mobile: '+91 98410 55667', address: '22 Velachery Main Road, Chennai - 600 042', pan: 'MSG77123P' },
-    { id: '7', name: 'Anand Kumar', mobile: '+91 97909 33445', address: '9 Ring Road, Kilpauk, Chennai - 600 010', pan: 'AKM44901Q' },
-    { id: '8', name: 'Sunita Reddy', mobile: '+91 98840 88776', address: '33 Adyar Bridge Road, Adyar, Chennai - 600 020', pan: 'SRD33210R' },
-    { id: '9', name: 'Ramesh Patel', mobile: '+91 98400 11998', address: '55 Mint Street, Sowcarpet, Chennai - 600 079', pan: 'RPT88102S' },
-  ];
+function ProductSelectionModal({ isOpen, onClose, onSelectProduct, products = [] }) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('All');
+  const [inventoryList, setInventoryList] = useState([]);
+  const [loading, setLoading] = useState(false);
 
+
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setLoading(true);
+    api.get('/inventory')
+      .then((res) => {
+        const fetched = res?.data?.products?.data || res?.data?.data || res?.data || [];
+        if (Array.isArray(fetched) && fetched.length > 0) {
+          const formatted = fetched.map((p) => ({
+            id: p.id,
+            code: p.product_code || p.sku || `PRD-${p.id}`,
+            name: p.name || p.title || 'Gold Ornament',
+            category: p.category?.name || p.category_name || 'Jewellery',
+            gross_weight: Number(p.gross_weight || p.attributes?.gross_wt || 0),
+            net_weight: Number(p.net_weight || p.attributes?.net_wt || 0),
+            purity: p.purity || p.attributes?.purity || '22K',
+            rate: Number(p.rate || p.price || 0),
+            wastage_percent: Number(p.wastage_percent || p.attributes?.wastage_percent || 0),
+            labour: Number(p.making_charge || p.labour_charge || 0),
+            stock: p.stock_quantity ?? p.quantity ?? 0,
+          }));
+          setInventoryList(formatted);
+        } else {
+          setInventoryList([]);
+        }
+      })
+      .catch(() => {
+        setInventoryList([]);
+      })
+      .finally(() => setLoading(false));
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const filtered = inventoryList.filter((item) => {
+    const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.purity.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.category.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCat = categoryFilter === 'All' || item.category.toLowerCase().includes(categoryFilter.toLowerCase());
+    return matchesSearch && matchesCat;
+  });
+
+  const categories = ['All', 'Necklaces', 'Bangles', 'Rings', 'Earrings', 'Bracelets', 'Pendants', 'Mangalsutras', 'Coins'];
+
+  return (
+    <div className="fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+      <div className="bg-white rounded-2xl shadow-2xl border border-stone-200 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+        {/* Modal Header */}
+        <div className="p-5 border-b border-stone-100 flex items-center justify-between bg-stone-50/60">
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-[#b01622]/10 text-[#b01622] flex items-center justify-center font-bold">
+                <i className="fa-solid fa-gem text-sm"></i>
+              </div>
+              <h2 className="text-base font-bold text-stone-900">Select Product from Inventory</h2>
+            </div>
+            <p className="text-xs text-stone-500 mt-0.5 ml-10">Choose an active stock item to add to customer invoice</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg hover:bg-stone-200/60 flex items-center justify-center text-stone-500 hover:text-stone-800 transition-colors cursor-pointer"
+          >
+            <i className="fa-solid fa-xmark text-sm"></i>
+          </button>
+        </div>
+
+        {/* Modal Toolbar */}
+        <div className="p-4 border-b border-stone-100 space-y-3 bg-white">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="relative w-full sm:w-80">
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search by code, name, purity..."
+                className="w-full pl-9 pr-3 py-2 text-xs border border-stone-300 rounded-xl focus:outline-hidden focus:border-[#b01622]"
+              />
+              <i className="fa-solid fa-magnifying-glass absolute left-3 top-3 text-xs text-stone-400"></i>
+            </div>
+            <div className="text-xs text-stone-500 font-medium">
+              Showing <strong className="text-stone-900 font-bold">{filtered.length}</strong> items in inventory
+            </div>
+          </div>
+
+          {/* Category Tabs */}
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setCategoryFilter(cat)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${categoryFilter === cat
+                  ? 'bg-[#b01622] text-white shadow-2xs'
+                  : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                  }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Modal Body / Inventory Grid */}
+        <div className="p-4 overflow-y-auto flex-1 max-h-[55vh]">
+          {loading ? (
+            <div className="py-12 text-center text-stone-400 text-sm font-medium">Loading inventory products...</div>
+          ) : filtered.length === 0 ? (
+            <div className="py-12 text-center text-stone-400 text-sm font-medium">No matching inventory items found.</div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {filtered.map((item) => (
+                <div
+                  key={item.id}
+                  className="border border-stone-200/90 rounded-xl p-3.5 hover:border-[#b01622]/50 hover:shadow-md transition-all flex flex-col justify-between bg-white group"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="font-mono text-[11px] font-bold text-[#b01622] bg-red-50 px-2 py-0.5 rounded-md border border-red-100">
+                        {item.code}
+                      </span>
+                      <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        In Stock ({item.stock})
+                      </span>
+                    </div>
+
+                    <h3 className="font-bold text-xs text-stone-900 group-hover:text-[#b01622] transition-colors line-clamp-2">
+                      {item.name}
+                    </h3>
+
+                    <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-stone-100 text-stone-600">
+                      <div>
+                        <span className="text-stone-400 block text-[10px] uppercase font-bold">Gross Wt</span>
+                        <strong className="text-stone-800 font-mono">{item.gross_weight.toFixed(3)}g</strong>
+                      </div>
+                      <div>
+                        <span className="text-stone-400 block text-[10px] uppercase font-bold">Purity</span>
+                        <strong className="text-stone-800">{item.purity}</strong>
+                      </div>
+                      <div>
+                        <span className="text-stone-400 block text-[10px] uppercase font-bold">Wastage</span>
+                        <strong className="text-stone-800 font-mono">{item.wastage_percent}%</strong>
+                      </div>
+                      <div>
+                        <span className="text-stone-400 block text-[10px] uppercase font-bold">Gold Rate</span>
+                        <strong className="text-stone-800 font-mono">₹{item.rate.toLocaleString('en-IN')}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelectProduct(item);
+                      onClose();
+                    }}
+                    className="mt-3.5 w-full py-2 bg-stone-900 hover:bg-[#b01622] text-white rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                  >
+                    <i className="fa-solid fa-plus text-xs"></i>
+                    <span>Add to Invoice</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Modal Footer */}
+        <div className="p-4 border-t border-stone-100 bg-stone-50/80 flex items-center justify-between text-xs text-stone-500">
+          <span>Select an item to auto-populate customer wastage &amp; price rules.</span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 border border-stone-300 hover:bg-stone-200 text-stone-700 font-semibold rounded-lg cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
   const customerOptions = useMemo(() => {
-    const list = [...demoCustomers];
+    const list = [
+      { id: 'walkin', name: 'Walk-in Customer', mobile: '', address: '', pan: '' }
+    ];
     if (Array.isArray(clients)) {
       clients.forEach((c) => {
         if (!list.some((item) => String(item.id) === String(c.id) || item.name.toLowerCase() === c.full_name?.toLowerCase())) {
           list.push({
             id: String(c.id),
             name: c.full_name || 'Customer',
-            mobile: c.primary_phone || '+91 98412 34567',
-            address: c.address || 'Chennai',
-            pan: c.pan || 'AAQCS2106E',
+            mobile: c.primary_phone || c.phone || '',
+            address: c.address || '',
+            pan: c.pan || c.gstin || '',
           });
         }
       });
@@ -1893,12 +2787,55 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
     return list;
   }, [clients]);
 
-  const [customer, setCustomer] = useState(customerOptions[0]);
+  const [customer, setCustomer] = useState(() => customerOptions[0]);
+
+  useEffect(() => {
+    if (customerOptions.length > 0 && (!customer || !customer.name)) {
+      setCustomer(customerOptions[0]);
+    }
+  }, [customerOptions]);
+
+  const [customerPriceList, setCustomerPriceList] = useState(null);
+  const [isInventoryModalOpen, setIsInventoryModalOpen] = useState(false);
+
+  const fetchCustomerDetailsAndPriceList = async (clientObj) => {
+    if (!clientObj || !clientObj.id) return;
+    try {
+      const [customerRes, priceListRes] = await Promise.all([
+        api.get(`/sales/customers/${clientObj.id}`).catch(() => ({ data: null })),
+        api.get(`/clients/${clientObj.id}/price-list`).catch(() => ({ data: null }))
+      ]);
+
+      if (customerRes?.data?.stats) {
+        const stats = customerRes.data.stats;
+        if (stats.paid_amount !== undefined && stats.paid_amount !== null) {
+          setAmountReceived(Number(stats.paid_amount) || 0);
+        }
+      }
+
+      const priceListData = priceListRes?.data?.price_list;
+      if (priceListData) {
+        setCustomerPriceList(priceListData);
+        setItems((prevItems) =>
+          prevItems.map((itm) => applyCustomerPriceListRule(itm, priceListData))
+        );
+      }
+    } catch (err) {
+      console.warn('Customer price list & balance fetch notice:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (customer && customer.id) {
+      fetchCustomerDetailsAndPriceList(customer);
+    }
+  }, [customer?.id]);
 
   const handleSelectCustomer = (nameVal) => {
     const found = customerOptions.find((c) => c.name === nameVal);
     if (found) {
       setCustomer(found);
+      fetchCustomerDetailsAndPriceList(found);
     } else {
       setCustomer((prev) => ({ ...prev, name: nameVal }));
     }
@@ -1906,11 +2843,11 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
 
   const [invoice, setInvoice] = useState({
     series: 'EST',
-    invoice_no: 'EST-00087',
-    date: '2025-07-22',
+    invoice_no: `EST-${String(Math.floor(1000 + Math.random() * 9000))}`,
+    date: new Date().toISOString().split('T')[0],
     goods_delivered: true,
     final_invoice: false,
-    sales_executive: 'Arvind Kumar',
+    sales_executive: 'Sales Executive',
     payment_type: 'Gold & Cash',
   });
 
@@ -1930,14 +2867,33 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
         const res = await api.get('/diamond-ranges');
         const list = res.data?.data || res.data || [];
         if (Array.isArray(list) && list.length > 0) {
-          const formatted = list.map((d, i) => ({
-            id: String(d.id || d.code || i + 1),
-            code: d.code || `DIA-MSTR-0${i + 1}`,
-            name: d.name || d.description || `Diamond Range ${d.min_ct || 0}-${d.max_ct || 1}ct`,
-            carat_weight: Number(d.min_ct || 0.25) + (Number(d.max_ct || 0.5) - Number(d.min_ct || 0.25)) / 2 || 0.500,
-            price_per_carat: Number(d.rate || 45000),
-            description: d.description || `${d.min_ct || 0.1}-${d.max_ct || 1.0} ct Range`,
-          }));
+          const formatted = list.map((d, i) => {
+            const wt = Number(d.min_ct || 1.00) + (Number(d.max_ct || 2.00) - Number(d.min_ct || 1.00)) / 2 || 1.500;
+            const rate = Number(d.rate || 13500);
+            return {
+              id: String(d.id || d.code || i + 1),
+              code: d.code || `DIA-MSTR-0${i + 1}`,
+              name: d.name || d.description || `DIAMOND`,
+              item_name: 'DIAMOND',
+              stamp: '1',
+              part: '-',
+              colour: d.colour || 'D',
+              clarity: d.clarity || 'VS',
+              remarks: d.description || '-',
+              unit: 'Carat',
+              tunch: '-',
+              sale_lb: '-',
+              pc: d.pc || 2,
+              wt_ct: wt,
+              dollar: 0.00,
+              disc_percent: 0.00,
+              dolx_rate: 0.00,
+              rate: rate,
+              value: wt * rate,
+              carat_weight: wt,
+              price_per_carat: rate,
+            };
+          });
           setDiamondMasters(formatted);
           return;
         }
@@ -1946,14 +2902,11 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
       }
 
       setDiamondMasters([
-        { id: 'dm_1', code: 'DIA-VVS1-05', name: 'VVS1 Round Brilliant', carat_weight: 0.500, price_per_carat: 45000, description: 'Natural VVS1 Certified Diamond' },
-        { id: 'dm_2', code: 'DIA-VS1-10', name: 'VS1 Solitaire Cut', carat_weight: 1.000, price_per_carat: 85000, description: 'Premium Solitaire 1.0ct' },
-        { id: 'dm_3', code: 'DIA-SI1-075', name: 'SI1 Cushion Cut', carat_weight: 0.750, price_per_carat: 35000, description: 'Cushion Cut Fine Diamond' },
-        { id: 'dm_4', code: 'DIA-PRIN-035', name: 'Princess Cut Diamond', carat_weight: 0.350, price_per_carat: 25000, description: 'Square Princess Cut' },
-        { id: 'dm_5', code: 'DIA-POLKI-08', name: 'Uncut Polki Diamonds', carat_weight: 0.800, price_per_carat: 18000, description: 'Traditional Uncut Polki' },
-        { id: 'dm_6', code: 'DIA-EMER-12', name: 'Emerald Cut Diamond', carat_weight: 1.200, price_per_carat: 95000, description: 'Certified Emerald Cut' },
-        { id: 'dm_7', code: 'DIA-MARQ-06', name: 'Marquise Cut Diamond', carat_weight: 0.600, price_per_carat: 42000, description: 'Marquise Eye Cut' },
-        { id: 'dm_8', code: 'DIA-MELEE-025', name: 'Pave Melee Diamonds', carat_weight: 0.250, price_per_carat: 12000, description: 'Pave Setting Small Melee' },
+        { id: 'dm_1', code: 'DIA-D-VS-302', name: 'DIAMOND', item_name: 'DIAMOND', stamp: '1', part: '-', colour: 'D', clarity: 'VS', remarks: '-', unit: 'Carat', tunch: '-', sale_lb: '-', pc: 2, wt_ct: 3.020, dollar: 0.00, disc_percent: 0.00, dolx_rate: 0.00, rate: 13500.00, value: 40770.00, carat_weight: 3.020, price_per_carat: 13500.00 },
+        { id: 'dm_2', code: 'DIA-D-VS-245', name: 'DIAMOND', item_name: 'DIAMOND', stamp: '1', part: '-', colour: 'D', clarity: 'VS', remarks: '-', unit: 'Carat', tunch: '-', sale_lb: '-', pc: 2, wt_ct: 2.450, dollar: 0.00, disc_percent: 0.00, dolx_rate: 0.00, rate: 13500.00, value: 33075.00, carat_weight: 2.450, price_per_carat: 13500.00 },
+        { id: 'dm_3', code: 'DIA-D-VS-112', name: 'DIAMOND', item_name: 'DIAMOND', stamp: '1', part: '-', colour: 'D', clarity: 'VS', remarks: '-', unit: 'Carat', tunch: '-', sale_lb: '-', pc: 2, wt_ct: 1.120, dollar: 0.00, disc_percent: 0.00, dolx_rate: 0.00, rate: 13500.00, value: 15120.00, carat_weight: 1.120, price_per_carat: 13500.00 },
+        { id: 'dm_4', code: 'DIA-E-VVS-085', name: 'DIAMOND', item_name: 'DIAMOND', stamp: '1', part: '-', colour: 'E', clarity: 'VVS1', remarks: 'Solitaire Cut', unit: 'Carat', tunch: '-', sale_lb: '-', pc: 1, wt_ct: 0.850, dollar: 0.00, disc_percent: 0.00, dolx_rate: 0.00, rate: 45000.00, value: 38250.00, carat_weight: 0.850, price_per_carat: 45000.00 },
+        { id: 'dm_5', code: 'DIA-F-VS2-150', name: 'DIAMOND', item_name: 'DIAMOND', stamp: '1', part: '-', colour: 'F', clarity: 'VS2', remarks: 'Princess Cut', unit: 'Carat', tunch: '-', sale_lb: '-', pc: 1, wt_ct: 1.500, dollar: 0.00, disc_percent: 0.00, dolx_rate: 0.00, rate: 28000.00, value: 42000.00, carat_weight: 1.500, price_per_carat: 28000.00 },
       ]);
     };
 
@@ -2015,17 +2968,83 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
     );
   };
 
-  const [items, setItems] = useState([
-    { id: 1, code: 'GR-1024', desc: 'Gold Ring', gross_wt: 2.875, net_wt: 2.650, unit: 'Gm', qty: 2, purity: '22K', diamond: 0.604, add_yr: 7238, wastage: 10.00, labour: 3500.00, hallmarking: 500.00, discount: 1000.00 },
-    { id: 2, code: 'BG-2058', desc: 'Gold Bangle', gross_wt: 15.125, net_wt: 13.850, unit: 'Gm', qty: 1, purity: '22K', diamond: 1.512, add_yr: 7235, wastage: 10.00, labour: 12000.00, hallmarking: 500.00, discount: 2000.00 },
-    { id: 3, code: 'CH-3001', desc: 'Gold Chain', gross_wt: 10.250, net_wt: 9.250, unit: 'Gm', qty: 1, purity: '22K', diamond: 1.025, add_yr: 7235, wastage: 10.00, labour: 8000.00, hallmarking: 500.00, discount: 1000.00 },
-    { id: 4, code: 'EJ-4102', desc: 'Gold Earrings', gross_wt: 4.350, net_wt: 3.800, unit: 'Pair', qty: 1, purity: '22K', diamond: 0.435, add_yr: 7235, wastage: 10.00, labour: 2000.00, hallmarking: 500.00, discount: 500.00 },
-    { id: 5, code: 'PN-5123', desc: 'Gold Pendant', gross_wt: 3.200, net_wt: 2.900, unit: 'Gm', qty: 1, purity: '22K', diamond: 0.320, add_yr: 7238, wastage: 10.00, labour: 2000.00, hallmarking: 500.00, discount: 500.00 },
-    { id: 6, code: 'BR-6231', desc: 'Gold Bracelet', gross_wt: 6.760, net_wt: 6.100, unit: 'Gm', qty: 1, purity: '22K', diamond: 0.676, add_yr: 7235, wastage: 10.00, labour: 5000.00, hallmarking: 500.00, discount: 1000.00 },
-    { id: 7, code: 'RM-7345', desc: 'Gold Mangalsutra', gross_wt: 9.840, net_wt: 9.140, unit: 'Gm', qty: 1, purity: '22K', diamond: 0.984, add_yr: 7235, wastage: 10.00, labour: 6000.00, hallmarking: 500.00, discount: 1000.00 },
-  ]);
+  const getLiveGoldRate22k = () => {
+    const master = getStoredMasterLiveRates();
+    if (master && master.rate22k > 0) return master.rate22k;
+    return 13299;
+  };
 
-  const [amountReceived, setAmountReceived] = useState(500000.00);
+  const getLiveGoldRate24k = () => {
+    const master = getStoredMasterLiveRates();
+    if (master && master.rate24k > 0) return master.rate24k;
+    return 14508;
+  };
+
+  const [items, setItems] = useState(() => {
+    const rate22 = getLiveGoldRate22k();
+    return [
+      { id: 1, code: '', desc: '', gross_wt: '', net_wt: '', unit: 'Gm', qty: 1, purity: '22K', diamond: 0, add_yr: rate22, wastage: 0, labour: 0, hallmarking: 0, discount: 0 },
+    ];
+  });
+
+  const [amountReceived, setAmountReceived] = useState(0);
+
+  // Sync items when live price list updates
+  useEffect(() => {
+    const handleSync = () => {
+      const r22 = getLiveGoldRate22k();
+      const r24 = getLiveGoldRate24k();
+      setItems((prev) =>
+        prev.map((it) => ({
+          ...it,
+          add_yr: (it.purity === '24K' || it.purity === '24K (999)') ? r24 : r22,
+        }))
+      );
+    };
+    window.addEventListener('rudhra_price_list_updated', handleSync);
+    return () => window.removeEventListener('rudhra_price_list_updated', handleSync);
+  }, []);
+
+  const applyCustomerPriceListRule = (item, priceList) => {
+    // Look up local customer price list if available
+    const localCustPriceList = getStoredCustomerPriceList(customer?.name || customer?.id);
+    const activePriceList = priceList || localCustPriceList;
+
+    if (!activePriceList || !activePriceList.making_charges || !Array.isArray(activePriceList.making_charges) || activePriceList.making_charges.length === 0) {
+      return item;
+    }
+
+    const makingCharges = activePriceList.making_charges;
+    const purityLower = String(item.purity || '').toLowerCase();
+    const descLower = String(item.desc || '').toLowerCase();
+
+    let match = makingCharges.find((mc) => {
+      const td = String(mc.type_design || '').toLowerCase();
+      if (purityLower && (td.includes(purityLower) || td.includes(purityLower.replace('k', 'kt')))) return true;
+      if (descLower && td.includes(descLower)) return true;
+      return false;
+    });
+
+    if (!match) match = makingCharges[0];
+
+    let newWastage = item.wastage;
+    if (match.wastage_percent) {
+      const parsedW = parseFloat(String(match.wastage_percent).replace('%', ''));
+      if (!isNaN(parsedW)) newWastage = parsedW;
+    }
+
+    let newLabour = item.labour;
+    if (match.labour_charge) {
+      const numMatch = String(match.labour_charge).match(/\d+/);
+      if (numMatch) newLabour = parseFloat(numMatch[0]);
+    }
+
+    return {
+      ...item,
+      wastage: newWastage,
+      labour: newLabour,
+    };
+  };
 
   const updateItem = (index, field, value) => {
     setItems((prev) => {
@@ -2037,25 +3056,50 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
 
   const addItemRow = () => {
     const nextId = items.length + 1;
-    setItems((prev) => [
-      ...prev,
-      {
-        id: nextId,
-        code: `RJ-${1000 + nextId}`,
-        desc: 'Gold Ornament',
-        gross_wt: 5.000,
-        net_wt: 4.500,
-        unit: 'Gm',
-        qty: 1,
-        purity: '91.6%',
-        diamond: 0.500,
-        add_yr: 7235,
-        wastage: 10.00,
-        labour: 3000.00,
-        hallmarking: 500.00,
-        discount: 500.00,
-      }
-    ]);
+    const liveRate = getLiveGoldRate22k();
+    const newItem = {
+      id: nextId,
+      code: `RJ-${1000 + nextId}`,
+      desc: 'Gold Ornament',
+      gross_wt: 5.000,
+      net_wt: 4.500,
+      unit: 'Gm',
+      qty: 1,
+      purity: '22K',
+      diamond: 0.500,
+      add_yr: liveRate,
+      wastage: 5.00,
+      labour: 650.00,
+      hallmarking: 500.00,
+      discount: 500.00,
+    };
+    const customized = applyCustomerPriceListRule(newItem, customerPriceList);
+    setItems((prev) => [...prev, customized]);
+  };
+
+  const handleSelectProductFromInventory = (product) => {
+    const nextId = Date.now();
+    const liveRate = (product.purity === '24K' || product.purity === '24K (999)') ? getLiveGoldRate24k() : getLiveGoldRate22k();
+    const newItem = {
+      id: nextId,
+      code: product.code || product.product_code || `RJ-${1000 + items.length + 1}`,
+      desc: product.name || product.description || 'Gold Ornament',
+      gross_wt: Number(product.gross_weight || 5.000),
+      net_wt: Number(product.net_weight || 4.500),
+      unit: 'Gm',
+      qty: 1,
+      purity: product.purity || '22K',
+      diamond: Number(product.diamond_wt || 0),
+      add_yr: liveRate,
+      wastage: Number(product.wastage_percent || 5.00),
+      labour: Number(product.labour || 650.00),
+      hallmarking: 500.00,
+      discount: 0,
+    };
+
+    const customized = applyCustomerPriceListRule(newItem, customerPriceList);
+    setItems((prev) => [...prev, customized]);
+    showToast?.(`${customized.desc} added to invoice with live price list rates.`, 'success');
   };
 
   const getCustomerPriceListRate = (desc, type) => {
@@ -2199,6 +3243,14 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
 
   return (
     <div className="w-full pb-16 space-y-6 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif] text-stone-800">
+      {/* Product Selection Inventory Modal */}
+      <ProductSelectionModal
+        isOpen={isInventoryModalOpen}
+        onClose={() => setIsInventoryModalOpen(false)}
+        onSelectProduct={handleSelectProductFromInventory}
+        products={products}
+      />
+
       {/* Top Header & Breadcrumb */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-200 pb-3">
         <div className="flex items-center gap-3">
@@ -2219,9 +3271,17 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Customer Details Card */}
         <div className="bg-white rounded-xl border border-stone-200/90 shadow-2xs p-5 space-y-4">
-          <div className="flex items-center gap-2 text-[#b01622] font-bold text-sm border-b border-stone-100 pb-2.5">
-            <i className="fa-solid fa-user-gear text-base"></i>
-            <h2>Customer Details</h2>
+          <div className="flex items-center justify-between border-b border-stone-100 pb-2.5">
+            <div className="flex items-center gap-2 text-[#b01622] font-bold text-sm">
+              <i className="fa-solid fa-user-gear text-base"></i>
+              <h2>Customer Details</h2>
+            </div>
+            {customerPriceList && (
+              <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                <i className="fa-solid fa-check text-[9px]"></i>
+                Customer Price List Active
+              </span>
+            )}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
@@ -2250,6 +3310,7 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                 type="text"
                 value={customer.mobile}
                 onChange={(e) => setCustomer({ ...customer, mobile: e.target.value })}
+                placeholder="Enter Mobile No."
                 className="w-full border border-stone-300 rounded-lg p-2.5 text-xs text-stone-800 focus:outline-hidden focus:border-[#b01622]"
               />
             </div>
@@ -2262,6 +3323,7 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                 rows="4"
                 value={customer.address}
                 onChange={(e) => setCustomer({ ...customer, address: e.target.value })}
+                placeholder="Enter Customer Address..."
                 className="w-full border border-stone-300 rounded-lg p-2.5 text-xs text-stone-800 focus:outline-hidden focus:border-[#b01622] leading-relaxed"
               />
             </div>
@@ -2274,6 +3336,7 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                 type="text"
                 value={customer.pan}
                 onChange={(e) => setCustomer({ ...customer, pan: e.target.value })}
+                placeholder="Enter PAN Number (e.g. ABCDE1234F)"
                 className="w-full border border-stone-300 rounded-lg p-2.5 text-xs text-stone-800 focus:outline-hidden focus:border-[#b01622] font-mono"
               />
             </div>
@@ -2311,6 +3374,7 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                 type="text"
                 value={invoice.invoice_no}
                 onChange={(e) => setInvoice({ ...invoice, invoice_no: e.target.value })}
+                placeholder="EST-7926"
                 className="w-full border border-stone-200 rounded-lg p-2.5 text-xs font-mono text-stone-600 bg-stone-50"
               />
             </div>
@@ -2321,8 +3385,9 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
               </label>
               <input
                 type="text"
-                value="22/07/2025"
+                value={invoice.date}
                 onChange={(e) => setInvoice({ ...invoice, date: e.target.value })}
+                placeholder="DD/MM/YYYY"
                 className="w-full border border-stone-300 rounded-lg p-2.5 text-xs text-stone-800 focus:outline-hidden focus:border-[#b01622]"
               />
             </div>
@@ -2445,7 +3510,7 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
 
         {/* Table */}
         <div className="overflow-x-auto rounded-lg border border-stone-200">
-          <table className="w-full text-left text-xs border-collapse min-w-[1100px]">
+          <table className="w-full text-left text-xs border-collapse min-w-[1150px]">
             <thead className="bg-stone-50/90 text-stone-600 font-bold text-[11px] border-b border-stone-200">
               <tr>
                 <th className="p-2.5 text-center w-10">S No</th>
@@ -2474,95 +3539,201 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                     <i className={`fa-solid fa-chevron-down text-[9.5px] transition-transform ${showDiamondDropdown ? 'rotate-180 text-[#b01622]' : 'text-stone-400'}`}></i>
                   </button>
 
-                  {/* Master Diamonds Checkbox Dropdown */}
+                  {/* Master Diamond Popup Modal matching Image 2 */}
                   {showDiamondDropdown && (
-                    <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1.5 w-84 bg-white rounded-xl shadow-2xl border border-stone-200 p-3.5 z-50 text-left font-normal animate-in fade-in zoom-in-95 duration-100">
-                      <div className="flex items-center justify-between pb-2 mb-2 border-b border-stone-100">
-                        <div className="flex items-center gap-1.5">
-                          <i className="fa-solid fa-gem text-xs text-[#b01622]"></i>
-                          <span className="font-bold text-xs text-stone-900">Select Diamonds (Masters)</span>
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-6 overflow-y-auto font-sans">
+                      <div className="bg-white rounded-2xl max-w-6xl w-full p-5 shadow-2xl border border-stone-200 space-y-4 animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] flex flex-col">
+
+                        {/* Modal Top Control Bar */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-stone-100 shrink-0">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-lg bg-red-50 text-[#b01622] flex items-center justify-center font-bold text-sm">
+                              <i className="fa-solid fa-gem"></i>
+                            </div>
+                            <div>
+                              <h3 className="font-bold text-stone-900 text-sm tracking-tight">
+                                Diamond Details from Master
+                              </h3>
+                              <span className="text-[11px] text-stone-400 font-medium">
+                                Select &amp; manage diamond specifications directly from Diamond Master
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <div className="relative">
+                              <input
+                                type="text"
+                                value={diamondSearch}
+                                onChange={(e) => setDiamondSearch(e.target.value)}
+                                placeholder="Search code, colour, clarity..."
+                                className="w-48 sm:w-64 pl-8 pr-3 py-1.5 text-xs bg-stone-50 border border-stone-200 rounded-xl focus:outline-hidden focus:border-[#b01622]"
+                              />
+                              <i className="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-[10px] text-stone-400"></i>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={handleSelectAllDiamonds}
+                              className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-[#b01622] text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                            >
+                              Select All
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleClearAllDiamonds}
+                              className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-600 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                            >
+                              Clear
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowDiamondDropdown(false)}
+                              className="text-stone-400 hover:text-stone-700 text-lg cursor-pointer p-1"
+                            >
+                              <i className="fa-solid fa-xmark"></i>
+                            </button>
+                          </div>
                         </div>
-                        <span className="text-[10px] text-stone-400 font-medium">{diamondMasters.length} items</span>
-                      </div>
 
-                      {/* Search Bar */}
-                      <div className="relative mb-2">
-                        <input
-                          type="text"
-                          value={diamondSearch}
-                          onChange={(e) => setDiamondSearch(e.target.value)}
-                          placeholder="Search diamond master..."
-                          className="w-full pl-7 pr-3 py-1.5 text-xs bg-stone-50 border border-stone-200 rounded-lg focus:outline-hidden focus:border-[#b01622]"
-                        />
-                        <i className="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-[10px] text-stone-400"></i>
-                      </div>
-
-                      {/* Select / Clear All buttons */}
-                      <div className="flex items-center justify-between text-[11px] mb-2 px-1">
-                        <button
-                          type="button"
-                          onClick={handleSelectAllDiamonds}
-                          className="text-[#b01622] hover:underline font-bold cursor-pointer"
-                        >
-                          Select All
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleClearAllDiamonds}
-                          className="text-stone-500 hover:text-stone-800 font-medium cursor-pointer"
-                        >
-                          Clear All
-                        </button>
-                      </div>
-
-                      {/* Master Diamonds Checkbox List */}
-                      <div className="max-h-56 overflow-y-auto divide-y divide-stone-100 border border-stone-100 rounded-lg p-1 space-y-1">
-                        {diamondMasters
-                          .filter((dm) =>
-                            dm.name.toLowerCase().includes(diamondSearch.toLowerCase()) ||
-                            dm.code.toLowerCase().includes(diamondSearch.toLowerCase())
-                          )
-                          .map((dm) => {
-                            const isChecked = selectedDiamondIds.includes(dm.id);
-                            return (
-                              <label
-                                key={dm.id}
-                                className={`flex items-start gap-2.5 p-2 rounded-lg hover:bg-stone-50 cursor-pointer transition-colors ${isChecked ? 'bg-red-50/50' : ''
-                                  }`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={isChecked}
-                                  onChange={() => handleToggleDiamond(dm.id)}
-                                  className="mt-0.5 w-3.5 h-3.5 rounded text-[#b01622] accent-[#b01622] cursor-pointer"
-                                />
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-center justify-between gap-1">
-                                    <span className="font-bold text-xs text-stone-900 truncate">{dm.name}</span>
-                                    <span className="font-mono text-[10px] font-bold text-[#b01622]">{dm.carat_weight.toFixed(3)} ct</span>
+                        {/* Modal Table Body (Exact replica of Image 2) */}
+                        <div className="overflow-x-auto overflow-y-auto flex-1 border border-stone-200/80 rounded-xl bg-white shadow-2xs">
+                          <table className="w-full text-left border-collapse text-[11px]">
+                            <thead>
+                              <tr className="bg-stone-50/70 text-[10px] font-bold uppercase tracking-wider text-stone-500 border-b border-stone-200 whitespace-nowrap">
+                                <th className="p-2.5 text-center w-8">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedDiamondIds.length === diamondMasters.length && diamondMasters.length > 0}
+                                    onChange={(e) => e.target.checked ? handleSelectAllDiamonds() : handleClearAllDiamonds()}
+                                    className="w-3.5 h-3.5 rounded text-[#b01622] accent-[#b01622] cursor-pointer"
+                                  />
+                                </th>
+                                <th className="p-2.5">ITEM NAME</th>
+                                <th className="p-2.5 text-center">STAMP</th>
+                                <th className="p-2.5 text-center">PART</th>
+                                <th className="p-2.5 text-center">COLOUR</th>
+                                <th className="p-2.5 text-center">CLARITY</th>
+                                <th className="p-2.5">REMARKS</th>
+                                <th className="p-2.5 text-center">UNIT</th>
+                                <th className="p-2.5 text-center">TUNCH</th>
+                                <th className="p-2.5 text-center">SALE LB</th>
+                                <th className="p-2.5 text-center">PC</th>
+                                <th className="p-2.5 text-right">WT (CT)</th>
+                                <th className="p-2.5 text-right">DOLLAR</th>
+                                <th className="p-2.5 text-right">DISC.%</th>
+                                <th className="p-2.5 text-right">DOLX RATE</th>
+                                <th className="p-2.5 text-right">RATE (₹)</th>
+                                <th className="p-2.5 text-right">VALUE (₹)</th>
+                                <th className="p-2.5 text-center w-16">ACTION</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-stone-100">
+                              {/* Group Header Row matching Image 2 */}
+                              <tr className="bg-stone-50/90 font-bold border-b border-stone-200 text-xs">
+                                <td colSpan="18" className="px-3 py-2 text-[#b01622] tracking-wide">
+                                  <div className="flex items-center gap-1.5">
+                                    <i className="fa-solid fa-chevron-down text-[10px]"></i>
+                                    <span>DIAMOND</span>
                                   </div>
-                                  <div className="flex items-center justify-between text-[10px] text-stone-500 mt-0.5">
-                                    <span>{dm.code}</span>
-                                    <span>₹{dm.price_per_carat.toLocaleString('en-IN')}/ct</span>
-                                  </div>
-                                </div>
-                              </label>
-                            );
-                          })}
-                      </div>
+                                </td>
+                              </tr>
 
-                      {/* Footer Info */}
-                      <div className="mt-3 pt-2 border-t border-stone-100 flex items-center justify-between text-[10.5px]">
-                        <span className="text-stone-400">
-                          Selected: <strong className="text-stone-800 font-mono">{selectedDiamondIds.length}</strong> items
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setShowDiamondDropdown(false)}
-                          className="px-3 py-1 bg-[#b01622] hover:bg-[#8f1019] text-white text-xs font-bold rounded-lg cursor-pointer"
-                        >
-                          Apply Selection
-                        </button>
+                              {diamondMasters
+                                .filter((dm) =>
+                                  (dm.name || '').toLowerCase().includes(diamondSearch.toLowerCase()) ||
+                                  (dm.code || '').toLowerCase().includes(diamondSearch.toLowerCase()) ||
+                                  (dm.colour || '').toLowerCase().includes(diamondSearch.toLowerCase()) ||
+                                  (dm.clarity || '').toLowerCase().includes(diamondSearch.toLowerCase())
+                                )
+                                .map((dm) => {
+                                  const isChecked = selectedDiamondIds.includes(dm.id);
+                                  return (
+                                    <tr
+                                      key={dm.id}
+                                      className={`hover:bg-amber-50/20 transition-colors whitespace-nowrap ${isChecked ? 'bg-red-50/30' : ''}`}
+                                    >
+                                      <td className="p-2.5 text-center">
+                                        <input
+                                          type="checkbox"
+                                          checked={isChecked}
+                                          onChange={() => handleToggleDiamond(dm.id)}
+                                          className="w-3.5 h-3.5 rounded text-[#b01622] accent-[#b01622] cursor-pointer"
+                                        />
+                                      </td>
+                                      <td className="p-2.5 font-bold text-stone-900">{dm.item_name || 'DIAMOND'}</td>
+                                      <td className="p-2.5 text-center text-stone-600 font-mono">{dm.stamp || '1'}</td>
+                                      <td className="p-2.5 text-center text-stone-400">{dm.part || '-'}</td>
+                                      <td className="p-2.5 text-center font-bold text-stone-800">{dm.colour || 'D'}</td>
+                                      <td className="p-2.5 text-center font-bold text-stone-800">{dm.clarity || 'VS'}</td>
+                                      <td className="p-2.5 text-stone-500 max-w-[120px] truncate">{dm.remarks || '-'}</td>
+                                      <td className="p-2.5 text-center text-stone-600">{dm.unit || 'Carat'}</td>
+                                      <td className="p-2.5 text-center text-stone-400">{dm.tunch || '-'}</td>
+                                      <td className="p-2.5 text-center text-stone-400">{dm.sale_lb || '-'}</td>
+                                      <td className="p-2.5 text-center font-bold text-stone-900 font-mono">{dm.pc || 2}</td>
+                                      <td className="p-2.5 text-right font-mono font-bold text-[#b01622]">{(dm.wt_ct || dm.carat_weight || 0).toFixed(3)}</td>
+                                      <td className="p-2.5 text-right font-mono text-stone-500">{(dm.dollar || 0).toFixed(2)}</td>
+                                      <td className="p-2.5 text-right font-mono text-stone-500">{(dm.disc_percent || 0).toFixed(2)}</td>
+                                      <td className="p-2.5 text-right font-mono text-stone-500">{(dm.dolx_rate || 0).toFixed(2)}</td>
+                                      <td className="p-2.5 text-right font-mono font-semibold text-stone-800">
+                                        {(dm.rate || dm.price_per_carat || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                      </td>
+                                      <td className="p-2.5 text-right font-mono font-bold text-stone-900">
+                                        {(dm.value || (dm.wt_ct || 1) * (dm.rate || 13500)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                      </td>
+                                      <td className="p-2.5 text-center">
+                                        <div className="flex items-center justify-center gap-2">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleToggleDiamond(dm.id)}
+                                            className="text-stone-400 hover:text-blue-600 transition-colors p-1 cursor-pointer"
+                                            title="Toggle Selection"
+                                          >
+                                            <i className="fa-solid fa-pen text-xs"></i>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setDiamondMasters(prev => prev.filter(item => item.id !== dm.id));
+                                              setSelectedDiamondIds(prev => prev.filter(id => id !== dm.id));
+                                            }}
+                                            className="text-stone-400 hover:text-red-600 transition-colors p-1 cursor-pointer"
+                                            title="Delete Row"
+                                          >
+                                            <i className="fa-regular fa-trash-can text-xs"></i>
+                                          </button>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Modal Footer Controls */}
+                        <div className="pt-3 border-t border-stone-100 flex items-center justify-between shrink-0 text-xs">
+                          <div className="text-stone-500 font-medium">
+                            Selected: <strong className="text-stone-900 font-mono text-sm">{selectedDiamondIds.length}</strong> items
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setShowDiamondDropdown(false)}
+                              className="px-4 py-2 border border-stone-300 hover:bg-stone-100 text-stone-700 font-bold rounded-xl cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowDiamondDropdown(false)}
+                              className="px-5 py-2 bg-[#b01622] hover:bg-[#8e111a] text-white font-bold rounded-xl shadow-xs cursor-pointer"
+                            >
+                              Apply Selection
+                            </button>
+                          </div>
+                        </div>
+
                       </div>
                     </div>
                   )}
@@ -2605,16 +3776,31 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                 return (
                   <tr key={item.id || idx} className="hover:bg-stone-50/70">
                     <td className="p-2.5 text-center font-mono text-stone-500">{idx + 1}</td>
-                    <td className="p-2.5 font-semibold text-stone-800 underline decoration-stone-300 cursor-pointer">
-                      {item.code}
+                    <td className="p-2.5">
+                      <input
+                        type="text"
+                        value={item.code}
+                        onChange={(e) => updateItem(idx, 'code', e.target.value)}
+                        placeholder="RJ-ITM-001"
+                        className="w-24 border border-stone-200 rounded p-1 text-xs font-mono font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622]"
+                      />
                     </td>
-                    <td className="p-2.5 text-stone-700 font-medium">{item.desc}</td>
+                    <td className="p-2.5">
+                      <input
+                        type="text"
+                        value={item.desc}
+                        onChange={(e) => updateItem(idx, 'desc', e.target.value)}
+                        placeholder="Product description"
+                        className="w-36 md:w-44 border border-stone-200 rounded p-1 text-xs font-medium text-stone-800 focus:outline-hidden focus:border-[#b01622]"
+                      />
+                    </td>
                     <td className="p-2.5 text-center">
                       <input
                         type="number"
                         step="0.001"
                         value={item.gross_wt}
                         onChange={(e) => updateItem(idx, 'gross_wt', e.target.value)}
+                        placeholder="0.000"
                         className="w-16 text-center border border-stone-200 rounded p-1 text-xs focus:outline-hidden focus:border-[#b01622]"
                       />
                     </td>
@@ -2625,17 +3811,29 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                           step="0.001"
                           value={item.net_wt ?? item.gross_wt}
                           onChange={(e) => updateItem(idx, 'net_wt', e.target.value)}
+                          placeholder="0.000"
                           className="w-16 text-center border border-red-200 bg-white rounded p-1 text-xs font-mono font-bold text-[#b01622] focus:outline-hidden focus:border-[#b01622]"
                         />
                       </td>
                     )}
-                    <td className="p-2.5 text-center text-stone-600 font-medium">{item.unit}</td>
+                    <td className="p-2.5 text-center">
+                      <select
+                        value={item.unit || 'Gm'}
+                        onChange={(e) => updateItem(idx, 'unit', e.target.value)}
+                        className="w-16 border border-stone-200 rounded p-1 text-xs font-medium text-stone-800 focus:outline-hidden focus:border-[#b01622] bg-white cursor-pointer"
+                      >
+                        <option value="Gm">Gm</option>
+                        <option value="Pc">Pc</option>
+                        <option value="Pair">Pair</option>
+                      </select>
+                    </td>
                     <td className="p-2.5 text-center">
                       <input
                         type="number"
                         min="1"
                         value={item.qty}
                         onChange={(e) => updateItem(idx, 'qty', e.target.value)}
+                        placeholder="1"
                         className="w-12 text-center border border-stone-200 rounded p-1 text-xs focus:outline-hidden focus:border-[#b01622]"
                       />
                     </td>
@@ -2657,22 +3855,60 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                         step="0.001"
                         value={item.diamond}
                         onChange={(e) => updateItem(idx, 'diamond', e.target.value)}
+                        placeholder="0.000"
                         className="w-16 text-center border border-stone-200 rounded p-1 text-xs font-mono font-bold text-stone-800 focus:outline-hidden focus:border-[#b01622]"
                       />
                     </td>
-                    <td className="p-2.5 text-right font-mono text-stone-700">{Number(item.add_yr).toLocaleString('en-IN')}</td>
-                    <td className="p-2.5 text-center font-mono text-stone-700">{Number(item.wastage).toFixed(2)}</td>
+                    <td className="p-2.5 text-right font-mono text-stone-700">
+                      <input
+                        type="number"
+                        step="1"
+                        value={item.add_yr}
+                        onChange={(e) => updateItem(idx, 'add_yr', e.target.value)}
+                        placeholder="Rate"
+                        className="w-20 text-right border border-stone-200 rounded p-1 text-xs font-mono font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622]"
+                      />
+                    </td>
+                    <td className="p-2.5 text-center font-mono text-stone-700">
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={item.wastage}
+                        onChange={(e) => updateItem(idx, 'wastage', e.target.value)}
+                        placeholder="0.00"
+                        className="w-16 text-center border border-stone-200 rounded p-1 text-xs font-mono font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622]"
+                      />
+                    </td>
                     <td className="p-2.5 text-right font-mono text-stone-700">
                       <input
                         type="number"
                         step="1"
                         value={item.labour}
                         onChange={(e) => updateItem(idx, 'labour', e.target.value)}
+                        placeholder="Labour"
                         className="w-20 text-right border border-stone-200 rounded p-1 text-xs font-mono font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622]"
                       />
                     </td>
-                    <td className="p-2.5 text-right font-mono text-stone-700">{Number(item.hallmarking).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                    <td className="p-2.5 text-right font-mono text-red-600">{Number(item.discount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                    <td className="p-2.5 text-right font-mono text-stone-700">
+                      <input
+                        type="number"
+                        step="1"
+                        value={item.hallmarking}
+                        onChange={(e) => updateItem(idx, 'hallmarking', e.target.value)}
+                        placeholder="0"
+                        className="w-16 text-right border border-stone-200 rounded p-1 text-xs font-mono text-stone-800 focus:outline-hidden focus:border-[#b01622]"
+                      />
+                    </td>
+                    <td className="p-2.5 text-right font-mono text-red-600">
+                      <input
+                        type="number"
+                        step="1"
+                        value={item.discount}
+                        onChange={(e) => updateItem(idx, 'discount', e.target.value)}
+                        placeholder="0"
+                        className="w-16 text-right border border-stone-200 rounded p-1 text-xs font-mono font-semibold text-red-600 focus:outline-hidden focus:border-[#b01622]"
+                      />
+                    </td>
                     <td className="p-2.5 text-right font-mono font-bold text-[#b01622]">
                       {rowTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
@@ -2680,7 +3916,7 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                       <button
                         type="button"
                         onClick={() => removeItemRow(idx)}
-                        className="text-stone-300 hover:text-red-600 transition-colors p-1"
+                        className="text-stone-300 hover:text-red-600 transition-colors p-1 cursor-pointer"
                       >
                         <i className="fa-solid fa-times text-xs"></i>
                       </button>
@@ -2692,15 +3928,24 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
           </table>
         </div>
 
-        {/* Add Item Button */}
-        <div>
+        {/* Add Item Action Buttons */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setIsInventoryModalOpen(true)}
+            className="px-4 py-2.5 bg-[#b01622] hover:bg-[#8e111a] text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-xs"
+          >
+            <i className="fa-solid fa-boxes-stacked text-xs"></i>
+            <span>Add Item from Inventory</span>
+          </button>
+
           <button
             type="button"
             onClick={addItemRow}
-            className="px-4 py-2 border border-[#b01622] text-[#b01622] hover:bg-red-50 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer"
+            className="px-4 py-2.5 border border-stone-300 hover:bg-stone-100 text-stone-700 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer bg-white"
           >
             <i className="fa-solid fa-plus text-xs"></i>
-            <span>Add New Item</span>
+            <span>Add Quick Custom Item</span>
           </button>
         </div>
       </div>
@@ -2832,12 +4077,16 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
     return isNaN(parsed) ? 0 : Math.round(parsed);
   };
 
+  const storedMaster = getStoredMasterLiveRates();
+
   const getInitial24k = () => {
+    if (storedMaster && storedMaster.rate24k > 0) return storedMaster.rate24k;
     const v = parseRateNum(liveRates?.gold24k);
     if (v > 0) return v;
     return 14508;
   };
   const getInitial22k = () => {
+    if (storedMaster && storedMaster.rate22k > 0) return storedMaster.rate22k;
     const v = parseRateNum(liveRates?.gold22k);
     if (v > 0) return v;
     return 13299;
@@ -2915,8 +4164,6 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
 
   // Customer Tier Discount Multiplier
   const customerDiscount = useMemo(() => {
-    if (selectedCustomer === 'Mr. Arvind Kumar') return 0.90; // 10% Making discount for VIP
-    if (selectedCustomer === 'Vikram Malhotra') return 0.95;  // 5% Making discount
     return 1;
   }, [selectedCustomer]);
 
@@ -2986,79 +4233,152 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
   const [importFile, setImportFile] = useState(null);
 
-  // Initial Gold Rate Items Dataset matching 1g live market rates
-  const [items, setItems] = useState([
-    { id: 1, s_no: 1, category: 'Ring', purity: '22K (916)', item_type: 'Plain', weight: 1.000, gold_rate: 13299, making_charge: 650, wastage: 5 },
-    { id: 2, s_no: 2, category: 'Ring', purity: '22K (916)', item_type: 'Studded', weight: 1.000, gold_rate: 13299, making_charge: 850, wastage: 5 },
-    { id: 3, s_no: 3, category: 'Chain', purity: '22K (916)', item_type: 'Plain', weight: 10.000, gold_rate: 13299, making_charge: 450, wastage: 5 },
-    { id: 4, s_no: 4, category: 'Chain', purity: '22K (916)', item_type: 'Studded', weight: 10.000, gold_rate: 13299, making_charge: 650, wastage: 5 },
-    { id: 5, s_no: 5, category: 'Bangle', purity: '22K (916)', item_type: 'Plain', weight: 20.000, gold_rate: 13299, making_charge: 500, wastage: 5 },
-    { id: 6, s_no: 6, category: 'Bangle', purity: '22K (916)', item_type: 'Studded', weight: 20.000, gold_rate: 13299, making_charge: 700, wastage: 5 },
-    { id: 7, s_no: 7, category: 'Pendant', purity: '22K (916)', item_type: 'Plain', weight: 2.000, gold_rate: 13299, making_charge: 600, wastage: 5 },
-    { id: 8, s_no: 8, category: 'Pendant', purity: '22K (916)', item_type: 'Studded', weight: 2.000, gold_rate: 13299, making_charge: 800, wastage: 5 },
-    { id: 9, s_no: 9, category: 'Earrings', purity: '22K (916)', item_type: 'Plain', weight: 2.000, gold_rate: 13299, making_charge: 600, wastage: 5 },
-    { id: 10, s_no: 10, category: 'Earrings', purity: '22K (916)', item_type: 'Studded', weight: 2.000, gold_rate: 13299, making_charge: 800, wastage: 5 },
-    { id: 11, s_no: 11, category: 'Necklace', purity: '22K (916)', item_type: 'Antique', weight: 32.500, gold_rate: 13299, making_charge: 950, wastage: 6 },
-    { id: 12, s_no: 12, category: 'Necklace', purity: '22K (916)', item_type: 'Kundan', weight: 45.000, gold_rate: 13299, making_charge: 1100, wastage: 7 },
-    { id: 13, s_no: 13, category: 'Choker', purity: '22K (916)', item_type: 'Temple', weight: 50.000, gold_rate: 13299, making_charge: 1200, wastage: 8 },
-    { id: 14, s_no: 14, category: 'Bracelet', purity: '22K (916)', item_type: 'Plain', weight: 12.400, gold_rate: 13299, making_charge: 550, wastage: 5 },
-    { id: 15, s_no: 15, category: 'Bracelet', purity: '22K (916)', item_type: 'Studded', weight: 15.800, gold_rate: 13299, making_charge: 750, wastage: 5 },
-    { id: 16, s_no: 16, category: 'Anklet', purity: '22K (916)', item_type: 'Plain', weight: 8.500, gold_rate: 13299, making_charge: 500, wastage: 4 },
-    { id: 17, s_no: 17, category: 'Ring', purity: '18K (750)', item_type: 'Studded', weight: 3.200, gold_rate: 10881, making_charge: 850, wastage: 4 },
-    { id: 18, s_no: 18, category: 'Pendant', purity: '18K (750)', item_type: 'Studded', weight: 4.500, gold_rate: 10881, making_charge: 900, wastage: 4 },
-    { id: 19, s_no: 19, category: 'Gold Coin', purity: '24K (999)', item_type: 'Plain', weight: 5.000, gold_rate: 14508, making_charge: 250, wastage: 0 },
-    { id: 20, s_no: 20, category: 'Gold Coin', purity: '24K (999)', item_type: 'Plain', weight: 10.000, gold_rate: 14508, making_charge: 200, wastage: 0 },
-    { id: 21, s_no: 21, category: 'Gold Bar', purity: '24K (999)', item_type: 'Plain', weight: 50.000, gold_rate: 14508, making_charge: 150, wastage: 0 },
-    { id: 22, s_no: 22, category: 'Kada', purity: '22K (916)', item_type: 'Antique', weight: 25.000, gold_rate: 13299, making_charge: 850, wastage: 5 },
-    { id: 23, s_no: 23, category: 'Haram', purity: '22K (916)', item_type: 'Temple', weight: 65.000, gold_rate: 13299, making_charge: 1250, wastage: 8 },
-    { id: 24, s_no: 24, category: 'Jhumka', purity: '22K (916)', item_type: 'Antique', weight: 14.200, gold_rate: 13299, making_charge: 900, wastage: 6 },
-  ]);
+  // Initial Gold Rate Items Dataset (Dynamic from DB / Master)
+  const [items, setItems] = useState(() => storedMaster?.items || []);
 
   // Diamond Jewellery Dataset
-  const [diamondItems, setDiamondItems] = useState([
-    { id: 101, code: 'DM-RNG-101', name: 'Solitaire Engagement Ring', shape: 'Round Brilliant', carat_wt: 0.75, clarity: 'VVS1 / E-F', rate_per_ct: 145000, gold_wt: 3.500, approx_price: 134250 },
-    { id: 102, code: 'DM-CH-102', name: 'Diamond Tennis Necklace', shape: 'Round Brilliant', carat_wt: 4.50, clarity: 'VS1 / G-H', rate_per_ct: 95000, gold_wt: 18.200, approx_price: 546000 },
-    { id: 103, code: 'DM-BNG-103', name: 'Diamond Eternity Bangle', shape: 'Princess Cut', carat_wt: 2.20, clarity: 'VVS2 / F-G', rate_per_ct: 110000, gold_wt: 14.800, approx_price: 338500 },
-    { id: 104, code: 'DM-EAR-104', name: 'Halo Diamond Studs', shape: 'Oval Cut', carat_wt: 1.10, clarity: 'VS2 / G-H', rate_per_ct: 88000, gold_wt: 4.100, approx_price: 123800 },
-    { id: 105, code: 'DM-PND-105', name: 'Solitaire Heart Pendant', shape: 'Heart Cut', carat_wt: 1.00, clarity: 'VVS1 / E-F', rate_per_ct: 155000, gold_wt: 2.800, approx_price: 191500 },
-    { id: 106, code: 'DM-RNG-106', name: 'Emerald Cut Diamond Ring', shape: 'Emerald Cut', carat_wt: 1.50, clarity: 'VVS2 / E-F', rate_per_ct: 130000, gold_wt: 4.200, approx_price: 250600 },
-    { id: 107, code: 'DM-BRC-107', name: 'Fancy Pear Diamond Bracelet', shape: 'Pear Cut', carat_wt: 3.10, clarity: 'VS1 / G-H', rate_per_ct: 102000, gold_wt: 12.500, approx_price: 479200 },
-    { id: 108, code: 'DM-EAR-108', name: 'Cluster Cushion Earrings', shape: 'Cushion Cut', carat_wt: 1.80, clarity: 'SI1 / I-J', rate_per_ct: 75000, gold_wt: 5.600, approx_price: 208000 },
-    { id: 109, code: 'DM-RNG-109', name: 'Marquise Halo Cocktail Ring', shape: 'Marquise Cut', carat_wt: 1.25, clarity: 'VS2 / G-H', rate_per_ct: 98000, gold_wt: 5.100, approx_price: 189000 },
-    { id: 110, code: 'DM-NKL-110', name: 'Bridal Diamond Choker', shape: 'Round Brilliant', carat_wt: 8.50, clarity: 'VVS2 / F-G', rate_per_ct: 120000, gold_wt: 35.000, approx_price: 1485000 },
-    { id: 111, code: 'DM-BNG-111', name: 'Single Line Diamond Kada', shape: 'Princess Cut', carat_wt: 3.50, clarity: 'VS1 / G-H', rate_per_ct: 92000, gold_wt: 22.000, approx_price: 615000 },
-    { id: 112, code: 'DM-PND-112', name: 'Floral Diamond Cluster Drop', shape: 'Round Brilliant', carat_wt: 0.85, clarity: 'SI1 / I-J', rate_per_ct: 78000, gold_wt: 3.100, approx_price: 107500 },
-  ]);
+  const [diamondItems, setDiamondItems] = useState(() => storedMaster?.diamondItems || []);
 
   // Color Stone Dataset
-  const [stoneItems, setStoneItems] = useState([
-    { id: 201, name: 'Burmese Pigeon Blood Ruby', type: 'Ruby (Manik)', shape: 'Oval Cut', carat_wt: 3.25, cert: 'GIA Certified', origin: 'Myanmar (Burma)', rate_per_ct: 42000 },
-    { id: 202, name: 'Zambian Emerald Deep Green', type: 'Emerald (Panna)', shape: 'Emerald Cut', carat_wt: 4.10, cert: 'IGI Certified', origin: 'Zambia', rate_per_ct: 35000 },
-    { id: 203, name: 'Ceylon Royal Blue Sapphire', type: 'Blue Sapphire (Neelam)', shape: 'Cushion Cut', carat_wt: 2.80, cert: 'GSI Certified', origin: 'Sri Lanka', rate_per_ct: 48000 },
-    { id: 204, name: 'Yellow Sapphire Kanakapushparagam', type: 'Yellow Sapphire (Pukhraj)', shape: 'Round Cut', carat_wt: 5.15, cert: 'Lab Certified', origin: 'Sri Lanka', rate_per_ct: 28000 },
-    { id: 205, name: 'Natural Red Coral Italian', type: 'Coral (Moonga)', shape: 'Cabochon', carat_wt: 8.50, cert: 'Lab Certified', origin: 'Italy', rate_per_ct: 6500 },
-    { id: 206, name: 'Chrysoberyl Cat\'s Eye', type: 'Cat\'s Eye (Lehsuniya)', shape: 'Cabochon', carat_wt: 4.20, cert: 'IGI Certified', origin: 'India', rate_per_ct: 12500 },
-    { id: 207, name: 'South Sea Cultured Pearl', type: 'Pearl (Moti)', shape: 'Round Cut', carat_wt: 10.00, cert: 'Lab Certified', origin: 'Australia', rate_per_ct: 4500 },
-    { id: 208, name: 'Hessonite Garnet Sri Lankan', type: 'Hessonite (Gomed)', shape: 'Oval Cut', carat_wt: 6.30, cert: 'Lab Certified', origin: 'Sri Lanka', rate_per_ct: 8500 },
-    { id: 209, name: 'Natural Tanzanite Deep Violet', type: 'Tanzanite', shape: 'Pear Cut', carat_wt: 3.80, cert: 'GIA Certified', origin: 'Tanzania', rate_per_ct: 32000 },
-    { id: 210, name: 'Australian Opal Iridescent', type: 'Opal', shape: 'Oval Cut', carat_wt: 5.50, cert: 'Lab Certified', origin: 'Australia', rate_per_ct: 9500 },
-  ]);
+  const [stoneItems, setStoneItems] = useState(() => storedMaster?.stoneItems || []);
 
   // Making Charges Matrix Dataset
-  const [makingChargeMatrix] = useState([
-    { category: 'Ring', plain: 650, studded: 850, antique: 950, kundan: 1100, min_piece: 1500 },
-    { category: 'Chain', plain: 450, studded: 650, antique: 750, kundan: 900, min_piece: 1200 },
-    { category: 'Bangle', plain: 500, studded: 700, antique: 850, kundan: 1000, min_piece: 2000 },
-    { category: 'Pendant', plain: 600, studded: 800, antique: 900, kundan: 1050, min_piece: 1400 },
-    { category: 'Earrings', plain: 600, studded: 800, antique: 950, kundan: 1150, min_piece: 1600 },
-    { category: 'Necklace', plain: 800, studded: 1000, antique: 1200, kundan: 1400, min_piece: 3500 },
-    { category: 'Haram', plain: 900, studded: 1150, antique: 1350, kundan: 1600, min_piece: 5000 },
-    { category: 'Jhumka', plain: 650, studded: 850, antique: 1000, kundan: 1200, min_piece: 1800 },
-    { category: 'Bracelet', plain: 550, studded: 750, antique: 900, kundan: 1050, min_piece: 2200 },
-    { category: 'Kada', plain: 600, studded: 800, antique: 950, kundan: 1100, min_piece: 2500 },
-    { category: 'Mangalsutra', plain: 700, studded: 900, antique: 1050, kundan: 1250, min_piece: 2800 },
-    { category: 'Choker', plain: 950, studded: 1200, antique: 1400, kundan: 1700, min_piece: 6000 },
-  ]);
+  const [makingChargeMatrix, setMakingChargeMatrix] = useState(() => storedMaster?.makingChargeMatrix || []);
+
+  // Persistence helper for master and customer live rates
+  const persistCurrentLiveRates = (overrides = {}) => {
+    const payload = {
+      rate24k: overrides.rate24k !== undefined ? overrides.rate24k : rate24k,
+      rate22k: overrides.rate22k !== undefined ? overrides.rate22k : rate22k,
+      items: overrides.items || items,
+      diamondItems: overrides.diamondItems || diamondItems,
+      stoneItems: overrides.stoneItems || stoneItems,
+      makingChargeMatrix: overrides.makingChargeMatrix || makingChargeMatrix,
+      termsData: overrides.termsData || termsData,
+    };
+    saveStoredMasterLiveRates(payload);
+    if (selectedCustomer && selectedCustomer !== 'Select Customer') {
+      saveStoredCustomerPriceList(selectedCustomer, payload);
+    }
+  };
+
+  // Inline Editing States for Tab Pages
+  // Tab 1: Gold Jewellery
+  const [editingGoldId, setEditingGoldId] = useState(null);
+  const [editingGoldForm, setEditingGoldForm] = useState({});
+
+  const startEditGold = (item) => {
+    setEditingGoldId(item.id);
+    setEditingGoldForm({ ...item });
+  };
+
+  const saveGoldEdit = (id) => {
+    const nextItems = items.map((it) => (it.id === id ? {
+      ...editingGoldForm,
+      weight: Number(editingGoldForm.weight || 0),
+      gold_rate: Number(editingGoldForm.gold_rate || rate22k),
+      making_charge: Number(editingGoldForm.making_charge || 0),
+      wastage: Number(editingGoldForm.wastage || 0),
+    } : it));
+    setItems(nextItems);
+    persistCurrentLiveRates({ items: nextItems });
+    setEditingGoldId(null);
+    showToast?.('Gold jewellery price list item updated successfully!', 'success');
+  };
+
+  // Tab 2: Diamond Jewellery
+  const [editingDiamondId, setEditingDiamondId] = useState(null);
+  const [editingDiamondForm, setEditingDiamondForm] = useState({});
+
+  const startEditDiamond = (item) => {
+    setEditingDiamondId(item.id);
+    setEditingDiamondForm({ ...item });
+  };
+
+  const saveDiamondEdit = (id) => {
+    const cWt = Number(editingDiamondForm.carat_wt || 0);
+    const rCt = Number(editingDiamondForm.rate_per_ct || 0);
+    const gWt = Number(editingDiamondForm.gold_wt || 0);
+    const approxPrice = Math.round(cWt * rCt + gWt * rate22k);
+
+    const nextDiamonds = diamondItems.map((it) => (it.id === id ? {
+      ...editingDiamondForm,
+      carat_wt: cWt,
+      rate_per_ct: rCt,
+      gold_wt: gWt,
+      approx_price: approxPrice,
+    } : it));
+    setDiamondItems(nextDiamonds);
+    persistCurrentLiveRates({ diamondItems: nextDiamonds });
+    setEditingDiamondId(null);
+    showToast?.('Diamond price list item updated successfully!', 'success');
+  };
+
+  // Tab 3: Color Stone
+  const [editingStoneId, setEditingStoneId] = useState(null);
+  const [editingStoneForm, setEditingStoneForm] = useState({});
+
+  const startEditStone = (item) => {
+    setEditingStoneId(item.id);
+    setEditingStoneForm({ ...item });
+  };
+
+  const saveStoneEdit = (id) => {
+    const nextStones = stoneItems.map((it) => (it.id === id ? {
+      ...editingStoneForm,
+      carat_wt: Number(editingStoneForm.carat_wt || 0),
+      rate_per_ct: Number(editingStoneForm.rate_per_ct || 0),
+    } : it));
+    setStoneItems(nextStones);
+    persistCurrentLiveRates({ stoneItems: nextStones });
+    setEditingStoneId(null);
+    showToast?.('Color Stone price list item updated successfully!', 'success');
+  };
+
+  // Tab 4: Making Charges Matrix
+  const [editingMakingCat, setEditingMakingCat] = useState(null);
+  const [editingMakingForm, setEditingMakingForm] = useState({});
+
+  const startEditMaking = (row) => {
+    setEditingMakingCat(row.category);
+    setEditingMakingForm({ ...row });
+  };
+
+  const saveMakingEdit = (category) => {
+    const nextMatrix = makingChargeMatrix.map((row) => (row.category === category ? {
+      ...editingMakingForm,
+      plain: Number(editingMakingForm.plain || 0),
+      studded: Number(editingMakingForm.studded || 0),
+      antique: Number(editingMakingForm.antique || 0),
+      kundan: Number(editingMakingForm.kundan || 0),
+      min_piece: Number(editingMakingForm.min_piece || 0),
+    } : row));
+    setMakingChargeMatrix(nextMatrix);
+    persistCurrentLiveRates({ makingChargeMatrix: nextMatrix });
+    setEditingMakingCat(null);
+    showToast?.(`Making charges matrix updated for ${category}!`, 'success');
+  };
+
+  // Tab 5: Terms & Conditions
+  const [isEditingTerms, setIsEditingTerms] = useState(false);
+  const [termsData, setTermsData] = useState({
+    title: 'RUDRA JEWELLERS - TERMS & CONDITIONS OF PRICE LIST',
+    c1Title: '1. Market Rate Adjustments',
+    c1Text: 'Prices listed are based on current market spot rates and are subject to immediate revision upon market fluctuations.',
+    c2Title: '2. Wastage & Making Charges',
+    c2Text: 'Wastage percentages and per-gram labour rates are applied strictly per weight tier specified in the invoice contract.',
+    c3Title: '3. BIS Hallmarking Guarantee',
+    c3Text: 'All 22K (916) and 18K (750) jewellery items come with 6-digit HUID BIS Hallmark certification assurance.',
+    c4Title: '4. Exchange & Return Policy',
+    c4Text: '7-day return policy available with deduction of melting & testing charges as per store guidelines.',
+  });
+
+  const handleSaveTerms = (e) => {
+    e.preventDefault();
+    setIsEditingTerms(false);
+    persistCurrentLiveRates({ termsData });
+    showToast?.('Terms & Conditions updated successfully.', 'success');
+  };
 
   // Calculate Total Price (Approx) function with customer discount support
   const calculateTotalPrice = (weight, goldRate, makingCharge, wastage) => {
@@ -3072,16 +4392,18 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
   // Save updated rates manually
   const handleSaveEditedRates = (e) => {
     e.preventDefault();
-    const new24 = Number(editForm24k) || 7238;
-    const new22 = Number(editForm22k) || 6532;
+    const new24 = Number(editForm24k) || 14508;
+    const new22 = Number(editForm22k) || 13299;
+    saveStoredMasterLiveRates({ rate24k: new24, rate22k: new22, prevRate24k: rate24k, prevRate22k: rate22k });
     setRate24k(new24);
     setRate22k(new22);
     setIsEditingRates(false);
+    persistCurrentLiveRates({ rate24k: new24, rate22k: new22 });
     setLastUpdated({
       date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
       time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
     });
-    showToast?.('Updated live gold market rates! All price list items recalculated.', 'success');
+    showToast?.('Updated live gold market rates project-wide!', 'success');
   };
 
   // Add Rate Item Handler (Gold, Diamond, Color Stone)
@@ -3107,7 +4429,9 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
         wastage: wst,
       };
 
-      setItems((prev) => [added, ...prev]);
+      const nextGold = [added, ...items];
+      setItems(nextGold);
+      persistCurrentLiveRates({ items: nextGold });
       setActiveTab('Gold Jewellery');
       showToast?.(`Added Gold item for ${newItem.category} (${newItem.item_type})!`, 'success');
     } else if (group === 'Diamond Jewellery') {
@@ -3128,7 +4452,9 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
         approx_price: approxPrice,
       };
 
-      setDiamondItems((prev) => [added, ...prev]);
+      const nextDiamonds = [added, ...diamondItems];
+      setDiamondItems(nextDiamonds);
+      persistCurrentLiveRates({ diamondItems: nextDiamonds });
       setActiveTab('Diamond Jewellery');
       showToast?.(`Added Diamond item for ${newItem.category}!`, 'success');
     } else if (group === 'Color Stone') {
@@ -3146,7 +4472,9 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
         rate_per_ct: ratePerCt,
       };
 
-      setStoneItems((prev) => [added, ...prev]);
+      const nextStones = [added, ...stoneItems];
+      setStoneItems(nextStones);
+      persistCurrentLiveRates({ stoneItems: nextStones });
       setActiveTab('Color Stone');
       showToast?.(`Added Color Stone item for ${newItem.category}!`, 'success');
     }
@@ -3155,12 +4483,16 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
   };
 
   const handleDeleteDiamondRow = (id) => {
-    setDiamondItems((prev) => prev.filter((it) => it.id !== id));
+    const nextDiamonds = diamondItems.filter((it) => it.id !== id);
+    setDiamondItems(nextDiamonds);
+    persistCurrentLiveRates({ diamondItems: nextDiamonds });
     showToast?.('Diamond item removed from price list.', 'info');
   };
 
   const handleDeleteStoneRow = (id) => {
-    setStoneItems((prev) => prev.filter((it) => it.id !== id));
+    const nextStones = stoneItems.filter((it) => it.id !== id);
+    setStoneItems(nextStones);
+    persistCurrentLiveRates({ stoneItems: nextStones });
     showToast?.('Color Stone item removed from price list.', 'info');
   };
 
@@ -3235,7 +4567,9 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
 
   // Delete Row Handler
   const handleDeleteRow = (id) => {
-    setItems((prev) => prev.filter((it) => it.id !== id));
+    const nextGold = items.filter((it) => it.id !== id);
+    setItems(nextGold);
+    persistCurrentLiveRates({ items: nextGold });
     showToast?.('Item removed from price list.', 'info');
   };
 
@@ -3323,6 +4657,18 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
 
         {/* Top Right Buttons: Price List Management, Bulk Import & Add Rate Input Form */}
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              window.print();
+            }}
+            className="px-4 py-2 bg-[#b01622] hover:bg-[#8e111a] text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer"
+          >
+            <i className="fa-solid fa-print"></i>
+            <span>Print</span>
+          </button>
           <Link
             to="/clients/price-list"
             className="px-4 py-2 bg-[#b01622] hover:bg-[#8e111a] text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer"
@@ -3697,11 +5043,11 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
             <span className="text-xs font-bold text-stone-500">Gold Rate (Per 10gm)</span>
             <button
               type="button"
-              onClick={() => setIsEditingRates(!isEditingRates)}
+              onClick={() => window.dispatchEvent(new CustomEvent('open_gold_rate_edit_modal'))}
               className="text-[11px] font-bold text-[#b01622] hover:underline flex items-center gap-1 cursor-pointer"
             >
               <i className="fa-solid fa-pen text-[9px]"></i>
-              <span>{isEditingRates ? 'Close' : 'Edit Rate'}</span>
+              <span>Edit Rate</span>
             </button>
           </div>
 
@@ -3735,25 +5081,41 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
               </button>
             </form>
           ) : (
-            <div className="grid grid-cols-2 gap-2">
-              <div className="bg-red-50/40 border border-red-100 rounded-xl p-2.5 space-y-0.5">
-                <span className="text-[10px] font-bold text-stone-400 block">24K (999)</span>
-                <div className="text-base font-black text-[#b01622] font-mono">{formatCurrency(rate24k * 10)}</div>
-                <div className="text-[10px] font-bold text-emerald-600 flex items-center gap-0.5">
-                  <i className="fa-solid fa-arrow-up text-[8px]"></i>
-                  <span>+ 28 (0.39%)</span>
-                </div>
-              </div>
+            (() => {
+              const rate24k10g = rate24k * 10;
+              const base24k10g = storedMaster?.prevRate24k ? storedMaster.prevRate24k * 10 : (rate24k10g - 28);
+              const diff24k = rate24k10g - base24k10g;
+              const pct24k = base24k10g > 0 ? (diff24k / base24k10g) * 100 : 0;
+              const is24kUp = diff24k >= 0;
 
-              <div className="bg-red-50/40 border border-red-100 rounded-xl p-2.5 space-y-0.5">
-                <span className="text-[10px] font-bold text-stone-400 block">22K (916)</span>
-                <div className="text-base font-black text-[#b01622] font-mono">{formatCurrency(rate22k * 10)}</div>
-                <div className="text-[10px] font-bold text-emerald-600 flex items-center gap-0.5">
-                  <i className="fa-solid fa-arrow-up text-[8px]"></i>
-                  <span>+ 24 (0.37%)</span>
+              const rate22k10g = rate22k * 10;
+              const base22k10g = storedMaster?.prevRate22k ? storedMaster.prevRate22k * 10 : (rate22k10g - 24);
+              const diff22k = rate22k10g - base22k10g;
+              const pct22k = base22k10g > 0 ? (diff22k / base22k10g) * 100 : 0;
+              const is22kUp = diff22k >= 0;
+
+              return (
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-red-50/40 border border-red-100 rounded-xl p-2.5 space-y-0.5">
+                    <span className="text-[10px] font-bold text-stone-400 block">24K (999)</span>
+                    <div className="text-base font-black text-[#b01622] font-mono">{formatCurrency(rate24k * 10)}</div>
+                    <div className={`text-[10px] font-bold flex items-center gap-0.5 ${is24kUp ? 'text-emerald-600' : 'text-red-600'}`}>
+                      <i className={`fa-solid ${is24kUp ? 'fa-arrow-up' : 'fa-arrow-down'} text-[8px]`}></i>
+                      <span>{is24kUp ? '+' : ''}{Math.round(diff24k)} ({is24kUp ? '+' : ''}{pct24k.toFixed(2)}%)</span>
+                    </div>
+                  </div>
+
+                  <div className="bg-red-50/40 border border-red-100 rounded-xl p-2.5 space-y-0.5">
+                    <span className="text-[10px] font-bold text-stone-400 block">22K (916)</span>
+                    <div className="text-base font-black text-[#b01622] font-mono">{formatCurrency(rate22k * 10)}</div>
+                    <div className={`text-[10px] font-bold flex items-center gap-0.5 ${is22kUp ? 'text-emerald-600' : 'text-red-600'}`}>
+                      <i className={`fa-solid ${is22kUp ? 'fa-arrow-up' : 'fa-arrow-down'} text-[8px]`}></i>
+                      <span>{is22kUp ? '+' : ''}{Math.round(diff22k)} ({is22kUp ? '+' : ''}{pct22k.toFixed(2)}%)</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
+              );
+            })()
           )}
         </div>
 
@@ -3799,11 +5161,11 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
               className="flex-1 min-w-0 bg-white border border-stone-200 focus:border-[#b01622] rounded-xl p-2 text-xs font-medium text-stone-700 focus:outline-hidden truncate"
             >
               <option value="Select Customer">Select Customer</option>
-              <option value="Mr. Arvind Kumar">Mr. Arvind Kumar (VIP Tier)</option>
-              <option value="Vikram Malhotra">Vikram Malhotra (Wholesale)</option>
-              <option value="Priya Sharma">Priya Sharma</option>
-              <option value="Kesavaraj">Kesavaraj</option>
-              <option value="Rajesh Khanna">Rajesh Khanna</option>
+              {Array.isArray(clients) && clients.map((c) => (
+                <option key={c.id} value={c.full_name || `Customer #${c.id}`}>
+                  {c.full_name || `Customer #${c.id}`}
+                </option>
+              ))}
             </select>
             <button
               type="button"
@@ -3883,13 +5245,124 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                   <th className="p-3.5 text-right">MAKING CHARGE (PER GM)</th>
                   <th className="p-3.5 text-center">WASTAGE (%)</th>
                   <th className="p-3.5 text-right">TOTAL PRICE (APPROX.)</th>
-                  <th className="p-3.5 text-center w-12">ACTION</th>
+                  <th className="p-3.5 text-center w-20">ACTION</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
+                {paginatedItems.length === 0 && (
+                  <tr>
+                    <td colSpan="10" className="py-8 text-center text-stone-400 font-medium">
+                      <i className="fa-solid fa-tags text-xl text-stone-300 block mb-1"></i>
+                      <span className="text-xs font-semibold">No gold rate items found. Click "+ Add Rate Item" above to create one.</span>
+                    </td>
+                  </tr>
+                )}
                 {paginatedItems.map((item, idx) => {
-                  const totalPrice = calculateTotalPrice(item.weight, item.gold_rate, item.making_charge, item.wastage);
+                  const isEditing = editingGoldId === item.id;
                   const rowNum = (validCurrentPage - 1) * itemsPerPage + idx + 1;
+                  const totalPrice = isEditing
+                    ? calculateTotalPrice(Number(editingGoldForm.weight || 0), Number(editingGoldForm.gold_rate || rate22k), Number(editingGoldForm.making_charge || 0), Number(editingGoldForm.wastage || 0))
+                    : calculateTotalPrice(item.weight, item.gold_rate, item.making_charge, item.wastage);
+
+                  if (isEditing) {
+                    return (
+                      <tr key={item.id} className="bg-amber-50/70 font-semibold">
+                        <td className="p-2 text-center font-mono text-stone-400">{rowNum}</td>
+                        <td className="p-2">
+                          <select
+                            value={editingGoldForm.category}
+                            onChange={(e) => setEditingGoldForm({ ...editingGoldForm, category: e.target.value })}
+                            className="w-full border border-amber-300 rounded p-1 text-xs bg-white font-bold"
+                          >
+                            {GOLD_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        </td>
+                        <td className="p-2">
+                          <select
+                            value={editingGoldForm.purity}
+                            onChange={(e) => setEditingGoldForm({ ...editingGoldForm, purity: e.target.value })}
+                            className="w-full border border-amber-300 rounded p-1 text-xs bg-white font-medium"
+                          >
+                            <option value="22K (916)">22K (916)</option>
+                            <option value="24K (999)">24K (999)</option>
+                            <option value="18K (750)">18K (750)</option>
+                            <option value="14K (585)">14K (585)</option>
+                          </select>
+                        </td>
+                        <td className="p-2">
+                          <select
+                            value={editingGoldForm.item_type}
+                            onChange={(e) => setEditingGoldForm({ ...editingGoldForm, item_type: e.target.value })}
+                            className="w-full border border-amber-300 rounded p-1 text-xs bg-white font-medium"
+                          >
+                            <option value="Plain">Plain</option>
+                            <option value="Studded">Studded</option>
+                            <option value="Antique">Antique</option>
+                            <option value="Kundan">Kundan</option>
+                            <option value="Temple">Temple</option>
+                          </select>
+                        </td>
+                        <td className="p-2 text-center">
+                          <input
+                            type="number"
+                            step="0.001"
+                            value={editingGoldForm.weight}
+                            onChange={(e) => setEditingGoldForm({ ...editingGoldForm, weight: e.target.value })}
+                            className="w-16 border border-amber-300 rounded p-1 text-xs text-center font-mono font-bold bg-white"
+                          />
+                        </td>
+                        <td className="p-2 text-right">
+                          <input
+                            type="number"
+                            value={editingGoldForm.gold_rate}
+                            onChange={(e) => setEditingGoldForm({ ...editingGoldForm, gold_rate: e.target.value })}
+                            className="w-20 border border-amber-300 rounded p-1 text-xs text-right font-mono font-bold bg-white"
+                          />
+                        </td>
+                        <td className="p-2 text-right">
+                          <input
+                            type="number"
+                            value={editingGoldForm.making_charge}
+                            onChange={(e) => setEditingGoldForm({ ...editingGoldForm, making_charge: e.target.value })}
+                            className="w-16 border border-amber-300 rounded p-1 text-xs text-right font-mono font-bold bg-white"
+                          />
+                        </td>
+                        <td className="p-2 text-center">
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={editingGoldForm.wastage}
+                            onChange={(e) => setEditingGoldForm({ ...editingGoldForm, wastage: e.target.value })}
+                            className="w-14 border border-amber-300 rounded p-1 text-xs text-center font-mono font-bold bg-white"
+                          />
+                        </td>
+                        <td className="p-2 text-right font-mono font-bold text-stone-900 text-sm">
+                          {formatCurrency(totalPrice)}
+                        </td>
+                        <td className="p-2 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => saveGoldEdit(item.id)}
+                              className="w-7 h-7 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+                              title="Save Changes"
+                            >
+                              <i className="fa-solid fa-check text-xs"></i>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingGoldId(null)}
+                              className="w-7 h-7 rounded-lg bg-stone-200 hover:bg-stone-300 text-stone-700 flex items-center justify-center transition-colors cursor-pointer"
+                              title="Cancel"
+                            >
+                              <i className="fa-solid fa-xmark text-xs"></i>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+
                   return (
                     <tr key={item.id} className="hover:bg-amber-50/20 transition-colors">
                       <td className="p-3.5 text-center font-mono text-stone-400">{rowNum}</td>
@@ -3904,13 +5377,24 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                         {formatCurrency(totalPrice)}
                       </td>
                       <td className="p-3.5 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteRow(item.id)}
-                          className="text-stone-400 hover:text-[#b01622] transition-colors cursor-pointer"
-                        >
-                          <i className="fa-regular fa-trash-can"></i>
-                        </button>
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => startEditGold(item)}
+                            className="text-stone-400 hover:text-blue-600 transition-colors cursor-pointer p-1"
+                            title="Edit Gold Rate Item"
+                          >
+                            <i className="fa-solid fa-pen-to-square"></i>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteRow(item.id)}
+                            className="text-stone-400 hover:text-[#b01622] transition-colors cursor-pointer p-1"
+                            title="Delete Item"
+                          >
+                            <i className="fa-regular fa-trash-can"></i>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -3927,8 +5411,8 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                 disabled={validCurrentPage === 1}
                 onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
                 className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs transition-all ${validCurrentPage === 1
-                    ? 'border-stone-200 text-stone-300 cursor-not-allowed'
-                    : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
+                  ? 'border-stone-200 text-stone-300 cursor-not-allowed'
+                  : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
                   }`}
               >
                 <i className="fa-solid fa-chevron-left text-[10px]"></i>
@@ -3939,8 +5423,8 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                   type="button"
                   onClick={() => setCurrentPage(pg)}
                   className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs font-bold transition-all cursor-pointer ${validCurrentPage === pg
-                      ? 'bg-red-50 text-[#b01622] border-red-200 shadow-2xs'
-                      : 'border-stone-200 text-stone-600 hover:bg-stone-50'
+                    ? 'bg-red-50 text-[#b01622] border-red-200 shadow-2xs'
+                    : 'border-stone-200 text-stone-600 hover:bg-stone-50'
                     }`}
                 >
                   {pg}
@@ -3951,8 +5435,8 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                 disabled={validCurrentPage === totalPages}
                 onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
                 className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs transition-all ${validCurrentPage === totalPages
-                    ? 'border-stone-200 text-stone-300 cursor-not-allowed'
-                    : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
+                  ? 'border-stone-200 text-stone-300 cursor-not-allowed'
+                  : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
                   }`}
               >
                 <i className="fa-solid fa-chevron-right text-[10px]"></i>
@@ -3993,31 +5477,146 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                   <th className="p-3 text-right">RATE / CARAT</th>
                   <th className="p-3 text-center">GOLD WT (G)</th>
                   <th className="p-3 text-right">APPROX PRICE</th>
-                  <th className="p-3 text-center w-12">ACTION</th>
+                  <th className="p-3 text-center w-20">ACTION</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {paginatedDiamondItems.map((item) => (
-                  <tr key={item.id} className="hover:bg-amber-50/20">
-                    <td className="p-3 font-mono text-stone-500">{item.code}</td>
-                    <td className="p-3 font-bold text-stone-900">{item.name}</td>
-                    <td className="p-3 text-stone-700">{item.shape}</td>
-                    <td className="p-3 text-center font-mono font-bold text-[#b01622]">{item.carat_wt} ct</td>
-                    <td className="p-3 font-medium text-stone-600">{item.clarity}</td>
-                    <td className="p-3 text-right font-mono">{formatCurrency(item.rate_per_ct)}</td>
-                    <td className="p-3 text-center font-mono">{item.gold_wt} g</td>
-                    <td className="p-3 text-right font-mono font-bold text-stone-900 text-sm">{formatCurrency(item.approx_price)}</td>
-                    <td className="p-3 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteDiamondRow(item.id)}
-                        className="text-stone-400 hover:text-[#b01622] transition-colors cursor-pointer"
-                      >
-                        <i className="fa-regular fa-trash-can"></i>
-                      </button>
+                {paginatedDiamondItems.length === 0 && (
+                  <tr>
+                    <td colSpan="9" className="py-8 text-center text-stone-400 font-medium">
+                      <i className="fa-solid fa-gem text-xl text-stone-300 block mb-1"></i>
+                      <span className="text-xs font-semibold">No diamond rate items found. Click "+ Add Rate Item" above to create one.</span>
                     </td>
                   </tr>
-                ))}
+                )}
+                {paginatedDiamondItems.map((item) => {
+                  const isEditing = editingDiamondId === item.id;
+                  if (isEditing) {
+                    const cWt = Number(editingDiamondForm.carat_wt || 0);
+                    const rCt = Number(editingDiamondForm.rate_per_ct || 0);
+                    const gWt = Number(editingDiamondForm.gold_wt || 0);
+                    const approxPrice = Math.round(cWt * rCt + gWt * rate22k);
+
+                    return (
+                      <tr key={item.id} className="bg-amber-50/70 font-semibold">
+                        <td className="p-2">
+                          <input
+                            type="text"
+                            value={editingDiamondForm.code}
+                            onChange={(e) => setEditingDiamondForm({ ...editingDiamondForm, code: e.target.value })}
+                            className="w-24 border border-amber-300 rounded p-1 text-xs font-mono font-bold bg-white"
+                          />
+                        </td>
+                        <td className="p-2">
+                          <input
+                            type="text"
+                            value={editingDiamondForm.name}
+                            onChange={(e) => setEditingDiamondForm({ ...editingDiamondForm, name: e.target.value })}
+                            className="w-36 border border-amber-300 rounded p-1 text-xs font-bold bg-white"
+                          />
+                        </td>
+                        <td className="p-2">
+                          <input
+                            type="text"
+                            value={editingDiamondForm.shape}
+                            onChange={(e) => setEditingDiamondForm({ ...editingDiamondForm, shape: e.target.value })}
+                            className="w-24 border border-amber-300 rounded p-1 text-xs bg-white"
+                          />
+                        </td>
+                        <td className="p-2 text-center">
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editingDiamondForm.carat_wt}
+                            onChange={(e) => setEditingDiamondForm({ ...editingDiamondForm, carat_wt: e.target.value })}
+                            className="w-16 border border-amber-300 rounded p-1 text-xs text-center font-mono font-bold bg-white"
+                          />
+                        </td>
+                        <td className="p-2">
+                          <input
+                            type="text"
+                            value={editingDiamondForm.clarity}
+                            onChange={(e) => setEditingDiamondForm({ ...editingDiamondForm, clarity: e.target.value })}
+                            className="w-24 border border-amber-300 rounded p-1 text-xs bg-white"
+                          />
+                        </td>
+                        <td className="p-2 text-right">
+                          <input
+                            type="number"
+                            value={editingDiamondForm.rate_per_ct}
+                            onChange={(e) => setEditingDiamondForm({ ...editingDiamondForm, rate_per_ct: e.target.value })}
+                            className="w-24 border border-amber-300 rounded p-1 text-xs text-right font-mono font-bold bg-white"
+                          />
+                        </td>
+                        <td className="p-2 text-center">
+                          <input
+                            type="number"
+                            step="0.001"
+                            value={editingDiamondForm.gold_wt}
+                            onChange={(e) => setEditingDiamondForm({ ...editingDiamondForm, gold_wt: e.target.value })}
+                            className="w-16 border border-amber-300 rounded p-1 text-xs text-center font-mono bg-white"
+                          />
+                        </td>
+                        <td className="p-2 text-right font-mono font-bold text-stone-900 text-sm">
+                          {formatCurrency(approxPrice)}
+                        </td>
+                        <td className="p-2 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => saveDiamondEdit(item.id)}
+                              className="w-7 h-7 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+                              title="Save Changes"
+                            >
+                              <i className="fa-solid fa-check text-xs"></i>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingDiamondId(null)}
+                              className="w-7 h-7 rounded-lg bg-stone-200 hover:bg-stone-300 text-stone-700 flex items-center justify-center transition-colors cursor-pointer"
+                              title="Cancel"
+                            >
+                              <i className="fa-solid fa-xmark text-xs"></i>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return (
+                    <tr key={item.id} className="hover:bg-amber-50/20">
+                      <td className="p-3 font-mono text-stone-500">{item.code}</td>
+                      <td className="p-3 font-bold text-stone-900">{item.name}</td>
+                      <td className="p-3 text-stone-700">{item.shape}</td>
+                      <td className="p-3 text-center font-mono font-bold text-[#b01622]">{item.carat_wt} ct</td>
+                      <td className="p-3 font-medium text-stone-600">{item.clarity}</td>
+                      <td className="p-3 text-right font-mono">{formatCurrency(item.rate_per_ct)}</td>
+                      <td className="p-3 text-center font-mono">{item.gold_wt} g</td>
+                      <td className="p-3 text-right font-mono font-bold text-stone-900 text-sm">{formatCurrency(item.approx_price)}</td>
+                      <td className="p-3 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => startEditDiamond(item)}
+                            className="text-stone-400 hover:text-blue-600 transition-colors cursor-pointer p-1"
+                            title="Edit Diamond Item"
+                          >
+                            <i className="fa-solid fa-pen-to-square"></i>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteDiamondRow(item.id)}
+                            className="text-stone-400 hover:text-[#b01622] transition-colors cursor-pointer p-1"
+                            title="Delete Item"
+                          >
+                            <i className="fa-regular fa-trash-can"></i>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -4030,8 +5629,8 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                 disabled={validDiamondPage === 1}
                 onClick={() => setDiamondPage((prev) => Math.max(1, prev - 1))}
                 className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs transition-all ${validDiamondPage === 1
-                    ? 'border-stone-200 text-stone-300 cursor-not-allowed'
-                    : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
+                  ? 'border-stone-200 text-stone-300 cursor-not-allowed'
+                  : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
                   }`}
               >
                 <i className="fa-solid fa-chevron-left text-[10px]"></i>
@@ -4042,8 +5641,8 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                   type="button"
                   onClick={() => setDiamondPage(pg)}
                   className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs font-bold transition-all cursor-pointer ${validDiamondPage === pg
-                      ? 'bg-red-50 text-[#b01622] border-red-200 shadow-2xs'
-                      : 'border-stone-200 text-stone-600 hover:bg-stone-50'
+                    ? 'bg-red-50 text-[#b01622] border-red-200 shadow-2xs'
+                    : 'border-stone-200 text-stone-600 hover:bg-stone-50'
                     }`}
                 >
                   {pg}
@@ -4054,8 +5653,8 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                 disabled={validDiamondPage === totalDiamondPages}
                 onClick={() => setDiamondPage((prev) => Math.min(totalDiamondPages, prev + 1))}
                 className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs transition-all ${validDiamondPage === totalDiamondPages
-                    ? 'border-stone-200 text-stone-300 cursor-not-allowed'
-                    : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
+                  ? 'border-stone-200 text-stone-300 cursor-not-allowed'
+                  : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
                   }`}
               >
                 <i className="fa-solid fa-chevron-right text-[10px]"></i>
@@ -4095,30 +5694,136 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                   <th className="p-3">CERTIFICATION</th>
                   <th className="p-3">ORIGIN</th>
                   <th className="p-3 text-right">RATE / CARAT</th>
-                  <th className="p-3 text-center w-12">ACTION</th>
+                  <th className="p-3 text-center w-20">ACTION</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {paginatedStoneItems.map((item) => (
-                  <tr key={item.id} className="hover:bg-amber-50/20">
-                    <td className="p-3 font-bold text-stone-900">{item.name}</td>
-                    <td className="p-3 font-medium text-[#b01622]">{item.type}</td>
-                    <td className="p-3 text-stone-700">{item.shape}</td>
-                    <td className="p-3 text-center font-mono font-bold">{item.carat_wt} ct</td>
-                    <td className="p-3 text-stone-600 font-semibold">{item.cert}</td>
-                    <td className="p-3 text-stone-600">{item.origin}</td>
-                    <td className="p-3 text-right font-mono font-bold text-stone-900">{formatCurrency(item.rate_per_ct)}</td>
-                    <td className="p-3 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteStoneRow(item.id)}
-                        className="text-stone-400 hover:text-[#b01622] transition-colors cursor-pointer"
-                      >
-                        <i className="fa-regular fa-trash-can"></i>
-                      </button>
+                {paginatedStoneItems.length === 0 && (
+                  <tr>
+                    <td colSpan="8" className="py-8 text-center text-stone-400 font-medium">
+                      <i className="fa-solid fa-[#b01622] fa-gem text-xl text-stone-300 block mb-1"></i>
+                      <span className="text-xs font-semibold">No color stone rate items found. Click "+ Add Rate Item" above to create one.</span>
                     </td>
                   </tr>
-                ))}
+                )}
+                {paginatedStoneItems.map((item) => {
+                  const isEditing = editingStoneId === item.id;
+                  if (isEditing) {
+                    return (
+                      <tr key={item.id} className="bg-amber-50/70 font-semibold">
+                        <td className="p-2">
+                          <input
+                            type="text"
+                            value={editingStoneForm.name}
+                            onChange={(e) => setEditingStoneForm({ ...editingStoneForm, name: e.target.value })}
+                            className="w-36 border border-amber-300 rounded p-1 text-xs font-bold bg-white"
+                          />
+                        </td>
+                        <td className="p-2">
+                          <input
+                            type="text"
+                            value={editingStoneForm.type}
+                            onChange={(e) => setEditingStoneForm({ ...editingStoneForm, type: e.target.value })}
+                            className="w-28 border border-amber-300 rounded p-1 text-xs text-[#b01622] font-bold bg-white"
+                          />
+                        </td>
+                        <td className="p-2">
+                          <input
+                            type="text"
+                            value={editingStoneForm.shape}
+                            onChange={(e) => setEditingStoneForm({ ...editingStoneForm, shape: e.target.value })}
+                            className="w-24 border border-amber-300 rounded p-1 text-xs bg-white"
+                          />
+                        </td>
+                        <td className="p-2 text-center">
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editingStoneForm.carat_wt}
+                            onChange={(e) => setEditingStoneForm({ ...editingStoneForm, carat_wt: e.target.value })}
+                            className="w-16 border border-amber-300 rounded p-1 text-xs text-center font-mono font-bold bg-white"
+                          />
+                        </td>
+                        <td className="p-2">
+                          <input
+                            type="text"
+                            value={editingStoneForm.cert}
+                            onChange={(e) => setEditingStoneForm({ ...editingStoneForm, cert: e.target.value })}
+                            className="w-24 border border-amber-300 rounded p-1 text-xs bg-white font-semibold"
+                          />
+                        </td>
+                        <td className="p-2">
+                          <input
+                            type="text"
+                            value={editingStoneForm.origin}
+                            onChange={(e) => setEditingStoneForm({ ...editingStoneForm, origin: e.target.value })}
+                            className="w-24 border border-amber-300 rounded p-1 text-xs bg-white"
+                          />
+                        </td>
+                        <td className="p-2 text-right">
+                          <input
+                            type="number"
+                            value={editingStoneForm.rate_per_ct}
+                            onChange={(e) => setEditingStoneForm({ ...editingStoneForm, rate_per_ct: e.target.value })}
+                            className="w-24 border border-amber-300 rounded p-1 text-xs text-right font-mono font-bold bg-white"
+                          />
+                        </td>
+                        <td className="p-2 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => saveStoneEdit(item.id)}
+                              className="w-7 h-7 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+                              title="Save Changes"
+                            >
+                              <i className="fa-solid fa-check text-xs"></i>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingStoneId(null)}
+                              className="w-7 h-7 rounded-lg bg-stone-200 hover:bg-stone-300 text-stone-700 flex items-center justify-center transition-colors cursor-pointer"
+                              title="Cancel"
+                            >
+                              <i className="fa-solid fa-xmark text-xs"></i>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return (
+                    <tr key={item.id} className="hover:bg-amber-50/20">
+                      <td className="p-3 font-bold text-stone-900">{item.name}</td>
+                      <td className="p-3 font-medium text-[#b01622]">{item.type}</td>
+                      <td className="p-3 text-stone-700">{item.shape}</td>
+                      <td className="p-3 text-center font-mono font-bold">{item.carat_wt} ct</td>
+                      <td className="p-3 text-stone-600 font-semibold">{item.cert}</td>
+                      <td className="p-3 text-stone-600">{item.origin}</td>
+                      <td className="p-3 text-right font-mono font-bold text-stone-900">{formatCurrency(item.rate_per_ct)}</td>
+                      <td className="p-3 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => startEditStone(item)}
+                            className="text-stone-400 hover:text-blue-600 transition-colors cursor-pointer p-1"
+                            title="Edit Gemstone Item"
+                          >
+                            <i className="fa-solid fa-pen-to-square"></i>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteStoneRow(item.id)}
+                            className="text-stone-400 hover:text-[#b01622] transition-colors cursor-pointer p-1"
+                            title="Delete Item"
+                          >
+                            <i className="fa-regular fa-trash-can"></i>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -4131,8 +5836,8 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                 disabled={validStonePage === 1}
                 onClick={() => setStonePage((prev) => Math.max(1, prev - 1))}
                 className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs transition-all ${validStonePage === 1
-                    ? 'border-stone-200 text-stone-300 cursor-not-allowed'
-                    : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
+                  ? 'border-stone-200 text-stone-300 cursor-not-allowed'
+                  : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
                   }`}
               >
                 <i className="fa-solid fa-chevron-left text-[10px]"></i>
@@ -4143,8 +5848,8 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                   type="button"
                   onClick={() => setStonePage(pg)}
                   className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs font-bold transition-all cursor-pointer ${validStonePage === pg
-                      ? 'bg-red-50 text-[#b01622] border-red-200 shadow-2xs'
-                      : 'border-stone-200 text-stone-600 hover:bg-stone-50'
+                    ? 'bg-red-50 text-[#b01622] border-red-200 shadow-2xs'
+                    : 'border-stone-200 text-stone-600 hover:bg-stone-50'
                     }`}
                 >
                   {pg}
@@ -4155,8 +5860,8 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                 disabled={validStonePage === totalStonePages}
                 onClick={() => setStonePage((prev) => Math.min(totalStonePages, prev + 1))}
                 className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs transition-all ${validStonePage === totalStonePages
-                    ? 'border-stone-200 text-stone-300 cursor-not-allowed'
-                    : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
+                  ? 'border-stone-200 text-stone-300 cursor-not-allowed'
+                  : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
                   }`}
               >
                 <i className="fa-solid fa-chevron-right text-[10px]"></i>
@@ -4195,19 +5900,110 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                   <th className="p-3 text-right">ANTIQUE WORK (₹/GM)</th>
                   <th className="p-3 text-right">KUNDAN WORK (₹/GM)</th>
                   <th className="p-3 text-right">MINIMUM CHARGE / PIECE</th>
+                  <th className="p-3 text-center w-20">ACTION</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {paginatedMakingItems.map((row, idx) => (
-                  <tr key={idx} className="hover:bg-amber-50/20">
-                    <td className="p-3 font-bold text-stone-900">{row.category}</td>
-                    <td className="p-3 text-right font-mono">{formatCurrency(row.plain * customerDiscount)}</td>
-                    <td className="p-3 text-right font-mono">{formatCurrency(row.studded * customerDiscount)}</td>
-                    <td className="p-3 text-right font-mono">{formatCurrency(row.antique * customerDiscount)}</td>
-                    <td className="p-3 text-right font-mono">{formatCurrency(row.kundan * customerDiscount)}</td>
-                    <td className="p-3 text-right font-mono font-bold text-[#b01622]">{formatCurrency(row.min_piece)}</td>
+                {paginatedMakingItems.length === 0 && (
+                  <tr>
+                    <td colSpan="7" className="py-8 text-center text-stone-400 font-medium">
+                      <i className="fa-solid fa-percent text-xl text-stone-300 block mb-1"></i>
+                      <span className="text-xs font-semibold">No making charge matrix items found.</span>
+                    </td>
                   </tr>
-                ))}
+                )}
+                {paginatedMakingItems.map((row, idx) => {
+                  const isEditing = editingMakingCat === row.category;
+                  if (isEditing) {
+                    return (
+                      <tr key={idx} className="bg-amber-50/70 font-semibold">
+                        <td className="p-2 font-bold text-stone-900">{row.category}</td>
+                        <td className="p-2 text-right">
+                          <input
+                            type="number"
+                            value={editingMakingForm.plain}
+                            onChange={(e) => setEditingMakingForm({ ...editingMakingForm, plain: e.target.value })}
+                            className="w-20 border border-amber-300 rounded p-1 text-xs font-mono font-bold text-right bg-white"
+                          />
+                        </td>
+                        <td className="p-2 text-right">
+                          <input
+                            type="number"
+                            value={editingMakingForm.studded}
+                            onChange={(e) => setEditingMakingForm({ ...editingMakingForm, studded: e.target.value })}
+                            className="w-20 border border-amber-300 rounded p-1 text-xs font-mono font-bold text-right bg-white"
+                          />
+                        </td>
+                        <td className="p-2 text-right">
+                          <input
+                            type="number"
+                            value={editingMakingForm.antique}
+                            onChange={(e) => setEditingMakingForm({ ...editingMakingForm, antique: e.target.value })}
+                            className="w-20 border border-amber-300 rounded p-1 text-xs font-mono font-bold text-right bg-white"
+                          />
+                        </td>
+                        <td className="p-2 text-right">
+                          <input
+                            type="number"
+                            value={editingMakingForm.kundan}
+                            onChange={(e) => setEditingMakingForm({ ...editingMakingForm, kundan: e.target.value })}
+                            className="w-20 border border-amber-300 rounded p-1 text-xs font-mono font-bold text-right bg-white"
+                          />
+                        </td>
+                        <td className="p-2 text-right">
+                          <input
+                            type="number"
+                            value={editingMakingForm.min_piece}
+                            onChange={(e) => setEditingMakingForm({ ...editingMakingForm, min_piece: e.target.value })}
+                            className="w-20 border border-amber-300 rounded p-1 text-xs font-mono font-bold text-right text-[#b01622] bg-white"
+                          />
+                        </td>
+                        <td className="p-2 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => saveMakingEdit(row.category)}
+                              className="w-7 h-7 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+                              title="Save Changes"
+                            >
+                              <i className="fa-solid fa-check text-xs"></i>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingMakingCat(null)}
+                              className="w-7 h-7 rounded-lg bg-stone-200 hover:bg-stone-300 text-stone-700 flex items-center justify-center transition-colors cursor-pointer"
+                              title="Cancel"
+                            >
+                              <i className="fa-solid fa-xmark text-xs"></i>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return (
+                    <tr key={idx} className="hover:bg-amber-50/20">
+                      <td className="p-3 font-bold text-stone-900">{row.category}</td>
+                      <td className="p-3 text-right font-mono">{formatCurrency(row.plain * customerDiscount)}</td>
+                      <td className="p-3 text-right font-mono">{formatCurrency(row.studded * customerDiscount)}</td>
+                      <td className="p-3 text-right font-mono">{formatCurrency(row.antique * customerDiscount)}</td>
+                      <td className="p-3 text-right font-mono">{formatCurrency(row.kundan * customerDiscount)}</td>
+                      <td className="p-3 text-right font-mono font-bold text-[#b01622]">{formatCurrency(row.min_piece)}</td>
+                      <td className="p-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => startEditMaking(row)}
+                          className="text-stone-400 hover:text-blue-600 transition-colors cursor-pointer p-1 text-xs font-semibold flex items-center justify-center gap-1 mx-auto"
+                          title="Edit Making Charge Matrix"
+                        >
+                          <i className="fa-solid fa-pen-to-square"></i>
+                          <span>Edit</span>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -4220,8 +6016,8 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                 disabled={validMakingPage === 1}
                 onClick={() => setMakingPage((prev) => Math.max(1, prev - 1))}
                 className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs transition-all ${validMakingPage === 1
-                    ? 'border-stone-200 text-stone-300 cursor-not-allowed'
-                    : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
+                  ? 'border-stone-200 text-stone-300 cursor-not-allowed'
+                  : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
                   }`}
               >
                 <i className="fa-solid fa-chevron-left text-[10px]"></i>
@@ -4232,8 +6028,8 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                   type="button"
                   onClick={() => setMakingPage(pg)}
                   className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs font-bold transition-all cursor-pointer ${validMakingPage === pg
-                      ? 'bg-red-50 text-[#b01622] border-red-200 shadow-2xs'
-                      : 'border-stone-200 text-stone-600 hover:bg-stone-50'
+                    ? 'bg-red-50 text-[#b01622] border-red-200 shadow-2xs'
+                    : 'border-stone-200 text-stone-600 hover:bg-stone-50'
                     }`}
                 >
                   {pg}
@@ -4244,8 +6040,8 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                 disabled={validMakingPage === totalMakingPages}
                 onClick={() => setMakingPage((prev) => Math.min(totalMakingPages, prev + 1))}
                 className={`w-7 h-7 flex items-center justify-center rounded-lg border text-xs transition-all ${validMakingPage === totalMakingPages
-                    ? 'border-stone-200 text-stone-300 cursor-not-allowed'
-                    : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
+                  ? 'border-stone-200 text-stone-300 cursor-not-allowed'
+                  : 'border-stone-200 text-stone-600 hover:bg-stone-50 cursor-pointer'
                   }`}
               >
                 <i className="fa-solid fa-chevron-right text-[10px]"></i>
@@ -4258,22 +6054,112 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
       {/* TAB 5: TERMS & CONDITIONS */}
       {activeTab === 'Terms & Conditions' && (
         <div className="bg-white border border-stone-200 rounded-2xl shadow-2xs overflow-hidden p-6 space-y-4 text-xs text-stone-700">
-          <h3 className="font-bold text-base text-[#b01622] border-b border-stone-100 pb-2">RUDRA JEWELLERS - TERMS &amp; CONDITIONS OF PRICE LIST</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 leading-relaxed">
-            <div className="space-y-2 bg-stone-50/80 p-4 rounded-xl border border-stone-200">
-              <h4 className="font-bold text-stone-900 uppercase tracking-wide text-[11px]">1. Market Rate Adjustments</h4>
-              <p>Prices listed are based on current market spot rates and are subject to immediate revision upon market fluctuations.</p>
-              <h4 className="font-bold text-stone-900 uppercase tracking-wide text-[11px] pt-2">2. Wastage &amp; Making Charges</h4>
-              <p>Wastage percentages and per-gram labour rates are applied strictly per weight tier specified in the invoice contract.</p>
+          <div className="flex items-center justify-between border-b border-stone-100 pb-4">
+            <div>
+              <h3 className="font-bold text-stone-900 text-sm flex items-center gap-2">
+                <i className="fa-solid fa-file-contract text-[#b01622]"></i>
+                {termsData.title || 'Standard Store Terms & Policy Agreement'}
+              </h3>
+              <p className="text-stone-500 text-xs">Customer purchase guidelines, valuation terms and refund guidelines.</p>
             </div>
-
-            <div className="space-y-2 bg-stone-50/80 p-4 rounded-xl border border-stone-200">
-              <h4 className="font-bold text-stone-900 uppercase tracking-wide text-[11px]">3. BIS Hallmarking Guarantee</h4>
-              <p>All 22K (916) and 18K (750) jewellery items come with 6-digit HUID BIS Hallmark certification assurance.</p>
-              <h4 className="font-bold text-stone-900 uppercase tracking-wide text-[11px] pt-2">4. Exchange &amp; Return Policy</h4>
-              <p>7-day return policy available with deduction of melting &amp; testing charges as per store guidelines.</p>
-            </div>
+            {isEditingTerms ? (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditingTerms(false)}
+                  className="px-3 py-1.5 rounded-lg border border-stone-300 text-stone-600 hover:bg-stone-100 text-xs font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditingTerms(false);
+                    setToast({ message: 'Terms & Conditions updated successfully', type: 'success' });
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-2xs cursor-pointer flex items-center gap-1"
+                >
+                  <i className="fa-solid fa-check text-xs"></i>
+                  <span>Save Terms</span>
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsEditingTerms(true)}
+                className="px-3 py-1.5 rounded-lg bg-stone-900 text-white hover:bg-stone-800 text-xs font-semibold cursor-pointer flex items-center gap-1.5"
+              >
+                <i className="fa-solid fa-pen-to-square text-xs"></i>
+                <span>Edit Terms</span>
+              </button>
+            )}
           </div>
+
+          {isEditingTerms ? (
+            <div className="space-y-4">
+              <div>
+                <label className="block font-bold text-stone-700 mb-1">Header Title</label>
+                <input
+                  type="text"
+                  value={termsData.title}
+                  onChange={(e) => setTermsData({ ...termsData, title: e.target.value })}
+                  className="w-full text-xs px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#b01622]/20 focus:border-[#b01622]"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-stone-700 mb-1">1. Live Metal Rate Lock Clause</label>
+                <textarea
+                  rows="2"
+                  value={termsData.clause1}
+                  onChange={(e) => setTermsData({ ...termsData, clause1: e.target.value })}
+                  className="w-full text-xs px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#b01622]/20 focus:border-[#b01622]"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-stone-700 mb-1">2. Making &amp; Wastage Billing Clause</label>
+                <textarea
+                  rows="2"
+                  value={termsData.clause2}
+                  onChange={(e) => setTermsData({ ...termsData, clause2: e.target.value })}
+                  className="w-full text-xs px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#b01622]/20 focus:border-[#b01622]"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-stone-700 mb-1">3. BIS Hallmarking Guarantee</label>
+                <textarea
+                  rows="2"
+                  value={termsData.clause3}
+                  onChange={(e) => setTermsData({ ...termsData, clause3: e.target.value })}
+                  className="w-full text-xs px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#b01622]/20 focus:border-[#b01622]"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-stone-700 mb-1">4. Exchange &amp; Return Policy</label>
+                <textarea
+                  rows="2"
+                  value={termsData.clause4}
+                  onChange={(e) => setTermsData({ ...termsData, clause4: e.target.value })}
+                  className="w-full text-xs px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#b01622]/20 focus:border-[#b01622]"
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="space-y-2 bg-stone-50/80 p-4 rounded-xl border border-stone-200">
+                <h4 className="font-bold text-stone-900 uppercase tracking-wide text-[11px]">1. Live Metal Rate Lock Clause</h4>
+                <p>{termsData.clause1}</p>
+                <h4 className="font-bold text-stone-900 uppercase tracking-wide text-[11px] pt-2">2. Making &amp; Wastage Billing Clause</h4>
+                <p>{termsData.clause2}</p>
+              </div>
+
+              <div className="space-y-2 bg-stone-50/80 p-4 rounded-xl border border-stone-200">
+                <h4 className="font-bold text-stone-900 uppercase tracking-wide text-[11px]">3. BIS Hallmarking Guarantee</h4>
+                <p>{termsData.clause3}</p>
+                <h4 className="font-bold text-stone-900 uppercase tracking-wide text-[11px] pt-2">4. Exchange &amp; Return Policy</h4>
+                <p>{termsData.clause4}</p>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

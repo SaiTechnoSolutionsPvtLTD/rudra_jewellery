@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import { printElement } from '../../utils/printHelper';
 
 // DIAMOND CHART AND SIEVE SIZE DATASET (Reference from User Chart)
 const DIAMOND_CHART_SIZES = [
@@ -668,7 +669,6 @@ export default function ClientPriceList() {
                   <tr className="bg-[#f8f9fa] text-[10px] font-bold uppercase tracking-wider text-gray-500 border-b border-gray-200">
                     <th className="px-4 py-3">PURITY / METAL</th>
                     <th className="px-4 py-3">TOUCH %</th>
-                    <th className="px-4 py-3">GOLD RATE / GM</th>
                     <th className="px-4 py-3">WASTAGE (%)</th>
                     <th className="px-4 py-3">MAKING CHARGE</th>
                     <th className="px-4 py-3">ESTIMATED RATE / GM</th>
@@ -678,7 +678,7 @@ export default function ClientPriceList() {
                 <tbody className="text-xs divide-y divide-gray-100">
                   {goldRates.length === 0 ? (
                     <tr>
-                      <td colSpan="7" className="py-10 text-center text-gray-400">
+                      <td colSpan="6" className="py-10 text-center text-gray-400">
                         <i className="fa-solid fa-coins text-3xl text-gray-200 mb-2 block"></i>
                         <p className="font-semibold text-gray-600">No gold rates added yet</p>
                         <p className="text-xs text-gray-400 mt-1">Click the <strong className="text-[#b01622]">+ Add Gold Rate</strong> button above to configure gold rates.</p>
@@ -693,7 +693,6 @@ export default function ClientPriceList() {
                             {item.touch || '-'}
                           </span>
                         </td>
-                        <td className="px-4 py-3 font-mono text-gray-700">₹{Number(item.gold_rate || 0).toLocaleString('en-IN')} / gm</td>
                         <td className="px-4 py-3 font-mono text-gray-700">{item.wastage_percent}%</td>
                         <td className="px-4 py-3 font-mono text-gray-700">₹{Number(item.making_charge || 0).toLocaleString('en-IN')} / gm</td>
                         <td className="px-4 py-3 font-bold text-[#b01622]">₹{Number(item.effective_rate || (item.gold_rate * (1 + (item.wastage_percent || 0)/100) + (item.making_charge || 0))).toLocaleString('en-IN')} / gm</td>
@@ -1869,25 +1868,34 @@ export default function ClientPriceList() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[70] flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
           <style>{`
             @media print {
-              body * {
-                visibility: hidden !important;
+              body {
+                background: white !important;
+                margin: 0 !important;
+                padding: 0 !important;
               }
-              #printable-price-list-sheet, #printable-price-list-sheet * {
-                visibility: visible !important;
+              .print\\:hidden, .no-print, header, nav, sidebar, button {
+                display: none !important;
               }
               #printable-price-list-sheet {
-                position: absolute !important;
+                position: fixed !important;
                 left: 0 !important;
                 top: 0 !important;
                 width: 100% !important;
+                height: auto !important;
                 margin: 0 !important;
-                padding: 15px !important;
+                padding: 10mm !important;
                 background: white !important;
                 border: none !important;
                 box-shadow: none !important;
+                visibility: visible !important;
+                opacity: 1 !important;
+                z-index: 999999 !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
               }
-              .print\\:hidden {
-                display: none !important;
+              #printable-price-list-sheet * {
+                visibility: visible !important;
+                opacity: 1 !important;
               }
               #printable-price-list-sheet th,
               #printable-price-list-sheet td {
@@ -1913,7 +1921,7 @@ export default function ClientPriceList() {
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={() => printElement('printable-price-list-sheet', 'Client Price List')}
                   className="px-4 py-2 bg-[#b01622] hover:bg-[#8e111a] text-white text-xs font-bold rounded-lg flex items-center gap-2 transition-colors cursor-pointer shadow-xs"
                 >
                   <i className="fa-solid fa-print"></i> PRINT / SAVE PDF
@@ -1962,14 +1970,7 @@ export default function ClientPriceList() {
 
                 {/* Print Sheet Header Meta */}
                 <div className="text-right shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => window.print()}
-                    className="px-3 py-1.5 border border-red-200 text-[#b01622] text-[10px] font-bold rounded flex items-center gap-1.5 ml-auto hover:bg-red-50 cursor-pointer print:hidden"
-                  >
-                    <i className="fa-solid fa-print"></i> PRINT SHEET
-                  </button>
-                  <div className="text-[10px] font-mono text-gray-500 mt-2">
+                  <div className="text-[10px] font-mono text-gray-500">
                     DATE : {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} | TIME : {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </div>
                 </div>
@@ -2048,20 +2049,18 @@ export default function ClientPriceList() {
                         <tr className="bg-gray-50/70 text-[9px] font-bold uppercase tracking-wider text-gray-500 border-b border-gray-200">
                           <th className="px-3 py-2">PURITY / METAL</th>
                           <th className="px-3 py-2">TOUCH %</th>
-                          <th className="px-3 py-2 text-right">GOLD RATE / GM (₹)</th>
                           <th className="px-3 py-2 text-center">WASTAGE (%)</th>
                           <th className="px-3 py-2 text-right">ESTIMATED RATE / GM (₹)</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100 font-medium">
                         {goldRates.length === 0 ? (
-                          <tr><td colSpan="5" className="px-3 py-4 text-center text-gray-400">No gold rates added</td></tr>
+                          <tr><td colSpan="4" className="px-3 py-4 text-center text-gray-400">No gold rates added</td></tr>
                         ) : (
                           goldRates.map((g, i) => (
                             <tr key={i}>
                               <td className="px-3 py-2 font-bold text-gray-900">{g.purity}</td>
                               <td className="px-3 py-2 text-gray-700">{g.touch || '-'}</td>
-                              <td className="px-3 py-2 text-right font-mono text-gray-700">₹{Number(g.gold_rate || 0).toLocaleString('en-IN')}</td>
                               <td className="px-3 py-2 text-center font-mono text-gray-700">{g.wastage_percent}%</td>
                               <td className="px-3 py-2 text-right font-bold text-[#b01622]">₹{Number(g.effective_rate || (g.gold_rate * (1 + (g.wastage_percent || 0)/100) + (g.making_charge || 0))).toLocaleString('en-IN')}</td>
                             </tr>

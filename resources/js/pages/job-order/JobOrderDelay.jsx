@@ -282,22 +282,22 @@ export default function JobOrderDelay() {
   };
 
   // Values for display matching screenshot
-  const jobId = currentOrder?.work_order_number || 'RJ-3836-000125';
-  const clientId = currentOrder?.client?.client_code || currentOrder?.client_code || 'CL-2024-00456';
-  const clientName = currentOrder?.customer_name || currentOrder?.client?.full_name || currentOrder?.client?.name || currentOrder?.client_name || 'Rajesh Vishwakarma';
-  const karigarName = currentOrder?.karigar?.name || currentOrder?.karigar_name || 'Manikandan';
-  const allotmentDate = formatDateDisplay(currentOrder?.allotted_date, '15/04/2024');
+  const jobId = currentOrder?.work_order_number || (currentOrder?.id ? `ORD-${currentOrder.id}` : '—');
+  const clientId = currentOrder?.client?.client_code || currentOrder?.client_code || (currentOrder?.client_id ? `CL-${currentOrder.client_id}` : '—');
+  const clientName = currentOrder?.customer_name || currentOrder?.client?.full_name || currentOrder?.client?.name || currentOrder?.client_name || '—';
+  const karigarName = currentOrder?.karigar?.name || currentOrder?.karigar_name || 'Unassigned';
+  const allotmentDate = formatDateDisplay(currentOrder?.allotted_date, '—');
 
-  const jobType = currentOrder?.product_name || 'Gold Necklace';
-  const categoryName = currentOrder?.category?.name || currentOrder?.specifications?.variant || 'Necklace';
-  const materialType = currentOrder?.material_type || '22K Gold';
-  const purityLabel = currentOrder?.specifications?.from_cts || '22 Karat';
-  const allottedWeight = currentOrder?.allotted_weight ?? 12.000;
-  const completedWeight = currentOrder?.completed_weight ?? 0.100;
+  const jobType = currentOrder?.product_name || 'Custom Jewellery';
+  const categoryName = currentOrder?.category?.name || currentOrder?.specifications?.variant || 'Jewellery';
+  const materialType = currentOrder?.material_type || 'Gold';
+  const purityLabel = currentOrder?.specifications?.from_cts || 'Standard';
+  const allottedWeight = currentOrder?.allotted_weight ?? 0;
+  const completedWeight = currentOrder?.completed_weight ?? 0;
   const pendingWeight = currentOrder?.pending_weight ?? (allottedWeight - completedWeight);
-  const dueDate = formatDateDisplay(currentOrder?.delivery_date, '28/04/2024');
-  const newExpectedDateDisplay = formatDateDisplay(expectedDate, '03/05/2024');
-  const totalAmount = currentOrder?.total_price || 149175.00;
+  const dueDate = formatDateDisplay(currentOrder?.delivery_date, '—');
+  const newExpectedDateDisplay = formatDateDisplay(expectedDate, '—');
+  const totalAmount = currentOrder?.total_price || 0;
 
   // Pagination calculations
   const totalHistoryItems = delayHistory.length;
@@ -308,6 +308,56 @@ export default function JobOrderDelay() {
     const start = (currentPage - 1) * itemsPerPage;
     return delayHistory.slice(start, start + itemsPerPage);
   }, [delayHistory, currentPage]);
+
+  if (loading && !currentOrder) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[450px] text-stone-400 gap-3 font-['Inter',sans-serif]">
+        <div className="w-10 h-10 border-4 border-[#b01622] border-t-transparent rounded-full animate-spin"></div>
+        <span className="text-sm font-semibold text-stone-600">Loading delay details...</span>
+      </div>
+    );
+  }
+
+  if (!currentOrder) {
+    return (
+      <div className="w-full pb-16 space-y-5 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif]">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 text-xs text-stone-500 font-medium mb-1.5">
+              <span>Manufacturing</span><span>&gt;</span><span>Job Orders</span><span>&gt;</span><span>Reception</span><span>&gt;</span><span className="text-stone-700 font-semibold">Delay / Hold</span>
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Delay &amp; Job Details</h1>
+          </div>
+          <Link to="/job-order/receive" className="px-4 py-2 bg-white border border-stone-300 text-stone-800 text-xs font-semibold rounded-lg shadow-2xs hover:bg-stone-50">Back to Receive Summary</Link>
+        </div>
+
+        <div className="border-b border-stone-200 flex items-center gap-8 overflow-x-auto no-scrollbar">
+          <Link to="/job-order/in-progress" className="pb-3 text-sm font-medium text-stone-500 hover:text-stone-900 border-b-2 border-transparent">Work in Progress</Link>
+          <Link to="/job-order/delay" className="pb-3 text-sm font-bold text-[#b01622] border-b-2 border-[#b01622]">Delay / Job Details</Link>
+          <Link to="/job-order/waste" className="pb-3 text-sm font-medium text-stone-500 hover:text-stone-900 border-b-2 border-transparent">Waste Details</Link>
+          <Link to="/job-order/quality-check" className="pb-3 text-sm font-medium text-stone-500 hover:text-stone-900 border-b-2 border-transparent">Quality Check &amp; Final Receive</Link>
+          <Link to="/job-order/history" className="pb-3 text-sm font-medium text-stone-500 hover:text-stone-900 border-b-2 border-transparent">History</Link>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-stone-200 p-12 text-center flex flex-col items-center justify-center space-y-4 shadow-2xs">
+          <div className="w-16 h-16 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center text-2xl">
+            <i className="fa-solid fa-clock-rotate-left"></i>
+          </div>
+          <h2 className="text-lg font-bold text-gray-900">No Job Orders Recorded</h2>
+          <p className="text-xs text-stone-500 max-w-md">
+            There are currently no job orders recorded in the database for delay tracking.
+          </p>
+          <Link
+            to="/job-order/new"
+            className="px-4 py-2.5 bg-[#b01622] text-white text-xs font-bold rounded-xl shadow-2xs hover:bg-[#8e111a] transition-all flex items-center gap-2"
+          >
+            <i className="fa-solid fa-plus"></i>
+            <span>Create New Job Order</span>
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full pb-16 space-y-5 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif]">

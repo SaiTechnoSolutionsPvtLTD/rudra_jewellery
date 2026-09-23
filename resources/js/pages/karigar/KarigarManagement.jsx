@@ -5,6 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import ConfirmModal from '../../components/ConfirmModal';
 import Pagination from '../../components/Pagination';
 import KarigarWorkModal from './KarigarWorkModal';
+import BenchMetalModal from '../../components/BenchMetalModal';
 
 const SPECIALIZATION_OPTIONS = [
   'Antique & Temple Work',
@@ -78,6 +79,7 @@ export default function KarigarManagement() {
   const [generatingCode, setGeneratingCode] = useState(false);
 
   // Profile View Drawer state
+  const [isBenchModalOpen, setIsBenchModalOpen] = useState(false);
   const [viewKarigar, setViewKarigar] = useState(null);
   const [viewDrawerTab, setViewDrawerTab] = useState('works'); // 'works' | 'profile'
   const [selectedKarigarWorks, setSelectedKarigarWorks] = useState([]);
@@ -282,8 +284,8 @@ export default function KarigarManagement() {
       experience_years: karigar.experience_years ?? 5,
       workshop_name: karigar.workshop_name || '',
       workshop_address: karigar.workshop_address || '',
-      city: karigar.city || 'Chennai',
-      state: karigar.state || 'Tamil Nadu',
+      city: karigar.city || '',
+      state: karigar.state || '',
       zip_code: karigar.zip_code || '',
       pan_number: karigar.pan_number || '',
       aadhar_number: karigar.aadhar_number || '',
@@ -304,7 +306,7 @@ export default function KarigarManagement() {
   // Handle Form Change
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    
+
     // If specialization changed, auto-suggest benchmark wastage and making charge from Master
     if (name === 'specialization') {
       const matched = specifications.find(s => s.name === value);
@@ -583,10 +585,16 @@ export default function KarigarManagement() {
         </div>
 
         {/* Gold on Bench */}
-        <div className="bg-white rounded-2xl p-4 border border-stone-200 shadow-xs flex flex-col justify-between hover:shadow-md hover:border-amber-300 transition-all">
+        <div
+          onClick={() => setIsBenchModalOpen(true)}
+          className="bg-white rounded-2xl p-4 border border-stone-200 shadow-xs flex flex-col justify-between hover:shadow-md hover:border-amber-300 transition-all cursor-pointer group"
+          title="Click to open pop-up displaying metal on bench balance per karigar"
+        >
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wider whitespace-nowrap">Metal On Bench</span>
-            <div className="w-8 h-8 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center text-xs shrink-0 shadow-2xs">
+            <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wider whitespace-nowrap">
+              Metal On Bench
+            </span>
+            <div className="w-8 h-8 rounded-xl bg-amber-50 border border-amber-100 text-amber-600 flex items-center justify-center text-xs shrink-0 shadow-2xs">
               <i className="fa-solid fa-cubes-stacked"></i>
             </div>
           </div>
@@ -623,9 +631,8 @@ export default function KarigarManagement() {
         {/* Search Bar */}
         <form onSubmit={handleSearchSubmit} className="flex-1 flex items-center gap-2 max-w-lg">
           <div className="relative flex-1">
-            <i className={`absolute left-3.5 top-1/2 -translate-y-1/2 text-xs ${
-              loading && searchTerm ? 'fa-solid fa-arrows-rotate animate-spin text-[#b01622]' : 'fa-solid fa-magnifying-glass text-stone-400'
-            }`}></i>
+            <i className={`absolute left-3.5 top-1/2 -translate-y-1/2 text-xs ${loading && searchTerm ? 'fa-solid fa-arrows-rotate animate-spin text-[#b01622]' : 'fa-solid fa-magnifying-glass text-stone-400'
+              }`}></i>
             <input
               type="text"
               value={searchTerm}
@@ -671,44 +678,40 @@ export default function KarigarManagement() {
             <button
               type="button"
               onClick={() => { setStatusFilter('all'); setCurrentPage(1); }}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${
-                statusFilter === 'all'
-                  ? 'bg-white text-stone-900 shadow-xs font-bold'
-                  : 'text-stone-600 hover:text-stone-900'
-              }`}
+              className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${statusFilter === 'all'
+                ? 'bg-white text-stone-900 shadow-xs font-bold'
+                : 'text-stone-600 hover:text-stone-900'
+                }`}
             >
               All
             </button>
             <button
               type="button"
               onClick={() => { setStatusFilter('active'); setCurrentPage(1); }}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${
-                statusFilter === 'active'
-                  ? 'bg-emerald-600 text-white shadow-xs font-bold'
-                  : 'text-stone-600 hover:text-stone-900'
-              }`}
+              className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${statusFilter === 'active'
+                ? 'bg-emerald-600 text-white shadow-xs font-bold'
+                : 'text-stone-600 hover:text-stone-900'
+                }`}
             >
               Active
             </button>
             <button
               type="button"
               onClick={() => { setStatusFilter('on_leave'); setCurrentPage(1); }}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${
-                statusFilter === 'on_leave'
-                  ? 'bg-amber-500 text-white shadow-xs font-bold'
-                  : 'text-stone-600 hover:text-stone-900'
-              }`}
+              className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${statusFilter === 'on_leave'
+                ? 'bg-amber-500 text-white shadow-xs font-bold'
+                : 'text-stone-600 hover:text-stone-900'
+                }`}
             >
               On Leave
             </button>
             <button
               type="button"
               onClick={() => { setStatusFilter('inactive'); setCurrentPage(1); }}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${
-                statusFilter === 'inactive'
-                  ? 'bg-stone-500 text-white shadow-xs font-bold'
-                  : 'text-stone-600 hover:text-stone-900'
-              }`}
+              className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${statusFilter === 'inactive'
+                ? 'bg-stone-500 text-white shadow-xs font-bold'
+                : 'text-stone-600 hover:text-stone-900'
+                }`}
             >
               Inactive
             </button>
@@ -720,9 +723,8 @@ export default function KarigarManagement() {
               type="button"
               onClick={() => setViewMode('table')}
               title="Table View"
-              className={`w-8 h-7 rounded-lg flex items-center justify-center text-xs transition-colors ${
-                viewMode === 'table' ? 'bg-white text-[#b01622] shadow-xs font-bold' : 'text-stone-500 hover:text-stone-800'
-              }`}
+              className={`w-8 h-7 rounded-lg flex items-center justify-center text-xs transition-colors ${viewMode === 'table' ? 'bg-white text-[#b01622] shadow-xs font-bold' : 'text-stone-500 hover:text-stone-800'
+                }`}
             >
               <i className="fa-solid fa-table-list"></i>
             </button>
@@ -730,9 +732,8 @@ export default function KarigarManagement() {
               type="button"
               onClick={() => setViewMode('grid')}
               title="Cards Grid View"
-              className={`w-8 h-7 rounded-lg flex items-center justify-center text-xs transition-colors ${
-                viewMode === 'grid' ? 'bg-white text-[#b01622] shadow-xs font-bold' : 'text-stone-500 hover:text-stone-800'
-              }`}
+              className={`w-8 h-7 rounded-lg flex items-center justify-center text-xs transition-colors ${viewMode === 'grid' ? 'bg-white text-[#b01622] shadow-xs font-bold' : 'text-stone-500 hover:text-stone-800'
+                }`}
             >
               <i className="fa-solid fa-table-cells-large"></i>
             </button>
@@ -835,7 +836,7 @@ export default function KarigarManagement() {
                               <span>{karigar.experience_years} yrs exp</span>
                             )}
                             {karigar.experience_years > 0 && <span>•</span>}
-                            <span>{karigar.city || 'Chennai'}</span>
+                            <span>{karigar.city || '-'}</span>
                           </div>
                         </div>
                       </div>
@@ -908,7 +909,7 @@ export default function KarigarManagement() {
                         ) : (
                           <div className="text-[11px] text-stone-400 flex items-center gap-1.5 whitespace-nowrap">
                             <i className="fa-solid fa-location-dot text-[10px] text-stone-400"></i>
-                            <span>{karigar.city || 'Chennai'}, {karigar.state || 'Tamil Nadu'}</span>
+                            <span>{karigar.city || '-'}{karigar.state ? `, ${karigar.state}` : ''}</span>
                           </div>
                         )}
                       </div>
@@ -946,22 +947,20 @@ export default function KarigarManagement() {
                             e.stopPropagation();
                             setOpenStatusId(openStatusId === karigar.id ? null : karigar.id);
                           }}
-                          className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold capitalize cursor-pointer transition-all shadow-2xs whitespace-nowrap ${
-                            karigar.status === 'active'
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
-                              : karigar.status === 'on_leave'
+                          className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold capitalize cursor-pointer transition-all shadow-2xs whitespace-nowrap ${karigar.status === 'active'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                            : karigar.status === 'on_leave'
                               ? 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100'
                               : 'bg-stone-100 text-stone-600 border border-stone-300 hover:bg-stone-200'
-                          }`}
+                            }`}
                         >
                           <span
-                            className={`w-2 h-2 rounded-full ${
-                              karigar.status === 'active'
-                                ? 'bg-emerald-500 animate-pulse'
-                                : karigar.status === 'on_leave'
+                            className={`w-2 h-2 rounded-full ${karigar.status === 'active'
+                              ? 'bg-emerald-500 animate-pulse'
+                              : karigar.status === 'on_leave'
                                 ? 'bg-amber-500'
                                 : 'bg-stone-400'
-                            }`}
+                              }`}
                           ></span>
                           {karigar.status?.replace('_', ' ')}
                           <i className={`fa-solid fa-angle-down text-[10px] text-stone-400 transition-transform ${openStatusId === karigar.id ? 'rotate-180' : ''}`}></i>
@@ -970,9 +969,8 @@ export default function KarigarManagement() {
                         {/* Dropdown status switcher on click */}
                         {openStatusId === karigar.id && (
                           <div
-                            className={`absolute right-0 z-50 w-40 bg-white rounded-2xl shadow-xl border border-stone-200 py-1.5 animate-fade-in ${
-                              index >= karigars.length - 2 ? 'bottom-full mb-2' : 'top-full mt-2'
-                            }`}
+                            className={`absolute right-0 z-50 w-40 bg-white rounded-2xl shadow-xl border border-stone-200 py-1.5 animate-fade-in ${index >= karigars.length - 2 ? 'bottom-full mb-2' : 'top-full mt-2'
+                              }`}
                           >
                             <div className="px-3 py-1 text-[10px] font-bold text-stone-400 uppercase tracking-wider border-b border-stone-100 mb-1 text-left">
                               Update Status
@@ -985,11 +983,10 @@ export default function KarigarManagement() {
                                 handleToggleStatus(karigar, 'active');
                                 setOpenStatusId(null);
                               }}
-                              className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                                karigar.status === 'active'
-                                  ? 'bg-emerald-50 text-emerald-800 font-bold'
-                                  : 'text-stone-700 hover:bg-stone-50 font-medium'
-                              }`}
+                              className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between transition-colors cursor-pointer ${karigar.status === 'active'
+                                ? 'bg-emerald-50 text-emerald-800 font-bold'
+                                : 'text-stone-700 hover:bg-stone-50 font-medium'
+                                }`}
                             >
                               <div className="flex items-center gap-2">
                                 <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
@@ -1007,11 +1004,10 @@ export default function KarigarManagement() {
                                 handleToggleStatus(karigar, 'on_leave');
                                 setOpenStatusId(null);
                               }}
-                              className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                                karigar.status === 'on_leave'
-                                  ? 'bg-amber-50 text-amber-800 font-bold'
-                                  : 'text-stone-700 hover:bg-stone-50 font-medium'
-                              }`}
+                              className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between transition-colors cursor-pointer ${karigar.status === 'on_leave'
+                                ? 'bg-amber-50 text-amber-800 font-bold'
+                                : 'text-stone-700 hover:bg-stone-50 font-medium'
+                                }`}
                             >
                               <div className="flex items-center gap-2">
                                 <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
@@ -1029,11 +1025,10 @@ export default function KarigarManagement() {
                                 handleToggleStatus(karigar, 'inactive');
                                 setOpenStatusId(null);
                               }}
-                              className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                                karigar.status === 'inactive'
-                                  ? 'bg-stone-100 text-stone-900 font-bold'
-                                  : 'text-stone-600 hover:bg-stone-50 font-medium'
-                              }`}
+                              className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between transition-colors cursor-pointer ${karigar.status === 'inactive'
+                                ? 'bg-stone-100 text-stone-900 font-bold'
+                                : 'text-stone-600 hover:bg-stone-50 font-medium'
+                                }`}
                             >
                               <div className="flex items-center gap-2">
                                 <span className="w-2 h-2 rounded-full bg-stone-400 shrink-0"></span>
@@ -1155,13 +1150,12 @@ export default function KarigarManagement() {
                     {/* Status & Availability Badges */}
                     <div className="flex flex-col items-end gap-1 shrink-0">
                       <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold capitalize ${
-                          karigar.status === 'active'
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : karigar.status === 'on_leave'
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold capitalize ${karigar.status === 'active'
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          : karigar.status === 'on_leave'
                             ? 'bg-amber-50 text-amber-700 border border-amber-200'
                             : 'bg-stone-100 text-stone-600 border border-stone-300'
-                        }`}
+                          }`}
                       >
                         {karigar.status?.replace('_', ' ')}
                       </span>
@@ -1341,11 +1335,10 @@ export default function KarigarManagement() {
                   <button
                     type="button"
                     onClick={() => setFormTab('general')}
-                    className={`pb-3 text-xs font-bold transition-all relative cursor-pointer flex items-center gap-1.5 ${
-                      formTab === 'general'
-                        ? 'text-[#b01622] border-b-2 border-[#b01622]'
-                        : 'text-stone-500 hover:text-stone-800'
-                    }`}
+                    className={`pb-3 text-xs font-bold transition-all relative cursor-pointer flex items-center gap-1.5 ${formTab === 'general'
+                      ? 'text-[#b01622] border-b-2 border-[#b01622]'
+                      : 'text-stone-500 hover:text-stone-800'
+                      }`}
                   >
                     <i className="fa-solid fa-id-card-clip"></i>
                     <span>1. Artisan & Workshop</span>
@@ -1356,11 +1349,10 @@ export default function KarigarManagement() {
                   <button
                     type="button"
                     onClick={() => setFormTab('craft')}
-                    className={`pb-3 text-xs font-bold transition-all relative cursor-pointer flex items-center gap-1.5 ${
-                      formTab === 'craft'
-                        ? 'text-[#b01622] border-b-2 border-[#b01622]'
-                        : 'text-stone-500 hover:text-stone-800'
-                    }`}
+                    className={`pb-3 text-xs font-bold transition-all relative cursor-pointer flex items-center gap-1.5 ${formTab === 'craft'
+                      ? 'text-[#b01622] border-b-2 border-[#b01622]'
+                      : 'text-stone-500 hover:text-stone-800'
+                      }`}
                   >
                     <i className="fa-solid fa-scale-balanced"></i>
                     <span>2. Craft Terms & Bench Metal</span>
@@ -1371,11 +1363,10 @@ export default function KarigarManagement() {
                   <button
                     type="button"
                     onClick={() => setFormTab('kyc')}
-                    className={`pb-3 text-xs font-bold transition-all relative cursor-pointer flex items-center gap-1.5 ${
-                      formTab === 'kyc'
-                        ? 'text-[#b01622] border-b-2 border-[#b01622]'
-                        : 'text-stone-500 hover:text-stone-800'
-                    }`}
+                    className={`pb-3 text-xs font-bold transition-all relative cursor-pointer flex items-center gap-1.5 ${formTab === 'kyc'
+                      ? 'text-[#b01622] border-b-2 border-[#b01622]'
+                      : 'text-stone-500 hover:text-stone-800'
+                      }`}
                   >
                     <i className="fa-solid fa-building-columns"></i>
                     <span>3. KYC & Bank Details</span>
@@ -1405,9 +1396,8 @@ export default function KarigarManagement() {
                           value={formData.karigar_code}
                           onChange={handleInputChange}
                           placeholder="e.g. KRG-1006"
-                          className={`flex-1 px-3 py-2 bg-stone-50 border rounded-xl text-xs font-mono font-bold text-stone-900 focus:outline-none focus:bg-white ${
-                            formErrors.karigar_code ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
-                          }`}
+                          className={`flex-1 px-3 py-2 bg-stone-50 border rounded-xl text-xs font-mono font-bold text-stone-900 focus:outline-none focus:bg-white ${formErrors.karigar_code ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
+                            }`}
                         />
                         <button
                           type="button"
@@ -1433,9 +1423,8 @@ export default function KarigarManagement() {
                         value={formData.name}
                         onChange={handleInputChange}
                         placeholder="e.g. Rajesh Varma"
-                        className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${
-                          formErrors.name ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
-                        }`}
+                        className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.name ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
+                          }`}
                       />
                       {formErrors.name && <p className="text-[11px] text-red-500 mt-1">{formErrors.name}</p>}
                     </div>
@@ -1453,9 +1442,8 @@ export default function KarigarManagement() {
                           value={formData.primary_phone}
                           onChange={handleInputChange}
                           placeholder="+91 98401 23456"
-                          className={`w-full pl-8 pr-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${
-                            formErrors.primary_phone ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
-                          }`}
+                          className={`w-full pl-8 pr-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.primary_phone ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
+                            }`}
                         />
                       </div>
                       {formErrors.primary_phone && <p className="text-[11px] text-red-500 mt-1">{formErrors.primary_phone}</p>}
@@ -1492,9 +1480,8 @@ export default function KarigarManagement() {
                           value={formData.email}
                           onChange={handleInputChange}
                           placeholder="artisan@rudrajewellery.com"
-                          className={`w-full pl-8 pr-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${
-                            formErrors.email ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
-                          }`}
+                          className={`w-full pl-8 pr-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.email ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
+                            }`}
                         />
                       </div>
                       {formErrors.email && <p className="text-[11px] text-red-500 mt-1">{formErrors.email}</p>}
@@ -1513,9 +1500,8 @@ export default function KarigarManagement() {
                         value={formData.experience_years}
                         onChange={handleInputChange}
                         placeholder="e.g. 10"
-                        className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${
-                          formErrors.experience_years ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
-                        }`}
+                        className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.experience_years ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
+                          }`}
                       />
                       {formErrors.experience_years && <p className="text-[11px] text-red-500 mt-1">{formErrors.experience_years}</p>}
                     </div>
@@ -1538,9 +1524,8 @@ export default function KarigarManagement() {
                           value={formData.workshop_name}
                           onChange={handleInputChange}
                           placeholder="e.g. Varma Handcrafted Filigree Studio"
-                          className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${
-                            formErrors.workshop_name ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
-                          }`}
+                          className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.workshop_name ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
+                            }`}
                         />
                         {formErrors.workshop_name && <p className="text-[11px] text-red-500 mt-1">{formErrors.workshop_name}</p>}
                       </div>
@@ -1555,9 +1540,8 @@ export default function KarigarManagement() {
                           value={formData.workshop_address}
                           onChange={handleInputChange}
                           placeholder="Door No, Street Name, Goldsmith Colony, Sowcarpet"
-                          className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white resize-none ${
-                            formErrors.workshop_address ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
-                          }`}
+                          className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white resize-none ${formErrors.workshop_address ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
+                            }`}
                         />
                         {formErrors.workshop_address && <p className="text-[11px] text-red-500 mt-1">{formErrors.workshop_address}</p>}
                       </div>
@@ -1572,9 +1556,8 @@ export default function KarigarManagement() {
                           value={formData.city}
                           onChange={handleInputChange}
                           placeholder="Chennai"
-                          className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${
-                            formErrors.city ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
-                          }`}
+                          className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.city ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
+                            }`}
                         />
                         {formErrors.city && <p className="text-[11px] text-red-500 mt-1">{formErrors.city}</p>}
                       </div>
@@ -1591,9 +1574,8 @@ export default function KarigarManagement() {
                               value={formData.state}
                               onChange={handleInputChange}
                               placeholder="Tamil Nadu"
-                              className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${
-                                formErrors.state ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
-                              }`}
+                              className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.state ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
+                                }`}
                             />
                             {formErrors.state && <p className="text-[11px] text-red-500 mt-1">{formErrors.state}</p>}
                           </div>
@@ -1604,9 +1586,8 @@ export default function KarigarManagement() {
                               value={formData.zip_code}
                               onChange={handleInputChange}
                               placeholder="600079"
-                              className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${
-                                formErrors.zip_code ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
-                              }`}
+                              className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.zip_code ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
+                                }`}
                             />
                             {formErrors.zip_code && <p className="text-[11px] text-red-500 mt-1">{formErrors.zip_code}</p>}
                           </div>
@@ -1635,16 +1616,58 @@ export default function KarigarManagement() {
 
                     <div>
                       <label className="block text-xs font-bold text-stone-700 mb-1">
-                        Artisan Photo URL (Optional)
+                        Artisan Profile Image (Optional)
                       </label>
-                      <input
-                        type="url"
-                        name="avatar_url"
-                        value={formData.avatar_url}
-                        onChange={handleInputChange}
-                        placeholder="https://..."
-                        className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
-                      />
+                      <div className="flex items-center gap-3">
+                        {formData.avatar_url ? (
+                          <div className="relative group shrink-0">
+                            <img
+                              src={formData.avatar_url}
+                              alt="Artisan Preview"
+                              className="w-12 h-12 rounded-xl object-cover border border-stone-300 shadow-2xs"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setFormData((prev) => ({ ...prev, avatar_url: '' }))}
+                              className="absolute -top-1.5 -right-1.5 bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] shadow-xs hover:bg-red-700 cursor-pointer"
+                              title="Remove Image"
+                            >
+                              <i className="fa-solid fa-xmark"></i>
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="w-12 h-12 rounded-xl bg-stone-100 border border-dashed border-stone-300 flex items-center justify-center text-stone-400 shrink-0">
+                            <i className="fa-regular fa-image text-lg"></i>
+                          </div>
+                        )}
+
+                        <div className="flex-1 min-w-0">
+                          <label className="inline-flex items-center gap-2 px-3 py-2 bg-stone-50 hover:bg-stone-100 border border-stone-300 rounded-xl text-xs font-semibold text-stone-700 cursor-pointer transition-colors w-full justify-center sm:w-auto">
+                            <i className="fa-solid fa-upload text-stone-500 text-xs"></i>
+                            <span>{formData.avatar_url ? 'Change Image' : 'Upload Image'}</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  if (file.size > 5 * 1024 * 1024) {
+                                    showToast?.('Image size should be less than 5MB', 'error');
+                                    return;
+                                  }
+                                  const reader = new FileReader();
+                                  reader.onloadend = () => {
+                                    setFormData((prev) => ({ ...prev, avatar_url: reader.result }));
+                                  };
+                                  reader.readAsDataURL(file);
+                                }
+                              }}
+                            />
+                          </label>
+                          <span className="block text-[10px] text-stone-400 mt-1">PNG, JPG or WEBP (Max 5MB)</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1681,9 +1704,8 @@ export default function KarigarManagement() {
                         name="specialization"
                         value={formData.specialization}
                         onChange={handleInputChange}
-                        className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${
-                          formErrors.specialization ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
-                        }`}
+                        className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.specialization ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
+                          }`}
                       >
                         {dynamicSpecNames.map((opt) => (
                           <option key={opt} value={opt}>{opt}</option>
@@ -1706,9 +1728,8 @@ export default function KarigarManagement() {
                           name="standard_wastage_percent"
                           value={formData.standard_wastage_percent}
                           onChange={handleInputChange}
-                          className={`w-full pl-3 pr-8 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white no-spinners ${
-                            formErrors.standard_wastage_percent ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
-                          }`}
+                          className={`w-full pl-3 pr-8 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white no-spinners ${formErrors.standard_wastage_percent ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
+                            }`}
                         />
                         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs font-bold pointer-events-none select-none">%</span>
                       </div>
@@ -1733,9 +1754,8 @@ export default function KarigarManagement() {
                           name="making_charge_per_gram"
                           value={formData.making_charge_per_gram}
                           onChange={handleInputChange}
-                          className={`w-full pl-7 pr-8 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white no-spinners ${
-                            formErrors.making_charge_per_gram ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
-                          }`}
+                          className={`w-full pl-7 pr-8 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white no-spinners ${formErrors.making_charge_per_gram ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
+                            }`}
                         />
                         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs pointer-events-none select-none">/g</span>
                       </div>
@@ -1760,9 +1780,8 @@ export default function KarigarManagement() {
                           value={formData.current_gold_balance_grams}
                           onChange={handleInputChange}
                           placeholder="0.000"
-                          className={`w-full pl-3 pr-16 py-2 bg-stone-50 border rounded-xl text-xs font-mono font-bold text-stone-900 focus:outline-none focus:bg-white no-spinners ${
-                            formErrors.current_gold_balance_grams ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
-                          }`}
+                          className={`w-full pl-3 pr-16 py-2 bg-stone-50 border rounded-xl text-xs font-mono font-bold text-stone-900 focus:outline-none focus:bg-white no-spinners ${formErrors.current_gold_balance_grams ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
+                            }`}
                         />
                         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-amber-700 text-xs font-bold pointer-events-none select-none">grams</span>
                       </div>
@@ -1808,9 +1827,8 @@ export default function KarigarManagement() {
                         value={formData.pan_number}
                         onChange={handleInputChange}
                         placeholder="ABCDE1234F"
-                        className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs uppercase font-mono font-bold text-stone-900 focus:outline-none focus:bg-white ${
-                          formErrors.pan_number ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
-                        }`}
+                        className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs uppercase font-mono font-bold text-stone-900 focus:outline-none focus:bg-white ${formErrors.pan_number ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
+                          }`}
                       />
                       {formErrors.pan_number && <p className="text-[11px] text-red-500 mt-1">{formErrors.pan_number}</p>}
                     </div>
@@ -1826,9 +1844,8 @@ export default function KarigarManagement() {
                         value={formData.aadhar_number}
                         onChange={handleInputChange}
                         placeholder="1234 5678 9012"
-                        className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-mono font-medium text-stone-900 focus:outline-none focus:bg-white ${
-                          formErrors.aadhar_number ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
-                        }`}
+                        className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-mono font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.aadhar_number ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
+                          }`}
                       />
                       {formErrors.aadhar_number && <p className="text-[11px] text-red-500 mt-1">{formErrors.aadhar_number}</p>}
                     </div>
@@ -1844,9 +1861,8 @@ export default function KarigarManagement() {
                         value={formData.bank_name}
                         onChange={handleInputChange}
                         placeholder="State Bank of India / HDFC"
-                        className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${
-                          formErrors.bank_name ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
-                        }`}
+                        className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.bank_name ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
+                          }`}
                       />
                       {formErrors.bank_name && <p className="text-[11px] text-red-500 mt-1">{formErrors.bank_name}</p>}
                     </div>
@@ -1862,9 +1878,8 @@ export default function KarigarManagement() {
                         value={formData.account_number}
                         onChange={handleInputChange}
                         placeholder="50100234123456"
-                        className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-mono font-medium text-stone-900 focus:outline-none focus:bg-white ${
-                          formErrors.account_number ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
-                        }`}
+                        className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-mono font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.account_number ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
+                          }`}
                       />
                       {formErrors.account_number && <p className="text-[11px] text-red-500 mt-1">{formErrors.account_number}</p>}
                     </div>
@@ -1880,9 +1895,8 @@ export default function KarigarManagement() {
                         value={formData.ifsc_code}
                         onChange={handleInputChange}
                         placeholder="SBIN0001234"
-                        className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs uppercase font-mono font-medium text-stone-900 focus:outline-none focus:bg-white ${
-                          formErrors.ifsc_code ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
-                        }`}
+                        className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs uppercase font-mono font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.ifsc_code ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
+                          }`}
                       />
                       {formErrors.ifsc_code && <p className="text-[11px] text-red-500 mt-1">{formErrors.ifsc_code}</p>}
                     </div>
@@ -2010,11 +2024,10 @@ export default function KarigarManagement() {
                       {viewKarigar.name}
                     </h3>
                     <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold capitalize ${
-                        viewKarigar.status === 'active'
-                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30'
-                          : 'bg-amber-500/20 text-amber-300 border border-amber-400/30'
-                      }`}
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold capitalize ${viewKarigar.status === 'active'
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30'
+                        : 'bg-amber-500/20 text-amber-300 border border-amber-400/30'
+                        }`}
                     >
                       {viewKarigar.status?.replace('_', ' ')}
                     </span>
@@ -2035,19 +2048,17 @@ export default function KarigarManagement() {
               <button
                 type="button"
                 onClick={() => setViewDrawerTab('works')}
-                className={`py-2.5 px-4 rounded-t-xl transition-all cursor-pointer flex items-center gap-2 border-t-2 ${
-                  viewDrawerTab === 'works'
-                    ? 'bg-white text-[#b01622] border-[#b01622] shadow-xs'
-                    : 'text-stone-500 hover:text-stone-800 border-transparent'
-                }`}
+                className={`py-2.5 px-4 rounded-t-xl transition-all cursor-pointer flex items-center gap-2 border-t-2 ${viewDrawerTab === 'works'
+                  ? 'bg-white text-[#b01622] border-[#b01622] shadow-xs'
+                  : 'text-stone-500 hover:text-stone-800 border-transparent'
+                  }`}
               >
                 <i className="fa-solid fa-screwdriver-wrench text-xs"></i>
                 <span>Workbench & Assigned Works</span>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                  (viewKarigar?.current_assigned_order || selectedKarigarWorks.some(w => !['completed', 'cancelled', 'final_received'].includes(w.status)))
-                    ? 'bg-amber-100 text-amber-900'
-                    : 'bg-stone-200 text-stone-600'
-                }`}>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${(viewKarigar?.current_assigned_order || selectedKarigarWorks.some(w => !['completed', 'cancelled', 'final_received'].includes(w.status)))
+                  ? 'bg-amber-100 text-amber-900'
+                  : 'bg-stone-200 text-stone-600'
+                  }`}>
                   {(viewKarigar?.current_assigned_order || selectedKarigarWorks.some(w => !['completed', 'cancelled', 'final_received'].includes(w.status))) ? '1 Active' : '0 Active'}
                 </span>
               </button>
@@ -2055,11 +2066,10 @@ export default function KarigarManagement() {
               <button
                 type="button"
                 onClick={() => setViewDrawerTab('profile')}
-                className={`py-2.5 px-4 rounded-t-xl transition-all cursor-pointer flex items-center gap-2 border-t-2 ${
-                  viewDrawerTab === 'profile'
-                    ? 'bg-white text-[#b01622] border-[#b01622] shadow-xs'
-                    : 'text-stone-500 hover:text-stone-800 border-transparent'
-                }`}
+                className={`py-2.5 px-4 rounded-t-xl transition-all cursor-pointer flex items-center gap-2 border-t-2 ${viewDrawerTab === 'profile'
+                  ? 'bg-white text-[#b01622] border-[#b01622] shadow-xs'
+                  : 'text-stone-500 hover:text-stone-800 border-transparent'
+                  }`}
               >
                 <i className="fa-regular fa-id-card text-xs"></i>
                 <span>Artisan Profile & KYC</span>
@@ -2410,6 +2420,14 @@ export default function KarigarManagement() {
         loading={isDeleting}
         onConfirm={handleConfirmDelete}
         onCancel={() => setDeleteTarget(null)}
+      />
+
+      {/* Bench Metal Pop-up Modal */}
+      <BenchMetalModal
+        isOpen={isBenchModalOpen}
+        onClose={() => setIsBenchModalOpen(false)}
+        totalBenchMetal={Number(stats.total_gold_balance || 0)}
+        karigarsList={karigars}
       />
     </div>
   );

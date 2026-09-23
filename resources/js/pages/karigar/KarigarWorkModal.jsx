@@ -518,25 +518,74 @@ export default function KarigarWorkModal({ isOpen, onClose, workOrderId, onUpdat
 
                     {/* Timeline Stage Progression */}
                     <div>
-                      <label className="text-xs font-bold text-gray-700 block mb-1">
-                        Timeline Stage Update
+                      <label className="text-xs font-bold text-gray-700 block mb-1 flex items-center justify-between">
+                        <span>Timeline Stage Update</span>
+                        <span className="text-[10px] text-amber-700 font-bold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                          <i className="fa-solid fa-lock text-[9px] mr-1"></i>Forward-Only
+                        </span>
                       </label>
                       <select
-                        disabled={isCompleted}
+                        disabled={isCompleted || isSubmitted}
                         value={timelineStage}
-                        onChange={(e) => setTimelineStage(e.target.value)}
-                        className="w-full text-xs font-bold px-3 py-2 rounded-xl border border-stone-300 focus:border-[#b01622] bg-stone-50/50 focus:bg-white outline-hidden shadow-2xs"
+                        onChange={(e) => {
+                          const STAGE_RANKS = {
+                            created: 1,
+                            allocated: 2,
+                            received_by_artisan: 3,
+                            work_started: 4,
+                            work_in_progress: 5,
+                            work_completed: 6,
+                            sent_for_approval: 7,
+                            quality_check: 8,
+                            approved: 9,
+                            ready: 10,
+                            delivered: 11,
+                            final_received: 12,
+                          };
+                          const selectedRank = STAGE_RANKS[e.target.value] || 0;
+                          const currentRank = STAGE_RANKS[order?.current_stage] || 3;
+                          if (selectedRank < currentRank && !isReturned) {
+                            showToast?.('Workflow tracking can only move forward. Previous steps cannot be selected reversely.', 'warning');
+                            return;
+                          }
+                          setTimelineStage(e.target.value);
+                        }}
+                        className="w-full text-xs font-bold px-3 py-2 rounded-xl border border-stone-300 focus:border-[#b01622] bg-stone-50/50 focus:bg-white outline-hidden shadow-2xs disabled:opacity-60 disabled:cursor-not-allowed"
                       >
-                        <option value="received_by_artisan">Received by Aachari</option>
-                        <option value="work_started">Work Started</option>
-                        <option value="work_in_progress">Work in Progress</option>
-                        <option value="work_completed">Work Completed</option>
-                        <option value="sent_for_approval">Sent for Admin Approval</option>
-                        <option value="quality_check">Quality Check (QC Pending)</option>
-                        <option value="ready">Ready for Reception</option>
+                        {[
+                          { value: 'received_by_artisan', label: 'Received by Aachari', rank: 3 },
+                          { value: 'work_started', label: 'Work Started', rank: 4 },
+                          { value: 'work_in_progress', label: 'Work in Progress', rank: 5 },
+                          { value: 'work_completed', label: 'Work Completed', rank: 6 },
+                          { value: 'sent_for_approval', label: 'Sent for Admin Approval', rank: 7 },
+                          { value: 'quality_check', label: 'Quality Check (QC Pending)', rank: 8 },
+                          { value: 'ready', label: 'Ready for Reception', rank: 10 },
+                        ].map((st) => {
+                          const STAGE_RANKS = {
+                            created: 1,
+                            allocated: 2,
+                            received_by_artisan: 3,
+                            work_started: 4,
+                            work_in_progress: 5,
+                            work_completed: 6,
+                            sent_for_approval: 7,
+                            quality_check: 8,
+                            approved: 9,
+                            ready: 10,
+                            delivered: 11,
+                            final_received: 12,
+                          };
+                          const currentRank = STAGE_RANKS[order?.current_stage] || 3;
+                          const isPast = st.rank < currentRank && !isReturned;
+                          return (
+                            <option key={st.value} value={st.value} disabled={isPast}>
+                              {st.label} {isPast ? ' (Completed - Locked)' : ''}
+                            </option>
+                          );
+                        })}
                       </select>
                       <p className="text-[10px] text-stone-400 mt-1">
-                        Advances step in Tracking Timeline
+                        Advances step in Tracking Timeline (Previous steps locked)
                       </p>
                     </div>
                   </div>

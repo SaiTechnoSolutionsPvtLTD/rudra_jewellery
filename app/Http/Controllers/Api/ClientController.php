@@ -55,11 +55,7 @@ class ClientController extends Controller
                     }
                 }
 
-                if ($request->filled('search') || ($request->filled('status') && $request->status !== 'all')) {
-                    $clients = $query->orderBy('id', 'desc')->get();
-                } else {
-                    $clients = $query->orderByRaw("CASE WHEN id IN (7, 9, 10, 11, 12, 13) THEN 0 ELSE 1 END, FIELD(id, 7, 9, 10, 11, 12, 13), id DESC")->get();
-                }
+                $clients = $query->orderBy('id', 'desc')->get();
 
                 $totalCount = Client::where(function($q) {
                     $q->whereNull('is_removed')->orWhere('is_removed', false);
@@ -76,10 +72,10 @@ class ClientController extends Controller
 
                 return response()->json([
                     'stats' => [
-                        'todayClients' => $todayCount > 0 ? $todayCount : $totalCount,
+                        'todayClients' => $todayCount,
                         'totalClients' => $totalCount,
                         'activeMembers' => $activeMembersCount,
-                        'newReg' => $newRegCount > 0 ? $newRegCount : $totalCount,
+                        'newReg' => $newRegCount,
                     ],
                     'clients' => $clients
                 ]);
@@ -401,13 +397,29 @@ class ClientController extends Controller
                     ];
                 });
 
-                // Compute real dynamic stats from the database
+                // Compute real dynamic stats and period-over-period growth rates from the database
                 $totalInvoicesCount = Invoice::count();
                 $todayInvoicesCount = Invoice::whereDate('invoice_date', Carbon::today())->count();
                 $todayBillingSum = Invoice::whereDate('invoice_date', Carbon::today())->sum('total_amount');
                 $totalBillingSum = Invoice::sum('total_amount');
                 $pendingBillsSum = Invoice::where('status', '!=', 'paid')->sum('total_amount');
                 $totalRevenueSum = Invoice::where('status', 'paid')->sum('total_amount') + (Invoice::where('status', 'partial')->sum('total_amount') * 0.5);
+
+                $yesterdayInvoicesCount = Invoice::whereDate('invoice_date', Carbon::yesterday())->count();
+                $todayInvoicesGrowthPct = $yesterdayInvoicesCount > 0 ? round((($todayInvoicesCount - $yesterdayInvoicesCount) / $yesterdayInvoicesCount) * 100, 1) : ($todayInvoicesCount > 0 ? 100.0 : 0.0);
+                $todayInvoicesGrowth = ($todayInvoicesGrowthPct >= 0 ? '+' : '') . number_format($todayInvoicesGrowthPct, 1) . '%';
+
+                $yesterdayBillingSum = Invoice::whereDate('invoice_date', Carbon::yesterday())->sum('total_amount');
+                $todayBillingsGrowthPct = $yesterdayBillingSum > 0 ? round((($todayBillingSum - $yesterdayBillingSum) / $yesterdayBillingSum) * 100, 1) : ($todayBillingSum > 0 ? 100.0 : 0.0);
+                $todayBillingsGrowth = ($todayBillingsGrowthPct >= 0 ? '+' : '') . number_format($todayBillingsGrowthPct, 1) . '%';
+
+                $prevMonthPendingSum = Invoice::whereBetween('invoice_date', [Carbon::now()->subMonth()->startOfMonth(), Carbon::now()->subMonth()->endOfMonth()])->where('status', '!=', 'paid')->sum('total_amount');
+                $pendingBillsChangePct = $prevMonthPendingSum > 0 ? round((($pendingBillsSum - $prevMonthPendingSum) / $prevMonthPendingSum) * 100, 1) : 0.0;
+                $pendingBillsChange = ($pendingBillsChangePct >= 0 ? '+' : '') . number_format($pendingBillsChangePct, 1) . '%';
+
+                $prevYearRevenueSum = Invoice::whereBetween('invoice_date', [Carbon::now()->subYear()->startOfYear(), Carbon::now()->subYear()->endOfYear()])->whereIn('status', ['paid', 'partial'])->sum('total_amount');
+                $totalRevenueGrowthPct = $prevYearRevenueSum > 0 ? round((($totalRevenueSum - $prevYearRevenueSum) / $prevYearRevenueSum) * 100, 1) : ($totalRevenueSum > 0 ? 100.0 : 0.0);
+                $totalRevenueGrowth = ($totalRevenueGrowthPct >= 0 ? '+' : '') . number_format($totalRevenueGrowthPct, 1) . '%';
 
                 $fmtCurrency = function($amount) {
                     if ($amount >= 10000000) {
@@ -423,9 +435,13 @@ class ClientController extends Controller
                 return response()->json([
                     'stats' => [
                         'todayInvoices' => number_format($todayInvoicesCount),
+                        'todayInvoicesGrowth' => $todayInvoicesGrowth,
                         'todayBillings' => $fmtCurrency($todayBillingSum),
+                        'todayBillingsGrowth' => $todayBillingsGrowth,
                         'pendingBills' => $fmtCurrency($pendingBillsSum),
+                        'pendingBillsChange' => $pendingBillsChange,
                         'totalRevenue' => $fmtCurrency($totalRevenueSum),
+                        'totalRevenueGrowth' => $totalRevenueGrowth,
                     ],
                     'invoices' => $invoices,
                 ]);
@@ -595,98 +611,6 @@ class ClientController extends Controller
     {
         try {
             if (Schema::hasTable('clients')) {
-                // If there are no removed clients yet, seed sample removed records matching the reference design
-                $countRemoved = Client::where('is_removed', true)->count();
-                if ($countRemoved === 0) {
-                    $sampleRemoved = [
-                        [
-                            'client_code' => 'RJ-C-001',
-                            'full_name' => 'Meera Singhania',
-                            'email' => 'meera.s@email.com',
-                            'primary_phone' => '+91 98765 43210',
-                            'membership_tier' => 'elite',
-                            'total_purchases' => 8450000.00,
-                            'status' => 'inactive',
-                            'is_removed' => true,
-                            'removed_at' => Carbon::parse('2026-07-23 10:30:00'),
-                            'remove_reason' => 'Client Request',
-                            'can_be_restored' => true,
-                            'removed_by' => 'Arvind (Admin)',
-                        ],
-                        [
-                            'client_code' => 'RJ-C-002',
-                            'full_name' => 'Rajesh Khanna',
-                            'email' => 'rajesh.k@email.com',
-                            'primary_phone' => '+91 91234 56789',
-                            'membership_tier' => 'gold',
-                            'total_purchases' => 4220000.00,
-                            'status' => 'inactive',
-                            'is_removed' => true,
-                            'removed_at' => Carbon::parse('2026-07-22 16:15:00'),
-                            'remove_reason' => 'Not Interested',
-                            'can_be_restored' => true,
-                            'removed_by' => 'Arvind (Admin)',
-                        ],
-                        [
-                            'client_code' => 'RJ-C-003',
-                            'full_name' => 'Ananya Iyer',
-                            'email' => 'ananya.i@email.com',
-                            'primary_phone' => '+91 99887 76655',
-                            'membership_tier' => 'silver',
-                            'total_purchases' => 1875000.00,
-                            'status' => 'inactive',
-                            'is_removed' => true,
-                            'removed_at' => Carbon::parse('2026-07-21 11:45:00'),
-                            'remove_reason' => 'Account Inactive',
-                            'can_be_restored' => true,
-                            'removed_by' => 'Arvind (Admin)',
-                        ],
-                        [
-                            'client_code' => 'RJ-C-004',
-                            'full_name' => 'Vikram Malhotra',
-                            'email' => 'vikram.m@email.com',
-                            'primary_phone' => '+91 90098 76543',
-                            'membership_tier' => 'platinum',
-                            'total_purchases' => 12400000.00,
-                            'status' => 'inactive',
-                            'is_removed' => true,
-                            'removed_at' => Carbon::parse('2026-07-20 15:20:00'),
-                            'remove_reason' => 'Duplicate Entry',
-                            'can_be_restored' => true,
-                            'removed_by' => 'Arvind (Admin)',
-                        ],
-                        [
-                            'client_code' => 'RJ-C-005',
-                            'full_name' => 'Sneha Reddy',
-                            'email' => 'sneha.r@email.com',
-                            'primary_phone' => '+91 98989 12345',
-                            'membership_tier' => 'gold',
-                            'total_purchases' => 7550000.00,
-                            'status' => 'inactive',
-                            'is_removed' => true,
-                            'removed_at' => Carbon::parse('2026-07-19 09:10:00'),
-                            'remove_reason' => 'Client Request',
-                            'can_be_restored' => false,
-                            'removed_by' => 'Arvind (Admin)',
-                        ],
-                    ];
-
-                    foreach ($sampleRemoved as $sr) {
-                        $exists = Client::where('email', $sr['email'])->orWhere('client_code', $sr['client_code'])->first();
-                        if ($exists) {
-                            $exists->update([
-                                'is_removed' => true,
-                                'removed_at' => $sr['removed_at'],
-                                'remove_reason' => $sr['remove_reason'],
-                                'can_be_restored' => $sr['can_be_restored'],
-                                'removed_by' => $sr['removed_by'],
-                            ]);
-                        } else {
-                            Client::create($sr);
-                        }
-                    }
-                }
-
                 $query = Client::where('is_removed', true);
 
                 if ($request->filled('search')) {
@@ -757,14 +681,29 @@ class ClientController extends Controller
                     ->where('can_be_restored', true)
                     ->count();
 
+                $prevMonthActive = Client::where('created_at', '<', Carbon::now()->startOfMonth())->where('is_removed', false)->count();
+                $activeGrowthPct = $prevMonthActive > 0 ? round((($activeCount - $prevMonthActive) / $prevMonthActive) * 100, 1) : ($activeCount > 0 ? 100.0 : 0.0);
+                $activeGrowth = ($activeGrowthPct >= 0 ? '+' : '') . number_format($activeGrowthPct, 1) . '% vs last month';
+
+                $prevMonthRemoved = Client::where('removed_at', '<', Carbon::now()->startOfMonth())->where('is_removed', true)->count();
+                $removedGrowthPct = $prevMonthRemoved > 0 ? round((($removedCount - $prevMonthRemoved) / $prevMonthRemoved) * 100, 1) : 0.0;
+                $removedGrowth = ($removedGrowthPct >= 0 ? '+' : '') . number_format($removedGrowthPct, 1) . '% vs last month';
+
+                $lastMonthRemovedCount = Client::where('is_removed', true)
+                    ->whereMonth('removed_at', Carbon::now()->subMonth()->month)
+                    ->whereYear('removed_at', Carbon::now()->subMonth()->year)
+                    ->count();
+                $thisMonthGrowthPct = $lastMonthRemovedCount > 0 ? round((($thisMonthCount - $lastMonthRemovedCount) / $lastMonthRemovedCount) * 100, 1) : 0.0;
+                $thisMonthGrowth = ($thisMonthGrowthPct >= 0 ? '+' : '') . number_format($thisMonthGrowthPct, 1) . '% vs last month';
+
                 return response()->json([
                     'stats' => [
                         'activeClients' => number_format($activeCount),
-                        'activeGrowth' => '+5.4% vs last month',
+                        'activeGrowth' => $activeGrowth,
                         'removedClients' => number_format($removedCount),
-                        'removedGrowth' => '+12.6% vs last month',
+                        'removedGrowth' => $removedGrowth,
                         'thisMonthRemoved' => number_format($thisMonthCount),
-                        'thisMonthGrowth' => '+8.2% vs last month',
+                        'thisMonthGrowth' => $thisMonthGrowth,
                         'canBeRestored' => number_format($canBeRestoredCount),
                     ],
                     'clients' => $clients,

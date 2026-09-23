@@ -14,7 +14,7 @@ class DiamondRangeController extends Controller
      */
     public function index()
     {
-        $ranges = DiamondRange::orderBy('min_ct')->get();
+        $ranges = DiamondRange::orderBy('id', 'asc')->get();
         return response()->json($ranges);
     }
 
@@ -29,6 +29,22 @@ class DiamondRangeController extends Controller
             'min_ct' => 'nullable|numeric|min:0',
             'max_ct' => 'nullable|numeric|min:0',
             'description' => 'nullable|string',
+            'item_name' => 'nullable|string|max:255',
+            'stamp' => 'nullable|string|max:100',
+            'part' => 'nullable|string|max:100',
+            'colour' => 'nullable|string|max:100',
+            'clarity' => 'nullable|string|max:100',
+            'remarks' => 'nullable|string|max:255',
+            'unit' => 'nullable|string|max:50',
+            'tunch' => 'nullable|string|max:50',
+            'sale_lb' => 'nullable|string|max:50',
+            'pc' => 'nullable|integer|min:0',
+            'wt_ct' => 'nullable|numeric|min:0',
+            'dollar' => 'nullable|numeric|min:0',
+            'disc_percent' => 'nullable|numeric|min:0',
+            'dolx_rate' => 'nullable|numeric|min:0',
+            'rate' => 'nullable|numeric|min:0',
+            'value' => 'nullable|numeric|min:0',
         ]);
 
         if (empty($validated['code'])) {
@@ -41,10 +57,18 @@ class DiamondRangeController extends Controller
             $validated['code'] = $code;
         }
 
+        if (empty($validated['item_name'])) {
+            $validated['item_name'] = 'DIAMOND';
+        }
+
+        if (isset($validated['wt_ct']) && isset($validated['rate'])) {
+            $validated['value'] = $validated['wt_ct'] * $validated['rate'];
+        }
+
         $range = DiamondRange::create($validated);
 
         return response()->json([
-            'message' => 'Diamond weight range created successfully.',
+            'message' => 'Diamond master item created successfully.',
             'data' => $range,
         ], 201);
     }
@@ -63,21 +87,37 @@ class DiamondRangeController extends Controller
     public function update(Request $request, DiamondRange $diamondRange)
     {
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => 'sometimes|required|string|max:255',
             'code' => 'nullable|string|max:100|unique:diamond_ranges,code,' . $diamondRange->id,
             'min_ct' => 'nullable|numeric|min:0',
             'max_ct' => 'nullable|numeric|min:0',
             'description' => 'nullable|string',
+            'item_name' => 'nullable|string|max:255',
+            'stamp' => 'nullable|string|max:100',
+            'part' => 'nullable|string|max:100',
+            'colour' => 'nullable|string|max:100',
+            'clarity' => 'nullable|string|max:100',
+            'remarks' => 'nullable|string|max:255',
+            'unit' => 'nullable|string|max:50',
+            'tunch' => 'nullable|string|max:50',
+            'sale_lb' => 'nullable|string|max:50',
+            'pc' => 'nullable|integer|min:0',
+            'wt_ct' => 'nullable|numeric|min:0',
+            'dollar' => 'nullable|numeric|min:0',
+            'disc_percent' => 'nullable|numeric|min:0',
+            'dolx_rate' => 'nullable|numeric|min:0',
+            'rate' => 'nullable|numeric|min:0',
+            'value' => 'nullable|numeric|min:0',
         ]);
 
-        if (empty($validated['code'])) {
-            $validated['code'] = $diamondRange->code;
+        if (isset($validated['wt_ct']) && isset($validated['rate'])) {
+            $validated['value'] = $validated['wt_ct'] * $validated['rate'];
         }
 
         $diamondRange->update($validated);
 
         return response()->json([
-            'message' => 'Diamond weight range updated successfully.',
+            'message' => 'Diamond master item updated successfully.',
             'data' => $diamondRange,
         ]);
     }
@@ -90,7 +130,7 @@ class DiamondRangeController extends Controller
         $diamondRange->delete();
 
         return response()->json([
-            'message' => 'Diamond weight range deleted successfully.',
+            'message' => 'Diamond master item deleted successfully.',
         ]);
     }
 }

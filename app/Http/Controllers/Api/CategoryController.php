@@ -101,34 +101,19 @@ class CategoryController extends Controller
         try {
             if (Schema::hasTable('categories')) {
                 $categories = Category::orderBy('id', 'desc')->get();
-                if ($categories->count() === 0) {
-                    foreach ($this->getInitialCategories() as $initial) {
-                        Category::create([
-                            'name' => $initial['name'],
-                            'code' => $initial['code'],
-                            'description' => $initial['description'],
-                            'status' => $initial['status'],
-                            'form_schema' => $initial['form_schema'],
-                        ]);
-                    }
-                    $categories = Category::orderBy('id', 'desc')->get();
-                } else {
-                    // Populate default form_schema for existing categories if missing
-                    foreach ($categories as $cat) {
-                        if (empty($cat->form_schema)) {
-                            $cat->form_schema = $this->getDefaultFormSchema($cat->code);
-                            $cat->save();
-                        }
+                foreach ($categories as $cat) {
+                    if (empty($cat->form_schema)) {
+                        $cat->form_schema = $this->getDefaultFormSchema($cat->code);
+                        $cat->save();
                     }
                 }
                 return response()->json($categories);
             }
         } catch (\Exception $e) {
-            // Fallback to cache if database error occurs
+            // Log or ignore
         }
 
-        $categories = Cache::get('mock_categories', $this->getInitialCategories());
-        return response()->json($categories);
+        return response()->json([]);
     }
 
     public function store(Request $request)

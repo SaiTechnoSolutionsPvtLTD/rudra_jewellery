@@ -22,6 +22,8 @@ use App\Http\Controllers\Api\WorkOrderController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\SalesController;
 use App\Http\Controllers\Api\ReportController;
+use App\Http\Controllers\Api\BankAccountController;
+use App\Http\Controllers\Api\CompanyInfoController;
 
 // Public authentication routes
 Route::post('/login', [AuthController::class, 'login']);
@@ -41,6 +43,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/dashboard', [DashboardController::class, 'index']);
     Route::get('/metal-rates', [DashboardController::class, 'metalRates']);
+    Route::post('/metal-rates', [DashboardController::class, 'updateMetalRates']);
+    Route::post('/metal-rates/reset', [DashboardController::class, 'resetMetalRates']);
+    Route::get('/reports/profit-per-metal', [\App\Http\Controllers\Api\ReportController::class, 'profitPerMetal']);
 
     // Work Orders & Live Job Workflow (Pages 14, 15, 16 & Job Order views)
     Route::get('/work-orders/dashboard-stats', [WorkOrderController::class, 'dashboardStats']);
@@ -79,6 +84,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/sales/customer-report', [SalesController::class, 'customerReport']);
     Route::get('/sales/products', [SalesController::class, 'products']);
     Route::get('/sales/profit', [SalesController::class, 'profit']);
+    Route::get('/sales/profit-per-invoice', [SalesController::class, 'profit']);
+    Route::get('/sales/profit-per-metal', [ReportController::class, 'profitPerMetal']);
     Route::get('/sales/customers/{client}', [SalesController::class, 'customer']);
     Route::post('/sales/{sale}/payments', [SalesController::class, 'payment']);
     Route::get('/sales/{sale}', [SalesController::class, 'show']);
@@ -100,13 +107,21 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('purchase-entries', PurchaseEntryController::class);
 
     // Product Designs & Upload
+    Route::get('/product-designs/check-design-no', [\App\Http\Controllers\Api\ProductDesignController::class, 'checkDesignNo']);
+    Route::get('/product-designs/generate-design-no', [\App\Http\Controllers\Api\ProductDesignController::class, 'generateDesignNo']);
     Route::get('/product-designs/meta', [\App\Http\Controllers\Api\ProductDesignController::class, 'meta']);
+    Route::post('/product-designs/sync-inventory', [\App\Http\Controllers\Api\ProductDesignController::class, 'syncInventory']);
     Route::get('/product-designs/export-pdf', [\App\Http\Controllers\Api\ProductDesignController::class, 'exportPdf']);
     Route::get('/product-designs/export-excel', [\App\Http\Controllers\Api\ProductDesignController::class, 'exportExcel']);
     Route::post('/product-designs/{id}', [\App\Http\Controllers\Api\ProductDesignController::class, 'update']);
     Route::apiResource('product-designs', \App\Http\Controllers\Api\ProductDesignController::class);
 
-    // Setting Styles, Gold Types, Diamond Ranges
+    // Setting Styles, Gold Types, Diamond Ranges, Bank Accounts, Company Info
+    Route::get('/company-info/default', [CompanyInfoController::class, 'getDefault']);
+    Route::post('/company-info/{id}/set-default', [CompanyInfoController::class, 'setDefault']);
+    Route::apiResource('company-info', CompanyInfoController::class);
+    Route::post('/bank-accounts/{id}/set-default', [BankAccountController::class, 'setDefault']);
+    Route::apiResource('bank-accounts', BankAccountController::class);
     Route::apiResource('styles', \App\Http\Controllers\Api\StyleController::class);
     Route::apiResource('gold-types', \App\Http\Controllers\Api\GoldTypeController::class);
     Route::apiResource('diamond-ranges', \App\Http\Controllers\Api\DiamondRangeController::class);

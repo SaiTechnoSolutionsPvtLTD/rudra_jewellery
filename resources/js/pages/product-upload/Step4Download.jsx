@@ -14,14 +14,30 @@ export default function Step4Download() {
   const [totalDesigns, setTotalDesigns] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [lastPage, setLastPage] = useState(1);
+  const [perPage, setPerPage] = useState(20);
   const [loading, setLoading] = useState(true);
+
+  // Helper for pagination windowing
+  const getPageNumbers = (current, last) => {
+    if (last <= 1) return [1];
+    if (last <= 7) {
+      return Array.from({ length: last }, (_, i) => i + 1);
+    }
+    if (current <= 4) {
+      return [1, 2, 3, 4, 5, '...', last];
+    }
+    if (current >= last - 3) {
+      return [1, '...', last - 4, last - 3, last - 2, last - 1, last];
+    }
+    return [1, '...', current - 1, current, current + 1, '...', last];
+  };
 
   // Lightbox
   const [galleryImages, setGalleryImages] = useState([]);
   const [galleryDetails, setGalleryDetails] = useState({});
   const [galleryOpen, setGalleryOpen] = useState(false);
 
-  const fetchSelectedDesigns = async (page = 1) => {
+  const fetchSelectedDesigns = async (page = 1, requestedPerPage = perPage) => {
     if (selectedIds.length === 0) {
       setDesigns([]);
       setTotalDesigns(0);
@@ -33,7 +49,7 @@ export default function Step4Download() {
       setLoading(true);
       const params = new URLSearchParams();
       params.append('page', page);
-      params.append('per_page', 20);
+      params.append('per_page', requestedPerPage);
       params.append('ids', selectedIds.join(','));
 
       const res = await api.get(`/product-designs?${params.toString()}`);
@@ -87,6 +103,22 @@ export default function Step4Download() {
     setGalleryOpen(true);
   };
 
+  const handleShareWhatsApp = () => {
+    if (selectedCount === 0 || designs.length === 0) {
+      showToast('No designs selected to share', 'error');
+      return;
+    }
+    const summary = designs.slice(0, 10).map((d, i) => `${i + 1}. SKU: ${d.design_no} | Purity: ${d.gold_type || '22K'} | Net Wt: ${d.net_wt ? Number(d.net_wt).toFixed(3) : '1.5'}g | Dia Wt: ${d.dia_wt_ct || '0.50'}ct`).join('%0A');
+    const text = `*RUDRA JEWELLERS - DIGITAL PRODUCT CATALOG*%0A%0ASelected Catalog Items (%2A${selectedCount} Items%2A):%0A%0A${summary}%0A%0AView & download full digital catalog: ${window.location.origin}/product-upload/step4`;
+    window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
+  };
+
+  const handleCopyShareLink = () => {
+    const url = `${window.location.origin}/product-upload/step4`;
+    navigator.clipboard.writeText(url);
+    showToast('Catalog share link copied to clipboard!', 'success');
+  };
+
   return (
     <div className="max-w-7xl mx-auto pb-12">
       {/* Top Step Nav */}
@@ -95,28 +127,48 @@ export default function Step4Download() {
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between mb-5 gap-4">
         <div>
-          <h1 className="text-xl font-bold text-gray-900 tracking-tight">Selected Designs</h1>
-          <p className="text-xs text-gray-400 mt-1">{selectedCount} Designs selected by client</p>
+          <h1 className="text-xl font-bold text-gray-900 tracking-tight flex items-center gap-2">
+            <span>Selected Designs &amp; Share Catalog</span>
+            <span className="bg-emerald-100 text-emerald-800 text-xs px-2.5 py-0.5 rounded-full font-bold">Auto-Reflected from Inventory</span>
+          </h1>
+          <p className="text-xs text-gray-400 mt-1">{selectedCount} Designs selected for digital catalog export &amp; sharing</p>
         </div>
 
-        <div className="flex items-center gap-2.5 shrink-0">
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <button
+            type="button"
+            onClick={handleShareWhatsApp}
+            disabled={selectedCount === 0}
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors shadow-xs disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          >
+            <i className="fa-brands fa-whatsapp text-sm"></i>
+            <span>Share via WhatsApp</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleCopyShareLink}
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-bold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors shadow-2xs cursor-pointer"
+          >
+            <i className="fa-solid fa-link text-stone-500"></i>
+            <span>Copy Link</span>
+          </button>
           <button
             type="button"
             onClick={() => handleDownload('excel')}
             disabled={selectedCount === 0}
-            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors shadow-xs disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl hover:bg-emerald-100 transition-colors shadow-xs disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
           >
             <i className="fa-solid fa-file-excel text-emerald-600"></i>
-            Download Excel
+            <span>Excel</span>
           </button>
           <button
             type="button"
             onClick={() => handleDownload('pdf')}
             disabled={selectedCount === 0}
-            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-[#b01622] bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors shadow-xs disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-[#b01622] bg-red-50 border border-red-200 rounded-xl hover:bg-red-100 transition-colors shadow-xs disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
           >
             <i className="fa-solid fa-file-pdf text-[#b01622]"></i>
-            Download PDF
+            <span>PDF</span>
           </button>
         </div>
       </div>
@@ -167,7 +219,7 @@ export default function Step4Download() {
                   return (
                     <tr key={design.id} className="hover:bg-gray-50/60 transition-colors">
                       <td className="px-6 py-4 text-gray-500 text-xs font-medium">
-                        {(currentPage - 1) * 20 + index + 1}
+                        {(currentPage - 1) * perPage + index + 1}
                       </td>
                       <td className="px-6 py-4">
                         {firstImage ? (
@@ -222,42 +274,69 @@ export default function Step4Download() {
         </div>
 
         {/* Pagination */}
-        {lastPage > 1 && (
-          <div className="p-4 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+        <div className="p-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-4 text-xs text-gray-500 bg-gray-50/50">
+          <div className="flex items-center gap-3">
             <span>
-              Showing {(currentPage - 1) * 20 + 1} to {Math.min(currentPage * 20, totalDesigns)} of {totalDesigns} designs
+              Showing {totalDesigns === 0 ? 0 : (currentPage - 1) * perPage + 1} to{' '}
+              {Math.min(currentPage * perPage, totalDesigns)} of {totalDesigns} designs
             </span>
-            <div className="flex items-center gap-1.5">
-              <button
-                disabled={currentPage <= 1}
-                onClick={() => fetchSelectedDesigns(currentPage - 1)}
-                className="px-3.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium transition-colors"
+            <div className="flex items-center gap-1.5 ml-2">
+              <span className="text-gray-400 font-normal">Per page:</span>
+              <select
+                value={perPage}
+                onChange={(e) => {
+                  const newPerPage = Number(e.target.value);
+                  setPerPage(newPerPage);
+                  fetchSelectedDesigns(1, newPerPage);
+                }}
+                className="px-2 py-1 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-gray-700 outline-none focus:border-[#b01622] cursor-pointer"
               >
-                Previous
-              </button>
-              {Array.from({ length: lastPage }, (_, i) => i + 1).map((p) => (
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              disabled={currentPage <= 1}
+              onClick={() => fetchSelectedDesigns(currentPage - 1)}
+              className="px-3.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed font-medium transition-colors cursor-pointer bg-white shadow-xs"
+            >
+              Previous
+            </button>
+            {getPageNumbers(currentPage, lastPage).map((p, idx) =>
+              p === '...' ? (
+                <span key={`ellipsis-${idx}`} className="px-2 py-1 text-gray-400">
+                  ...
+                </span>
+              ) : (
                 <button
+                  type="button"
                   key={p}
                   onClick={() => fetchSelectedDesigns(p)}
-                  className={`w-7 h-7 rounded-lg text-xs font-semibold transition-colors ${
+                  className={`w-8 h-8 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                     p === currentPage
                       ? 'bg-[#b01622] text-white shadow-xs'
-                      : 'border border-gray-200 text-gray-600 hover:bg-gray-50'
+                      : 'border border-gray-200 text-gray-600 hover:bg-gray-100 bg-white'
                   }`}
                 >
                   {p}
                 </button>
-              ))}
-              <button
-                disabled={currentPage >= lastPage}
-                onClick={() => fetchSelectedDesigns(currentPage + 1)}
-                className="px-3.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium transition-colors"
-              >
-                Next
-              </button>
-            </div>
+              )
+            )}
+            <button
+              type="button"
+              disabled={currentPage >= lastPage}
+              onClick={() => fetchSelectedDesigns(currentPage + 1)}
+              className="px-3.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed font-medium transition-colors cursor-pointer bg-white shadow-xs"
+            >
+              Next
+            </button>
           </div>
-        )}
+        </div>
       </div>
 
       {/* Bottom Actions */}

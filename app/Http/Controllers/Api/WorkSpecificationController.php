@@ -40,7 +40,7 @@ class WorkSpecificationController extends Controller
             'COUNT(*) as total,
              SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as active_count,
              SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as inactive_count,
-             COALESCE(AVG(CASE WHEN status = ? THEN default_wastage_percent END), 4.5) as avg_wastage',
+             COALESCE(AVG(CASE WHEN status = ? THEN default_wastage_percent END), 0) as avg_wastage',
             ['active', 'inactive', 'active']
         )->first();
 
@@ -48,7 +48,7 @@ class WorkSpecificationController extends Controller
             'total'        => (int) ($statsRow->total ?? 0),
             'active_count' => (int) ($statsRow->active_count ?? 0),
             'inactive_count' => (int) ($statsRow->inactive_count ?? 0),
-            'avg_wastage'  => round($statsRow->avg_wastage ?? 4.5, 2),
+            'avg_wastage'  => round($statsRow->avg_wastage ?? 0, 2),
         ];
 
         return response()->json([

@@ -4,6 +4,7 @@ import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { compressImageFile } from '../../utils/imageCompressor';
 import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
+import { STAMP_OPTIONS, STONE_SIZE_OPTIONS, STONE_COLOR_OPTIONS } from '../../constants/productOptions';
 
 export default function InventoryAddNewUpload() {
   const navigate = useNavigate();
@@ -28,8 +29,12 @@ export default function InventoryAddNewUpload() {
     gross_wt: '',
     net_wt: '',
     purity: '22K (91.6%)',
+    size: '',
     setting_style: 'Prong Setting',
     dia_wt_ct: '',
+    stone_size: '',
+    stone_color: '',
+    stamp: '+0',
     wastage_percent: '3.50',
     making_charge: '650',
     open_close_type: 'Close',
@@ -37,14 +42,69 @@ export default function InventoryAddNewUpload() {
     stock_qty: '1',
     description: '',
     // Pricing & Measurement fields
-    stamp: '+0',
     unit: 'Carat',
     no_of_pieces: '',
     weight: '',
     rate: '',
     sale_rate: '',
     sale_value: '',
+    variants: [],
   });
+
+  // Variant draft state for creating model variants
+  const [newVariant, setNewVariant] = useState({
+    sku: '',
+    title: '',
+    size: '',
+    color: '',
+    net_wt: '',
+    stock_qty: '1',
+    price: '',
+    stone_size: '',
+    stone_color: '',
+  });
+
+  const handleAddVariant = () => {
+    if (!newVariant.title && !newVariant.size && !newVariant.color) {
+      showToast('Please specify a title, size, or color for the variant', 'warning');
+      return;
+    }
+    const variantItem = {
+      id: Date.now(),
+      sku: newVariant.sku || `${formData.product_code || 'RJ'}-V${(formData.variants?.length || 0) + 1}`,
+      title: newVariant.title || `${newVariant.size ? 'Size ' + newVariant.size : ''} ${newVariant.color ? newVariant.color : ''}`.trim() || `Variant #${(formData.variants?.length || 0) + 1}`,
+      size: newVariant.size || '',
+      color: newVariant.color || '',
+      stone_size: newVariant.stone_size || formData.stone_size || '',
+      stone_color: newVariant.stone_color || formData.stone_color || '',
+      net_wt: newVariant.net_wt || formData.net_wt || '',
+      stock_qty: newVariant.stock_qty || '1',
+      price: newVariant.price || formData.sale_rate || '',
+    };
+    setFormData(prev => ({
+      ...prev,
+      variants: [...(prev.variants || []), variantItem]
+    }));
+    setNewVariant({
+      sku: '',
+      title: '',
+      size: '',
+      color: '',
+      net_wt: '',
+      stock_qty: '1',
+      price: '',
+      stone_size: '',
+      stone_color: '',
+    });
+    showToast('Variant added to product model!', 'success');
+  };
+
+  const handleRemoveVariant = (variantId) => {
+    setFormData(prev => ({
+      ...prev,
+      variants: (prev.variants || []).filter(v => v.id !== variantId)
+    }));
+  };
 
   // Images state for current product (first image is Thumb Image, others are Child Images)
   const [images, setImages] = useState([]);
@@ -621,13 +681,13 @@ export default function InventoryAddNewUpload() {
 
             {/* Left Column: Image Upload Manager */}
             <div id="image-upload-section" className="lg:col-span-4 space-y-4">
-              <div className="flex items-center justify-between">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
-                  <span>Product Images</span>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Product Images</span>
                   <span className="text-red-500 font-bold">*</span>
                   <span className="text-[10px] text-red-500 font-normal lowercase">(required)</span>
-                </label>
-                <span className="text-[10px] text-stone-400 font-medium">
+                </div>
+                <span className="text-[10px] text-stone-400 font-medium whitespace-nowrap">
                   1st = Thumb, rest = Child
                 </span>
               </div>
@@ -907,8 +967,22 @@ export default function InventoryAddNewUpload() {
                 </div>
               </div>
 
-              {/* Row 3: Stone & Setting */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Row 3: Size, Diamond Weight & Setting Style */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                    Product Size / Length
+                  </label>
+                  <input
+                    type="text"
+                    name="size"
+                    value={formData.size}
+                    onChange={handleChange}
+                    className="w-full px-3.5 py-2.5 text-xs font-semibold border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden"
+                    placeholder="e.g. Ring 16 / Bangle 2.4 / 18 inch"
+                  />
+                </div>
+
                 <div>
                   <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
                     Diamond Weight (Carats)
@@ -965,6 +1039,43 @@ export default function InventoryAddNewUpload() {
                         <option value="Antique Cast / Temple Work">Antique Cast / Temple Work</option>
                       </>
                     )}
+                  </select>
+                </div>
+              </div>
+
+              {/* Row 3.5: Stone Size & Stone Colour Options */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                    Stone Size / Carat Pointer
+                  </label>
+                  <select
+                    name="stone_size"
+                    value={formData.stone_size}
+                    onChange={handleChange}
+                    className="w-full px-3.5 py-2.5 text-xs border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden font-semibold bg-white"
+                  >
+                    <option value="">Select Stone Size / Range</option>
+                    {STONE_SIZE_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                    Stone Colour / Gemstone Type
+                  </label>
+                  <select
+                    name="stone_color"
+                    value={formData.stone_color}
+                    onChange={handleChange}
+                    className="w-full px-3.5 py-2.5 text-xs border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden font-semibold bg-white"
+                  >
+                    <option value="">Select Stone Colour / Type</option>
+                    {STONE_COLOR_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -1026,7 +1137,7 @@ export default function InventoryAddNewUpload() {
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Stamp
+                    Stamp / Hallmark
                   </label>
                   <select
                     name="stamp"
@@ -1034,7 +1145,7 @@ export default function InventoryAddNewUpload() {
                     onChange={handleChange}
                     className="w-full px-3.5 py-2.5 text-xs border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden font-semibold bg-white"
                   >
-                    {['+0', '+1', '+2', '+3', '+4', '+5', '-1', '-2'].map((s) => (
+                    {STAMP_OPTIONS.map((s) => (
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
@@ -1219,6 +1330,170 @@ export default function InventoryAddNewUpload() {
                   className="w-full px-3.5 py-2 text-xs border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden"
                   placeholder="e.g. BIS Hallmark certified, handcrafted filigree antique temple work with ruby accents..."
                 ></textarea>
+              </div>
+
+              {/* Product Model Variants Manager */}
+              <div className="p-4 bg-stone-50/80 border border-stone-200/80 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <i className="fa-solid fa-layer-group text-[#b01622] text-sm"></i>
+                    <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
+                      Product Model Variants ({formData.variants?.length || 0})
+                    </h4>
+                  </div>
+                  <span className="text-[10px] text-stone-500 font-medium">
+                    Store different sizes, metal colors &amp; stone variants under this model
+                  </span>
+                </div>
+
+                {/* Inline Variant Creation Form */}
+                <div className="bg-white p-3 rounded-xl border border-stone-200 space-y-3 shadow-2xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-600 mb-1">
+                        Variant Code / SKU
+                      </label>
+                      <input
+                        type="text"
+                        value={newVariant.sku}
+                        onChange={(e) => setNewVariant({ ...newVariant, sku: e.target.value })}
+                        placeholder={`Ex: ${formData.product_code || 'SKU'}-V1`}
+                        className="w-full px-2.5 py-1.5 text-xs border border-stone-300 rounded-lg focus:border-[#b01622] font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-600 mb-1">
+                        Variant Title / Option
+                      </label>
+                      <input
+                        type="text"
+                        value={newVariant.title}
+                        onChange={(e) => setNewVariant({ ...newVariant, title: e.target.value })}
+                        placeholder="Ex: Ring Size 14 - Rose Gold"
+                        className="w-full px-2.5 py-1.5 text-xs border border-stone-300 rounded-lg focus:border-[#b01622]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-600 mb-1">
+                        Size (Ring / Bangle)
+                      </label>
+                      <input
+                        type="text"
+                        value={newVariant.size}
+                        onChange={(e) => setNewVariant({ ...newVariant, size: e.target.value })}
+                        placeholder="Ex: 14 or 2-4"
+                        className="w-full px-2.5 py-1.5 text-xs border border-stone-300 rounded-lg focus:border-[#b01622]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-600 mb-1">
+                        Metal / Finish Colour
+                      </label>
+                      <input
+                        type="text"
+                        value={newVariant.color}
+                        onChange={(e) => setNewVariant({ ...newVariant, color: e.target.value })}
+                        placeholder="Ex: Yellow Gold / Rose Gold"
+                        className="w-full px-2.5 py-1.5 text-xs border border-stone-300 rounded-lg focus:border-[#b01622]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 items-end">
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-600 mb-1 whitespace-nowrap overflow-hidden text-ellipsis">
+                        Net Wt (g)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.001"
+                        value={newVariant.net_wt}
+                        onChange={(e) => setNewVariant({ ...newVariant, net_wt: e.target.value })}
+                        placeholder={formData.net_wt || "0.000"}
+                        className="w-full px-2.5 py-1.5 h-[34px] text-xs border border-stone-300 rounded-lg focus:border-[#b01622] font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-600 mb-1 whitespace-nowrap overflow-hidden text-ellipsis">
+                        Stock Qty
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={newVariant.stock_qty}
+                        onChange={(e) => setNewVariant({ ...newVariant, stock_qty: e.target.value })}
+                        placeholder="1"
+                        className="w-full px-2.5 py-1.5 h-[34px] text-xs border border-stone-300 rounded-lg focus:border-[#b01622] font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-600 mb-1 whitespace-nowrap overflow-hidden text-ellipsis" title="Price Override (₹)">
+                        Price Override (₹)
+                      </label>
+                      <input
+                        type="number"
+                        value={newVariant.price}
+                        onChange={(e) => setNewVariant({ ...newVariant, price: e.target.value })}
+                        placeholder={formData.sale_rate || "0"}
+                        className="w-full px-2.5 py-1.5 h-[34px] text-xs border border-stone-300 rounded-lg focus:border-[#b01622] font-mono text-emerald-700"
+                      />
+                    </div>
+                    <div>
+                      <button
+                        type="button"
+                        onClick={handleAddVariant}
+                        className="w-full h-[34px] px-2.5 bg-[#b01622] hover:bg-[#8f1019] text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs whitespace-nowrap"
+                      >
+                        <i className="fa-solid fa-plus text-[10px]"></i>
+                        <span>Add Variant</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Table of Added Variants */}
+                {formData.variants && formData.variants.length > 0 && (
+                  <div className="overflow-x-auto bg-white rounded-xl border border-stone-200">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="bg-stone-50 border-b border-stone-200 text-stone-500 font-bold uppercase text-[9px]">
+                          <th className="py-2 px-3">SKU</th>
+                          <th className="py-2 px-3">Variant Title</th>
+                          <th className="py-2 px-3">Size / Colour</th>
+                          <th className="py-2 px-3 text-right">Net Wt</th>
+                          <th className="py-2 px-3 text-center">Stock</th>
+                          <th className="py-2 px-3 text-right">Price</th>
+                          <th className="py-2 px-3 text-center">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-stone-100">
+                        {formData.variants.map((varItem) => (
+                          <tr key={varItem.id} className="hover:bg-stone-50/60">
+                            <td className="py-2 px-3 font-mono font-bold text-gray-900">{varItem.sku}</td>
+                            <td className="py-2 px-3 font-semibold text-stone-800">{varItem.title}</td>
+                            <td className="py-2 px-3">
+                              {varItem.size && <span className="px-1.5 py-0.5 mr-1 bg-stone-100 border border-stone-200 rounded text-[10px] font-bold">Size: {varItem.size}</span>}
+                              {varItem.color && <span className="px-1.5 py-0.5 bg-red-50 text-[#b01622] border border-red-100 rounded text-[10px] font-bold">{varItem.color}</span>}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono">{varItem.net_wt ? `${varItem.net_wt}g` : '-'}</td>
+                            <td className="py-2 px-3 text-center font-bold">{varItem.stock_qty}</td>
+                            <td className="py-2 px-3 text-right font-mono text-emerald-700 font-bold">{varItem.price ? `₹${Number(varItem.price).toLocaleString('en-IN')}` : '-'}</td>
+                            <td className="py-2 px-3 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveVariant(varItem.id)}
+                                className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
+                                title="Remove Variant"
+                              >
+                                <i className="fa-solid fa-trash-can text-xs"></i>
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
 
               {/* Form Action Buttons */}
