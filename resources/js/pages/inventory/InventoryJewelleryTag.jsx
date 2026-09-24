@@ -89,6 +89,7 @@ export default function InventoryJewelleryTag() {
     @media print {
       body { background: #ffffff !important; }
       .a4-page { width: 100% !important; padding: 8mm !important; min-height: auto !important; }
+      .watermark { display: none !important; }
     }
   </style>
 </head>
@@ -125,8 +126,8 @@ ${reportEl.outerHTML}
   const rate = Number(attributes.sale_rate || attributes.rate || product?.opening_stock_rate || 6850);
   const makingCharge = attributes.making_charge ? `₹${attributes.making_charge}/g` : '₹750/g';
   const wastage = attributes.wastage_percent ? `${attributes.wastage_percent}%` : '3.50%';
-  const valuation = attributes.sale_value 
-    ? Number(attributes.sale_value) 
+  const valuation = attributes.sale_value
+    ? Number(attributes.sale_value)
     : (Number(netWt) * rate) + (attributes.dia_wt_ct ? Number(attributes.dia_wt_ct) * 65000 : 0);
   const formattedValuation = Math.round(valuation).toLocaleString('en-IN');
   const imageSrc = product?.image_url || product?.image || '/placeholder-jewelry.png';
@@ -180,6 +181,9 @@ ${reportEl.outerHTML}
             padding: 0 !important;
           }
           .no-print {
+            display: none !important;
+          }
+          .watermark {
             display: none !important;
           }
           .a4-page {
@@ -274,7 +278,7 @@ ${reportEl.outerHTML}
 
         {/* 2. Main Product Showcase & Specs Overview */}
         <div className="grid grid-cols-12 gap-5 mb-6 relative z-10">
-          
+
           {/* Left: Product Image Box with Authentic Seal */}
           <div className="col-span-4 flex flex-col items-center">
             <div className="w-full aspect-square rounded-2xl border-2 border-stone-200 bg-stone-50/50 p-2.5 flex items-center justify-center shadow-inner relative overflow-hidden">
@@ -527,7 +531,7 @@ ${reportEl.outerHTML}
         {/* 5. Formal Legal Declaration & Signatory Footer */}
         <footer className="mt-auto border-t-2 border-stone-200 pt-4 relative z-10">
           <div className="grid grid-cols-12 gap-4 text-stone-600 items-end">
-            
+
             {/* Legal Notice */}
             <div className="col-span-7 text-[9px] leading-relaxed">
               <p className="font-bold text-stone-800">GUARANTEE & RETURN POLICY:</p>

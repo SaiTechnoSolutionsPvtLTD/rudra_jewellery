@@ -118,6 +118,19 @@ input[type=number].no-spinners,
     display: none !important;
   }
 
+  /* Hide all background watermarks and print-only watermark logos */
+  .watermark,
+  .print-watermark,
+  .company-watermark,
+  .report-watermark,
+  div[class*="watermark"],
+  div[class*="pointer-events-none"][class*="opacity-"],
+  div[class*="pointer-events-none"][class*="rotate-"] {
+    display: none !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+  }
+
   /* Make backdrop overlays transparent for print */
   .modal-backdrop,
   div[class*="backdrop-blur"],

@@ -189,6 +189,7 @@ export default function InventoryBarcodeTag() {
         @media print {
           body { background: #ffffff !important; padding: 0 !important; }
           .no-print { display: none !important; }
+          .watermark { display: none !important; }
           .a4-page {
             box-shadow: none !important;
             width: 100% !important;

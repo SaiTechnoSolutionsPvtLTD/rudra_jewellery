@@ -267,53 +267,7 @@ export default function StockManagement() {
     };
   };
 
-  // Available Stock Calculations (Grams & KG)
-  let totalAvailableQty = 0;
-  let totalAvailableWeightGrams = 0;
-  let totalAvailableValuation = 0;
-  let totalOpeningQty = 0;
-
-  products.forEach(p => {
-    const attrs = p.attributes || {};
-    const opQty = parseInt(p.opening_stock_qty || 0, 10);
-    const currQty = parseInt(p.current_stock_qty ?? p.opening_stock_qty ?? 0, 10);
-    const qty = currQty > 0 ? currQty : (opQty > 0 ? opQty : 1);
-
-    totalOpeningQty += opQty;
-    totalAvailableQty += qty;
-
-    let unitWeight = 0;
-    if (p.opening_stock_weight) unitWeight = parseFloat(p.opening_stock_weight) || 0;
-    else if (attrs.net_weight) unitWeight = parseFloat(attrs.net_weight) || 0;
-    else if (attrs.weight) unitWeight = parseFloat(attrs.weight) || 0;
-
-    const rate = parseFloat(p.opening_stock_rate || attrs.rate || 0);
-    const prodWeight = unitWeight;
-    totalAvailableWeightGrams += prodWeight;
-
-    if (prodWeight > 0 && rate > 0) {
-      totalAvailableValuation += prodWeight * rate;
-    }
-  });
-
-  const totalAvailableWeightKG = (totalAvailableWeightGrams / 1000).toFixed(3);
-
-  // Handle Card Click
-  const handleCardClick = (catId) => {
-    if (selectedCategoryId === String(catId)) {
-      setSelectedCategoryId('all');
-    } else {
-      setSelectedCategoryId(String(catId));
-    }
-    setCurrentPage(1);
-  };
-
-  // Subcategory filter options based on selected category
-  const filteredSubcategories = selectedCategoryId === 'all'
-    ? subcategories
-    : subcategories.filter(s => String(s.category_id) === String(selectedCategoryId));
-
-  // Filter products for the table
+  // Filter products for the table & summary cards
   const filteredProducts = products.filter(p => {
     if (selectedCategoryId !== 'all') {
       const selectedCat = categories.find(c => String(c.id) === String(selectedCategoryId));
@@ -344,6 +298,37 @@ export default function StockManagement() {
 
     return true;
   });
+
+  // Available Stock Calculations (Grams & KG) based on filtered products
+  let totalAvailableQty = 0;
+  let totalAvailableWeightGrams = 0;
+  let totalAvailableValuation = 0;
+  let totalOpeningQty = 0;
+
+  filteredProducts.forEach(p => {
+    const attrs = p.attributes || {};
+    const opQty = parseInt(p.opening_stock_qty || 0, 10);
+    const currQty = parseInt(p.current_stock_qty ?? p.opening_stock_qty ?? 0, 10);
+    const qty = currQty > 0 ? currQty : (opQty > 0 ? opQty : 1);
+
+    totalOpeningQty += opQty;
+    totalAvailableQty += qty;
+
+    let unitWeight = 0;
+    if (p.opening_stock_weight) unitWeight = parseFloat(p.opening_stock_weight) || 0;
+    else if (attrs.net_weight) unitWeight = parseFloat(attrs.net_weight) || 0;
+    else if (attrs.weight) unitWeight = parseFloat(attrs.weight) || 0;
+
+    const rate = parseFloat(p.opening_stock_rate || attrs.rate || 0);
+    const prodWeight = unitWeight;
+    totalAvailableWeightGrams += prodWeight;
+
+    if (prodWeight > 0 && rate > 0) {
+      totalAvailableValuation += prodWeight * rate;
+    }
+  });
+
+  const totalAvailableWeightKG = (totalAvailableWeightGrams / 1000).toFixed(3);
 
   // Pagination logic
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage) || 1;

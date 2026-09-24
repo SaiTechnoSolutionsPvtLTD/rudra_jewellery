@@ -2321,8 +2321,8 @@ export default function ReceiverWork() {
                   </div>
 
                   <div className="relative border border-stone-200 rounded-xl overflow-hidden bg-white shadow-2xs">
-                    {/* Watermark Logo */}
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.035] select-none text-4xl sm:text-5xl font-black rotate-[-20deg] tracking-widest text-[#801824] font-serif">
+                    {/* Watermark Logo (Hidden in print) */}
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.035] print:hidden select-none text-4xl sm:text-5xl font-black rotate-[-20deg] tracking-widest text-[#801824] font-serif">
                       RUDRA JEWELLERS
                     </div>
 
@@ -2592,19 +2592,26 @@ export default function ReceiverWork() {
                     </div>
                   </div>
 
-                  {/* Right: Signature Blocks */}
-                  <div className="flex items-center gap-8 text-center shrink-0">
+                  {/* Right: Signature Blocks (Bottom Alignment) */}
+                  <div className="flex items-center gap-6 text-center shrink-0 avoid-break print-break-inside-avoid">
                     <div>
-                      <div className="w-32 border-t border-stone-400 pt-1.5 font-bold text-stone-800 text-[10px] uppercase tracking-wider">
+                      <div className="w-28 border-t border-stone-400 pt-1.5 font-bold text-stone-800 text-[10px] uppercase tracking-wider">
+                        PREPARED BY
+                      </div>
+                      <span className="text-[9.5px] text-stone-400 block mt-0.5">
+                        (Store Executive)
+                      </span>
+                    </div>
+                    <div>
+                      <div className="w-28 border-t border-stone-400 pt-1.5 font-bold text-stone-800 text-[10px] uppercase tracking-wider">
                         AUTHORIZED SIGNATORY
                       </div>
                       <span className="text-[9.5px] text-stone-400 block mt-0.5">
                         (Inventory Head)
                       </span>
                     </div>
-
                     <div>
-                      <div className="w-32 border-t border-stone-400 pt-1.5 font-bold text-stone-800 text-[10px] uppercase tracking-wider">
+                      <div className="w-28 border-t border-stone-400 pt-1.5 font-bold text-stone-800 text-[10px] uppercase tracking-wider">
                         ARTISAN ACCEPTANCE
                       </div>
                       <span className="text-[9.5px] text-stone-400 block mt-0.5">

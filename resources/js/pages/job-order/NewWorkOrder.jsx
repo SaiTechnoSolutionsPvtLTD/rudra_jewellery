@@ -426,10 +426,10 @@ export default function NewWorkOrder({ initialMode }) {
         const rawItems = (Array.isArray(order.items) && order.items.length > 0)
           ? order.items
           : (Array.isArray(details.items) && details.items.length > 0)
-          ? details.items
-          : order.specifications
-          ? [order.specifications]
-          : [];
+            ? details.items
+            : order.specifications
+              ? [order.specifications]
+              : [];
 
         let normalizedItems = rawItems.map((item, i) => {
           const isDiamond = String(item.material_type || '').toLowerCase().includes('diamond');
@@ -884,7 +884,7 @@ export default function NewWorkOrder({ initialMode }) {
 
   return (
     <div className="w-full min-h-screen bg-white font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif] text-gray-800 antialiased -m-6 p-8">
-      
+
       {/* Global Hidden File Inputs for Design File and Reference Image */}
       <input
         type="file"
@@ -900,18 +900,17 @@ export default function NewWorkOrder({ initialMode }) {
         onChange={handleReferenceImageUpload}
         className="hidden"
       />
-      
+
       {/* Top Navigation Mode Toggles */}
       <div className="flex items-center justify-between pb-4 border-b border-gray-100 mb-6">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => setViewMode('create')}
-            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
-              viewMode === 'create'
+            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${viewMode === 'create'
                 ? 'bg-[#9e1b27] text-white shadow-2xs'
                 : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
-            }`}
+              }`}
           >
             <i className="fa-solid fa-plus text-[10px] mr-1.5"></i>
             Create New Work Order
@@ -923,11 +922,10 @@ export default function NewWorkOrder({ initialMode }) {
               setViewMode('list');
               fetchOrdersList();
             }}
-            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
-              viewMode === 'list'
+            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${viewMode === 'list'
                 ? 'bg-[#9e1b27] text-white shadow-2xs'
                 : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
-            }`}
+              }`}
           >
             <i className="fa-solid fa-table-list text-[10px] mr-1.5"></i>
             View Work Orders (Rows)
@@ -937,11 +935,10 @@ export default function NewWorkOrder({ initialMode }) {
             <button
               type="button"
               onClick={() => setViewMode('details')}
-              className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
-                viewMode === 'details'
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${viewMode === 'details'
                   ? 'bg-[#9e1b27] text-white shadow-2xs'
                   : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
-              }`}
+                }`}
             >
               <i className="fa-solid fa-file-invoice text-[10px] mr-1.5"></i>
               {selectedOrder.work_order_number} Details
@@ -1078,11 +1075,10 @@ export default function NewWorkOrder({ initialMode }) {
 
                         {/* Priority */}
                         <td className="py-3.5 px-4 text-center">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            wo.priority === 'HIGH' || wo.priority === 'High'
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${wo.priority === 'HIGH' || wo.priority === 'High'
                               ? 'bg-rose-50 text-rose-700'
                               : 'bg-amber-50 text-amber-700'
-                          }`}>
+                            }`}>
                             {wo.priority || 'Normal'}
                           </span>
                         </td>
@@ -1184,7 +1180,7 @@ export default function NewWorkOrder({ initialMode }) {
 
           {/* WORK ASSIGNMENT HEADER CARD: Assigned once to this artisan with multiple materials */}
           <div className="bg-white border border-stone-200/90 rounded-2xl p-4 sm:p-5 shadow-2xs space-y-4">
-            
+
             {/* Artisan Profile Header */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-stone-100">
               <div className="flex items-center gap-3.5">
@@ -1231,9 +1227,8 @@ export default function NewWorkOrder({ initialMode }) {
                   </div>
                   <div className="border-l border-stone-200 pl-3">
                     <span className="text-stone-400 block text-[10px] uppercase font-bold tracking-wider">Priority</span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                      timeline.priority === 'HIGH' ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-amber-50 text-amber-700 border border-amber-200'
-                    }`}>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${timeline.priority === 'HIGH' ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-amber-50 text-amber-700 border border-amber-200'
+                      }`}>
                       {timeline.priority || 'MEDIUM'}
                     </span>
                   </div>
@@ -1410,173 +1405,171 @@ export default function NewWorkOrder({ initialMode }) {
                         </tr>
                       ) : (
                         displayedJobItems.map((row, idx) => {
-                        const isDiamond = String(row.material_type || '').toLowerCase().includes('diamond');
-                        const isGem = String(row.material_type || '').toLowerCase().includes('gem');
-                        return (
-                          <tr key={row.id || idx} className="hover:bg-amber-50/20 transition-colors">
-                            
-                            {/* 1. Material Type */}
-                            <td className="py-2.5 px-3 whitespace-nowrap">
-                              <div className="flex items-center gap-2.5">
-                                <div className={`w-7 h-7 rounded flex items-center justify-center text-xs border ${
-                                  isDiamond 
-                                    ? 'bg-rose-50 border-rose-200 text-rose-600' 
-                                    : isGem 
-                                    ? 'bg-purple-50 border-purple-200 text-purple-600' 
-                                    : 'bg-amber-50 border-amber-300 text-amber-700'
-                                }`}>
-                                  <i className={`fa-solid ${isDiamond ? 'fa-gem' : isGem ? 'fa-certificate' : 'fa-coins'}`}></i>
+                          const isDiamond = String(row.material_type || '').toLowerCase().includes('diamond');
+                          const isGem = String(row.material_type || '').toLowerCase().includes('gem');
+                          return (
+                            <tr key={row.id || idx} className="hover:bg-amber-50/20 transition-colors">
+
+                              {/* 1. Material Type */}
+                              <td className="py-2.5 px-3 whitespace-nowrap">
+                                <div className="flex items-center gap-2.5">
+                                  <div className={`w-7 h-7 rounded flex items-center justify-center text-xs border ${isDiamond
+                                      ? 'bg-rose-50 border-rose-200 text-rose-600'
+                                      : isGem
+                                        ? 'bg-purple-50 border-purple-200 text-purple-600'
+                                        : 'bg-amber-50 border-amber-300 text-amber-700'
+                                    }`}>
+                                    <i className={`fa-solid ${isDiamond ? 'fa-gem' : isGem ? 'fa-certificate' : 'fa-coins'}`}></i>
+                                  </div>
+                                  <div>
+                                    <div className="font-bold text-gray-900 text-xs">{row.material_type || '22K Yellow Gold'}</div>
+                                    <div className="text-[10px] text-gray-400 font-medium">{row.material_subtitle || (isDiamond ? 'VS1 Clarity - F Color' : '916 Hallmark Standard')}</div>
+                                  </div>
                                 </div>
-                                <div>
-                                  <div className="font-bold text-gray-900 text-xs">{row.material_type || '22K Yellow Gold'}</div>
-                                  <div className="text-[10px] text-gray-400 font-medium">{row.material_subtitle || (isDiamond ? 'VS1 Clarity - F Color' : '916 Hallmark Standard')}</div>
-                                </div>
-                              </div>
-                            </td>
+                              </td>
 
-                            {/* 2. Ordered Date */}
-                            <td className="py-2.5 px-3 whitespace-nowrap font-mono text-[11px] text-gray-700">
-                              {formatDateDisplay(row.ordered_date)}
-                            </td>
+                              {/* 2. Ordered Date */}
+                              <td className="py-2.5 px-3 whitespace-nowrap font-mono text-[11px] text-gray-700">
+                                {formatDateDisplay(row.ordered_date)}
+                              </td>
 
-                            {/* 3. Delivery Date */}
-                            <td className="py-2.5 px-3 whitespace-nowrap font-mono text-[11px] text-gray-700">
-                              {formatDateDisplay(row.delivery_date)}
-                            </td>
+                              {/* 3. Delivery Date */}
+                              <td className="py-2.5 px-3 whitespace-nowrap font-mono text-[11px] text-gray-700">
+                                {formatDateDisplay(row.delivery_date)}
+                              </td>
 
-                            {/* 4. Image */}
-                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                              <div
-                                onClick={() => viewMode === 'create' && handleOpenEditRowModal(idx)}
-                                className={`w-9 h-9 mx-auto rounded-md overflow-hidden bg-stone-100 border border-stone-200 flex items-center justify-center ${
-                                  viewMode === 'create' ? 'cursor-pointer hover:opacity-85' : ''
-                                }`}
-                                title={viewMode === 'create' ? 'Click to edit row' : ''}
-                              >
-                                <img
-                                  src={resolveItemImage(row)}
-                                  alt="item"
-                                  className="w-full h-full object-cover"
-                                  onError={(e) => {
-                                    e.target.onerror = null;
-                                    e.target.src = '/images/samples/peacock_choker.jpg';
-                                  }}
-                                />
-                              </div>
-                            </td>
-
-                            {/* 5. Design Number */}
-                            <td className="py-2.5 px-3 whitespace-nowrap font-bold text-gray-900 text-xs font-mono">
-                              {row.design_number || 'DG-4587'}
-                            </td>
-
-                            {/* 6. Variant */}
-                            <td className="py-2.5 px-3 whitespace-nowrap text-xs text-gray-700">
-                              {row.variant || 'Necklace'}
-                            </td>
-
-                            {/* 7. Setting Type */}
-                            <td className="py-2.5 px-3 whitespace-nowrap text-xs text-gray-700">
-                              {row.setting_type || 'Prong'}
-                            </td>
-
-                            {/* 8. Diamond Weight */}
-                            <td className="py-2.5 px-3 whitespace-nowrap text-xs text-gray-700 font-medium">
-                              {row.diamond_weight || 'VS1'}
-                            </td>
-
-                            {/* 9. Gold Weight */}
-                            <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-900 font-bold">
-                              {formatWeight(row.gold_weight ?? row.total_weight)}
-                            </td>
-
-                            {/* 10. Cons Cts */}
-                            <td className="py-2.5 px-3 whitespace-nowrap text-center text-xs text-gray-500">
-                              {row.cons_cts || '-'}
-                            </td>
-
-                            {/* 11. From Cts */}
-                            <td className="py-2.5 px-3 whitespace-nowrap text-center text-xs font-semibold text-gray-800">
-                              {row.from_cts || '22KT'}
-                            </td>
-
-                            {/* 12. Total Cts */}
-                            <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-800">
-                              {formatWeight(row.total_cts, '-')}
-                            </td>
-
-                            {/* 13. Cons Wt */}
-                            <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-800">
-                              {formatWeight(row.cons_wt, '-')}
-                            </td>
-
-                            {/* 14. From Wt */}
-                            <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-800">
-                              {formatWeight(row.from_wt, '-')}
-                            </td>
-
-                            {/* 15. To Wt */}
-                            <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-800">
-                              {formatWeight(row.to_wt, '-')}
-                            </td>
-
-                            {/* 16. Need Pcs */}
-                            <td className="py-2.5 px-3 whitespace-nowrap text-center font-mono font-bold text-xs text-gray-900">
-                              {row.need_pcs || row.qty || 1}
-                            </td>
-
-                            {/* 17. Wastage (in red font matching image) */}
-                            <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono font-bold text-xs text-[#b01622]">
-                              {formatWeight(row.wastage, '0.500')}
-                            </td>
-
-                            {/* 18. Percentages */}
-                            <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-700">
-                              {row.percentages ? (String(row.percentages).includes('%') ? row.percentages : `${row.percentages}%`) : '2.26%'}
-                            </td>
-
-                            {/* 19. Total Gross Wt */}
-                            <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono font-bold text-xs text-gray-900">
-                              {formatWeight(row.total_gross_wt ?? (parseFloat(row.gold_weight || 0) + parseFloat(row.wastage || 0)))}
-                            </td>
-
-                            {/* 20. Total Dia Cts */}
-                            <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-800">
-                              {formatWeight(row.total_dia_cts, '-')}
-                            </td>
-
-                            {/* 21. Remark */}
-                            <td className="py-2.5 px-3 whitespace-nowrap text-xs text-gray-500">
-                              {row.remark || '-'}
-                            </td>
-
-                            {/* 22. Actions */}
-                            <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                              <div className="flex items-center justify-end gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenEditRowModal(row)}
-                                  className="w-7 h-7 rounded-md hover:bg-stone-100 text-stone-500 hover:text-[#881337] flex items-center justify-center transition-colors cursor-pointer"
-                                  title="Edit row details"
+                              {/* 4. Image */}
+                              <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                <div
+                                  onClick={() => viewMode === 'create' && handleOpenEditRowModal(idx)}
+                                  className={`w-9 h-9 mx-auto rounded-md overflow-hidden bg-stone-100 border border-stone-200 flex items-center justify-center ${viewMode === 'create' ? 'cursor-pointer hover:opacity-85' : ''
+                                    }`}
+                                  title={viewMode === 'create' ? 'Click to edit row' : ''}
                                 >
-                                  <i className="fa-solid fa-pen-to-square text-xs"></i>
-                                </button>
-                                {viewMode === 'create' && (
+                                  <img
+                                    src={resolveItemImage(row)}
+                                    alt="item"
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                      e.target.onerror = null;
+                                      e.target.src = '/images/samples/peacock_choker.jpg';
+                                    }}
+                                  />
+                                </div>
+                              </td>
+
+                              {/* 5. Design Number */}
+                              <td className="py-2.5 px-3 whitespace-nowrap font-bold text-gray-900 text-xs font-mono">
+                                {row.design_number || 'DG-4587'}
+                              </td>
+
+                              {/* 6. Variant */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-xs text-gray-700">
+                                {row.variant || 'Necklace'}
+                              </td>
+
+                              {/* 7. Setting Type */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-xs text-gray-700">
+                                {row.setting_type || 'Prong'}
+                              </td>
+
+                              {/* 8. Diamond Weight */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-xs text-gray-700 font-medium">
+                                {row.diamond_weight || 'VS1'}
+                              </td>
+
+                              {/* 9. Gold Weight */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-900 font-bold">
+                                {formatWeight(row.gold_weight ?? row.total_weight)}
+                              </td>
+
+                              {/* 10. Cons Cts */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-center text-xs text-gray-500">
+                                {row.cons_cts || '-'}
+                              </td>
+
+                              {/* 11. From Cts */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-center text-xs font-semibold text-gray-800">
+                                {row.from_cts || '22KT'}
+                              </td>
+
+                              {/* 12. Total Cts */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-800">
+                                {formatWeight(row.total_cts, '-')}
+                              </td>
+
+                              {/* 13. Cons Wt */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-800">
+                                {formatWeight(row.cons_wt, '-')}
+                              </td>
+
+                              {/* 14. From Wt */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-800">
+                                {formatWeight(row.from_wt, '-')}
+                              </td>
+
+                              {/* 15. To Wt */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-800">
+                                {formatWeight(row.to_wt, '-')}
+                              </td>
+
+                              {/* 16. Need Pcs */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-center font-mono font-bold text-xs text-gray-900">
+                                {row.need_pcs || row.qty || 1}
+                              </td>
+
+                              {/* 17. Wastage (in red font matching image) */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono font-bold text-xs text-[#b01622]">
+                                {formatWeight(row.wastage, '0.500')}
+                              </td>
+
+                              {/* 18. Percentages */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-700">
+                                {row.percentages ? (String(row.percentages).includes('%') ? row.percentages : `${row.percentages}%`) : '2.26%'}
+                              </td>
+
+                              {/* 19. Total Gross Wt */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono font-bold text-xs text-gray-900">
+                                {formatWeight(row.total_gross_wt ?? (parseFloat(row.gold_weight || 0) + parseFloat(row.wastage || 0)))}
+                              </td>
+
+                              {/* 20. Total Dia Cts */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-800">
+                                {formatWeight(row.total_dia_cts, '-')}
+                              </td>
+
+                              {/* 21. Remark */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-xs text-gray-500">
+                                {row.remark || '-'}
+                              </td>
+
+                              {/* 22. Actions */}
+                              <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                                <div className="flex items-center justify-end gap-1.5">
                                   <button
                                     type="button"
-                                    onClick={() => handleRemoveRow(row)}
-                                    className="w-7 h-7 rounded-md hover:bg-red-50 text-stone-400 hover:text-red-600 flex items-center justify-center transition-colors cursor-pointer"
-                                    title="Remove row"
+                                    onClick={() => handleOpenEditRowModal(row)}
+                                    className="w-7 h-7 rounded-md hover:bg-stone-100 text-stone-500 hover:text-[#881337] flex items-center justify-center transition-colors cursor-pointer"
+                                    title="Edit row details"
                                   >
-                                    <i className="fa-solid fa-trash-can text-xs"></i>
+                                    <i className="fa-solid fa-pen-to-square text-xs"></i>
                                   </button>
-                                )}
-                              </div>
-                            </td>
+                                  {viewMode === 'create' && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveRow(row)}
+                                      className="w-7 h-7 rounded-md hover:bg-red-50 text-stone-400 hover:text-red-600 flex items-center justify-center transition-colors cursor-pointer"
+                                      title="Remove row"
+                                    >
+                                      <i className="fa-solid fa-trash-can text-xs"></i>
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
 
-                          </tr>
-                        );
-                      }))}
+                            </tr>
+                          );
+                        }))}
                     </tbody>
 
                     {/* Exact Total Footer Row Matching Image 1 */}
@@ -1624,7 +1617,7 @@ export default function NewWorkOrder({ initialMode }) {
 
           {/* 3. Bottom Two-Column Layout */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            
+
             {/* Left Column (8 cols): Worker Tracking, Timeline, Crafting Instructions, Material Breakdown */}
             <div className="lg:col-span-8 space-y-6">
 
@@ -1799,11 +1792,10 @@ export default function NewWorkOrder({ initialMode }) {
                         type="button"
                         disabled={viewMode === 'details'}
                         onClick={() => setTimeline({ ...timeline, priority: lvl })}
-                        className={`px-3 py-1 text-[10px] font-bold rounded-md transition-colors cursor-pointer ${
-                          timeline.priority === lvl
+                        className={`px-3 py-1 text-[10px] font-bold rounded-md transition-colors cursor-pointer ${timeline.priority === lvl
                             ? 'bg-white text-gray-900 shadow-xs border border-gray-200'
                             : 'text-gray-500 hover:text-gray-900'
-                        }`}
+                          }`}
                       >
                         {lvl}
                       </button>
@@ -2225,11 +2217,10 @@ export default function NewWorkOrder({ initialMode }) {
                         image: '/images/samples/peacock_choker.jpg',
                       }));
                     }}
-                    className={`px-3 py-1 text-xs rounded-lg font-semibold border transition-all cursor-pointer ${
-                      rowForm.material_type === '22K Yellow Gold'
+                    className={`px-3 py-1 text-xs rounded-lg font-semibold border transition-all cursor-pointer ${rowForm.material_type === '22K Yellow Gold'
                         ? 'bg-[#881337] text-white border-[#881337] shadow-2xs'
                         : 'bg-white hover:bg-stone-100 text-stone-700 border-stone-300'
-                    }`}
+                      }`}
                   >
                     🪙 22K Gold (DG-4587)
                   </button>
@@ -2262,11 +2253,10 @@ export default function NewWorkOrder({ initialMode }) {
                         image: '/images/samples/emerald_ring.jpg',
                       }));
                     }}
-                    className={`px-3 py-1 text-xs rounded-lg font-semibold border transition-all cursor-pointer ${
-                      rowForm.material_type === 'Round Brilliant Diamonds'
+                    className={`px-3 py-1 text-xs rounded-lg font-semibold border transition-all cursor-pointer ${rowForm.material_type === 'Round Brilliant Diamonds'
                         ? 'bg-[#881337] text-white border-[#881337] shadow-2xs'
                         : 'bg-white hover:bg-stone-100 text-stone-700 border-stone-300'
-                    }`}
+                      }`}
                   >
                     💎 Brilliant Diamonds (DG-4588)
                   </button>
@@ -2299,11 +2289,10 @@ export default function NewWorkOrder({ initialMode }) {
                         image: '/images/samples/peacock_bangle.jpg',
                       }));
                     }}
-                    className={`px-3 py-1 text-xs rounded-lg font-semibold border transition-all cursor-pointer ${
-                      rowForm.material_type === '18K Rose Gold'
+                    className={`px-3 py-1 text-xs rounded-lg font-semibold border transition-all cursor-pointer ${rowForm.material_type === '18K Rose Gold'
                         ? 'bg-[#881337] text-white border-[#881337] shadow-2xs'
                         : 'bg-white hover:bg-stone-100 text-stone-700 border-stone-300'
-                    }`}
+                      }`}
                   >
                     🪙 18K Rose Gold
                   </button>
@@ -2358,11 +2347,10 @@ export default function NewWorkOrder({ initialMode }) {
                     value={rowForm.work_name || ''}
                     onChange={(e) => updateFormField('work_name', e.target.value)}
                     placeholder="e.g. Peacock Antique Necklace / Kundan Choker / Royal Kada"
-                    className={`w-full text-xs rounded-lg p-2.5 font-bold outline-hidden transition-all ${
-                      formErrors.work_name
+                    className={`w-full text-xs rounded-lg p-2.5 font-bold outline-hidden transition-all ${formErrors.work_name
                         ? 'border-2 border-red-500 bg-red-50/20 ring-1 ring-red-400'
                         : 'border border-gray-200 focus:border-[#881337] bg-white text-gray-900'
-                    }`}
+                      }`}
                   />
                   {formErrors.work_name && (
                     <span className="text-[10px] text-red-600 font-bold block mt-1 flex items-center gap-1">
@@ -2370,7 +2358,7 @@ export default function NewWorkOrder({ initialMode }) {
                     </span>
                   )}
                 </div>
-                
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
@@ -2395,11 +2383,10 @@ export default function NewWorkOrder({ initialMode }) {
                           });
                         }
                       }}
-                      className={`w-full text-xs rounded-lg p-2.5 font-bold outline-hidden transition-all bg-white ${
-                        formErrors.material_type
+                      className={`w-full text-xs rounded-lg p-2.5 font-bold outline-hidden transition-all bg-white ${formErrors.material_type
                           ? 'border-2 border-red-500 bg-red-50/20'
                           : 'border border-gray-200 focus:border-[#881337]'
-                      }`}
+                        }`}
                     >
                       <option value="22K Yellow Gold">22K Yellow Gold</option>
                       <option value="Round Brilliant Diamonds">Round Brilliant Diamonds</option>
@@ -2443,11 +2430,10 @@ export default function NewWorkOrder({ initialMode }) {
                       value={rowForm.design_number}
                       onChange={(e) => updateFormField('design_number', e.target.value)}
                       placeholder="e.g. DG-4587"
-                      className={`w-full text-xs rounded-lg p-2.5 font-mono font-bold outline-hidden transition-all ${
-                        formErrors.design_number
+                      className={`w-full text-xs rounded-lg p-2.5 font-mono font-bold outline-hidden transition-all ${formErrors.design_number
                           ? 'border-2 border-red-500 bg-red-50/20 ring-1 ring-red-400'
                           : 'border border-gray-200 focus:border-[#881337] bg-white'
-                      }`}
+                        }`}
                     />
                     {formErrors.design_number && (
                       <span className="text-[10px] text-red-600 font-bold block mt-1 flex items-center gap-1">
@@ -2463,9 +2449,8 @@ export default function NewWorkOrder({ initialMode }) {
                     <select
                       value={rowForm.variant}
                       onChange={(e) => updateFormField('variant', e.target.value)}
-                      className={`w-full text-xs rounded-lg p-2.5 outline-hidden transition-all bg-white font-medium ${
-                        formErrors.variant ? 'border-2 border-red-500 bg-red-50/20' : 'border border-gray-200 focus:border-[#881337]'
-                      }`}
+                      className={`w-full text-xs rounded-lg p-2.5 outline-hidden transition-all bg-white font-medium ${formErrors.variant ? 'border-2 border-red-500 bg-red-50/20' : 'border border-gray-200 focus:border-[#881337]'
+                        }`}
                     >
                       <option value="Necklace">Necklace</option>
                       <option value="Earrings">Earrings</option>
@@ -2504,9 +2489,8 @@ export default function NewWorkOrder({ initialMode }) {
                     <select
                       value={rowForm.setting_type}
                       onChange={(e) => updateFormField('setting_type', e.target.value)}
-                      className={`w-full text-xs rounded-lg p-2.5 outline-hidden transition-all bg-white font-medium ${
-                        formErrors.setting_type ? 'border-2 border-red-500 bg-red-50/20' : 'border border-gray-200 focus:border-[#881337]'
-                      }`}
+                      className={`w-full text-xs rounded-lg p-2.5 outline-hidden transition-all bg-white font-medium ${formErrors.setting_type ? 'border-2 border-red-500 bg-red-50/20' : 'border border-gray-200 focus:border-[#881337]'
+                        }`}
                     >
                       {settingStyles.length > 0 ? (
                         settingStyles.map((s) => (
@@ -2552,9 +2536,8 @@ export default function NewWorkOrder({ initialMode }) {
                       type="date"
                       value={rowForm.ordered_date}
                       onChange={(e) => updateFormField('ordered_date', e.target.value)}
-                      className={`w-full text-xs rounded-lg p-2.5 font-mono outline-hidden transition-all ${
-                        formErrors.ordered_date ? 'border-2 border-red-500 bg-red-50/20' : 'border border-gray-200 focus:border-[#881337] bg-white'
-                      }`}
+                      className={`w-full text-xs rounded-lg p-2.5 font-mono outline-hidden transition-all ${formErrors.ordered_date ? 'border-2 border-red-500 bg-red-50/20' : 'border border-gray-200 focus:border-[#881337] bg-white'
+                        }`}
                     />
                     {formErrors.ordered_date && (
                       <span className="text-[10px] text-red-600 font-bold block mt-1">{formErrors.ordered_date}</span>
@@ -2569,9 +2552,8 @@ export default function NewWorkOrder({ initialMode }) {
                       type="date"
                       value={rowForm.delivery_date}
                       onChange={(e) => updateFormField('delivery_date', e.target.value)}
-                      className={`w-full text-xs rounded-lg p-2.5 font-mono outline-hidden transition-all ${
-                        formErrors.delivery_date ? 'border-2 border-red-500 bg-red-50/20' : 'border border-gray-200 focus:border-[#881337] bg-white'
-                      }`}
+                      className={`w-full text-xs rounded-lg p-2.5 font-mono outline-hidden transition-all ${formErrors.delivery_date ? 'border-2 border-red-500 bg-red-50/20' : 'border border-gray-200 focus:border-[#881337] bg-white'
+                        }`}
                     />
                     {formErrors.delivery_date && (
                       <span className="text-[10px] text-red-600 font-bold block mt-1">{formErrors.delivery_date}</span>
@@ -2592,9 +2574,8 @@ export default function NewWorkOrder({ initialMode }) {
                         updateFormField('need_pcs', isNaN(val) ? '' : val);
                         setRowForm((prev) => ({ ...prev, qty: isNaN(val) ? '' : val }));
                       }}
-                      className={`w-full text-xs rounded-lg p-2.5 font-mono font-bold outline-hidden transition-all ${
-                        formErrors.need_pcs ? 'border-2 border-red-500 bg-red-50/20 ring-1 ring-red-400' : 'border border-gray-200 focus:border-[#881337] bg-white'
-                      }`}
+                      className={`w-full text-xs rounded-lg p-2.5 font-mono font-bold outline-hidden transition-all ${formErrors.need_pcs ? 'border-2 border-red-500 bg-red-50/20 ring-1 ring-red-400' : 'border border-gray-200 focus:border-[#881337] bg-white'
+                        }`}
                     />
                     {formErrors.need_pcs && (
                       <span className="text-[10px] text-red-600 font-bold block mt-1">{formErrors.need_pcs}</span>
@@ -2714,11 +2695,10 @@ export default function NewWorkOrder({ initialMode }) {
                         }
                       }}
                       placeholder="e.g. 22.500"
-                      className={`w-full text-xs rounded-lg p-2.5 font-mono font-black outline-hidden transition-all text-gray-900 ${
-                        formErrors.gold_weight
+                      className={`w-full text-xs rounded-lg p-2.5 font-mono font-black outline-hidden transition-all text-gray-900 ${formErrors.gold_weight
                           ? 'border-2 border-red-500 bg-red-50/20 ring-1 ring-red-400'
                           : 'border border-gray-200 focus:border-[#881337] bg-white'
-                      }`}
+                        }`}
                     />
                     {formErrors.gold_weight && (
                       <span className="text-[10px] text-red-600 font-bold block mt-1 flex items-center gap-1">
@@ -2972,11 +2952,10 @@ export default function NewWorkOrder({ initialMode }) {
                             reference_image_type: 'image',
                           }))
                         }
-                        className={`rounded-lg border overflow-hidden cursor-pointer p-1 transition-all flex flex-col items-center justify-center ${
-                          rowForm.reference_image === img.url || rowForm.design_file === img.url
+                        className={`rounded-lg border overflow-hidden cursor-pointer p-1 transition-all flex flex-col items-center justify-center ${rowForm.reference_image === img.url || rowForm.design_file === img.url
                             ? 'border-[#881337] ring-2 ring-[#881337]/30 bg-rose-50'
                             : 'border-stone-200 hover:border-stone-400 bg-white'
-                        }`}
+                          }`}
                         title={img.label}
                       >
                         <img

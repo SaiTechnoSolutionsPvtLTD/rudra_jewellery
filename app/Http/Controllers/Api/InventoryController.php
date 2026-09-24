@@ -127,17 +127,18 @@ class InventoryController extends Controller
         $perPage = (int) $request->get('per_page', 10);
         $products = $query->paginate($perPage);
 
-        // Fast DB Aggregate Stats calculation (0ms memory overhead)
-        $totalProducts = Product::count();
-        $inStockCount = Product::where('current_stock_qty', '>', 0)->count();
-        $lowStockCount = Product::where('current_stock_qty', '>', 0)->where('current_stock_qty', '<=', 2)->count();
-        $outOfStockCount = Product::where(function($q) {
+        // Fast DB Aggregate Stats calculation computed dynamically on filtered query
+        $statsQuery = clone $query;
+        $totalProducts = (clone $statsQuery)->count();
+        $inStockCount = (clone $statsQuery)->where('current_stock_qty', '>', 0)->count();
+        $lowStockCount = (clone $statsQuery)->where('current_stock_qty', '>', 0)->where('current_stock_qty', '<=', 2)->count();
+        $outOfStockCount = (clone $statsQuery)->where(function($q) {
             $q->where('current_stock_qty', '<=', 0)
               ->orWhere('status', 'inactive');
         })->count();
 
-        $totalGrossWeight = (float) (Product::sum('opening_stock_weight') ?? 0);
-        $totalNetWeight = (float) (Product::sum('opening_fine_weight') ?? 0);
+        $totalGrossWeight = (float) ((clone $statsQuery)->sum('opening_stock_weight') ?? 0);
+        $totalNetWeight = (float) ((clone $statsQuery)->sum('opening_fine_weight') ?? 0);
         $totalDiamondWeight = 0.0;
 
         // Rates per unit

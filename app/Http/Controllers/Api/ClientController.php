@@ -16,14 +16,13 @@ class ClientController extends Controller
     {
         try {
             if (Schema::hasTable('clients')) {
-                $query = Client::query();
-                $query->where(function($q) {
+                $baseQuery = Client::query()->where(function($q) {
                     $q->whereNull('is_removed')->orWhere('is_removed', false);
                 });
 
                 if ($request->filled('search')) {
                     $search = $request->search;
-                    $query->where(function($q) use ($search) {
+                    $baseQuery->where(function($q) use ($search) {
                         $q->where('full_name', 'like', "%{$search}%")
                           ->orWhere('client_code', 'like', "%{$search}%")
                           ->orWhere('primary_phone', 'like', "%{$search}%")
@@ -32,43 +31,59 @@ class ClientController extends Controller
                 }
 
                 if ($request->filled('status') && $request->status !== 'all') {
-                    $query->where('status', $request->status);
+                    $baseQuery->where('status', $request->status);
                 }
+
+                $query = clone $baseQuery;
 
                 if ($request->filled('period') && strtolower($request->period) !== 'all') {
                     $period = strtolower($request->period);
-                    if ($period === 'today') {
-                        $query->where(function($q) {
-                            $q->whereDate('created_at', Carbon::today())
-                              ->orWhereDate('last_visit', Carbon::today());
-                        });
-                    } elseif ($period === 'week') {
-                        $query->where(function($q) {
-                            $q->where('created_at', '>=', Carbon::now()->subDays(7))
-                              ->orWhere('last_visit', '>=', Carbon::now()->subDays(7));
-                        });
-                    } elseif ($period === 'year') {
-                        $query->where(function($q) {
-                            $q->where('created_at', '>=', Carbon::now()->subDays(365))
-                              ->orWhere('last_visit', '>=', Carbon::now()->subDays(365));
+                    $fromDate = match ($period) {
+                        'today', '1d' => Carbon::today(),
+                        'week', 'this week', '7d' => Carbon::now()->startOfWeek(),
+                        'month', 'this month', '30d' => Carbon::now()->startOfMonth(),
+                        'year', 'this year' => Carbon::now()->startOfYear(),
+                        default => null,
+                    };
+
+                    if ($fromDate) {
+                        $query->where(function($q) use ($fromDate, $period) {
+                            if ($period === 'today' || $period === '1d') {
+                                $q->whereDate('created_at', Carbon::today())
+                                  ->orWhereDate('last_visit', Carbon::today())
+                                  ->orWhereHas('invoices', function($iq) {
+                                      $iq->whereDate('created_at', Carbon::today());
+                                  });
+                            } else {
+                                $q->where('created_at', '>=', $fromDate)
+                                  ->orWhere('last_visit', '>=', $fromDate)
+                                  ->orWhereHas('invoices', function($iq) use ($fromDate) {
+                                      $iq->where('created_at', '>=', $fromDate);
+                                  });
+                            }
                         });
                     }
                 }
 
-                $clients = $query->orderBy('id', 'desc')->get();
+                $clients = (clone $query)->orderBy('id', 'desc')->get();
 
-                $totalCount = Client::where(function($q) {
-                    $q->whereNull('is_removed')->orWhere('is_removed', false);
+                // Compute stats dynamically
+                $totalCount = (clone $baseQuery)->count();
+                $todayCount = (clone $baseQuery)->where(function($q) {
+                    $q->whereDate('created_at', Carbon::today())
+                      ->orWhereDate('last_visit', Carbon::today());
                 })->count();
-                $todayCount = Client::where(function($q) {
-                    $q->whereNull('is_removed')->orWhere('is_removed', false);
-                })->whereDate('created_at', Carbon::today())->count();
-                $activeMembersCount = Client::where(function($q) {
-                    $q->whereNull('is_removed')->orWhere('is_removed', false);
-                })->where('status', 'active')->count();
-                $newRegCount = Client::where(function($q) {
-                    $q->whereNull('is_removed')->orWhere('is_removed', false);
-                })->where('created_at', '>=', Carbon::now()->subDays(30))->count();
+                $activeMembersCount = (clone $baseQuery)->where('status', 'active')->count();
+
+                $period = strtolower($request->input('period', 'month'));
+                $newRegFrom = match ($period) {
+                    'today', '1d' => Carbon::today(),
+                    'week', 'this week', '7d' => Carbon::now()->startOfWeek(),
+                    'year', 'this year' => Carbon::now()->startOfYear(),
+                    default => Carbon::now()->startOfMonth(),
+                };
+
+                $newRegCount = (clone $baseQuery)->where('created_at', '>=', $newRegFrom)->count();
 
                 return response()->json([
                     'stats' => [
@@ -323,7 +338,44 @@ class ClientController extends Controller
                     });
                 }
 
-                $invoices = $query->orderBy('id', 'desc')->get()->map(function($inv) {
+                $period = strtolower($request->input('period') ?: $request->input('range') ?: $request->input('month') ?: 'all');
+
+                if ($period !== 'all') {
+                    if ($period === 'today' || $period === '1d') {
+                        $query->where(function($q) {
+                            $q->whereDate('invoice_date', Carbon::today())
+                              ->orWhere(function($sub) { $sub->whereNull('invoice_date')->whereDate('created_at', Carbon::today()); });
+                        });
+                    } elseif ($period === 'week' || $period === 'this week' || $period === '7d') {
+                        $query->where(function($q) {
+                            $q->where('invoice_date', '>=', Carbon::now()->startOfWeek())
+                              ->orWhere(function($sub) { $sub->whereNull('invoice_date')->where('created_at', '>=', Carbon::now()->startOfWeek()); });
+                        });
+                    } elseif ($period === 'month' || $period === 'this month' || $period === '30d') {
+                        $query->where(function($q) {
+                            $q->where('invoice_date', '>=', Carbon::now()->startOfMonth())
+                              ->orWhere(function($sub) { $sub->whereNull('invoice_date')->where('created_at', '>=', Carbon::now()->startOfMonth()); });
+                        });
+                    } elseif ($period === 'year' || $period === 'this year' || $period === '1y') {
+                        $query->where(function($q) {
+                            $q->where('invoice_date', '>=', Carbon::now()->startOfYear())
+                              ->orWhere(function($sub) { $sub->whereNull('invoice_date')->where('created_at', '>=', Carbon::now()->startOfYear()); });
+                        });
+                    } elseif (preg_match('/([a-z]+)\s*(\d{4})/', $period, $m)) {
+                        try {
+                            $mStart = Carbon::parse("1 {$m[1]} {$m[2]}")->startOfMonth();
+                            $mEnd = Carbon::parse("1 {$m[1]} {$m[2]}")->endOfMonth();
+                            $query->where(function($q) use ($mStart, $mEnd) {
+                                $q->whereBetween('invoice_date', [$mStart, $mEnd])
+                                  ->orWhere(function($sub) use ($mStart, $mEnd) { $sub->whereNull('invoice_date')->whereBetween('created_at', [$mStart, $mEnd]); });
+                            });
+                        } catch (\Exception $e) {}
+                    }
+                }
+
+                $rawInvoices = (clone $query)->orderBy('id', 'desc')->get();
+
+                $invoices = $rawInvoices->map(function($inv) {
                     $dateObj = $inv->invoice_date ? Carbon::parse($inv->invoice_date) : ($inv->created_at ? Carbon::parse($inv->created_at) : Carbon::now());
                     $client = $inv->client;
                     if (!$client && $inv->client_id) {
@@ -343,7 +395,6 @@ class ClientController extends Controller
                     $clientCompany = $client ? $client->company_name : null;
                     $avatarUrl = $client ? $client->avatar_url : null;
 
-                    // Normalize avatar URL and verify file exists if local storage
                     if ($avatarUrl) {
                         if (str_starts_with($avatarUrl, 'http://localhost/storage/')) {
                             $avatarUrl = str_replace('http://localhost/storage/', '/storage/', $avatarUrl);
@@ -356,7 +407,6 @@ class ClientController extends Controller
                         }
                     }
 
-                    // Fallback to name-matched client avatar or high-resolution branded logo
                     if (!$avatarUrl && $clientName) {
                         $matchedClient = Client::where('full_name', $clientName)->whereNotNull('avatar')->where('avatar', '!=', '')->first();
                         if ($matchedClient && $matchedClient->avatar_url) {
@@ -397,13 +447,13 @@ class ClientController extends Controller
                     ];
                 });
 
-                // Compute real dynamic stats and period-over-period growth rates from the database
-                $totalInvoicesCount = Invoice::count();
-                $todayInvoicesCount = Invoice::whereDate('invoice_date', Carbon::today())->count();
-                $todayBillingSum = Invoice::whereDate('invoice_date', Carbon::today())->sum('total_amount');
-                $totalBillingSum = Invoice::sum('total_amount');
-                $pendingBillsSum = Invoice::where('status', '!=', 'paid')->sum('total_amount');
-                $totalRevenueSum = Invoice::where('status', 'paid')->sum('total_amount') + (Invoice::where('status', 'partial')->sum('total_amount') * 0.5);
+                // Compute real dynamic stats and growth rates on the filtered query
+                $totalInvoicesCount = $rawInvoices->count();
+                $todayInvoicesCount = $rawInvoices->count();
+                $todayBillingSum = (float) $rawInvoices->sum('total_amount');
+                $totalBillingSum = (float) $rawInvoices->sum('total_amount');
+                $pendingBillsSum = (float) $rawInvoices->where('status', '!=', 'paid')->sum('total_amount');
+                $totalRevenueSum = (float) $rawInvoices->where('status', 'paid')->sum('total_amount') + ((float)$rawInvoices->where('status', 'partial')->sum('total_amount') * 0.5);
 
                 $yesterdayInvoicesCount = Invoice::whereDate('invoice_date', Carbon::yesterday())->count();
                 $todayInvoicesGrowthPct = $yesterdayInvoicesCount > 0 ? round((($todayInvoicesCount - $yesterdayInvoicesCount) / $yesterdayInvoicesCount) * 100, 1) : ($todayInvoicesCount > 0 ? 100.0 : 0.0);
@@ -634,6 +684,20 @@ class ClientController extends Controller
 
                 if ($request->filled('remove_date')) {
                     $query->whereDate('removed_at', $request->remove_date);
+                }
+
+                if ($request->filled('month') && strtolower($request->month) !== 'all' && strtolower($request->month) !== 'month' && strtolower($request->month) !== 'this month') {
+                    $mStr = trim($request->month);
+                    if (preg_match('/([a-zA-Z]+)\s*(\d{4})/', $mStr, $m)) {
+                        try {
+                            $mStart = Carbon::parse("1 {$m[1]} {$m[2]}")->startOfMonth();
+                            $mEnd = Carbon::parse("1 {$m[1]} {$m[2]}")->endOfMonth();
+                            $query->whereBetween('removed_at', [$mStart, $mEnd]);
+                        } catch (\Exception $e) {}
+                    }
+                } elseif ($request->filled('month') && (strtolower($request->month) === 'month' || strtolower($request->month) === 'this month')) {
+                    $query->whereMonth('removed_at', Carbon::now()->month)
+                          ->whereYear('removed_at', Carbon::now()->year);
                 }
 
                 $clients = $query->orderBy('removed_at', 'desc')->get()->map(function($c) {

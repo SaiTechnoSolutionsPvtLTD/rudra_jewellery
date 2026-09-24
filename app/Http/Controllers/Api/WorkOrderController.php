@@ -380,11 +380,11 @@ class WorkOrderController extends Controller
             // Debit Raw Material inventory balance (ONLY Rudhra-supplied metals: Gold, Silver, Platinum)
             $matStr = strtolower(($validated['material_type'] ?? '') . ' ' . ($validated['product_name'] ?? ''));
             
-            // STRICT BUSINESS RULE: Reject company stone/diamond allocation to Karigars
-            if ((isset($validated['material_type']) && in_array(strtolower($validated['material_type']), ['diamond', 'stone', 'colour stone', 'color stone'])) ||
+            // BUSINESS RULE: Loose colour stone allocation prohibited, but company-supplied metals (Gold, Silver, Platinum) and certified Diamonds can be allocated to work orders
+            if ((isset($validated['material_type']) && in_array(strtolower($validated['material_type']), ['stone', 'colour stone', 'color stone', 'loose stone', 'colour_stone'])) ||
                 ($request->filled('allocate_stone') && $request->boolean('allocate_stone'))) {
                 throw \Illuminate\Validation\ValidationException::withMessages([
-                    'material_type' => 'Stone Allocation Prohibited: Rudhra Jewellery does not supply diamonds or stones to artisans. Karigars procure stones independently. Only company-supplied metals (Gold, Silver, Platinum) can be allocated to work orders.'
+                    'material_type' => 'Loose Stone Allocation Prohibited: Karigars procure loose colour stones independently. Company-supplied metals (Gold, Silver, Platinum) and certified Diamonds can be allocated to work orders.'
                 ]);
             }
 
@@ -393,6 +393,8 @@ class WorkOrderController extends Controller
                 $debitMatType = 'silver';
             } elseif (str_contains($matStr, 'platinum')) {
                 $debitMatType = 'platinum';
+            } elseif (str_contains($matStr, 'diamond')) {
+                $debitMatType = 'diamond';
             }
 
             $rawRec = \App\Models\RawMaterial::where('material_type', $debitMatType)->first();
@@ -1240,36 +1242,63 @@ class WorkOrderController extends Controller
         $today = Carbon::today()->toDateString();
         $page = (int) $request->input('page', 1);
         $perPage = (int) $request->input('per_page', 4);
+        $range = strtolower($request->input('range') ?: $request->input('period') ?: 'all');
 
-        // 1. KPI Counts computed strictly from database
+        $applyDateRange = function ($query) use ($range) {
+            if (in_array($range, ['today', '1d'])) {
+                $query->whereDate('created_at', Carbon::today());
+            } elseif (in_array($range, ['week', 'this week', '7d', '1w'])) {
+                $query->where('created_at', '>=', Carbon::now()->startOfWeek());
+            } elseif (in_array($range, ['month', 'this month', '30d', '1m'])) {
+                $query->where('created_at', '>=', Carbon::now()->startOfMonth());
+            } elseif (in_array($range, ['quarter', 'this quarter', '3m'])) {
+                $query->where('created_at', '>=', Carbon::now()->startOfQuarter());
+            } elseif (in_array($range, ['year', 'this year', '1y'])) {
+                $query->where('created_at', '>=', Carbon::now()->startOfYear());
+            }
+        };
+
+        // 1. KPI Counts computed strictly from database with date range filter applied
         $activeArtisansCount = Karigar::where('status', 'active')->count() ?: Karigar::count();
         $activeArtisansNewThisMonth = Karigar::where('created_at', '>=', Carbon::now()->startOfMonth())->count();
 
         $activeOrdersQuery = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received']);
+        $applyDateRange($activeOrdersQuery);
         $totalActive = $activeOrdersQuery->count();
 
-        $pendingOrdersCount = WorkOrder::whereIn('status', ['ongoing', 'pending_approval'])
-            ->orWhereNotIn('status', ['completed', 'cancelled', 'final_received'])
-            ->count();
+        $pendingOrdersQuery = WorkOrder::where(function($q) {
+            $q->whereIn('status', ['ongoing', 'pending_approval'])
+              ->orWhereNotIn('status', ['completed', 'cancelled', 'final_received']);
+        });
+        $applyDateRange($pendingOrdersQuery);
+        $pendingOrdersCount = $pendingOrdersQuery->count();
 
-        $overdueCount = WorkOrder::where('delivery_date', '<', $today)
-            ->whereNotIn('status', ['completed', 'final_received', 'cancelled'])
-            ->count();
+        $overdueQuery = WorkOrder::where('delivery_date', '<', $today)
+            ->whereNotIn('status', ['completed', 'final_received', 'cancelled']);
+        $applyDateRange($overdueQuery);
+        $overdueCount = $overdueQuery->count();
 
-        $qcPendingCount = WorkOrder::where(function ($q) {
+        $qcPendingQuery = WorkOrder::where(function ($q) {
             $q->where('status', 'pending_approval')
               ->orWhereIn('current_stage', ['work_completed', 'sent_for_approval', 'quality_check']);
-        })->whereNotIn('status', ['completed', 'approved', 'cancelled'])->count();
+        })->whereNotIn('status', ['completed', 'approved', 'cancelled']);
+        $applyDateRange($qcPendingQuery);
+        $qcPendingCount = $qcPendingQuery->count();
 
-        $qcPendingThisWeek = WorkOrder::where(function ($q) {
-            $q->where('status', 'pending_approval')
-              ->orWhereIn('current_stage', ['work_completed', 'sent_for_approval', 'quality_check']);
-        })->whereNotIn('status', ['completed', 'approved', 'cancelled'])
-          ->where('created_at', '>=', Carbon::now()->startOfWeek())
-          ->count();
+        $trendLabel = match (true) {
+            in_array($range, ['today', '1d']) => 'today',
+            in_array($range, ['week', 'this week', '7d', '1w']) => 'this week',
+            in_array($range, ['month', 'this month', '30d', '1m']) => 'this month',
+            in_array($range, ['quarter', 'this quarter', '3m']) => 'this quarter',
+            in_array($range, ['year', 'this year', '1y']) => 'this year',
+            default => 'this period',
+        };
+        $qcPendingTrend = "{$qcPendingCount} {$trendLabel}";
 
-        $completedCount = WorkOrder::whereIn('status', ['completed', 'ready', 'approved'])->count();
-        $completedValue = WorkOrder::whereIn('status', ['completed', 'ready', 'approved'])->sum('total_price');
+        $completedQuery = WorkOrder::whereIn('status', ['completed', 'ready', 'approved']);
+        $applyDateRange($completedQuery);
+        $completedCount = $completedQuery->count();
+        $completedValue = $completedQuery->sum('total_price');
 
         // 2. Real Material Weights
         $activeOrders = $activeOrdersQuery->get();
@@ -1277,23 +1306,27 @@ class WorkOrderController extends Controller
         $totalCompletedWeight = (float) $activeOrders->sum('completed_weight');
         $totalPendingWeight = (float) $activeOrders->sum('pending_weight');
 
-        $goldWeight = (float) WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received'])
-            ->where('material_type', 'like', '%gold%')
-            ->sum('allotted_weight');
+        $goldQuery = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received'])
+            ->where('material_type', 'like', '%gold%');
+        $applyDateRange($goldQuery);
+        $goldWeight = (float) $goldQuery->sum('allotted_weight');
 
-        $silverWeight = (float) WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received'])
-            ->where('material_type', 'like', '%silver%')
-            ->sum('allotted_weight');
+        $silverQuery = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received'])
+            ->where('material_type', 'like', '%silver%');
+        $applyDateRange($silverQuery);
+        $silverWeight = (float) $silverQuery->sum('allotted_weight');
 
-        $diamondWeight = (float) WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received'])
-            ->where('material_type', 'like', '%diamond%')
-            ->sum('allotted_weight');
+        $diamondQuery = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received'])
+            ->where('material_type', 'like', '%diamond%');
+        $applyDateRange($diamondQuery);
+        $diamondWeight = (float) $diamondQuery->sum('allotted_weight');
 
-        // 3. Real Material Allocations per active Artisan from active work orders only
+        // 3. Real Material Allocations per active Artisan from filtered active work orders
         $materialAllocations = [];
-        $activeWorkOrders = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received', 'delivered'])
-            ->with('karigar')
-            ->get();
+        $activeWorkOrdersQuery = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received', 'delivered'])
+            ->with('karigar');
+        $applyDateRange($activeWorkOrdersQuery);
+        $activeWorkOrders = $activeWorkOrdersQuery->get();
 
         $activeKarigarIds = $activeWorkOrders->pluck('karigar_id')->filter()->unique();
 
@@ -1337,12 +1370,14 @@ class WorkOrderController extends Controller
         }
 
         // 4. Real Quality Check Queue (Awaiting Final Approval)
-        $dbApprovalCards = WorkOrder::with(['karigar', 'product'])
+        $dbApprovalCardsQuery = WorkOrder::with(['karigar', 'product'])
             ->where(function ($q) {
                 $q->where('status', 'pending_approval')
                   ->orWhereIn('current_stage', ['work_completed', 'sent_for_approval', 'quality_check']);
             })
-            ->whereNotIn('status', ['completed', 'approved', 'cancelled'])
+            ->whereNotIn('status', ['completed', 'approved', 'cancelled']);
+        $applyDateRange($dbApprovalCardsQuery);
+        $dbApprovalCards = $dbApprovalCardsQuery
             ->latest()
             ->get()
             ->map(function ($order) {
@@ -1364,8 +1399,9 @@ class WorkOrderController extends Controller
 
         // 5. Paginated Live Jobs from DB
         $liveJobsQuery = WorkOrder::with(['karigar', 'product'])
-            ->whereNotIn('status', ['completed', 'cancelled'])
-            ->latest();
+            ->whereNotIn('status', ['completed', 'cancelled']);
+        $applyDateRange($liveJobsQuery);
+        $liveJobsQuery->latest();
 
         $paginatedLiveJobs = $liveJobsQuery->paginate($perPage, ['*'], 'page', $page);
 
@@ -1480,7 +1516,7 @@ class WorkOrderController extends Controller
             'pending_orders' => $pendingOrdersCount,
             'overdue_count' => $overdueCount,
             'qc_pending' => $qcPendingCount,
-            'qc_pending_trend' => $qcPendingThisWeek > 0 ? "{$qcPendingThisWeek} this week" : '0 this week',
+            'qc_pending_trend' => $qcPendingTrend,
             'completed_jobs' => $completedCount,
             'completed_value' => $completedValue,
             'allocated_weight' => round($totalAllocatedWeight, 3),

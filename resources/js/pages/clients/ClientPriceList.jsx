@@ -1939,8 +1939,8 @@ export default function ClientPriceList() {
             {/* Printable Container (Exact Image Layout) */}
             <div id="printable-price-list-sheet" className="relative overflow-y-auto flex-1 p-5 bg-white rounded-xl border border-gray-200/80 space-y-5 text-xs text-gray-800 font-sans print:p-0 print:border-0 print:overflow-visible">
               
-              {/* Background Logo Watermark */}
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.04] print:opacity-[0.05] select-none z-0 overflow-hidden">
+              {/* Background Logo Watermark (Hidden in print) */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.04] print:hidden select-none z-0 overflow-hidden">
                 <div className="text-center font-black text-[#b01622] transform -rotate-12 space-y-2">
                   <div className="text-[140px] font-black tracking-widest leading-none">RJ</div>
                   <div className="text-4xl uppercase tracking-[0.3em] font-black">RUDRA JEWELLERS</div>
@@ -2299,8 +2299,8 @@ export default function ClientPriceList() {
 
               </div>
 
-              {/* Footer Stamp & Signature Section */}
-              <div className="border-t-2 border-gray-200 pt-4 flex items-center justify-between gap-4 text-xs mt-6">
+              {/* Footer Stamp & Signature Section (Bottom Alignment) */}
+              <div className="border-t-2 border-gray-200 pt-4 flex items-center justify-between gap-4 text-xs mt-auto relative z-10 avoid-break print-break-inside-avoid">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 rounded-full border-2 border-[#b01622] flex flex-col items-center justify-center text-[8px] font-bold text-[#b01622] p-1 text-center shrink-0">
                     <div>RUDRA</div>
@@ -2313,11 +2313,17 @@ export default function ClientPriceList() {
                   </div>
                 </div>
 
-                <div className="text-right space-y-1 shrink-0">
-                  <div className="font-serif italic font-bold text-[#b01622] text-lg leading-none">Rudhra</div>
-                  <div className="w-36 h-0.5 bg-gray-300 ml-auto"></div>
-                  <div className="text-[10px] font-bold text-gray-800 uppercase tracking-wider">AUTHORIZED SIGNATURE</div>
-                  <div className="text-[8px] text-gray-400">Rudra Jewellers, Chennai</div>
+                <div className="flex items-center gap-8 text-center shrink-0">
+                  <div>
+                    <div className="w-28 border-b border-gray-300 mb-1"></div>
+                    <span className="text-[10px] font-bold text-gray-700 uppercase block">PREPARED BY</span>
+                  </div>
+                  <div className="text-right space-y-1 shrink-0">
+                    <div className="font-serif italic font-bold text-[#b01622] text-lg leading-none">Rudhra</div>
+                    <div className="w-36 h-0.5 bg-gray-300 ml-auto"></div>
+                    <div className="text-[10px] font-bold text-gray-800 uppercase tracking-wider">AUTHORIZED SIGNATURE</div>
+                    <div className="text-[8px] text-gray-400">Rudra Jewellers, Chennai</div>
+                  </div>
                 </div>
               </div>
 

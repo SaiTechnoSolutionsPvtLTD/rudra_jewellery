@@ -56,6 +56,28 @@ export const printElement = (elementId, documentTitle = 'Document') => {
               print-color-adjust: exact !important;
               color-adjust: exact !important;
             }
+            .watermark,
+            .print-watermark,
+            .company-watermark,
+            .report-watermark,
+            div[class*="watermark"],
+            div[class*="pointer-events-none"][class*="opacity-"],
+            div[class*="pointer-events-none"][class*="rotate-"] {
+              display: none !important;
+              opacity: 0 !important;
+              visibility: hidden !important;
+            }
+          }
+          .watermark,
+          .print-watermark,
+          .company-watermark,
+          .report-watermark,
+          div[class*="watermark"],
+          div[class*="pointer-events-none"][class*="opacity-"],
+          div[class*="pointer-events-none"][class*="rotate-"] {
+            display: none !important;
+            opacity: 0 !important;
+            visibility: hidden !important;
           }
           html, body {
             background: #ffffff !important;
@@ -73,7 +95,9 @@ export const printElement = (elementId, documentTitle = 'Document') => {
             display: none !important;
           }
           #${elementId} {
-            display: block !important;
+            display: flex !important;
+            flex-direction: column !important;
+            min-height: 100% !important;
             visibility: visible !important;
             opacity: 1 !important;
             position: static !important;
@@ -86,6 +110,10 @@ export const printElement = (elementId, documentTitle = 'Document') => {
             background: #ffffff !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
+          }
+          .avoid-break, .print-break-inside-avoid {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
           }
           /* Retain exact header background colors & card backgrounds */
           thead, thead tr, thead th, .bg-\\[\\#b01622\\], [style*="background-color: #b01622"] {

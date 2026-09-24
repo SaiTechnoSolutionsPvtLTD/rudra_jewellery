@@ -1377,8 +1377,8 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
               id="printable-report-sheet"
               className="relative overflow-y-auto flex-1 p-6 bg-white rounded-xl border border-stone-200 space-y-5 text-xs text-stone-800 print:p-0 print:border-0 print:overflow-visible"
             >
-              {/* Subtle Brand Watermark */}
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.03] print:opacity-[0.04] select-none z-0 overflow-hidden">
+              {/* Subtle Brand Watermark (Hidden in print) */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.03] print:hidden select-none z-0 overflow-hidden">
                 <div className="text-center font-black text-[#b01622] transform -rotate-12 space-y-2">
                   <div className="text-[140px] font-black tracking-widest leading-none">RJ</div>
                   <div className="text-3xl uppercase tracking-[0.3em] font-black">RUDRA JEWELLERS</div>
@@ -1524,13 +1524,20 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
                 </div>
               </div>
 
-              {/* Authorised Signatory Seal */}
-              <div className="flex justify-between items-end pt-6 relative z-10 border-t border-stone-200">
+              {/* Authorised Signatory & Prepared By Seal (Bottom Alignment) */}
+              <div className="flex justify-between items-end pt-6 relative z-10 border-t border-stone-200 mt-auto avoid-break print-break-inside-avoid">
                 <span className="text-[10px] text-stone-400">Generated on {new Date().toLocaleString('en-IN')}</span>
-                <div className="text-center">
-                  <div className="w-40 border-b border-stone-400 mb-1"></div>
-                  <span className="text-[11px] font-bold text-stone-700 block">Authorised Signatory</span>
-                  <span className="text-[9px] text-stone-400 block uppercase tracking-wider">For RUDRA JEWELLERS</span>
+                <div className="flex items-center gap-10 text-center">
+                  <div>
+                    <div className="w-32 border-b border-stone-400 mb-1"></div>
+                    <span className="text-[11px] font-bold text-stone-700 block">Prepared By</span>
+                    <span className="text-[9px] text-stone-400 block uppercase tracking-wider">Accountant / Staff</span>
+                  </div>
+                  <div>
+                    <div className="w-40 border-b border-stone-400 mb-1"></div>
+                    <span className="text-[11px] font-bold text-stone-700 block">Authorised Signatory</span>
+                    <span className="text-[9px] text-stone-400 block uppercase tracking-wider">For RUDRA JEWELLERS</span>
+                  </div>
                 </div>
               </div>
             </div>

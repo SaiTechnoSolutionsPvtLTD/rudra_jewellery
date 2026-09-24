@@ -124,11 +124,11 @@ export default function ClientList() {
   const stats = data?.stats || {};
   const allClients = data?.clients || [];
   
-  // Real dynamic counts according to client table data
+  // Real dynamic counts according to client table data & applied filters
   const totalCount = allClients.length;
-  const activeCount = allClients.filter(c => (c.status || '').toLowerCase() === 'active').length;
-  const todayCount = stats.todayClients !== undefined && stats.todayClients > 0 ? stats.todayClients : totalCount;
-  const newRegCount = stats.newReg !== undefined && stats.newReg > 0 ? stats.newReg : totalCount;
+  const activeCount = stats.activeMembers !== undefined ? stats.activeMembers : allClients.filter(c => (c.status || '').toLowerCase() === 'active').length;
+  const todayCount = stats.todayClients !== undefined ? stats.todayClients : totalCount;
+  const newRegCount = stats.newReg !== undefined ? stats.newReg : totalCount;
 
   // Real Pagination according to clients in table
   const totalPages = Math.max(Math.ceil(totalCount / itemsPerPage), 1);

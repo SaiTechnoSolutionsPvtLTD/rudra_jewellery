@@ -41,9 +41,9 @@ class KarigarController extends Controller
             $query->where('status', $request->status);
         }
 
-        // Calculate statistics in a single aggregate query (no Karigar::all() scan)
-        $statsRow = DB::table('karigars')
-            ->whereNull('deleted_at')
+        // Calculate statistics dynamically on the filtered query
+        $statsQuery = clone $query;
+        $statsRow = $statsQuery
             ->selectRaw(
             'COUNT(*) as total_karigars,
              SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as active_karigars,

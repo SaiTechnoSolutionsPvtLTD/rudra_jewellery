@@ -124,7 +124,9 @@ export default function Dashboard() {
 
   const fetchJobStats = async () => {
     try {
-      const res = await api.get('/work-orders/dashboard-stats');
+      const res = await api.get('/work-orders/dashboard-stats', {
+        params: { range: timeRange, period: timeRange }
+      });
       if (res.data?.status === 'success' || res.data?.summary || res.data?.data) {
         const payload = res.data.data || res.data.summary || res.data;
         const newStats = {
