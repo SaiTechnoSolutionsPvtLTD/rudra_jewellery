@@ -24,6 +24,7 @@ class User extends Authenticatable
         'email',
         'mobile_number',
         'role',
+        'status',
         'password',
     ];
 
@@ -53,5 +54,44 @@ class User extends Authenticatable
     public function karigar()
     {
         return $this->hasOne(Karigar::class);
+    }
+
+    public function isSuperAdmin(): bool
+    {
+        return in_array(strtolower(str_replace(' ', '_', $this->role)), ['super_admin', 'superadministrator']);
+    }
+
+    public function isKarigar(): bool
+    {
+        return strtolower(str_replace(' ', '_', $this->role)) === 'karigar' || !is_null($this->karigar);
+    }
+
+    public function getPermissionsAttribute(): array
+    {
+        if ($this->isSuperAdmin()) {
+            $roleModel = Role::where('role_key', 'super_admin')->first();
+            if ($roleModel && is_array($roleModel->permissions)) {
+                return array_values($roleModel->permissions);
+            }
+            return ['*'];
+        }
+
+        $roleSlug = strtolower(str_replace(' ', '_', $this->role));
+        $roleModel = Role::where('role_key', $roleSlug)->orWhere('display_name', $this->role)->first();
+        if ($roleModel && is_array($roleModel->permissions)) {
+            return array_values($roleModel->permissions);
+        }
+
+        return ['dashboard.view'];
+    }
+
+    public function hasPermission(string $permissionKey): bool
+    {
+        if ($this->isSuperAdmin()) {
+            return true;
+        }
+
+        $permissions = $this->permissions;
+        return in_array('*', $permissions) || in_array($permissionKey, $permissions);
     }
 }

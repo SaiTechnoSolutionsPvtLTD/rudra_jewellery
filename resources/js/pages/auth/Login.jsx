@@ -8,14 +8,15 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState('');
-  const { login, isAuthenticated } = useAuth();
+  const { login, isAuthenticated, isKarigar, user } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
     if (isAuthenticated) {
-      navigate('/dashboard', { replace: true });
+      const target = (isKarigar || user?.role === 'Karigar') ? '/job-order/in-progress' : '/dashboard';
+      navigate(target, { replace: true });
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, isKarigar, user, navigate]);
 
   useEffect(() => {
     // Generate ambient sparkles
@@ -39,7 +40,9 @@ export default function Login() {
     setError('');
     const res = await login(email, password);
     if (res?.success) {
-      navigate('/dashboard', { replace: true });
+      const loggedUser = res?.user;
+      const target = (loggedUser?.role === 'Karigar' || isKarigar) ? '/job-order/in-progress' : '/dashboard';
+      navigate(target, { replace: true });
     } else {
       setError(res?.message || 'Invalid credentials');
     }
@@ -266,6 +269,9 @@ export default function Login() {
             Sign In
           </button>
         </form>
+        <div className="mt-6 pt-4 border-t border-[rgba(212,175,55,0.15)] text-center text-xs text-[#f3d98b]/70 font-medium tracking-wide">
+          © 2026 <strong className="font-bold text-[#f3d98b]">Rudhra Jewellers</strong>. All Rights Reserved. <span className="mx-1 opacity-40">|</span> Developed by <strong className="font-semibold text-[#f3d98b]">Sai Techno Solutions</strong>.
+        </div>
       </div>
     </div>
   );

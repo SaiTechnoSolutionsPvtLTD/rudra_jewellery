@@ -3,6 +3,7 @@ import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import ConfirmModal from '../../components/ConfirmModal';
 import Pagination from '../../components/Pagination';
+import { handleDecimalKeyDown } from '../../utils/numberInputUtils';
 
 const AVAILABLE_ICONS = [
   { value: 'fa-solid fa-gem', label: 'Diamond / Gem' },
@@ -849,9 +850,12 @@ export default function WorkSpecifications() {
                   <div className="relative">
                     <input
                       type="number"
+                      inputMode="decimal"
+                      min="0"
                       step="0.01"
                       name="default_wastage_percent"
                       value={formData.default_wastage_percent}
+                      onKeyDown={handleDecimalKeyDown}
                       onChange={handleInputChange}
                       className={`w-full pl-3.5 pr-10 py-2.5 bg-stone-50 border rounded-xl text-xs sm:text-sm font-sans text-stone-900 no-spinners focus:outline-none focus:ring-2 focus:ring-[#b01622]/20 focus:border-[#b01622] ${
                         formErrors.default_wastage_percent ? 'border-red-500 bg-red-50/30' : 'border-stone-200'
@@ -876,9 +880,12 @@ export default function WorkSpecifications() {
                     </span>
                     <input
                       type="number"
-                      step="1"
+                      inputMode="decimal"
+                      min="0"
+                      step="any"
                       name="default_making_charge"
                       value={formData.default_making_charge}
+                      onKeyDown={handleDecimalKeyDown}
                       onChange={handleInputChange}
                       placeholder="0"
                       className={`w-full pl-8 pr-12 py-2.5 bg-stone-50 border rounded-xl text-xs sm:text-sm font-sans text-stone-900 no-spinners focus:outline-none focus:ring-2 focus:ring-[#b01622]/20 focus:border-[#b01622] ${

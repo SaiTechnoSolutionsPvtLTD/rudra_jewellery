@@ -313,8 +313,17 @@ export default function ClientList() {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search by client name, code, phone, or email..."
-              className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622] focus:bg-white transition-colors"
+              className="w-full pl-9 pr-8 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622] focus:bg-white transition-colors"
             />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark text-xs"></i>
+              </button>
+            )}
           </div>
 
           <div className="w-full sm:w-auto flex items-center gap-2">

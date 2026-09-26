@@ -35,7 +35,7 @@ const QUICK_SEARCH_ITEMS = [
 
 export default function Header({ toggleSidebar, sidebarOpen }) {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, logout, isKarigar } = useAuth();
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
@@ -157,8 +157,8 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
 
     const orderId = notif.data?.order_id || notif.work_order_id;
     if (orderId) {
-      if (user?.role === 'Karigar' || user?.role === 'Master Karigar') {
-        navigate(`/karigars?open_order=${orderId}`);
+      if (user?.role === 'Karigar' || isKarigar) {
+        navigate(`/job-order/in-progress?order_id=${orderId}`);
       } else {
         navigate(`/job-order/receive?order_id=${orderId}`);
       }

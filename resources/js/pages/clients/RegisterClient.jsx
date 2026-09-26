@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import { handleIntegerKeyDown, handleDecimalKeyDown, sanitizeInteger, sanitizeDecimal } from '../../utils/numberInputUtils';
 
 export default function RegisterClient() {
   const { id } = useParams();
@@ -384,7 +385,17 @@ export default function RegisterClient() {
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-2">Zip Code <span className="text-red-500">*</span></label>
-                  <input type="text" name="zipCode" value={formData.zipCode} onChange={handleChange} placeholder="600028" required className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]" />
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    onKeyDown={handleIntegerKeyDown}
+                    name="zipCode"
+                    value={formData.zipCode}
+                    onChange={(e) => setFormData({ ...formData, zipCode: sanitizeInteger(e.target.value) })}
+                    placeholder="600028"
+                    required
+                    className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]"
+                  />
                 </div>
               </div>
             </div>
@@ -407,7 +418,16 @@ export default function RegisterClient() {
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-2">GST Percentage (%) (Optional)</label>
-                  <input type="text" name="gstPercentage" value={formData.gstPercentage} onChange={handleChange} placeholder="e.g. 3% or 18%" className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]" />
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    onKeyDown={handleDecimalKeyDown}
+                    name="gstPercentage"
+                    value={formData.gstPercentage}
+                    onChange={(e) => setFormData({ ...formData, gstPercentage: sanitizeDecimal(e.target.value) })}
+                    placeholder="e.g. 3 or 18"
+                    className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]"
+                  />
                 </div>
               </div>
 

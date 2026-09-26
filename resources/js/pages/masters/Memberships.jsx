@@ -3,6 +3,7 @@ import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import ConfirmModal from '../../components/ConfirmModal';
 import Pagination from '../../components/Pagination';
+import { handleIntegerKeyDown, handleDecimalKeyDown, sanitizeInteger, sanitizeDecimal } from '../../utils/numberInputUtils';
 
 export default function Memberships() {
   const [memberships, setMemberships] = useState([]);
@@ -237,8 +238,17 @@ export default function Memberships() {
                 setCurrentPage(1);
               }}
               placeholder="Search plan name, code..."
-              className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
+              className="w-full pl-9 pr-8 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
             />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark text-xs"></i>
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-3 w-full lg:w-auto justify-end">
@@ -437,9 +447,12 @@ export default function Memberships() {
                   <input
                     type="number"
                     step="0.01"
+                    min="0"
+                    inputMode="decimal"
+                    onKeyDown={handleDecimalKeyDown}
                     name="discount_percentage"
                     value={formData.discount_percentage}
-                    onChange={handleInputChange}
+                    onChange={(e) => setFormData({ ...formData, discount_percentage: sanitizeDecimal(e.target.value) })}
                     placeholder="5.00"
                     required
                     className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
@@ -454,9 +467,12 @@ export default function Memberships() {
                   <input
                     type="number"
                     step="0.1"
+                    min="0"
+                    inputMode="decimal"
+                    onKeyDown={handleDecimalKeyDown}
                     name="reward_points_multiplier"
                     value={formData.reward_points_multiplier}
-                    onChange={handleInputChange}
+                    onChange={(e) => setFormData({ ...formData, reward_points_multiplier: sanitizeDecimal(e.target.value) })}
                     placeholder="1.5"
                     required
                     className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
@@ -472,9 +488,12 @@ export default function Memberships() {
                   </label>
                   <input
                     type="number"
+                    min="1"
+                    inputMode="numeric"
+                    onKeyDown={handleIntegerKeyDown}
                     name="validity_months"
                     value={formData.validity_months}
-                    onChange={handleInputChange}
+                    onChange={(e) => setFormData({ ...formData, validity_months: sanitizeInteger(e.target.value) })}
                     placeholder="12"
                     required
                     className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
@@ -488,9 +507,13 @@ export default function Memberships() {
                   </label>
                   <input
                     type="number"
+                    step="0.01"
+                    min="0"
+                    inputMode="decimal"
+                    onKeyDown={handleDecimalKeyDown}
                     name="min_purchase_amount"
                     value={formData.min_purchase_amount}
-                    onChange={handleInputChange}
+                    onChange={(e) => setFormData({ ...formData, min_purchase_amount: sanitizeDecimal(e.target.value) })}
                     placeholder="50000"
                     required
                     className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"

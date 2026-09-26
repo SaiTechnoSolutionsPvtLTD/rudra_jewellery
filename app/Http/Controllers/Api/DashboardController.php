@@ -13,16 +13,18 @@ class DashboardController extends Controller
     public function index(Request $request)
     {
         $periodParam = strtolower($request->get('period', 'month'));
+        $cacheKey = "dashboard_data_perf_v3_{$periodParam}";
 
-        $startDate = match($periodParam) {
-            'today' => Carbon::today(),
-            'week' => Carbon::now()->startOfWeek(),
-            'month' => Carbon::now()->startOfMonth(),
-            'quarter' => Carbon::now()->startOfQuarter(),
-            'year' => Carbon::now()->startOfYear(),
-            'all' => Carbon::create(2000, 1, 1),
-            default => Carbon::now()->startOfMonth(),
-        };
+        $cachedResult = Cache::remember($cacheKey, 15, function () use ($request, $periodParam) {
+            $startDate = match($periodParam) {
+                'today' => Carbon::today(),
+                'week' => Carbon::now()->startOfWeek(),
+                'month' => Carbon::now()->startOfMonth(),
+                'quarter' => Carbon::now()->startOfQuarter(),
+                'year' => Carbon::now()->startOfYear(),
+                'all' => Carbon::create(2000, 1, 1),
+                default => Carbon::now()->startOfMonth(),
+            };
 
         $endDate = match($periodParam) {
             'today' => Carbon::today()->endOfDay(),
@@ -116,20 +118,16 @@ class DashboardController extends Controller
 
         // 4. Inventory Valuation Metric
         $totalProducts = \App\Models\Product::count();
-        $inventoryValuation = (float) \App\Models\Product::all()->sum(function($p) {
+        $productsList = \App\Models\Product::select('id', 'opening_stock_rate', 'opening_stock_qty', 'current_stock_qty', 'opening_stock_weight', 'attributes', 'created_at')->get();
+        $calcProdVal = function($p) {
             $attrs = is_array($p->attributes) ? $p->attributes : json_decode($p->attributes ?? '[]', true);
             $rate = (float) ($p->opening_stock_rate ?: ($attrs['sale_rate'] ?? $attrs['rate'] ?? 0));
             $qty = (int) ($p->current_stock_qty ?? $p->opening_stock_qty ?? 0);
             $wt = (float) ($attrs['gross_wt'] ?? $p->opening_stock_weight ?? 0);
             return $qty * $wt * $rate;
-        });
-        $prevInvVal = (float) \App\Models\Product::where('created_at', '<', $startDate)->get()->sum(function($p) {
-            $attrs = is_array($p->attributes) ? $p->attributes : json_decode($p->attributes ?? '[]', true);
-            $rate = (float) ($p->opening_stock_rate ?: ($attrs['sale_rate'] ?? $attrs['rate'] ?? 0));
-            $qty = (int) ($p->current_stock_qty ?? $p->opening_stock_qty ?? 0);
-            $wt = (float) ($attrs['gross_wt'] ?? $p->opening_stock_weight ?? 0);
-            return $qty * $wt * $rate;
-        });
+        };
+        $inventoryValuation = (float) $productsList->sum($calcProdVal);
+        $prevInvVal = (float) $productsList->filter(fn($p) => $p->created_at < $startDate)->sum($calcProdVal);
         $invMetricChange = $calcMetricChange($inventoryValuation, $prevInvVal);
 
         // 5. Active Artisans & Pending Orders
@@ -580,7 +578,10 @@ class DashboardController extends Controller
             'recentOrders' => $recentOrders,
             'topCategories' => $topCategories,
             'actionRequires' => $actionRequires,
-        ]);
+        ];
+        });
+
+        return response()->json($cachedResult);
     }
 
     private function calculateGoldAveragesForDateRange($startDate = null, $endDate = null)
@@ -672,17 +673,24 @@ class DashboardController extends Controller
                         // Apply Chennai Domestic Market Duty & Taxes
                         $chennai24kGram = $spotGoldInr * 1.09;
                         $chennai22kGram = $chennai24kGram * (22 / 24);
-                        $chennaiSilverGram = $spotSilverInr * 1.09;
+                        $g24 = round($chennai24kGram);
+                        $g22 = round($chennai22kGram);
+                        $sGram = round($chennaiSilverGram, 1);
+                        $sKg = round($chennaiSilverGram * 1000);
 
                         return [
                             'location' => 'Chennai',
                             'date' => Carbon::now()->format('d F Y'),
-                            'gold24k' => number_format(round($chennai24kGram)),
-                            'gold22k' => number_format(round($chennai22kGram)),
-                            'gold24k_10g' => number_format(round($chennai24kGram * 10)),
-                            'gold22k_10g' => number_format(round($chennai22kGram * 10)),
-                            'silverGram' => number_format(round($chennaiSilverGram, 1), 1),
-                            'silverKg' => number_format(round($chennaiSilverGram * 1000)),
+                            'gold24k' => number_format($g24),
+                            'gold22k' => number_format($g22),
+                            'gold24k_10g' => number_format($g24 * 10),
+                            'gold22k_10g' => number_format($g22 * 10),
+                            'raw24k' => $g24,
+                            'raw22k' => $g22,
+                            'silverGram' => number_format($sGram, 1),
+                            'silverKg' => number_format($sKg),
+                            'rawSilverGram' => $sGram,
+                            'rawSilverKg' => $sKg,
                             'usdInr' => number_format($usdInr, 2),
                             'isLive' => true,
                             'isManual' => false,
@@ -701,8 +709,12 @@ class DashboardController extends Controller
                 'gold22k' => '13,414',
                 'gold24k_10g' => '1,46,340',
                 'gold22k_10g' => '1,34,140',
+                'raw24k' => 14634,
+                'raw22k' => 13414,
                 'silverGram' => '110.0',
                 'silverKg' => '1,10,000',
+                'rawSilverGram' => 110.0,
+                'rawSilverKg' => 110000,
                 'usdInr' => '86.50',
                 'isLive' => false,
                 'isManual' => false,
@@ -751,6 +763,8 @@ class DashboardController extends Controller
             'raw22k' => $gram22k,
             'silverGram' => number_format($silverG, 1),
             'silverKg' => number_format($silverK),
+            'rawSilverGram' => $silverG,
+            'rawSilverKg' => $silverK,
             'usdInr' => '86.50',
             'isLive' => false,
             'isManual' => true,

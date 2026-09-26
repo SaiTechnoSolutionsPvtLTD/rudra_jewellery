@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import { handleIntegerKeyDown, sanitizeInteger } from '../../utils/numberInputUtils';
 
 const DEFAULT_BANK_ACCOUNTS = [
   {
@@ -276,8 +277,17 @@ export default function BankAccounts() {
               placeholder="Search by Bank Name, Account No, IFSC..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs font-medium focus:outline-hidden focus:border-[#b01622] transition-colors"
+              className="w-full pl-9 pr-8 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs font-medium focus:outline-hidden focus:border-[#b01622] transition-colors"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 text-xs"
+              >
+                <i className="fa-solid fa-circle-xmark"></i>
+              </button>
+            )}
           </div>
 
           <div className="text-xs text-stone-500 font-medium self-end sm:self-center">
@@ -457,10 +467,12 @@ export default function BankAccounts() {
                   </label>
                   <input
                     type="text"
+                    inputMode="numeric"
                     required
                     placeholder="e.g. 50200018899221"
                     value={formData.account_number}
-                    onChange={(e) => setFormData({ ...formData, account_number: e.target.value })}
+                    onKeyDown={handleIntegerKeyDown}
+                    onChange={(e) => setFormData({ ...formData, account_number: sanitizeInteger(e.target.value) })}
                     className="w-full px-3 py-2 border border-stone-300 rounded-xl font-mono focus:outline-hidden focus:border-[#b01622]"
                   />
                 </div>

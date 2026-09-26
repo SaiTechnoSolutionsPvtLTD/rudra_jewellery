@@ -43,7 +43,6 @@ export default function ProductUploadStepNav({ currentStep = 1, onSyncComplete }
           <div>
             <h4 className="font-bold text-xs text-stone-900 flex items-center gap-1.5">
               <span>Inventory &amp; Digital Catalog Sharing Hub</span>
-              <span className="bg-emerald-100 text-emerald-800 text-[10px] px-2 py-0.5 rounded-full font-bold">Auto-Reflected</span>
             </h4>
             <p className="text-[11px] text-stone-500">Inventory items automatically sync with complete product details to share catalogs.</p>
           </div>

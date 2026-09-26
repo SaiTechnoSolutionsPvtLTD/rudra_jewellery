@@ -70,8 +70,31 @@ export default function BillingDashboard() {
   const [dateRange, setDateRange] = useState('30_days');
   const [tierFilter, setTierFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [invoiceTypeFilter, setInvoiceTypeFilter] = useState('b2b_tax');
-  const [selectedMonth, setSelectedMonth] = useState('July 2026');
+  const [invoiceTypeFilter, setInvoiceTypeFilter] = useState('all');
+  const [selectedMonth, setSelectedMonth] = useState('all');
+
+  // Period filter options: All Time, Presets (This Month, Quarter, Year, Today), and Specific Months
+  const periodFilterOptions = useMemo(() => {
+    const opts = [
+      { value: 'all', label: 'All Time' },
+      { value: 'today', label: 'Today' },
+      { value: 'yesterday', label: 'Yesterday' },
+      { value: 'week', label: 'This Week' },
+      { value: 'month', label: 'This Month' },
+      { value: 'quarter', label: 'This Quarter' },
+      { value: 'year', label: 'This Year' },
+    ];
+    // Dynamic month choices starting from current month back 12 months
+    const now = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const mName = d.toLocaleString('en-US', { month: 'long' });
+      const year = d.getFullYear();
+      const str = `${mName} ${year}`;
+      opts.push({ value: str, label: str });
+    }
+    return opts;
+  }, []);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -319,6 +342,16 @@ export default function BillingDashboard() {
 
   useEffect(() => {
     fetchBillingData(selectedMonth);
+
+    const handleSync = () => {
+      fetchBillingData(selectedMonth);
+    };
+    window.addEventListener('rudhra_invoices_updated', handleSync);
+    window.addEventListener('rudhra_sales_updated', handleSync);
+    return () => {
+      window.removeEventListener('rudhra_invoices_updated', handleSync);
+      window.removeEventListener('rudhra_sales_updated', handleSync);
+    };
   }, [selectedMonth]);
 
   useEffect(() => {
@@ -451,7 +484,11 @@ export default function BillingDashboard() {
 
     if (statusFilter !== 'all') {
       const invStatus = (inv.status || '').toLowerCase();
-      if (invStatus !== statusFilter.toLowerCase()) return false;
+      if (statusFilter === 'pending_credit') {
+        if (!['pending', 'partial', 'overdue', 'unpaid', 'credit'].includes(invStatus)) return false;
+      } else if (invStatus !== statusFilter.toLowerCase()) {
+        return false;
+      }
     }
 
     if (invoiceTypeFilter !== 'all') {
@@ -461,6 +498,76 @@ export default function BillingDashboard() {
 
     return true;
   });
+
+  // Calculate dynamic card metrics based on filtered invoices
+  const cardMetrics = useMemo(() => {
+    const list = filteredInvoices;
+    const count = list.length;
+
+    let totalBillingsSum = 0;
+    let pendingBillsSum = 0;
+    let totalRevenueSum = 0;
+
+    list.forEach(inv => {
+      const tot = parseFloat(inv.total || inv.total_amount || 0);
+      const st = (inv.status || '').toLowerCase();
+
+      totalBillingsSum += tot;
+
+      if (st === 'paid') {
+        totalRevenueSum += tot;
+      } else if (st === 'partial') {
+        const half = tot * 0.5;
+        totalRevenueSum += half;
+        pendingBillsSum += (tot - half);
+      } else {
+        pendingBillsSum += tot;
+      }
+    });
+
+    const fmt = (val) => {
+      if (!val || isNaN(val) || val === 0) return '₹ 0.00';
+      if (val >= 10000000) return '₹ ' + (val / 10000000).toFixed(2) + ' Cr';
+      if (val >= 100000) return '₹ ' + (val / 100000).toFixed(2) + ' L';
+      return '₹ ' + val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    };
+
+    return {
+      invoicesCount: count,
+      totalBillings: fmt(totalBillingsSum),
+      pendingBills: fmt(pendingBillsSum),
+      totalRevenue: fmt(totalRevenueSum),
+    };
+  }, [filteredInvoices]);
+
+  // Compute final display metrics for the 4 KPI cards
+  const displayMetrics = useMemo(() => {
+    const isSubFiltered = clientFilter !== 'all' || tierFilter !== 'all' || statusFilter !== 'all' || invoiceTypeFilter !== 'all';
+
+    let currentPeriodLabel = 'All Time';
+    if (selectedMonth !== 'all') {
+      const foundOpt = periodFilterOptions.find(opt => opt.value === selectedMonth);
+      currentPeriodLabel = foundOpt ? foundOpt.label : selectedMonth;
+    }
+
+    if (isSubFiltered) {
+      return {
+        invoicesCount: cardMetrics.invoicesCount,
+        totalBillings: cardMetrics.totalBillings,
+        pendingBills: cardMetrics.pendingBills,
+        totalRevenue: cardMetrics.totalRevenue,
+        subtext: `filtered view (${currentPeriodLabel})`
+      };
+    }
+
+    return {
+      invoicesCount: cardMetrics.invoicesCount > 0 ? cardMetrics.invoicesCount : (stats.todayInvoices || '0'),
+      totalBillings: cardMetrics.invoicesCount > 0 ? cardMetrics.totalBillings : (stats.todayBillings || '₹ 0.00'),
+      pendingBills: cardMetrics.invoicesCount > 0 ? cardMetrics.pendingBills : (stats.pendingBills || '₹ 0.00'),
+      totalRevenue: cardMetrics.invoicesCount > 0 ? cardMetrics.totalRevenue : (stats.totalRevenue || '₹ 0.00'),
+      subtext: currentPeriodLabel
+    };
+  }, [clientFilter, tierFilter, statusFilter, invoiceTypeFilter, cardMetrics, stats, selectedMonth, periodFilterOptions]);
 
   // Calculate pagination
   const totalItems = filteredInvoices.length;
@@ -474,12 +581,26 @@ export default function BillingDashboard() {
     }
   }, [totalPages, currentPage]);
 
+  // Keyboard shortcut (Escape key) to close invoice modal
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && selectedInvoice) {
+        setSelectedInvoice(null);
+      }
+    };
+    if (selectedInvoice) {
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedInvoice]);
+
   const handleResetFilters = () => {
     setClientFilter('all');
     setDateRange('30_days');
     setTierFilter('all');
     setStatusFilter('all');
-    setInvoiceTypeFilter('b2b_tax');
+    setInvoiceTypeFilter('all');
+    setSelectedMonth('all');
     setCurrentPage(1);
     setSearchParams({});
     showToast('Filters reset to default', 'info', 'Filters');
@@ -605,6 +726,7 @@ export default function BillingDashboard() {
         ]);
       }
       fetchBillingData();
+      window.dispatchEvent(new CustomEvent('rudhra_invoices_updated'));
     } catch (err) {
       console.error(err);
       showToast(err.response?.data?.message || 'Failed to create invoice.', 'error', 'Error');
@@ -662,6 +784,7 @@ export default function BillingDashboard() {
       showToast(`Payment updated! Status: ${paymentFormData.status.toUpperCase()}`, 'success', 'Payment Recorded');
       setEditPaymentInvoice(null);
       fetchBillingData();
+      window.dispatchEvent(new CustomEvent('rudhra_invoices_updated'));
     } catch (err) {
       console.error('Failed to update payment:', err);
       showToast(err.response?.data?.message || 'Failed to update payment', 'error', 'Error');
@@ -677,6 +800,7 @@ export default function BillingDashboard() {
       showToast(`Invoice ${deleteTargetInv.invoice_no || deleteTargetInv.id} removed successfully`, 'success', 'Deleted');
       setDeleteTargetInv(null);
       fetchBillingData();
+      window.dispatchEvent(new CustomEvent('rudhra_invoices_updated'));
     } catch (err) {
       console.error(err);
       showToast('Failed to delete invoice.', 'error', 'Error');
@@ -857,18 +981,21 @@ export default function BillingDashboard() {
         </div>
 
         <div className="flex items-center gap-3 self-start md:self-auto">
-          {/* Top Month Filter */}
+          {/* Top Period Filter */}
           <div className="relative">
             <select
               value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
+              onChange={(e) => {
+                setSelectedMonth(e.target.value);
+                setCurrentPage(1);
+              }}
               className="appearance-none bg-white border border-gray-200 hover:border-gray-300 text-gray-700 text-xs font-semibold py-2.5 pl-8 pr-7 rounded-lg shadow-sm focus:outline-none focus:border-[#a91d22] cursor-pointer"
             >
-              <option value="July 2026">Month</option>
-              <option value="July 2026">July 2026</option>
-              <option value="June 2026">June 2026</option>
-              <option value="May 2026">May 2026</option>
-              <option value="April 2026">April 2026</option>
+              {periodFilterOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </select>
             <i className="fa-solid fa-filter text-gray-400 text-xs absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
             <i className="fa-solid fa-chevron-down text-gray-400 text-[10px] absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
@@ -899,42 +1026,42 @@ export default function BillingDashboard() {
       {/* 4 Metric Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         
-        {/* Card 1: Today Invoices */}
+        {/* Card 1: Invoices Count */}
         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 rounded-xl bg-[#fee2e2]/70 text-[#dc2626] flex items-center justify-center text-base">
               <i className="fa-regular fa-file-lines"></i>
             </div>
-            <span className="text-xs font-medium text-gray-500">Today Invoices</span>
+            <span className="text-xs font-medium text-gray-500">Invoices</span>
           </div>
           <div>
             <div className="text-2xl font-extrabold text-gray-900 tracking-tight mb-1">
-              {stats.todayInvoices}
+              {displayMetrics.invoicesCount}
             </div>
             <div className="flex items-center text-xs font-semibold text-emerald-600 gap-1">
               <i className="fa-solid fa-arrow-trend-up text-[10px]"></i>
               <span>{stats.todayInvoicesGrowth || '+0.0%'}</span>
-              <span className="text-gray-400 font-normal ml-0.5">vs yesterday</span>
+              <span className="text-gray-400 font-normal ml-0.5">{displayMetrics.subtext}</span>
             </div>
           </div>
         </div>
 
-        {/* Card 2: Today's Billings */}
+        {/* Card 2: Total Billings */}
         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 rounded-xl bg-[#fef3c7] text-[#d97706] flex items-center justify-center text-base">
               <i className="fa-regular fa-credit-card"></i>
             </div>
-            <span className="text-xs font-medium text-gray-500">Today's Billings</span>
+            <span className="text-xs font-medium text-gray-500">Total Billings</span>
           </div>
           <div>
             <div className="text-2xl font-extrabold text-gray-900 tracking-tight mb-1">
-              {stats.todayBillings}
+              {displayMetrics.totalBillings}
             </div>
             <div className="flex items-center text-xs font-semibold text-emerald-600 gap-1">
               <i className="fa-solid fa-arrow-trend-up text-[10px]"></i>
               <span>{stats.todayBillingsGrowth || '+0.0%'}</span>
-              <span className="text-gray-400 font-normal ml-0.5">vs yesterday</span>
+              <span className="text-gray-400 font-normal ml-0.5">{displayMetrics.subtext}</span>
             </div>
           </div>
         </div>
@@ -949,32 +1076,32 @@ export default function BillingDashboard() {
           </div>
           <div>
             <div className="text-2xl font-extrabold text-gray-900 tracking-tight mb-1">
-              {stats.pendingBills}
+              {displayMetrics.pendingBills}
             </div>
             <div className="flex items-center text-xs font-semibold text-rose-500 gap-1">
               <i className="fa-solid fa-arrow-trend-down text-[10px]"></i>
               <span>{stats.pendingBillsChange || '+0.0%'}</span>
-              <span className="text-gray-400 font-normal ml-0.5">vs last month</span>
+              <span className="text-gray-400 font-normal ml-0.5">{displayMetrics.subtext}</span>
             </div>
           </div>
         </div>
 
-        {/* Card 4: Total Revenue (FY) */}
+        {/* Card 4: Collected Revenue */}
         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 rounded-xl bg-[#fef3c7] text-[#d97706] flex items-center justify-center text-base">
               <i className="fa-solid fa-sack-dollar"></i>
             </div>
-            <span className="text-xs font-medium text-gray-500">Total Revenue (FY)</span>
+            <span className="text-xs font-medium text-gray-500">Collected Revenue</span>
           </div>
           <div>
             <div className="text-2xl font-extrabold text-gray-900 tracking-tight mb-1">
-              {stats.totalRevenue}
+              {displayMetrics.totalRevenue}
             </div>
             <div className="flex items-center text-xs font-semibold text-emerald-600 gap-1">
               <i className="fa-solid fa-arrow-trend-up text-[10px]"></i>
               <span>{stats.totalRevenueGrowth || '+0.0%'}</span>
-              <span className="text-gray-400 font-normal ml-0.5">vs last year</span>
+              <span className="text-gray-400 font-normal ml-0.5">{displayMetrics.subtext}</span>
             </div>
           </div>
         </div>
@@ -1072,6 +1199,7 @@ export default function BillingDashboard() {
                   className="w-full appearance-none px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 hover:border-gray-300 focus:outline-none focus:border-[#a91d22] pr-8 cursor-pointer"
                 >
                   <option value="all">All Status</option>
+                  <option value="pending_credit">Pending & Credit Bills</option>
                   <option value="paid">Paid</option>
                   <option value="pending">Pending</option>
                   <option value="partial">Partial</option>
@@ -2488,7 +2616,10 @@ export default function BillingDashboard() {
 
       {/* FULL DETAILED TAX INVOICE PRINT SHEET / PDF MODAL (HDFC BANK STYLE PROFESSIONAL TYPOGRAPHY & PRECISE ALIGNMENT) */}
       {selectedInvoice && (
-        <div className="fixed inset-0 bg-black/65 backdrop-blur-xs z-[70] flex items-center justify-center p-2 sm:p-4 overflow-y-auto font-['Inter',-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif]">
+        <div
+          className="fixed inset-0 bg-black/65 backdrop-blur-xs z-[70] flex items-center justify-center p-2 sm:p-4 overflow-y-auto font-['Inter',-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif] cursor-pointer"
+          onClick={() => setSelectedInvoice(null)}
+        >
           <style>{`
             @media print {
               .no-print, .print\\:hidden {
@@ -2517,7 +2648,10 @@ export default function BillingDashboard() {
             }
           `}</style>
 
-          <div className="bg-white rounded-2xl max-w-4xl w-full p-4 sm:p-6 shadow-2xl border border-gray-200 space-y-4 max-h-[94vh] flex flex-col">
+          <div
+            className="bg-white rounded-2xl max-w-4xl w-full p-4 sm:p-6 shadow-2xl border border-gray-200 space-y-4 max-h-[94vh] flex flex-col cursor-default"
+            onClick={(e) => e.stopPropagation()}
+          >
             
             {/* Modal Top Action Bar */}
             <div className="flex items-center justify-between border-b border-gray-100 pb-3 shrink-0 print:hidden">
@@ -2544,7 +2678,10 @@ export default function BillingDashboard() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setSelectedInvoice(null)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedInvoice(null);
+                  }}
                   className="text-gray-400 hover:text-gray-700 text-lg cursor-pointer p-1"
                 >
                   <i className="fa-solid fa-xmark"></i>

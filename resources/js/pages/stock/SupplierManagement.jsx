@@ -329,8 +329,17 @@ export default function SupplierManagement() {
               placeholder="Search by code, firm name, contact, phone, GSTIN..."
               value={searchTerm}
               onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-              className="w-full pl-9 pr-4 py-2 text-xs bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#b01622] focus:border-[#b01622] transition-colors"
+              className="w-full pl-9 pr-8 py-2 text-xs bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#b01622] focus:border-[#b01622] transition-colors"
             />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600 cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark"></i>
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-2.5 w-full md:w-auto">

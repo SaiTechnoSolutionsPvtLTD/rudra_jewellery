@@ -18,6 +18,12 @@
             margin: 0;
             padding: 0;
         }
+        thead {
+            display: table-header-group;
+        }
+        tr {
+            page-break-inside: avoid;
+        }
 
         /* Header Section */
         .company-name {
@@ -335,5 +341,14 @@
         </table>
     </div>
 
+    <script type="text/php">
+        if (isset($pdf)) {
+            $text = "Page {PAGE_NUM} of {PAGE_COUNT}";
+            $font = $fontMetrics->get_font("Helvetica", "bold");
+            $size = 8;
+            $color = array(0.4, 0.4, 0.4);
+            $pdf->page_text(500, 810, $text, $font, $size, $color);
+        }
+    </script>
 </body>
 </html>

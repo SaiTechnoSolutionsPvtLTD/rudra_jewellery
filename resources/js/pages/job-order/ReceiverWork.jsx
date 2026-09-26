@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useLocation, useNavigate, Link } from 'react-router-dom';
+import { useLocation, useNavigate, Link, Navigate } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/AuthContext';
 import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
 import { getStoredCompanyInfo, fetchCompanyInfo } from '../../utils/companyInfoService';
 import { printElement } from '../../utils/printHelper';
@@ -26,6 +27,10 @@ const STAGES = [
 ];
 
 export default function ReceiverWork() {
+  const { isKarigar } = useAuth();
+  if (isKarigar) {
+    return <Navigate to="/job-order/in-progress" replace />;
+  }
   const location = useLocation();
   const navigate = useNavigate();
   const { showToast, showConfirm } = useToast();
@@ -51,6 +56,18 @@ export default function ReceiverWork() {
   const [editingRowIndex, setEditingRowIndex] = useState(null);
   const [formErrors, setFormErrors] = useState({});
   const [previewDoc, setPreviewDoc] = useState(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && previewDoc) {
+        setPreviewDoc(null);
+      }
+    };
+    if (previewDoc) {
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [previewDoc]);
 
   // Master Setting Styles state
   const [settingStyles, setSettingStyles] = useState([]);
@@ -2101,21 +2118,11 @@ export default function ReceiverWork() {
           <button
             type="button"
             disabled={processingAction}
-            onClick={handleApprove}
-            className="flex-1 sm:flex-none px-5 py-2.5 bg-[#b01622] hover:bg-[#8f1019] text-white font-bold rounded-xl text-xs transition-all cursor-pointer border border-[#b01622] shadow-sm shadow-red-900/20 flex items-center justify-center gap-1.5"
-          >
-            <i className="fa-solid fa-check text-xs"></i>
-            <span>Approve</span>
-          </button>
-
-          <button
-            type="button"
-            disabled={processingAction}
             onClick={handleCompleteWork}
-            className="flex-1 sm:flex-none px-6 py-2.5 bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-800 hover:from-emerald-700 hover:to-teal-900 text-white font-bold rounded-xl text-xs sm:text-sm shadow-md shadow-emerald-900/20 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+            className="flex-1 sm:flex-none px-6 py-2.5 bg-[#b01622] hover:bg-[#8f1019] text-white font-bold rounded-xl text-xs sm:text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             <i className="fa-solid fa-circle-check text-sm"></i>
-            <span>Complete Work</span>
+            <span>Approve & Complete Work Order</span>
           </button>
         </div>
       </div>
@@ -3262,7 +3269,10 @@ export default function ReceiverWork() {
                 </a>
                 <button
                   type="button"
-                  onClick={() => setPreviewDoc(null)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPreviewDoc(null);
+                  }}
                   className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-stone-200 transition-colors cursor-pointer"
                 >
                   <i className="fa-solid fa-xmark text-base"></i>

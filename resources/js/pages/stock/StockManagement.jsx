@@ -111,7 +111,7 @@ export default function StockManagement() {
         api.get('/subcategories')
       ]);
 
-      const rawCatData = catRes.data || [];
+      const rawCatData = Array.isArray(catRes.data?.data) ? catRes.data.data : (Array.isArray(catRes.data) ? catRes.data : []);
       
       // Deduplicate categories by ID or Code
       const seen = new Set();
@@ -122,8 +122,8 @@ export default function StockManagement() {
         return true;
       });
 
-      const prods = prodRes.data || [];
-      const subs = subRes.data || [];
+      const prods = Array.isArray(prodRes.data?.data) ? prodRes.data.data : (Array.isArray(prodRes.data) ? prodRes.data : []);
+      const subs = Array.isArray(subRes.data?.data) ? subRes.data.data : (Array.isArray(subRes.data) ? subRes.data : []);
       setCategories(uniqueCategories);
       setProducts(prods);
       setSubcategories(subs);

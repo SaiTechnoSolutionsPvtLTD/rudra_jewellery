@@ -1,69 +1,86 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useToast } from '../context/ToastContext';
+import { handleDecimalKeyDown, sanitizeDecimal } from '../utils/numberInputUtils';
 
 export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSaved }) {
   const { showToast } = useToast();
 
-  const [rate24kTenG, setRate24kTenG] = useState('');
-  const [rate22kTenG, setRate22kTenG] = useState('');
-  const [silverKg, setSilverKg] = useState('0');
+  const [rate24kGram, setRate24kGram] = useState('');
+  const [rate22kGram, setRate22kGram] = useState('');
+  const [silverGram, setSilverGram] = useState('');
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
-      const g24kRaw = String(currentRates?.gold24k_10g || currentRates?.gold24k || '0').replace(/,/g, '');
-      const g22kRaw = String(currentRates?.gold22k_10g || currentRates?.gold22k || '0').replace(/,/g, '');
-      
+      const g24kRaw = String(currentRates?.raw24k || currentRates?.gold24k || currentRates?.rate24k || currentRates?.gold24k_10g || '0').replace(/,/g, '');
+      const g22kRaw = String(currentRates?.raw22k || currentRates?.gold22k || currentRates?.rate22k || currentRates?.gold22k_10g || '0').replace(/,/g, '');
+      const silRaw = String(currentRates?.rawSilverGram || currentRates?.silverGram || currentRates?.silverKg || '0').replace(/,/g, '');
+
       const num24 = parseFloat(g24kRaw) || 0;
       const num22 = parseFloat(g22kRaw) || 0;
+      const numSil = parseFloat(silRaw) || 0;
 
-      // Ensure 10g value
-      const tenG24 = num24 > 0 && num24 < 50000 ? num24 * 10 : num24;
-      const tenG22 = num22 > 0 && num22 < 50000 ? num22 * 10 : num22;
+      // Extract 1g values (if 10g/1kg rate was provided > 30000/2000, convert to 1g)
+      const gram24 = num24 > 30000 ? Math.round(num24 / 10) : Math.round(num24);
+      const gram22 = num22 > 30000 ? Math.round(num22 / 10) : Math.round(num22);
+      const gramSil = numSil > 2000 ? (numSil / 1000).toFixed(1) : numSil;
 
-      setRate24kTenG(String(Math.round(tenG24)));
-      setRate22kTenG(String(Math.round(tenG22)));
-      setSilverKg(String(currentRates?.silverKg || '0').replace(/,/g, ''));
+      setRate24kGram(String(gram24 || '14634'));
+      setRate22kGram(String(gram22 || '13414'));
+      setSilverGram(String(gramSil || '110.0'));
     }
   }, [isOpen, currentRates]);
 
   if (!isOpen) return null;
 
-  const num24k10g = parseFloat(rate24kTenG) || 0;
-  const num22k10g = parseFloat(rate22kTenG) || 0;
+  const num24kGram = parseFloat(rate24kGram) || 0;
+  const num22kGram = parseFloat(rate22kGram) || 0;
+  const numSilverGram = parseFloat(silverGram) || 0;
 
-  const num24kGram = Math.round(num24k10g / 10);
-  const num22kGram = Math.round(num22k10g / 10);
+  const num24k10g = Math.round(num24kGram * 10);
+  const num22k10g = Math.round(num22kGram * 10);
+  const numSilverKg = Math.round(numSilverGram * 1000);
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!rate24kTenG || !rate22kTenG) {
-      showToast('Please enter valid 24K and 22K Gold Rates', 'error');
+    if (!rate24kGram || !rate22kGram) {
+      showToast('Please enter valid 24K and 22K Gold Rates per gram', 'error');
       return;
     }
 
     setSaving(true);
     try {
       const payload = {
-        gold24k: num24kGram,
-        gold22k: num22kGram,
-        silverGram: (parseFloat(silverKg) || 110000) / 1000,
-        silverKg: silverKg,
+        gold24k: Math.round(num24kGram),
+        gold22k: Math.round(num22kGram),
+        silverGram: numSilverGram,
+        silverKg: numSilverKg,
       };
 
       const res = await api.post('/metal-rates', payload);
       const newRates = res.data?.rates || res.data;
 
+      const raw24Num = newRates.raw24k || Math.round(num24kGram);
+      const raw22Num = newRates.raw22k || Math.round(num22kGram);
+      const rawSilGramNum = newRates.rawSilverGram || numSilverGram;
+      const rawSilKgNum = newRates.rawSilverKg || numSilverKg;
+
       // Update localStorage & global custom events
       try {
         const stored = {
-          rate24k: String(newRates.gold24k),
-          rate22k: String(newRates.gold22k),
-          rate24k_10g: String(newRates.gold24k_10g),
-          rate22k_10g: String(newRates.gold22k_10g),
-          date: newRates.date,
+          rate24k: raw24Num,
+          rate22k: raw22Num,
+          gold24k: newRates.gold24k || String(raw24Num),
+          gold22k: newRates.gold22k || String(raw22Num),
+          rate24k_10g: raw24Num * 10,
+          rate22k_10g: raw22Num * 10,
+          gold24k_10g: newRates.gold24k_10g || String(raw24Num * 10),
+          gold22k_10g: newRates.gold22k_10g || String(raw22Num * 10),
+          silverGram: rawSilGramNum,
+          silverKg: rawSilKgNum,
+          date: newRates.date || new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
           isManual: true,
           lastUpdated: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
         };
@@ -91,12 +108,22 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
       const res = await api.post('/metal-rates/reset');
       const liveRates = res.data?.rates || res.data;
 
+      const raw24Num = liveRates.raw24k || parseFloat(String(liveRates.gold24k).replace(/,/g, '')) || 14634;
+      const raw22Num = liveRates.raw22k || parseFloat(String(liveRates.gold22k).replace(/,/g, '')) || 13414;
+      const rawSilGramNum = liveRates.rawSilverGram || parseFloat(String(liveRates.silverGram).replace(/,/g, '')) || 110;
+
       try {
         const stored = {
-          rate24k: String(liveRates.gold24k),
-          rate22k: String(liveRates.gold22k),
-          rate24k_10g: String(liveRates.gold24k_10g),
-          rate22k_10g: String(liveRates.gold22k_10g),
+          rate24k: raw24Num,
+          rate22k: raw22Num,
+          gold24k: liveRates.gold24k || String(raw24Num),
+          gold22k: liveRates.gold22k || String(raw22Num),
+          rate24k_10g: raw24Num * 10,
+          rate22k_10g: raw22Num * 10,
+          gold24k_10g: liveRates.gold24k_10g || String(raw24Num * 10),
+          gold22k_10g: liveRates.gold22k_10g || String(raw22Num * 10),
+          silverGram: rawSilGramNum,
+          silverKg: rawSilGramNum * 1000,
           date: liveRates.date,
           isManual: false,
         };
@@ -120,7 +147,7 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-      <div className="bg-white rounded-2xl shadow-2xl border border-stone-200 w-full max-w-md overflow-hidden transform transition-all">
+      <div className="bg-white rounded-2xl shadow-2xl border border-stone-200 w-full max-w-md overflow-hidden transform transition-all font-['Inter',sans-serif]">
         
         {/* Header */}
         <div className="px-5 py-4 bg-gradient-to-r from-[#2c2621] to-[#1a1714] text-white flex items-center justify-between border-b border-amber-900/30">
@@ -170,7 +197,7 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
                 <span>24K (999 Purity) Gold Rate</span>
               </label>
               <span className="text-[11px] font-bold text-[#b01622] font-mono">
-                ₹{num24kGram.toLocaleString('en-IN')} / gram
+                ₹{num24k10g.toLocaleString('en-IN')} / 10g
               </span>
             </div>
             <div>
@@ -178,13 +205,17 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
                 <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-stone-400 font-bold text-xs">₹</span>
                 <input
                   type="number"
-                  value={rate24kTenG}
-                  onChange={(e) => setRate24kTenG(e.target.value)}
-                  placeholder="e.g. 146340 for 10g or 14634 for 1g"
+                  inputMode="decimal"
+                  min="0"
+                  step="any"
+                  value={rate24kGram}
+                  onKeyDown={handleDecimalKeyDown}
+                  onChange={(e) => setRate24kGram(sanitizeDecimal(e.target.value, false, 2))}
+                  placeholder="e.g. 14634 for 1g"
                   className="w-full pl-7 pr-16 py-2 bg-white border border-stone-300 rounded-lg text-sm font-bold font-mono text-stone-900 focus:outline-hidden focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622]"
                   required
                 />
-                <span className="absolute inset-y-0 right-0 pr-3 flex items-center text-stone-400 text-xs font-semibold">per 10g</span>
+                <span className="absolute inset-y-0 right-0 pr-3 flex items-center text-stone-400 text-xs font-semibold">per 1g</span>
               </div>
             </div>
           </div>
@@ -197,7 +228,7 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
                 <span>22K (916 Standard) Gold Rate</span>
               </label>
               <span className="text-[11px] font-bold text-[#b01622] font-mono">
-                ₹{num22kGram.toLocaleString('en-IN')} / gram
+                ₹{num22k10g.toLocaleString('en-IN')} / 10g
               </span>
             </div>
             <div>
@@ -205,13 +236,17 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
                 <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-stone-400 font-bold text-xs">₹</span>
                 <input
                   type="number"
-                  value={rate22kTenG}
-                  onChange={(e) => setRate22kTenG(e.target.value)}
-                  placeholder="e.g. 134140 for 10g or 13414 for 1g"
+                  inputMode="decimal"
+                  min="0"
+                  step="any"
+                  value={rate22kGram}
+                  onKeyDown={handleDecimalKeyDown}
+                  onChange={(e) => setRate22kGram(sanitizeDecimal(e.target.value, false, 2))}
+                  placeholder="e.g. 13414 for 1g"
                   className="w-full pl-7 pr-16 py-2 bg-white border border-stone-300 rounded-lg text-sm font-bold font-mono text-stone-900 focus:outline-hidden focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622]"
                   required
                 />
-                <span className="absolute inset-y-0 right-0 pr-3 flex items-center text-stone-400 text-xs font-semibold">per 10g</span>
+                <span className="absolute inset-y-0 right-0 pr-3 flex items-center text-stone-400 text-xs font-semibold">per 1g</span>
               </div>
             </div>
           </div>
@@ -221,22 +256,26 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-slate-400"></span>
-                <span>Silver Rate (Per Kg)</span>
+                <span>Silver Rate (Per Gram)</span>
               </label>
               <span className="text-[11px] font-bold text-slate-700 font-mono">
-                ₹{((parseFloat(silverKg) || 110000) / 1000).toFixed(1)} / gram
+                ₹{numSilverKg.toLocaleString('en-IN')} / Kg
               </span>
             </div>
             <div className="relative">
               <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-stone-400 font-bold text-xs">₹</span>
               <input
                 type="number"
-                value={silverKg}
-                onChange={(e) => setSilverKg(e.target.value)}
-                placeholder="e.g. 110000 for 1kg"
+                inputMode="decimal"
+                min="0"
+                step="any"
+                value={silverGram}
+                onKeyDown={handleDecimalKeyDown}
+                onChange={(e) => setSilverGram(sanitizeDecimal(e.target.value, false, 2))}
+                placeholder="e.g. 110 for 1g"
                 className="w-full pl-7 pr-16 py-2 bg-white border border-stone-300 rounded-lg text-sm font-bold font-mono text-stone-900 focus:outline-hidden focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622]"
               />
-              <span className="absolute inset-y-0 right-0 pr-3 flex items-center text-stone-400 text-xs font-semibold">per Kg</span>
+              <span className="absolute inset-y-0 right-0 pr-3 flex items-center text-stone-400 text-xs font-semibold">per 1g</span>
             </div>
           </div>
 

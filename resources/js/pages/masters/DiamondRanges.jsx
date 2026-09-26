@@ -3,6 +3,7 @@ import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import ConfirmModal from '../../components/ConfirmModal';
 import Pagination from '../../components/Pagination';
+import { handleIntegerKeyDown, handleDecimalKeyDown, sanitizeInteger, sanitizeDecimal } from '../../utils/numberInputUtils';
 
 export default function DiamondRanges() {
   const { showToast } = useToast();
@@ -425,9 +426,11 @@ export default function DiamondRanges() {
                   <label className="block text-stone-600 font-bold mb-1">Pieces (PC)</label>
                   <input
                     type="number"
+                    inputMode="numeric"
                     min="1"
                     value={formData.pc}
-                    onChange={(e) => setFormData({ ...formData, pc: Number(e.target.value) })}
+                    onKeyDown={handleIntegerKeyDown}
+                    onChange={(e) => setFormData({ ...formData, pc: sanitizeInteger(e.target.value, false, 1) })}
                     className="w-full px-3 py-2 border border-stone-300 rounded-xl text-center font-mono focus:outline-hidden focus:border-[#b01622]"
                   />
                 </div>
@@ -439,10 +442,13 @@ export default function DiamondRanges() {
                   <label className="block text-stone-600 font-bold mb-1">Weight (WT CT) <span className="text-[#b01622]">*</span></label>
                   <input
                     type="number"
+                    inputMode="decimal"
+                    min="0"
                     step="0.001"
                     required
                     value={formData.wt_ct}
-                    onChange={(e) => setFormData({ ...formData, wt_ct: e.target.value })}
+                    onKeyDown={handleDecimalKeyDown}
+                    onChange={(e) => setFormData({ ...formData, wt_ct: sanitizeDecimal(e.target.value, false, 3) })}
                     className="w-full px-3 py-2 border border-stone-300 rounded-xl font-mono font-bold focus:outline-hidden focus:border-[#b01622]"
                   />
                 </div>
@@ -450,10 +456,13 @@ export default function DiamondRanges() {
                   <label className="block text-stone-600 font-bold mb-1">Rate per Carat (₹) <span className="text-[#b01622]">*</span></label>
                   <input
                     type="number"
+                    inputMode="decimal"
+                    min="0"
                     step="0.01"
                     required
                     value={formData.rate}
-                    onChange={(e) => setFormData({ ...formData, rate: e.target.value })}
+                    onKeyDown={handleDecimalKeyDown}
+                    onChange={(e) => setFormData({ ...formData, rate: sanitizeDecimal(e.target.value, false, 2) })}
                     className="w-full px-3 py-2 border border-stone-300 rounded-xl font-mono font-bold focus:outline-hidden focus:border-[#b01622]"
                   />
                 </div>
@@ -471,9 +480,12 @@ export default function DiamondRanges() {
                   <label className="block text-stone-600 font-bold mb-1">Dollar ($)</label>
                   <input
                     type="number"
+                    inputMode="decimal"
+                    min="0"
                     step="0.01"
                     value={formData.dollar}
-                    onChange={(e) => setFormData({ ...formData, dollar: e.target.value })}
+                    onKeyDown={handleDecimalKeyDown}
+                    onChange={(e) => setFormData({ ...formData, dollar: sanitizeDecimal(e.target.value, false, 2) })}
                     className="w-full px-3 py-2 border border-stone-300 rounded-xl font-mono focus:outline-hidden focus:border-[#b01622]"
                   />
                 </div>
@@ -481,9 +493,12 @@ export default function DiamondRanges() {
                   <label className="block text-stone-600 font-bold mb-1">Disc. %</label>
                   <input
                     type="number"
+                    inputMode="decimal"
+                    min="0"
                     step="0.01"
                     value={formData.disc_percent}
-                    onChange={(e) => setFormData({ ...formData, disc_percent: e.target.value })}
+                    onKeyDown={handleDecimalKeyDown}
+                    onChange={(e) => setFormData({ ...formData, disc_percent: sanitizeDecimal(e.target.value, false, 2) })}
                     className="w-full px-3 py-2 border border-stone-300 rounded-xl font-mono focus:outline-hidden focus:border-[#b01622]"
                   />
                 </div>
@@ -491,9 +506,12 @@ export default function DiamondRanges() {
                   <label className="block text-stone-600 font-bold mb-1">Dolx Rate</label>
                   <input
                     type="number"
+                    inputMode="decimal"
+                    min="0"
                     step="0.01"
                     value={formData.dolx_rate}
-                    onChange={(e) => setFormData({ ...formData, dolx_rate: e.target.value })}
+                    onKeyDown={handleDecimalKeyDown}
+                    onChange={(e) => setFormData({ ...formData, dolx_rate: sanitizeDecimal(e.target.value, false, 2) })}
                     className="w-full px-3 py-2 border border-stone-300 rounded-xl font-mono focus:outline-hidden focus:border-[#b01622]"
                   />
                 </div>

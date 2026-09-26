@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 
 const tabs = [
   ['Work in Progress', '/job-order/in-progress'],
@@ -15,6 +16,7 @@ const displayDate = (value) => value ? new Date(value).toLocaleDateString('en-GB
 export default function HistoryDetails() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { isKarigar } = useAuth();
   const [order, setOrder] = useState(null);
   const [ongoingOrders, setOngoingOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -24,7 +26,8 @@ export default function HistoryDetails() {
     const load = async () => {
       try {
         const queryId = new URLSearchParams(location.search).get('order_id');
-        const listResponse = await api.get('/work-orders', { params: { tab: 'ongoing' } });
+        // Fetch full history (both active and completed orders)
+        const listResponse = await api.get('/work-orders', { params: { tab: 'history' } });
         const list = listResponse.data?.data || [];
         setOngoingOrders(list);
         const id = queryId || list[0]?.id;
@@ -72,14 +75,26 @@ export default function HistoryDetails() {
       <div className="w-full pb-16 space-y-5 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif] text-gray-800">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 text-xs text-stone-400 font-semibold mb-1.5"><span>Manufacturing</span><span>&gt;</span><span>Job Orders</span><span>&gt;</span><span>Reception</span><span>&gt;</span><span className="text-stone-600">History</span></div>
+            <div className="flex items-center gap-2 text-xs text-stone-400 font-semibold mb-1.5">
+              <span>Manufacturing</span><span>&gt;</span>
+              {isKarigar ? (
+                <span className="text-stone-600 font-bold">Karigar Workbench</span>
+              ) : (
+                <>
+                  <span>Job Orders</span><span>&gt;</span><span>Reception</span><span>&gt;</span>
+                  <span className="text-stone-600">History</span>
+                </>
+              )}
+            </div>
             <h1 className="text-xl font-bold text-gray-900 tracking-tight">History &amp; Audit</h1>
           </div>
-          <Link to="/job-order/receive" className="px-4 py-2 bg-white border border-stone-300 text-stone-800 text-xs font-semibold rounded-lg shadow-2xs hover:bg-stone-50">Back to Receive Summary</Link>
+          {!isKarigar && (
+            <Link to="/job-order/receive" className="px-4 py-2 bg-white border border-stone-300 text-stone-800 text-xs font-semibold rounded-lg shadow-2xs hover:bg-stone-50">Back to Receive Summary</Link>
+          )}
         </div>
 
         <div className="border-b border-stone-200 flex items-center gap-8 overflow-x-auto no-scrollbar">
-          {tabs.map(([label, path]) => (
+          {tabs.filter(([_, path]) => !isKarigar || path !== '/job-order/quality-check').map(([label, path]) => (
             <Link key={path} to={path} className={`pb-3 text-sm whitespace-nowrap border-b-2 ${path === '/job-order/history' ? 'font-bold text-[#b01622] border-[#b01622]' : 'font-medium text-stone-500 border-transparent hover:text-stone-900'}`}>{label}</Link>
           ))}
         </div>
@@ -92,13 +107,15 @@ export default function HistoryDetails() {
           <p className="text-xs text-stone-500 max-w-md">
             There are currently no job orders recorded in the database with audit history.
           </p>
-          <Link
-            to="/job-order/new"
-            className="px-4 py-2.5 bg-[#b01622] text-white text-xs font-bold rounded-xl shadow-2xs hover:bg-[#8e111a] transition-all flex items-center gap-2"
-          >
-            <i className="fa-solid fa-plus"></i>
-            <span>Create New Job Order</span>
-          </Link>
+          {!isKarigar && (
+            <Link
+              to="/job-order/new"
+              className="px-4 py-2.5 bg-[#b01622] text-white text-xs font-bold rounded-xl shadow-2xs hover:bg-[#8e111a] transition-all flex items-center gap-2"
+            >
+              <i className="fa-solid fa-plus"></i>
+              <span>Create New Job Order</span>
+            </Link>
+          )}
         </div>
       </div>
     );
@@ -106,13 +123,81 @@ export default function HistoryDetails() {
 
   return (
     <div className="w-full pb-16 space-y-5 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif] text-gray-800">
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4"><div><div className="flex items-center gap-2 text-xs text-stone-400 font-semibold mb-1.5"><span>Manufacturing</span><span>&gt;</span><span>Job Orders</span><span>&gt;</span><span>Reception</span><span>&gt;</span><span className="text-stone-600">History</span></div><h1 className="text-xl font-bold text-gray-900 tracking-tight">History &amp; Audit - {jobId}</h1>{ongoingOrders.length > 0 && <select value={order?.id || ''} onChange={switchOrder} className="mt-3 w-full sm:w-[420px] text-sm bg-white border border-stone-200 rounded-xl px-3.5 py-2 text-stone-800 font-semibold shadow-2xs cursor-pointer focus:outline-hidden focus:border-[#b01622]">{ongoingOrders.map((ongoingOrder) => <option key={ongoingOrder.id} value={ongoingOrder.id}>Switch: {ongoingOrder.design_code || ongoingOrder.work_order_number} ({ongoingOrder.product_name})</option>)}</select>}</div><Link to={openTab('/job-order/receive')} className="px-4 py-2 bg-white border border-stone-300 text-stone-800 text-xs font-semibold rounded-lg shadow-2xs hover:bg-stone-50">Back to Receive Summary</Link></div>
-      <div className="border-b border-stone-200 flex items-center gap-8 overflow-x-auto no-scrollbar">{tabs.map(([label, path]) => <Link key={path} to={openTab(path)} className={`pb-3 text-sm whitespace-nowrap border-b-2 ${path === '/job-order/history' ? 'font-bold text-[#b01622] border-[#b01622]' : 'font-medium text-stone-500 border-transparent hover:text-stone-900'}`}>{label}</Link>)}</div>
-      <div className="bg-white rounded-xl border border-stone-200 p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">{[['Job ID', jobId], ['Client ID', clientId], ['Client Name', clientName], ['Assigned Karigar', karigarName], ['Current Status', order?.status || 'In Progress']].map(([label, value]) => <div key={label} className="min-w-0"><span className="text-[11px] font-medium text-stone-400 block">{label}</span><span className="text-xs font-bold text-gray-900 block mt-0.5 truncate" title={value}>{value}</span></div>)}</div>
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 text-xs text-stone-400 font-semibold mb-1.5">
+            <span>Manufacturing</span><span>&gt;</span>
+            {isKarigar ? (
+              <span className="text-stone-600 font-bold">Karigar Workbench</span>
+            ) : (
+              <>
+                <span>Job Orders</span><span>&gt;</span><span>Reception</span><span>&gt;</span>
+                <span className="text-stone-600">History</span>
+              </>
+            )}
+          </div>
+          <h1 className="text-xl font-bold text-gray-900 tracking-tight">History &amp; Audit - {jobId}</h1>
+          {ongoingOrders.length > 0 && (
+            <select value={order?.id || ''} onChange={switchOrder} className="mt-3 w-full sm:w-[420px] text-sm bg-white border border-stone-200 rounded-xl px-3.5 py-2 text-stone-800 font-semibold shadow-2xs cursor-pointer focus:outline-hidden focus:border-[#b01622]">
+              {ongoingOrders.map((ongoingOrder) => (
+                <option key={ongoingOrder.id} value={ongoingOrder.id}>
+                  Switch: {ongoingOrder.design_code || ongoingOrder.work_order_number} ({ongoingOrder.product_name}) [{ongoingOrder.status}]
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+        {!isKarigar && (
+          <Link to={openTab('/job-order/receive')} className="px-4 py-2 bg-white border border-stone-300 text-stone-800 text-xs font-semibold rounded-lg shadow-2xs hover:bg-stone-50">Back to Receive Summary</Link>
+        )}
+      </div>
+
+      <div className="border-b border-stone-200 flex items-center gap-8 overflow-x-auto no-scrollbar">
+        {tabs.filter(([_, path]) => !isKarigar || path !== '/job-order/quality-check').map(([label, path]) => (
+          <Link key={path} to={openTab(path)} className={`pb-3 text-sm whitespace-nowrap border-b-2 ${path === '/job-order/history' ? 'font-bold text-[#b01622] border-[#b01622]' : 'font-medium text-stone-500 border-transparent hover:text-stone-900'}`}>{label}</Link>
+        ))}
+      </div>
+
+      <div className="bg-white rounded-xl border border-stone-200 p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        {[['Job ID', jobId], ['Client ID', clientId], ['Client Name', clientName], ['Assigned Karigar', karigarName], ['Current Status', order?.status || 'In Progress']].map(([label, value]) => (
+          <div key={label} className="min-w-0">
+            <span className="text-[11px] font-medium text-stone-400 block">{label}</span>
+            <span className="text-xs font-bold text-gray-900 block mt-0.5 truncate" title={value}>{value}</span>
+          </div>
+        ))}
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        <section className="lg:col-span-8 bg-white rounded-xl border border-stone-200 p-4"><div className="flex items-center justify-between mb-4"><h2 className="text-sm font-bold text-gray-900">Work Order Timeline</h2><span className="text-xs text-stone-400">{timeline.length} updates</span></div><div className="relative pl-7 space-y-5 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-px before:bg-stone-200">{timeline.map((event, index) => <div key={event.id || `${event.stage}-${index}`} className="relative"><span className="absolute -left-[29px] top-1 w-3 h-3 rounded-full bg-[#b01622] ring-4 ring-white"></span><div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1"><span className="text-xs font-bold text-gray-900">{event.stage_label || event.stage || 'Update'}</span><span className="text-[11px] font-mono text-stone-400">{event.created_at ? new Date(event.created_at).toLocaleString('en-GB') : '—'}</span></div><p className="text-xs text-stone-600 mt-1">{event.notes || 'Status progression recorded.'}</p><span className="text-[11px] text-stone-400 block mt-1">Recorded by: {event.action_by_name || 'System'}</span></div>)}</div></section>
-        <section className="lg:col-span-4 bg-white rounded-xl border border-stone-200 p-4 h-fit"><h2 className="text-sm font-bold text-gray-900 mb-4">Audit Summary</h2><div className="space-y-3 text-xs"><div className="flex justify-between"><span className="text-stone-500">Created Date</span><span className="font-semibold">{displayDate(order?.created_at)}</span></div><div className="flex justify-between"><span className="text-stone-500">Allotted Date</span><span className="font-semibold">{displayDate(order?.allotted_date)}</span></div><div className="flex justify-between"><span className="text-stone-500">Due Date</span><span className="font-semibold">{displayDate(order?.delivery_date)}</span></div><div className="flex justify-between"><span className="text-stone-500">Last Updated</span><span className="font-semibold">{displayDate(order?.updated_at)}</span></div><div className="border-t border-stone-200 pt-3 flex justify-between"><span className="text-stone-500">Current Stage</span><span className="font-bold text-[#b01622]">{String(order?.current_stage || 'created').replace(/_/g, ' ')}</span></div></div></section>
+        <section className="lg:col-span-8 bg-white rounded-xl border border-stone-200 p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-bold text-gray-900">Work Order Timeline</h2>
+            <span className="text-xs text-stone-400">{timeline.length} updates</span>
+          </div>
+          <div className="relative pl-7 space-y-5 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-px before:bg-stone-200">
+            {timeline.map((event, index) => (
+              <div key={event.id || `${event.stage}-${index}`} className="relative">
+                <span className="absolute -left-[29px] top-1 w-3 h-3 rounded-full bg-[#b01622] ring-4 ring-white"></span>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+                  <span className="text-xs font-bold text-gray-900">{event.stage_label || event.stage || 'Update'}</span>
+                  <span className="text-[11px] font-mono text-stone-400">{event.created_at ? new Date(event.created_at).toLocaleString('en-GB') : '—'}</span>
+                </div>
+                <p className="text-xs text-stone-600 mt-1">{event.notes || 'Status progression recorded.'}</p>
+                <span className="text-[11px] text-stone-400 block mt-1">Recorded by: {event.action_by_name || 'System'}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="lg:col-span-4 bg-white rounded-xl border border-stone-200 p-4 h-fit">
+          <h2 className="text-sm font-bold text-gray-900 mb-4">Audit Summary</h2>
+          <div className="space-y-3 text-xs">
+            <div className="flex justify-between"><span className="text-stone-500">Created Date</span><span className="font-semibold">{displayDate(order?.created_at)}</span></div>
+            <div className="flex justify-between"><span className="text-stone-500">Allotted Date</span><span className="font-semibold">{displayDate(order?.allotted_date)}</span></div>
+            <div className="flex justify-between"><span className="text-stone-500">Due Date</span><span className="font-semibold">{displayDate(order?.delivery_date)}</span></div>
+            <div className="flex justify-between"><span className="text-stone-500">Last Updated</span><span className="font-semibold">{displayDate(order?.updated_at)}</span></div>
+            <div className="border-t border-stone-200 pt-3 flex justify-between"><span className="text-stone-500">Current Stage</span><span className="font-bold text-[#b01622]">{String(order?.current_stage || 'created').replace(/_/g, ' ')}</span></div>
+          </div>
+        </section>
       </div>
 
       <section className="bg-white rounded-xl border border-stone-200 overflow-hidden">

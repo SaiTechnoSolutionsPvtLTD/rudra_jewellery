@@ -5,8 +5,12 @@ const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => {
-    const savedUser = localStorage.getItem('auth_user');
-    return savedUser ? JSON.parse(savedUser) : null;
+    try {
+      const savedUser = localStorage.getItem('auth_user');
+      return savedUser ? JSON.parse(savedUser) : null;
+    } catch (e) {
+      return null;
+    }
   });
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return !!localStorage.getItem('auth_token');
@@ -83,8 +87,46 @@ export const AuthProvider = ({ children }) => {
     clearAuth();
   };
 
+  const role = user?.role || '';
+  const userPermissions = user?.permissions || [];
+  const normalizedRole = role.toLowerCase().replace(/\s+/g, '_');
+
+  const isSuperAdmin = normalizedRole === 'super_admin' || normalizedRole === 'superadministrator';
+  const isAdmin = isSuperAdmin || normalizedRole === 'admin' || normalizedRole === 'administrator';
+  const isManager = normalizedRole === 'manager';
+  const isStaff = normalizedRole === 'staff';
+  const isKarigar = normalizedRole === 'karigar' || normalizedRole === 'master_karigar' || !!user?.karigar;
+
+  const hasPermission = (permKey) => {
+    if (isSuperAdmin) return true;
+    if (!permKey) return true;
+    if (userPermissions.includes('*')) return true;
+    return userPermissions.includes(permKey);
+  };
+
+  const hasAnyPermission = (permKeys = []) => {
+    if (isSuperAdmin) return true;
+    if (!permKeys || permKeys.length === 0) return true;
+    return permKeys.some(key => hasPermission(key));
+  };
+
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated, loading, login, logout }}>
+    <AuthContext.Provider value={{
+      user,
+      isAuthenticated,
+      loading,
+      login,
+      logout,
+      role,
+      userPermissions,
+      isSuperAdmin,
+      isAdmin,
+      isManager,
+      isStaff,
+      isKarigar,
+      hasPermission,
+      hasAnyPermission
+    }}>
       {children}
     </AuthContext.Provider>
   );

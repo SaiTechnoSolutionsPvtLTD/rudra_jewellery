@@ -86,6 +86,7 @@ export const printElement = (elementId, documentTitle = 'Document') => {
             padding: 8px !important;
             width: 100% !important;
             height: auto !important;
+            min-height: 100% !important;
             overflow: visible !important;
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
             -webkit-print-color-adjust: exact !important;
@@ -97,7 +98,8 @@ export const printElement = (elementId, documentTitle = 'Document') => {
           #${elementId} {
             display: flex !important;
             flex-direction: column !important;
-            min-height: 100% !important;
+            min-height: auto !important;
+            height: auto !important;
             visibility: visible !important;
             opacity: 1 !important;
             position: static !important;
@@ -111,7 +113,20 @@ export const printElement = (elementId, documentTitle = 'Document') => {
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
+          thead {
+            display: table-header-group !important;
+          }
+          tr {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
           .avoid-break, .print-break-inside-avoid {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+          /* Ensure footer section stays anchored naturally at bottom of content without overflowing page */
+          .printable-footer, footer, [class*="footer"], .footer-section, .invoice-footer-section, .signatures-table {
+            margin-top: 20px !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
           }

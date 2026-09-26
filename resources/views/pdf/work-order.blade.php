@@ -6,7 +6,7 @@
     <style>
         @page {
             size: A4 portrait;
-            margin: 15mm 15mm 15mm 15mm;
+            margin: 15mm 15mm 20mm 15mm;
         }
         body {
             font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
@@ -15,6 +15,12 @@
             line-height: 1.4;
             margin: 0;
             padding: 0;
+        }
+        thead {
+            display: table-header-group;
+        }
+        tr {
+            page-break-inside: avoid;
         }
         .header-table {
             width: 100%;
@@ -355,5 +361,14 @@
         </tr>
     </table>
 
+    <script type="text/php">
+        if (isset($pdf)) {
+            $text = "Page {PAGE_NUM} of {PAGE_COUNT}";
+            $font = $fontMetrics->get_font("Helvetica", "bold");
+            $size = 8;
+            $color = array(0.4, 0.4, 0.4);
+            $pdf->page_text(500, 810, $text, $font, $size, $color);
+        }
+    </script>
 </body>
 </html>

@@ -39,7 +39,7 @@ export default function MaterialAllocationModal({ isOpen, onClose, summaryData =
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-150">
-      <div className="bg-white rounded-2xl shadow-2xl border border-stone-200 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden my-auto">
+      <div className="bg-white rounded-2xl shadow-2xl border border-stone-200 w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden my-auto">
         
         {/* Header */}
         <div className="px-6 py-4 border-b border-stone-100 flex items-center justify-between bg-stone-50/50">
@@ -68,7 +68,7 @@ export default function MaterialAllocationModal({ isOpen, onClose, summaryData =
 
         {/* Top Summary Banner */}
         <div className="p-5 border-b border-stone-100 bg-gradient-to-br from-red-50/40 via-amber-50/30 to-stone-50">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
             {/* Total Allotted */}
             <div className="bg-white p-3.5 rounded-xl border border-red-100 shadow-2xs">
               <div className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Total Allotted Metal</div>
@@ -105,6 +105,20 @@ export default function MaterialAllocationModal({ isOpen, onClose, summaryData =
               </div>
               <div className="text-[11px] text-stone-400 font-medium mt-1">
                 Silver bullion
+              </div>
+            </div>
+
+            {/* Diamond Allocated */}
+            <div className="bg-white p-3.5 rounded-xl border border-blue-200/80 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">Diamond</span>
+                <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+              </div>
+              <div className="text-xl font-black text-stone-900 font-mono mt-0.5">
+                {diamondWeightVal.toFixed(3)} <span className="text-xs font-sans text-stone-500 font-bold">cts/g</span>
+              </div>
+              <div className="text-[11px] text-blue-700 font-medium mt-1">
+                Precious stone allocation
               </div>
             </div>
 
@@ -183,8 +197,17 @@ export default function MaterialAllocationModal({ isOpen, onClose, summaryData =
               placeholder="Search artisan or order..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 bg-white border border-stone-200 rounded-lg text-xs focus:outline-none focus:border-[#b01622]"
+              className="w-full pl-8 pr-8 py-1.5 bg-white border border-stone-200 rounded-lg text-xs focus:outline-none focus:border-[#b01622]"
             />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 text-xs"
+              >
+                <i className="fa-solid fa-circle-xmark"></i>
+              </button>
+            )}
           </div>
         </div>
 

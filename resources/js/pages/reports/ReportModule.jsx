@@ -48,6 +48,18 @@ export default function ReportModule() {
   // Print Modal State
   const [showPrintModal, setShowPrintModal] = useState(false);
 
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && showPrintModal) {
+        setShowPrintModal(false);
+      }
+    };
+    if (showPrintModal) {
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showPrintModal]);
+
   // Backend Data
   const [reportData, setReportData] = useState({
     summary: {
@@ -780,7 +792,10 @@ export default function ReportModule() {
 
       {/* 6. Printable A4 Tax & Audit Statement Modal Sheet */}
       {showPrintModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto p-4 md:p-8 bg-stone-900/60 backdrop-blur-xs flex justify-center items-start print:p-0 print:bg-white print:static print:inset-auto print:block print:overflow-visible print:h-auto print:w-full print:filter-none print:backdrop-filter-none">
+        <div
+          className="fixed inset-0 z-50 overflow-y-auto p-4 md:p-8 bg-stone-900/60 backdrop-blur-xs flex justify-center items-start print:p-0 print:bg-white print:static print:inset-auto print:block print:overflow-visible print:h-auto print:w-full print:filter-none print:backdrop-filter-none cursor-pointer"
+          onClick={() => setShowPrintModal(false)}
+        >
           <style>{`
             @media print {
               body {
@@ -844,14 +859,21 @@ export default function ReportModule() {
           {/* Screen Floating Close X Button */}
           <button
             type="button"
-            onClick={() => setShowPrintModal(false)}
-            className="fixed top-5 right-6 z-50 print:hidden bg-stone-900 hover:bg-stone-800 text-white w-10 h-10 rounded-full flex items-center justify-center shadow-2xl cursor-pointer border border-stone-700 transition-transform hover:scale-105"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowPrintModal(false);
+            }}
+            className="fixed top-5 right-6 z-[100] print:hidden bg-stone-900 hover:bg-stone-800 text-white w-10 h-10 rounded-full flex items-center justify-center shadow-2xl cursor-pointer border border-stone-700 transition-transform hover:scale-105"
             title="Close Statement Modal (Esc)"
           >
             <i className="fa-solid fa-xmark text-lg"></i>
           </button>
           
-          <div id="printable-executive-report" className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl p-8 my-4 md:my-8 space-y-6 text-stone-800 font-['Inter',sans-serif] border border-stone-200 relative print:p-0 print:my-0 print:border-0 print:shadow-none print:max-w-full print:rounded-none">
+          <div
+            id="printable-executive-report"
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl p-8 my-4 md:my-8 space-y-6 text-stone-800 font-['Inter',sans-serif] border border-stone-200 relative print:p-0 print:my-0 print:border-0 print:shadow-none print:max-w-full print:rounded-none cursor-default"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Sticky Header Bar for Screen View */}
             <div className="sticky top-0 bg-white z-20 border-b-2 border-[#b01622] pt-2 pb-4 -mx-8 px-8 -mt-8 rounded-t-2xl shadow-2xs flex items-start justify-between">
               <div>

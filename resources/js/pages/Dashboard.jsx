@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { useToast } from '../context/ToastContext';
 import MaterialAllocationModal from '../components/MaterialAllocationModal';
@@ -17,7 +18,12 @@ const resolveItemImage = (item) => {
 };
 
 export default function Dashboard() {
+  const { isKarigar } = useAuth();
   const { showPrompt, showConfirm, showToast } = useToast();
+
+  if (isKarigar) {
+    return <Navigate to="/job-order/receive" replace />;
+  }
 
   // Modal states for Allocated Materials and Bench Metal
   const [isMaterialModalOpen, setIsMaterialModalOpen] = useState(false);
@@ -41,6 +47,7 @@ export default function Dashboard() {
   });
 
   const [timeRange, setTimeRange] = useState('Month');
+  const [isFetchingPeriod, setIsFetchingPeriod] = useState(false);
   const [salesOverviewPeriod, setSalesOverviewPeriod] = useState('This Month');
   const [goldValuesPeriod, setGoldValuesPeriod] = useState('This Month');
   const [topCategoriesPeriod, setTopCategoriesPeriod] = useState('This Month');
@@ -53,6 +60,8 @@ export default function Dashboard() {
     setGoldValuesPeriod(newPeriod);
     setTopCategoriesPeriod(newPeriod);
     setActionRequiresPeriod(newPeriod);
+    fetchDashboardData(newPeriod);
+    fetchJobStats(newPeriod);
   };
 
 
@@ -91,6 +100,16 @@ export default function Dashboard() {
   });
 
   const [approvingId, setApprovingId] = useState(null);
+  const [liveRates, setLiveRates] = useState(null);
+
+  const fetchLiveMetalRates = async () => {
+    try {
+      const res = await api.get('/metal-rates');
+      if (res.data) setLiveRates(res.data);
+    } catch (e) {
+      console.error('Failed to fetch metal rates in dashboard:', e);
+    }
+  };
 
   // Pre-cache card images immediately in browser memory
   useEffect(() => {
@@ -109,6 +128,28 @@ export default function Dashboard() {
     fetchDashboardData();
     fetchJobStats();
     fetchKarigars();
+    fetchLiveMetalRates();
+
+    const handleSync = (e) => {
+      if (e?.detail) setLiveRates((prev) => ({ ...prev, ...e.detail }));
+      fetchLiveMetalRates();
+    };
+
+    const handleDataSync = () => {
+      fetchDashboardData();
+      fetchJobStats();
+    };
+
+    window.addEventListener('rudhra_metal_rates_updated', handleSync);
+    window.addEventListener('rudhra_price_list_updated', handleSync);
+    window.addEventListener('rudhra_invoices_updated', handleDataSync);
+    window.addEventListener('rudhra_workorder_updated', handleDataSync);
+    return () => {
+      window.removeEventListener('rudhra_metal_rates_updated', handleSync);
+      window.removeEventListener('rudhra_price_list_updated', handleSync);
+      window.removeEventListener('rudhra_invoices_updated', handleDataSync);
+      window.removeEventListener('rudhra_workorder_updated', handleDataSync);
+    };
   }, [timeRange]);
 
   const fetchKarigars = async () => {
@@ -122,10 +163,11 @@ export default function Dashboard() {
     }
   };
 
-  const fetchJobStats = async () => {
+  const fetchJobStats = async (overridePeriod) => {
+    const p = overridePeriod || timeRange;
     try {
       const res = await api.get('/work-orders/dashboard-stats', {
-        params: { range: timeRange, period: timeRange }
+        params: { range: p, period: p }
       });
       if (res.data?.status === 'success' || res.data?.summary || res.data?.data) {
         const payload = res.data.data || res.data.summary || res.data;
@@ -190,9 +232,11 @@ export default function Dashboard() {
     }
   };
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = async (overridePeriod) => {
+    const p = overridePeriod || timeRange;
+    setIsFetchingPeriod(true);
     try {
-      const res = await api.get('/dashboard', { params: { period: timeRange } });
+      const res = await api.get('/dashboard', { params: { period: p } });
       setData(res.data);
       if (res.data) {
         localStorage.setItem('rudhra_dashboard_data', JSON.stringify(res.data));
@@ -200,6 +244,7 @@ export default function Dashboard() {
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
     } finally {
+      setIsFetchingPeriod(false);
       setLoading(false);
     }
   };
@@ -288,8 +333,8 @@ export default function Dashboard() {
     const key = p.includes('today') ? 'today' : (p.includes('week') ? 'week' : (p.includes('quarter') ? 'quarter' : (p.includes('year') ? 'year' : (p.includes('all') ? 'all' : 'month'))));
     const gObj = data?.summary?.goldAverages?.[key];
 
-    const buy24k = data?.summary?.avg24kBuyingRate10gFormatted || '₹0';
-    const sell24k = data?.summary?.avg24kSellingRate10gFormatted || '₹0';
+    const buy24k = String(data?.summary?.avg24kBuyingRate10gFormatted || '₹0');
+    const sell24k = String(data?.summary?.avg24kSellingRate10gFormatted || '₹0');
 
     if (gObj) {
       return {
@@ -363,7 +408,7 @@ export default function Dashboard() {
       </div>
 
       {/* 2. Section 1: Quick Points 5 Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+      <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 transition-all duration-200 ${isFetchingPeriod ? 'opacity-40 animate-pulse pointer-events-none' : 'opacity-100'}`}>
 
         {/* Card 1: Sale */}
         <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-stone-200/80 shadow-2xs hover:shadow-xs transition-all flex flex-col justify-between h-full">
@@ -602,21 +647,73 @@ export default function Dashboard() {
         </div>
 
         {/* Right: Average Gold Values (5 cols) */}
-        <div className="lg:col-span-5 bg-white rounded-2xl p-5 border border-stone-200/80 shadow-2xs flex flex-col justify-between space-y-4">
-          <div className="flex items-center justify-between border-b border-stone-100 pb-3 mb-1">
-            <h3 className="text-base font-bold text-gray-900 tracking-tight">Average Gold Values</h3>
+        <div className="lg:col-span-5 bg-white rounded-2xl p-5 border border-stone-200/80 shadow-2xs flex flex-col justify-between space-y-4 h-full">
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-stone-100 pb-3">
+            <div>
+              <h3 className="text-base font-bold text-gray-900 tracking-tight flex items-center gap-2">
+                <span>Average & Daily Gold Rates</span>
+                <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/60">
+                  {liveRates?.isManual ? 'Custom Rate' : 'Live Daily API Rate'}
+                </span>
+              </h3>
+              <span className="text-[11px] text-stone-400 font-medium">Chennai Domestic Market Benchmark</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('open_gold_rate_edit_modal'))}
+              className="p-2 text-stone-400 hover:text-[#b01622] hover:bg-stone-100 rounded-xl transition-colors cursor-pointer"
+              title="Edit Today's Daily Metal Rate"
+            >
+              <i className="fa-solid fa-pen-to-square text-sm"></i>
+            </button>
           </div>
 
-          <div className="space-y-3">
+          {/* 1. Daily Gold Rates Section (Respected to Daily Rate API or Edited Today) */}
+          <div className="bg-gradient-to-br from-amber-500/10 via-amber-50/50 to-stone-50/50 rounded-2xl p-4 border border-amber-200/70">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-extrabold text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
+                <i className="fa-solid fa-coins text-amber-600"></i>
+                <span>Today's Daily Gold Rate ({liveRates?.date || 'Today'})</span>
+              </span>
+              <span className="text-[10px] font-bold text-stone-500 font-mono">USD/INR: ₹{liveRates?.usdInr || '86.50'}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-2">
+              {/* 24K Daily Rate */}
+              <div className="bg-white p-3 rounded-xl border border-amber-200/60 shadow-2xs">
+                <span className="text-[10px] font-bold text-stone-400 uppercase tracking-tight block">24K Gold Rate</span>
+                <div className="text-lg font-black text-stone-900 font-mono mt-0.5 leading-tight">
+                  ₹ {liveRates?.gold24k_10g || '1,46,340'} <span className="text-[10px] font-medium font-sans text-stone-400">/ 10g</span>
+                </div>
+                <div className="text-[10.5px] font-bold text-amber-700 font-mono mt-0.5">
+                  ₹ {liveRates?.gold24k || '14,634'} <span className="text-[9px] font-normal text-stone-400">/ gram</span>
+                </div>
+              </div>
+
+              {/* 22K Daily Rate */}
+              <div className="bg-white p-3 rounded-xl border border-amber-200/60 shadow-2xs">
+                <span className="text-[10px] font-bold text-stone-400 uppercase tracking-tight block">22K Gold Rate</span>
+                <div className="text-lg font-black text-stone-900 font-mono mt-0.5 leading-tight">
+                  ₹ {liveRates?.gold22k_10g || '1,34,140'} <span className="text-[10px] font-medium font-sans text-stone-400">/ 10g</span>
+                </div>
+                <div className="text-[10.5px] font-bold text-amber-700 font-mono mt-0.5">
+                  ₹ {liveRates?.gold22k || '13,414'} <span className="text-[9px] font-normal text-stone-400">/ gram</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 2. Transaction Average Values Section (Period Selected) */}
+          <div className="space-y-2.5">
             {/* Avg Buying Value Box */}
-            <div className="bg-stone-50/60 border border-stone-200/60 rounded-2xl p-4 flex items-center justify-between">
+            <div className="bg-stone-50/80 border border-stone-200/60 rounded-2xl p-3.5 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-red-50 text-[#b01622] flex items-center justify-center text-base shrink-0">
+                <div className="w-9 h-9 rounded-xl bg-red-50 text-[#b01622] flex items-center justify-center text-sm shrink-0">
                   <i className="fa-solid fa-arrow-trend-down"></i>
                 </div>
                 <div>
-                  <span className="text-xs font-bold text-stone-500 block">Avg Buying Value</span>
-                  <div className="text-lg font-extrabold text-stone-900 font-mono leading-tight">
+                  <span className="text-xs font-bold text-stone-500 block">Avg Buying Value ({timeRange})</span>
+                  <div className="text-base font-extrabold text-stone-900 font-mono leading-tight">
                     ₹ {goldData.buyingVal} <span className="text-xs font-medium text-stone-400">/ 10g</span>
                   </div>
                 </div>
@@ -628,14 +725,14 @@ export default function Dashboard() {
             </div>
 
             {/* Avg Selling Value Box */}
-            <div className="bg-stone-50/60 border border-stone-200/60 rounded-2xl p-4 flex items-center justify-between">
+            <div className="bg-stone-50/80 border border-stone-200/60 rounded-2xl p-3.5 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center text-base shrink-0">
+                <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-sm shrink-0">
                   <i className="fa-solid fa-arrow-trend-up"></i>
                 </div>
                 <div>
-                  <span className="text-xs font-bold text-stone-500 block">Avg Selling Value</span>
-                  <div className="text-lg font-extrabold text-stone-900 font-mono leading-tight">
+                  <span className="text-xs font-bold text-stone-500 block">Avg Selling Value ({timeRange})</span>
+                  <div className="text-base font-extrabold text-stone-900 font-mono leading-tight">
                     ₹ {goldData.sellingVal} <span className="text-xs font-medium text-stone-400">/ 10g</span>
                   </div>
                 </div>
@@ -737,7 +834,7 @@ export default function Dashboard() {
             <div className="py-8 flex flex-col items-center justify-center text-stone-400 font-medium my-auto space-y-2">
               <i className="fa-solid fa-layer-group text-2xl text-stone-300"></i>
               <span className="text-xs font-semibold">No Categories in Masters</span>
-              <Link to="/masters/category" className="text-[11px] font-bold text-[#b01622] hover:underline flex items-center gap-1">
+              <Link to="/masters/categories?action=create" state={{ openCreate: true }} className="text-[11px] font-bold text-[#b01622] hover:underline flex items-center gap-1">
                 <i className="fa-solid fa-plus text-[9px]"></i>
                 <span>Add Category in Masters</span>
               </Link>
@@ -805,7 +902,7 @@ export default function Dashboard() {
                 </div>
               </div>
               <Link
-                to="/job-order/in-progress"
+                to="/job-order"
                 className="text-xs font-bold text-[#b01622] hover:underline flex items-center gap-1"
               >
                 <span>View All Jobs</span>
@@ -851,7 +948,7 @@ export default function Dashboard() {
                     jobStats.live_jobs.slice(0, 5).map((wo) => (
                       <tr
                         key={wo.id}
-                        onClick={() => navigate(`/job-order/in-progress?order_id=${wo.id}`)}
+                        onClick={() => navigate('/job-order')}
                         className="hover:bg-stone-50/60 transition-colors cursor-pointer group"
                       >
                         <td className="py-2.5 px-3.5 font-mono font-bold text-[#b01622] group-hover:underline whitespace-nowrap">
@@ -923,14 +1020,49 @@ export default function Dashboard() {
             jobStats.summary?.active_work_orders ??
             activeList.length
           );
-          const goldWeightVal = Number(
-            jobStats.summary?.gold_weight ?? 0
-          );
-          const silverWeightVal = Number(jobStats.summary?.silver_weight ?? 0);
-          const diamondWeightVal = Number(jobStats.summary?.diamond_weight ?? 0);
 
-          const sumKarigarBench = karigarsList.reduce((acc, k) => acc + Number(k.current_gold_balance_grams || 0), 0);
-          const totalBenchMetalVal = sumKarigarBench > 0 ? sumKarigarBench : (pendingWeightVal > 0 ? pendingWeightVal : 0);
+          // Dynamic calculation per material if jobStats values aren't explicitly non-zero
+          const calcGoldFromJobs = activeList.filter(j => {
+            const m = (j.material || j.material_type || '').toLowerCase();
+            return !m.includes('silver') && !m.includes('diamond');
+          }).reduce((acc, j) => acc + Number(j.allotted_weight || 0), 0);
+
+          const calcSilverFromJobs = activeList.filter(j => {
+            const m = (j.material || j.material_type || '').toLowerCase();
+            return m.includes('silver');
+          }).reduce((acc, j) => acc + Number(j.allotted_weight || 0), 0);
+
+          const calcDiamondFromJobs = activeList.filter(j => {
+            const m = (j.material || j.material_type || '').toLowerCase();
+            return m.includes('diamond');
+          }).reduce((acc, j) => acc + Number(j.allotted_weight || 0), 0);
+
+          const goldWeightVal = Number(jobStats.summary?.gold_weight) > 0 ? Number(jobStats.summary.gold_weight) : calcGoldFromJobs;
+          const silverWeightVal = Number(jobStats.summary?.silver_weight) > 0 ? Number(jobStats.summary.silver_weight) : calcSilverFromJobs;
+          const diamondWeightVal = Number(jobStats.summary?.diamond_weight) > 0 ? Number(jobStats.summary.diamond_weight) : calcDiamondFromJobs;
+
+          // Multi-Material Bench Metal calculation across Karigars & Active Jobs
+          const sumBaseKarigarGold = karigarsList.reduce((acc, k) => acc + Number(k.current_gold_balance_grams || 0), 0);
+          
+          const goldPendingFromJobs = activeList.filter(j => {
+            const m = (j.material || j.material_type || '').toLowerCase();
+            return !m.includes('silver') && !m.includes('diamond');
+          }).reduce((acc, j) => acc + Number(j.pending_weight || 0), 0);
+
+          const silverPendingFromJobs = activeList.filter(j => {
+            const m = (j.material || j.material_type || '').toLowerCase();
+            return m.includes('silver');
+          }).reduce((acc, j) => acc + Number(j.pending_weight || 0), 0);
+
+          const diamondPendingFromJobs = activeList.filter(j => {
+            const m = (j.material || j.material_type || '').toLowerCase();
+            return m.includes('diamond');
+          }).reduce((acc, j) => acc + Number(j.pending_weight || 0), 0);
+
+          const benchGoldVal = goldPendingFromJobs > 0 ? goldPendingFromJobs : sumBaseKarigarGold;
+          const benchSilverVal = silverPendingFromJobs;
+          const benchDiamondVal = diamondPendingFromJobs;
+          const totalBenchGramEquiv = benchGoldVal + benchSilverVal;
 
           return (
             <div className="flex flex-col gap-4">
@@ -1029,28 +1161,46 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* CARD 2: METAL ON BENCH */}
+              {/* CARD 2: METAL ON BENCH (ALL MATERIALS DISPLAYED) */}
               <div
                 onClick={() => setIsBenchModalOpen(true)}
-                className="bg-white rounded-2xl border border-stone-200/80 shadow-2xs p-5 flex items-center justify-between hover:border-amber-400 hover:shadow-md transition-all cursor-pointer group"
-                title="Click to open pop-up displaying metal on bench balance per karigar"
+                className="bg-white rounded-2xl border border-stone-200/80 shadow-2xs p-5 flex flex-col justify-between hover:border-amber-400 hover:shadow-md transition-all cursor-pointer group"
+                title="Click to open pop-up displaying all metals & materials on bench balance per artisan"
               >
                 <div>
-                  <div className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
-                    <span>METAL ON BENCH</span>
-                    <i className="fa-solid fa-up-right-from-square text-[10px] text-stone-400 opacity-0 group-hover:opacity-100 transition-opacity"></i>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-xs font-bold text-stone-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <span>METAL & MATERIALS ON BENCH</span>
+                      <i className="fa-solid fa-up-right-from-square text-[10px] text-stone-400 opacity-0 group-hover:opacity-100 transition-opacity"></i>
+                    </div>
+                    <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200/60">
+                      Artisan Benches
+                    </span>
                   </div>
+
                   <div className="text-3xl font-black text-stone-900 font-sans tracking-tight leading-none flex items-baseline gap-1 mt-1">
-                    <span>{totalBenchMetalVal.toFixed(3)}</span>
+                    <span>{benchGoldVal.toFixed(3)}</span>
                     <span className="text-sm font-bold text-amber-700">g</span>
                   </div>
-                  <div className="text-xs text-amber-700 font-medium mt-2">
-                    Pure 24K / 22K balance
+                  <div className="text-xs text-stone-500 font-medium mt-1">
+                    Primary 24K / 22K gold balance on bench
                   </div>
-                </div>
 
-                <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200/70 text-amber-800 flex items-center justify-center text-xl shrink-0 shadow-2xs group-hover:scale-105 transition-transform">
-                  <i className="fa-solid fa-cubes-stacked"></i>
+                  {/* All Materials Pill Badges */}
+                  <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-stone-100 text-xs">
+                    <div className="bg-amber-50/70 p-2 rounded-xl border border-amber-200/60 text-center">
+                      <span className="text-[9.5px] font-bold text-amber-800 uppercase block truncate">Gold 24K/22K</span>
+                      <span className="font-mono font-black text-stone-900 text-xs">{benchGoldVal.toFixed(3)}g</span>
+                    </div>
+                    <div className="bg-stone-100/70 p-2 rounded-xl border border-stone-200/60 text-center">
+                      <span className="text-[9.5px] font-bold text-stone-600 uppercase block truncate">Silver 925</span>
+                      <span className="font-mono font-black text-stone-900 text-xs">{benchSilverVal.toFixed(3)}g</span>
+                    </div>
+                    <div className="bg-blue-50/70 p-2 rounded-xl border border-blue-200/60 text-center">
+                      <span className="text-[9.5px] font-bold text-blue-700 uppercase block truncate">Diamonds</span>
+                      <span className="font-mono font-black text-stone-900 text-xs">{benchDiamondVal.toFixed(3)}ct</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

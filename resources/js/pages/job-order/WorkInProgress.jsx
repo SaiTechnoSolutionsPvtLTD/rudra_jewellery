@@ -2,11 +2,14 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/AuthContext';
+import { handleDecimalKeyDown, sanitizeDecimal } from '../../utils/numberInputUtils';
 
 export default function WorkInProgress() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { showToast } = useToast();
+  const { showToast, showConfirm } = useToast();
+  const { isKarigar } = useAuth();
 
   // Query parameter order_id
   const queryParams = new URLSearchParams(location.search);
@@ -17,6 +20,14 @@ export default function WorkInProgress() {
   const [selectedOrderId, setSelectedOrderId] = useState(queryOrderId || null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+
+  // Karigar work progress editable form state
+  const [formStatus, setFormStatus] = useState('in_progress');
+  const [formCompletedWeight, setFormCompletedWeight] = useState('');
+  const [formExpectedDate, setFormExpectedDate] = useState('');
+  const [formRemarks, setFormRemarks] = useState('');
+  const [formDelayReason, setFormDelayReason] = useState('');
+  const [showDelayReasonInput, setShowDelayReasonInput] = useState(false);
 
   // Real Pagination for Timeline table
   const [timelinePage, setTimelinePage] = useState(1);
@@ -118,8 +129,23 @@ export default function WorkInProgress() {
     };
   }, [queryOrderId, fetchOrdersList, fetchOrderDetails]);
 
+  // Sync form state when currentOrder changes
+  useEffect(() => {
+    if (currentOrder) {
+      setFormStatus(currentOrder.status === 'delayed' ? 'delayed' : (currentOrder.current_stage || 'in_progress'));
+      setFormCompletedWeight(
+        currentOrder.completed_weight !== undefined && currentOrder.completed_weight !== null
+          ? String(currentOrder.completed_weight)
+          : ''
+      );
+      setFormExpectedDate(currentOrder.delivery_date ? String(currentOrder.delivery_date).split('T')[0] : '');
+      setFormRemarks(currentOrder.karigar_notes || currentOrder.notes || currentOrder.karigar_data?.remarks || '');
+      setFormDelayReason(currentOrder.karigar_data?.delay_reason || '');
+      setShowDelayReasonInput(currentOrder.status === 'delayed');
+    }
+  }, [currentOrder?.id]);
+
   // Automatic Real-Time Synchronization: Poll every 4 seconds
-  // so updates made in Karigar Management or Receive Work Order reflect instantly without manual reload
   useEffect(() => {
     if (!selectedOrderId) return;
     const interval = setInterval(() => {
@@ -136,29 +162,84 @@ export default function WorkInProgress() {
     fetchOrderDetails(orderId);
   };
 
+  // Save Work Progress Update (Karigar & Admin)
+  const handleSaveProgress = async (e) => {
+    if (e) e.preventDefault();
+    if (!currentOrder) return;
+
+    const numWeight = parseFloat(formCompletedWeight || 0);
+    const allottedWeight = parseFloat(currentOrder.allotted_weight || 0);
+    if (numWeight > allottedWeight) {
+      showToast?.(`Completed weight (${numWeight}g) cannot exceed allotted weight (${allottedWeight}g)`, 'error');
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      const isDelay = formStatus === 'delayed';
+      const targetStage = isDelay ? 'delayed' : (formStatus === 'in_progress' ? 'work_in_progress' : (formStatus || 'work_in_progress'));
+      const payload = {
+        action: 'save',
+        completed_weight: numWeight,
+        status: isDelay ? 'delayed' : 'in_progress',
+        current_stage: targetStage,
+        karigar_notes: formRemarks,
+        remarks: formRemarks,
+        delivery_date: formExpectedDate || null,
+        delay_reason: formDelayReason || null,
+      };
+
+      const res = await api.post(`/work-orders/${currentOrder.id}/karigar-update`, payload);
+      const updated = res.data.data || res.data;
+      setCurrentOrder(updated);
+      showToast?.('Work progress updated successfully!', 'success');
+      fetchOrderDetails(currentOrder.id, true);
+    } catch (err) {
+      showToast?.(err.response?.data?.message || 'Failed to update work progress', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Mark as Delay / Hold
+  const handleToggleDelay = () => {
+    setFormStatus('delayed');
+    setShowDelayReasonInput(true);
+    showToast?.('Status updated to Delayed / On Hold. Please enter delay reason & click Save Progress Update.', 'info');
+  };
+
   // Dedicated Action: Work Completed (Send for QC)
   const handleWorkCompletedQC = async () => {
     if (!currentOrder) return;
+    const numWeight = parseFloat(formCompletedWeight || currentOrder.allotted_weight || 0);
+
+    if (numWeight <= 0) {
+      showToast?.('Please enter completed weight before submitting for QC.', 'error');
+      return;
+    }
+
     const confirmed = await showConfirm({
       title: 'Submit for Quality Check',
-      message: 'Confirm submitting this completed jewelry piece for Master Artisan Quality Check (QC)?',
+      message: `Confirm submitting this completed jewelry piece (${numWeight}g completed) for Master Artisan Quality Check (QC)?`,
       icon: 'fa-solid fa-[#b01622] fa-circle-check',
       confirmText: 'Submit for QC'
     });
     if (!confirmed) return;
+
     try {
       setActionLoading(true);
       const payload = {
-        completed_weight: currentOrder.completed_weight || currentOrder.allotted_weight,
-        current_stage: 'quality_check',
-        status: 'pending_approval',
-        update_type: 'Sent for QC',
-        details: 'Crafting completed. Submitted for Master Artisan Quality Check (QC)',
-        remarks: 'Work completed. Quality inspection pending.',
+        action: 'submit',
+        completed_weight: numWeight,
+        current_stage: 'work_completed',
+        status: 'submitted',
+        karigar_notes: formRemarks || 'Work completed. Submitted for Quality Check (QC).',
+        remarks: formRemarks || 'Work completed. Quality inspection pending.',
+        delivery_date: formExpectedDate || null,
       };
 
-      const res = await api.post(`/work-orders/${currentOrder.id}/timeline-update`, payload);
-      setCurrentOrder(res.data.data);
+      const res = await api.post(`/work-orders/${currentOrder.id}/karigar-update`, payload);
+      setCurrentOrder(res.data.data || res.data);
       showToast?.('Work marked as Completed and submitted for Quality Check!', 'success');
       fetchOrderDetails(currentOrder.id, true);
     } catch (err) {
@@ -199,21 +280,11 @@ export default function WorkInProgress() {
     );
   };
 
-  // Computed weights and status directly from database
+  // Computed weights and status directly from form input & database
   const allocatedWeight = currentOrder ? parseFloat(currentOrder.allotted_weight || 0) : 0;
-  const completedWeight = currentOrder ? parseFloat(currentOrder.completed_weight || 0) : 0;
+  const completedWeight = formCompletedWeight !== '' ? (parseFloat(formCompletedWeight) || 0) : (currentOrder ? parseFloat(currentOrder.completed_weight || 0) : 0);
   const pendingWeight = Math.max(0, allocatedWeight - completedWeight);
   const progressPercent = allocatedWeight > 0 ? Math.min(100, (completedWeight / allocatedWeight) * 100) : 0;
-
-  // Status computation matching project workflow
-  const computeStatusLabel = () => {
-    if (!currentOrder) return 'In Progress (Partial)';
-    if (currentOrder.status === 'delayed') return 'Delayed / On Hold';
-    if (currentOrder.current_stage === 'work_completed' || currentOrder.status === 'pending_approval') return 'Work Completed';
-    if (currentOrder.current_stage === 'work_started') return 'Work Started';
-    if (currentOrder.current_stage === 'received_by_artisan' || currentOrder.status === 'assigned') return 'Waiting for Material';
-    return 'In Progress (Partial)';
-  };
 
   // Real Database Details
   const jobId = currentOrder?.design_code || currentOrder?.work_order_number || (currentOrder?.id ? `ORD-${currentOrder.id}` : '—');
@@ -226,8 +297,6 @@ export default function WorkInProgress() {
   const categoryName = currentOrder?.category?.name || 'Jewellery';
   const materialType = currentOrder?.material_type || 'Gold';
   const purityLabel = currentOrder?.purity || 'Standard';
-  const expectedDate = formatDateDisplay(currentOrder?.delivery_date);
-  const remarksText = currentOrder?.karigar_notes || currentOrder?.notes || currentOrder?.karigar_data?.remarks || 'No remarks recorded.';
 
   // Real Timelines from Database
   const rawTimelines = currentOrder?.timelines || [];
@@ -266,27 +335,35 @@ export default function WorkInProgress() {
             <div className="flex items-center gap-2 text-xs text-stone-500 font-semibold mb-1">
               <span>Manufacturing</span>
               <i className="fa-solid fa-chevron-right text-[8px] text-stone-300"></i>
-              <Link to="/job-order" className="hover:text-stone-900 transition-colors">Job Orders</Link>
-              <i className="fa-solid fa-chevron-right text-[8px] text-stone-300"></i>
-              <Link to="/job-order/receive" className="hover:text-stone-900 transition-colors">Reception</Link>
-              <i className="fa-solid fa-chevron-right text-[8px] text-stone-300"></i>
-              <span className="text-stone-700 font-bold">Work in Progress</span>
+              {isKarigar ? (
+                <span className="text-stone-700 font-bold">Karigar Workbench</span>
+              ) : (
+                <>
+                  <Link to="/job-order" className="hover:text-stone-900 transition-colors">Job Orders</Link>
+                  <i className="fa-solid fa-chevron-right text-[8px] text-stone-300"></i>
+                  <span className="text-stone-700 font-bold">Work in Progress</span>
+                </>
+              )}
             </div>
             <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Work in Progress</h1>
           </div>
-          <Link
-            to="/job-order/receive"
-            className="px-4 py-2 bg-white border border-stone-300 text-stone-800 text-xs font-semibold rounded-lg shadow-2xs hover:bg-stone-50"
-          >
-            Back to Receive Summary
-          </Link>
+          {!isKarigar && (
+            <Link
+              to="/job-order/receive"
+              className="px-4 py-2 bg-white border border-stone-300 text-stone-800 text-xs font-semibold rounded-lg shadow-2xs hover:bg-stone-50"
+            >
+              Back to Receive Summary
+            </Link>
+          )}
         </div>
 
         <div className="border-b border-stone-200 flex items-center gap-8 overflow-x-auto no-scrollbar">
           <Link to="/job-order/in-progress" className="pb-3 text-sm font-bold text-[#b01622] border-b-2 border-[#b01622]">Work in Progress</Link>
           <Link to="/job-order/delay" className="pb-3 text-sm font-medium text-stone-500 hover:text-stone-900 border-b-2 border-transparent">Delay / Job Details</Link>
           <Link to="/job-order/waste" className="pb-3 text-sm font-medium text-stone-500 hover:text-stone-900 border-b-2 border-transparent">Waste Details</Link>
-          <Link to="/job-order/quality-check" className="pb-3 text-sm font-medium text-stone-500 hover:text-stone-900 border-b-2 border-transparent">Quality Check &amp; Final Receive</Link>
+          {!isKarigar && (
+            <Link to="/job-order/quality-check" className="pb-3 text-sm font-medium text-stone-500 hover:text-stone-900 border-b-2 border-transparent">Quality Check &amp; Final Receive</Link>
+          )}
           <Link to="/job-order/history" className="pb-3 text-sm font-medium text-stone-500 hover:text-stone-900 border-b-2 border-transparent">History</Link>
         </div>
 
@@ -296,15 +373,17 @@ export default function WorkInProgress() {
           </div>
           <h2 className="text-lg font-bold text-gray-900">No Active Work in Progress Jobs</h2>
           <p className="text-xs text-stone-500 max-w-md">
-            There are currently no active manufacturing job orders in progress in the database.
+            There are currently no active manufacturing job orders in progress assigned to you.
           </p>
-          <Link
-            to="/job-order/new"
-            className="px-4 py-2.5 bg-[#b01622] text-white text-xs font-bold rounded-xl shadow-2xs hover:bg-[#8e111a] transition-all flex items-center gap-2"
-          >
-            <i className="fa-solid fa-plus"></i>
-            <span>Create New Job Order</span>
-          </Link>
+          {!isKarigar && (
+            <Link
+              to="/job-order/new"
+              className="px-4 py-2.5 bg-[#b01622] text-white text-xs font-bold rounded-xl shadow-2xs hover:bg-[#8e111a] transition-all flex items-center gap-2"
+            >
+              <i className="fa-solid fa-plus"></i>
+              <span>Create New Job Order</span>
+            </Link>
+          )}
         </div>
       </div>
     );
@@ -316,15 +395,19 @@ export default function WorkInProgress() {
       {/* 1. TOP HEADER & BREADCRUMBS */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          {/* Breadcrumb: Manufacturing > Job Orders > Reception > Work in Progress */}
+          {/* Breadcrumb */}
           <div className="flex items-center gap-2 text-xs text-stone-500 font-semibold mb-1">
             <span>Manufacturing</span>
             <i className="fa-solid fa-chevron-right text-[8px] text-stone-300"></i>
-            <Link to="/job-order" className="hover:text-stone-900 transition-colors">Job Orders</Link>
-            <i className="fa-solid fa-chevron-right text-[8px] text-stone-300"></i>
-            <Link to="/job-order/receive" className="hover:text-stone-900 transition-colors">Reception</Link>
-            <i className="fa-solid fa-chevron-right text-[8px] text-stone-300"></i>
-            <span className="text-stone-700 font-bold">Work in Progress</span>
+            {isKarigar ? (
+              <span className="text-stone-700 font-bold">Karigar Workbench</span>
+            ) : (
+              <>
+                <Link to="/job-order" className="hover:text-stone-900 transition-colors">Job Orders</Link>
+                <i className="fa-solid fa-chevron-right text-[8px] text-stone-300"></i>
+                <span className="text-stone-700 font-bold">Work in Progress</span>
+              </>
+            )}
           </div>
 
           {/* Title with Job ID */}
@@ -350,19 +433,21 @@ export default function WorkInProgress() {
           </div>
         </div>
 
-        {/* Back to Receive Summary button matching screenshot */}
-        <div className="flex items-center gap-3">
-          <Link
-            to="/job-order/receive"
-            className="px-4 py-2 bg-white border border-stone-300 hover:border-stone-400 text-stone-800 text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center gap-2 cursor-pointer"
-          >
-            <i className="fa-solid fa-arrow-left text-[11px] text-stone-500"></i>
-            <span>Back to Receive Summary</span>
-          </Link>
-        </div>
+        {/* Action Header Button */}
+        {!isKarigar && (
+          <div className="flex items-center gap-3">
+            <Link
+              to="/job-order/receive"
+              className="px-4 py-2 bg-white border border-stone-300 hover:border-stone-400 text-stone-800 text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <i className="fa-solid fa-arrow-left text-[11px] text-stone-500"></i>
+              <span>Back to Receive Summary</span>
+            </Link>
+          </div>
+        )}
       </div>
 
-      {/* 2. SUB-VIEW TABS STRIP (Red Underline on Work in Progress) */}
+      {/* 2. SUB-VIEW TABS STRIP */}
       <div className="border-b border-stone-200">
         <div className="flex items-center gap-8 overflow-x-auto no-scrollbar">
           <button
@@ -387,12 +472,14 @@ export default function WorkInProgress() {
             <span>Waste Details</span>
           </Link>
 
-          <Link
-            to={`/job-order/quality-check${currentOrder?.id ? `?order_id=${currentOrder.id}` : ''}`}
-            className="pb-3 text-sm font-bold text-stone-500 hover:text-stone-900 border-b-2 border-transparent hover:border-stone-300 flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap"
-          >
-            <span>Quality Check & Final Receive</span>
-          </Link>
+          {!isKarigar && (
+            <Link
+              to={`/job-order/quality-check${currentOrder?.id ? `?order_id=${currentOrder.id}` : ''}`}
+              className="pb-3 text-sm font-bold text-stone-500 hover:text-stone-900 border-b-2 border-transparent hover:border-stone-300 flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap"
+            >
+              <span>Quality Check & Final Receive</span>
+            </Link>
+          )}
 
           <Link
             to={`/job-order/history${currentOrder?.id ? `?order_id=${currentOrder.id}` : ''}`}
@@ -457,15 +544,15 @@ export default function WorkInProgress() {
         {/* LEFT COLUMN: Progress Overview & Next Actions (8 cols on lg) */}
         <div className="lg:col-span-8 space-y-6">
           
-          {/* Card 1: Progress Overview (Readonly display reflecting Karigar Management & Reception updates) */}
-          <div className="bg-white rounded-2xl border border-stone-200/90 p-5 shadow-2xs space-y-4">
+          {/* Card 1: Progress Overview (Interactive Form for updating process of work) */}
+          <form onSubmit={handleSaveProgress} className="bg-white rounded-2xl border border-stone-200/90 p-5 shadow-2xs space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-gray-900">
                 Progress Overview
               </h3>
               <span className="text-[11px] text-stone-400 font-medium flex items-center gap-1.5">
                 <i className="fa-solid fa-arrows-rotate text-[10px] text-[#b01622]"></i>
-                <span>Live auto-synced with Karigar & Reception updates</span>
+                <span>Live auto-synced with Karigar & Workshop updates</span>
               </span>
             </div>
 
@@ -475,13 +562,19 @@ export default function WorkInProgress() {
                 Current Status <span className="text-red-500">*</span>
               </label>
               <div className="relative">
-                <input
-                  type="text"
-                  readOnly
-                  value={computeStatusLabel()}
-                  className="w-full bg-stone-50/80 border border-stone-200 rounded-xl px-3.5 py-2.5 text-xs font-bold text-gray-900 cursor-default focus:outline-hidden"
-                />
-                <i className="fa-solid fa-chevron-down text-stone-400 text-xs absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+                <select
+                  value={formStatus}
+                  onChange={(e) => {
+                    setFormStatus(e.target.value);
+                    if (e.target.value === 'delayed') setShowDelayReasonInput(true);
+                  }}
+                  className="w-full bg-white border border-stone-200 rounded-xl px-3.5 py-2.5 text-xs font-bold text-gray-900 focus:outline-hidden focus:border-[#b01622] cursor-pointer shadow-2xs"
+                >
+                  <option value="work_started">Work Started</option>
+                  <option value="in_progress">In Progress (Partial)</option>
+                  <option value="delayed">Delayed / On Hold</option>
+                  <option value="work_completed">Work Completed</option>
+                </select>
               </div>
             </div>
 
@@ -489,13 +582,15 @@ export default function WorkInProgress() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-stone-600 mb-1.5">
-                  Completed Weight (gm)
+                  Completed Weight (gm) <span className="text-[#b01622]">*</span>
                 </label>
                 <input
                   type="text"
-                  readOnly
-                  value={formatWeight(completedWeight)}
-                  className="w-full bg-stone-50/80 border border-stone-200 rounded-xl px-3.5 py-2 text-xs font-mono font-bold text-gray-900 cursor-default focus:outline-hidden"
+                  value={formCompletedWeight}
+                  onChange={(e) => setFormCompletedWeight(sanitizeDecimal(e.target.value))}
+                  onKeyDown={handleDecimalKeyDown}
+                  placeholder="0.000"
+                  className="w-full bg-white border border-stone-200 rounded-xl px-3.5 py-2 text-xs font-mono font-bold text-gray-900 focus:outline-hidden focus:border-[#b01622] shadow-2xs"
                 />
               </div>
 
@@ -547,29 +642,48 @@ export default function WorkInProgress() {
                 </label>
                 <div className="relative">
                   <input
-                    type="text"
-                    readOnly
-                    value={expectedDate}
-                    className="w-full bg-stone-50/80 border border-stone-200 rounded-xl pl-3.5 pr-8 py-2 text-xs font-medium text-gray-900 cursor-default focus:outline-hidden"
+                    type="date"
+                    value={formExpectedDate}
+                    onChange={(e) => setFormExpectedDate(e.target.value)}
+                    className="w-full bg-white border border-stone-200 rounded-xl px-3.5 py-2 text-xs font-medium text-gray-900 focus:outline-hidden focus:border-[#b01622] cursor-pointer shadow-2xs"
                   />
-                  <i className="fa-regular fa-calendar text-stone-400 text-xs absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
                 </div>
               </div>
             </div>
 
+            {/* Delay Reason Input (Visible if status is delayed or hold selected) */}
+            {(showDelayReasonInput || formStatus === 'delayed') && (
+              <div>
+                <label className="block text-xs font-semibold text-amber-800 mb-1.5 flex items-center gap-1.5">
+                  <i className="fa-solid fa-circle-exclamation text-amber-600"></i>
+                  <span>Reason for Delay / Hold</span>
+                </label>
+                <input
+                  type="text"
+                  value={formDelayReason}
+                  onChange={(e) => setFormDelayReason(e.target.value)}
+                  placeholder="Specify delay reason (e.g. awaiting customer confirmation, stone setting delay...)"
+                  className="w-full bg-amber-50/50 border border-amber-300 rounded-xl px-3.5 py-2 text-xs font-medium text-amber-900 focus:outline-hidden focus:border-amber-500 shadow-2xs"
+                />
+              </div>
+            )}
+
             {/* Row 4: Remarks */}
             <div>
               <label className="block text-xs font-semibold text-stone-600 mb-1.5">
-                Remarks
+                Remarks / Karigar Work Notes
               </label>
               <textarea
                 rows={2}
-                readOnly
-                value={remarksText}
-                className="w-full bg-stone-50/80 border border-stone-200 rounded-xl p-3 text-xs text-gray-800 focus:outline-hidden resize-none cursor-default"
+                value={formRemarks}
+                onChange={(e) => setFormRemarks(e.target.value)}
+                placeholder="Enter progress remarks or notes..."
+                className="w-full bg-white border border-stone-200 rounded-xl p-3 text-xs text-gray-800 focus:outline-hidden focus:border-[#b01622] resize-none shadow-2xs"
               ></textarea>
             </div>
-          </div>
+
+            <button type="submit" className="hidden">Submit Form</button>
+          </form>
 
           {/* Card 2: NEXT ACTION */}
           <div className="bg-white rounded-2xl border border-stone-200/90 p-5 shadow-2xs space-y-4">
@@ -578,41 +692,33 @@ export default function WorkInProgress() {
                 NEXT ACTION
               </span>
               <span className="text-[10.5px] text-stone-400">
-                Updates managed directly via Receive Order & Karigar Management
+                Update work status, record progress, or send for Quality Check
               </span>
             </div>
 
-            {/* Row of 3 Action Buttons matching screenshot */}
+            {/* Interactive Action Buttons */}
             <div className="flex flex-wrap items-center gap-3">
-              {/* Button 1: Mark as Delay / Hold (Links directly to Receive Order) */}
-              <Link
-                to={`/job-order/receive?order_id=${currentOrder?.id}`}
-                className="px-4 py-2 bg-white border border-stone-300 hover:border-stone-400 hover:bg-stone-50 text-stone-700 text-xs font-semibold rounded-xl shadow-2xs transition-all flex items-center gap-2 cursor-pointer"
-                title="Update delay or hold state in Receive Work Order"
+              {/* Button 1: Save Progress Update */}
+              <button
+                type="button"
+                onClick={handleSaveProgress}
+                disabled={actionLoading}
+                className="px-4 py-2.5 bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
               >
-                <i className="fa-solid fa-circle-info text-stone-400 text-xs"></i>
+                {actionLoading ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-floppy-disk text-xs text-stone-300"></i>}
+                <span>Save Progress Update</span>
+              </button>
+
+              {/* Button 2: Mark as Delay / Hold */}
+              <button
+                type="button"
+                onClick={handleToggleDelay}
+                disabled={actionLoading}
+                className="px-4 py-2.5 bg-white border border-amber-300 hover:bg-amber-50 text-amber-800 text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center gap-2 cursor-pointer"
+              >
+                <i className="fa-solid fa-circle-pause text-amber-600 text-xs"></i>
                 <span>Mark as Delay / Hold</span>
-              </Link>
-
-              {/* Button 2: Add Update / Remarks (Links to Karigar Management) */}
-              <Link
-                to={`/karigar`}
-                className="px-4 py-2 bg-white border border-stone-300 hover:border-stone-400 hover:bg-stone-50 text-stone-700 text-xs font-semibold rounded-xl shadow-2xs transition-all flex items-center gap-2 cursor-pointer"
-                title="Update artisan craft weights & notes in Karigar Management"
-              >
-                <i className="fa-solid fa-pencil text-stone-400 text-xs"></i>
-                <span>Add Update / Remarks</span>
-              </Link>
-
-              {/* Button 3: New Sub Timeline (Links to Reception Workstation) */}
-              <Link
-                to={`/job-order/receive?order_id=${currentOrder?.id}`}
-                className="px-4 py-2 bg-white border border-stone-300 hover:border-stone-400 hover:bg-stone-50 text-stone-700 text-xs font-semibold rounded-xl shadow-2xs transition-all flex items-center gap-2 cursor-pointer"
-                title="Add material components or timeline stages in Reception"
-              >
-                <i className="fa-solid fa-chart-line text-stone-400 text-xs"></i>
-                <span>New Sub Timeline</span>
-              </Link>
+              </button>
             </div>
 
             {/* Big Action Button: Work Completed (Send for QC) */}
@@ -663,7 +769,7 @@ export default function WorkInProgress() {
                 <span className="font-mono font-bold text-gray-900">{formatWeight(allocatedWeight)} gm</span>
               </div>
 
-              {/* Completed (gm) highlighted in bold crimson red font exactly as in screenshot */}
+              {/* Completed (gm) highlighted in bold crimson red font */}
               <div className="flex items-center justify-between py-1.5 border-b border-stone-50 bg-red-50/40 px-2 rounded-lg">
                 <span className="text-stone-700 font-semibold">Completed (gm)</span>
                 <span className="font-mono text-sm font-black text-[#b01622]">

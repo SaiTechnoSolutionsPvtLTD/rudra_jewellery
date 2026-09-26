@@ -1,22 +1,13 @@
 import React, { useState, useEffect, useTransition } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import ConfirmModal from '../../components/ConfirmModal';
 import Pagination from '../../components/Pagination';
 import KarigarWorkModal from './KarigarWorkModal';
 import BenchMetalModal from '../../components/BenchMetalModal';
-
-const SPECIALIZATION_OPTIONS = [
-  'Antique & Temple Work',
-  'Diamond & Prong Setting',
-  'Plain Gold & Machine Casting',
-  'Kundan & Meenakari',
-  'Stone Setting & Polishing',
-  'Hand Engraving & Filigree',
-  'Choker & Bridal Sets',
-  'Chain & Hollow Bangles',
-];
+import { handleIntegerKeyDown, handleDecimalKeyDown, sanitizeInteger, sanitizeDecimal } from '../../utils/numberInputUtils';
 
 const INITIAL_FORM_STATE = {
   karigar_code: '',
@@ -24,7 +15,7 @@ const INITIAL_FORM_STATE = {
   primary_phone: '',
   secondary_phone: '',
   email: '',
-  specialization: 'Plain Gold & Machine Casting',
+  specialization: '',
   experience_years: 5,
   workshop_name: '',
   workshop_address: '',
@@ -46,7 +37,12 @@ const INITIAL_FORM_STATE = {
 };
 
 export default function KarigarManagement() {
+  const { isKarigar } = useAuth();
   const { showToast } = useToast();
+
+  if (isKarigar) {
+    return <Navigate to="/job-order/receive" replace />;
+  }
   const [karigars, setKarigars] = useState([]);
   const [loading, setLoading] = useState(true);
   const [initialLoad, setInitialLoad] = useState(true);
@@ -153,9 +149,7 @@ export default function KarigarManagement() {
     fetchSpecifications();
   }, []);
 
-  const dynamicSpecNames = specifications.length > 0
-    ? specifications.map(s => s.name)
-    : SPECIALIZATION_OPTIONS;
+  const SPECIALIZATION_OPTIONS = specifications.map(s => s.name);
 
   useEffect(() => {
     const handleOutsideClick = (e) => {
@@ -252,7 +246,10 @@ export default function KarigarManagement() {
     setEditingKarigar(null);
     setFormErrors({});
     setFormTab('general');
-    setFormData(INITIAL_FORM_STATE);
+    setFormData({
+      ...INITIAL_FORM_STATE,
+      specialization: specifications[0]?.name || '',
+    });
     setIsFormModalOpen(true);
 
     // Auto generate next code for convenience
@@ -280,7 +277,7 @@ export default function KarigarManagement() {
       primary_phone: karigar.primary_phone || '',
       secondary_phone: karigar.secondary_phone || '',
       email: karigar.email || '',
-      specialization: karigar.specialization || 'Plain Gold & Machine Casting',
+      specialization: karigar.specialization || (specifications[0]?.name || ''),
       experience_years: karigar.experience_years ?? 5,
       workshop_name: karigar.workshop_name || '',
       workshop_address: karigar.workshop_address || '',
@@ -667,7 +664,7 @@ export default function KarigarManagement() {
               className="px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-medium text-stone-700 focus:outline-none focus:border-[#b01622] cursor-pointer"
             >
               <option value="all">All Specializations</option>
-              {dynamicSpecNames.map((spec) => (
+              {SPECIALIZATION_OPTIONS.map((spec) => (
                 <option key={spec} value={spec}>{spec}</option>
               ))}
             </select>
@@ -1308,7 +1305,7 @@ export default function KarigarManagement() {
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-white font-serif">
-                    {editingKarigar ? `Edit Artisan: ${editingKarigar.name}` : 'Register New Master Karigar'}
+                    {editingKarigar ? `Edit Artisan: ${editingKarigar.name}` : 'Register New Karigar'}
                   </h3>
                   <p className="text-xs text-red-100/80">
                     Enter craft competencies, wastage parameters, KYC and workshop location.
@@ -1707,7 +1704,8 @@ export default function KarigarManagement() {
                         className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.specialization ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
                           }`}
                       >
-                        {dynamicSpecNames.map((opt) => (
+                        <option value="">Select Craft Specialization</option>
+                        {SPECIALIZATION_OPTIONS.map((opt) => (
                           <option key={opt} value={opt}>{opt}</option>
                         ))}
                       </select>
@@ -1725,9 +1723,11 @@ export default function KarigarManagement() {
                           step="0.01"
                           min="0"
                           max="100"
+                          inputMode="decimal"
+                          onKeyDown={handleDecimalKeyDown}
                           name="standard_wastage_percent"
                           value={formData.standard_wastage_percent}
-                          onChange={handleInputChange}
+                          onChange={(e) => setFormData({ ...formData, standard_wastage_percent: sanitizeDecimal(e.target.value) })}
                           className={`w-full pl-3 pr-8 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white no-spinners ${formErrors.standard_wastage_percent ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
                             }`}
                         />
@@ -1751,9 +1751,11 @@ export default function KarigarManagement() {
                           type="number"
                           step="1"
                           min="0"
+                          inputMode="decimal"
+                          onKeyDown={handleDecimalKeyDown}
                           name="making_charge_per_gram"
                           value={formData.making_charge_per_gram}
-                          onChange={handleInputChange}
+                          onChange={(e) => setFormData({ ...formData, making_charge_per_gram: sanitizeDecimal(e.target.value) })}
                           className={`w-full pl-7 pr-8 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white no-spinners ${formErrors.making_charge_per_gram ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
                             }`}
                         />
@@ -1776,9 +1778,11 @@ export default function KarigarManagement() {
                           type="number"
                           step="0.001"
                           min="0"
+                          inputMode="decimal"
+                          onKeyDown={handleDecimalKeyDown}
                           name="current_gold_balance_grams"
                           value={formData.current_gold_balance_grams}
-                          onChange={handleInputChange}
+                          onChange={(e) => setFormData({ ...formData, current_gold_balance_grams: sanitizeDecimal(e.target.value) })}
                           placeholder="0.000"
                           className={`w-full pl-3 pr-16 py-2 bg-stone-50 border rounded-xl text-xs font-mono font-bold text-stone-900 focus:outline-none focus:bg-white no-spinners ${formErrors.current_gold_balance_grams ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
                             }`}

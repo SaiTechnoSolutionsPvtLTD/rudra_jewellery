@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams, Navigate } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/AuthContext';
 import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
 
 export const resolveItemImage = (item) => {
@@ -31,6 +32,10 @@ const SAMPLE_IMAGES = [
 ];
 
 export default function NewWorkOrder({ initialMode }) {
+  const { isKarigar } = useAuth();
+  if (isKarigar) {
+    return <Navigate to="/job-order/in-progress" replace />;
+  }
   const toastCtx = useToast();
   const rawShowToast = toastCtx?.showToast || ((msg) => console.log(msg));
   const toast = {
@@ -151,6 +156,19 @@ export default function NewWorkOrder({ initialMode }) {
 
   // Document preview lightbox state
   const [previewDoc, setPreviewDoc] = useState(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && previewDoc) {
+        setPreviewDoc(null);
+      }
+    };
+    if (previewDoc) {
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [previewDoc]);
+
   const handleOpenDocument = (doc) => {
     if (!doc) return;
     setPreviewDoc(doc);
@@ -971,13 +989,24 @@ export default function NewWorkOrder({ initialMode }) {
             </div>
 
             <div className="flex items-center gap-3">
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search order #, artisan, design..."
-                className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg outline-hidden focus:border-[#9e1b27] w-64"
-              />
+              <div className="relative w-64">
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search order #, artisan, design..."
+                  className="w-full pl-3 pr-8 py-1.5 text-xs border border-gray-200 rounded-lg outline-hidden focus:border-[#9e1b27]"
+                />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600 cursor-pointer"
+                  >
+                    <i className="fa-solid fa-xmark"></i>
+                  </button>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={() => setViewMode('create')}
@@ -3052,7 +3081,10 @@ export default function NewWorkOrder({ initialMode }) {
                 </a>
                 <button
                   type="button"
-                  onClick={() => setPreviewDoc(null)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPreviewDoc(null);
+                  }}
                   className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-stone-200 transition-colors cursor-pointer"
                 >
                   <i className="fa-solid fa-xmark text-base"></i>

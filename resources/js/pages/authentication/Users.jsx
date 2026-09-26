@@ -27,7 +27,8 @@ export default function Users() {
     name: '',
     email: '',
     mobile_number: '',
-    role: 'Sales Manager',
+    role: 'Staff',
+    status: 'active',
     password: '',
     confirm_password: ''
   });
@@ -50,10 +51,10 @@ export default function Users() {
       if (Array.isArray(res.data) && res.data.length > 0) {
         setRolesList(res.data.map(r => r.display_name));
       } else {
-        setRolesList(['Super Administrator', 'Sales Manager', 'Inventory Head', 'Master Karigar']);
+        setRolesList(['Super Admin', 'Admin', 'Manager', 'Staff', 'Karigar']);
       }
     } catch (err) {
-      setRolesList(['Super Administrator', 'Sales Manager', 'Inventory Head', 'Master Karigar']);
+      setRolesList(['Super Admin', 'Admin', 'Manager', 'Staff', 'Karigar']);
     }
   };
 
@@ -68,7 +69,8 @@ export default function Users() {
       name: '',
       email: '',
       mobile_number: '',
-      role: rolesList[0] || 'Sales Manager',
+      role: rolesList[0] || 'Staff',
+      status: 'active',
       password: '',
       confirm_password: ''
     });
@@ -81,7 +83,8 @@ export default function Users() {
       name: user.name || '',
       email: user.email || '',
       mobile_number: user.mobile_number || '',
-      role: user.role || 'Sales Manager',
+      role: user.role || 'Staff',
+      status: user.status || 'active',
       password: '',
       confirm_password: ''
     });
@@ -311,9 +314,15 @@ export default function Users() {
                         </span>
                       </td>
                       <td className="px-6 py-4 text-center">
-                        <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-600 text-xs font-semibold px-2.5 py-1 rounded-full">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Active
-                        </span>
+                        {(!user.status || String(user.status).toLowerCase() === 'active') ? (
+                          <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-600 text-xs font-semibold px-2.5 py-1 rounded-full border border-emerald-100">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Active
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 bg-red-50 text-red-600 text-xs font-semibold px-2.5 py-1 rounded-full border border-red-100">
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span> Inactive
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-center">
                         <div className="flex items-center justify-center gap-3 text-gray-400">
@@ -422,22 +431,40 @@ export default function Users() {
                 />
               </div>
 
-              {/* Role */}
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1.5">
-                  Assigned Role
-                </label>
-                <select
-                  name="role"
-                  value={formData.role}
-                  onChange={handleChange}
-                  required
-                  className="w-full px-4 py-2.5 bg-white border border-gray-900 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
-                >
-                  {rolesList.map(role => (
-                    <option key={role} value={role}>{role}</option>
-                  ))}
-                </select>
+              {/* Role & Status */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                    Assigned Role
+                  </label>
+                  <select
+                    name="role"
+                    value={formData.role}
+                    onChange={handleChange}
+                    required
+                    className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
+                  >
+                    {rolesList.map(role => (
+                      <option key={role} value={role}>{role}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                    Account Status
+                  </label>
+                  <select
+                    name="status"
+                    value={formData.status}
+                    onChange={handleChange}
+                    required
+                    className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </div>
               </div>
 
               {/* Password & Confirm Password */}

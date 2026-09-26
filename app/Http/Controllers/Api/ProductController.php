@@ -18,12 +18,14 @@ class ProductController extends Controller
             if (Schema::hasTable('products')) {
                 $query = Product::with(['category', 'subcategory']);
 
-                // Filter to inventory-added products only
-                $query->where(function ($q) {
-                    $q->where('attributes->source', 'inventory')
-                      ->orWhereNotNull('attributes->gross_wt')
-                      ->orWhereNotNull('attributes->is_inventory');
-                });
+                // Optionally filter by source if explicitly requested
+                if ($request->has('inventory_only') && $request->inventory_only === 'true') {
+                    $query->where(function ($q) {
+                        $q->where('attributes->source', 'inventory')
+                          ->orWhereNotNull('attributes->gross_wt')
+                          ->orWhereNotNull('attributes->is_inventory');
+                    });
+                }
 
                 if ($request->has('category_id') && !empty($request->category_id)) {
                     $query->where('category_id', $request->category_id);

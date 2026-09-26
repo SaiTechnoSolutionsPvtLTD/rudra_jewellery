@@ -102,6 +102,11 @@ export default function RemovePage() {
       if (c.can_be_restored !== isYes) return false;
     }
 
+    if (removeDateFilter && c.remove_date_formatted) {
+      const selectedD = new Date(removeDateFilter).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+      if (c.remove_date_formatted !== selectedD) return false;
+    }
+
     return true;
   });
 
@@ -230,7 +235,9 @@ export default function RemovePage() {
               <div className="w-8 h-8 rounded-lg bg-red-50 text-[#cf3b3b] flex items-center justify-center text-sm">
                 <i className="fa-regular fa-trash-can"></i>
               </div>
-              <span className="text-xs font-medium text-gray-500">This Month Removed</span>
+              <span className="text-xs font-medium text-gray-500">
+                {stats.periodLabel ? `${stats.periodLabel} Removed` : 'This Month Removed'}
+              </span>
             </div>
             {loading && !data.stats ? (
               <div className="h-8 w-14 bg-stone-200 animate-pulse rounded my-1"></div>
@@ -290,8 +297,17 @@ export default function RemovePage() {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Search client name, email, mobile..."
-            className="w-full pl-9 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl text-xs font-medium text-gray-700 placeholder-gray-400 focus:outline-none focus:border-[#a91d22] shadow-2xs"
+            className="w-full pl-9 pr-8 py-2.5 bg-white border border-gray-200 rounded-xl text-xs font-medium text-gray-700 placeholder-gray-400 focus:outline-none focus:border-[#a91d22] shadow-2xs"
           />
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() => setSearchTerm('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600 cursor-pointer"
+            >
+              <i className="fa-solid fa-xmark"></i>
+            </button>
+          )}
         </div>
 
         {/* Remove Date Filter */}

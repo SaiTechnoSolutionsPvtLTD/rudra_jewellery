@@ -3,6 +3,7 @@ import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import ConfirmModal from '../../components/ConfirmModal';
 import Pagination from '../../components/Pagination';
+import { handleIntegerKeyDown, sanitizeInteger } from '../../utils/numberInputUtils';
 
 export default function GoldTypes() {
   const { showToast } = useToast();
@@ -302,9 +303,12 @@ export default function GoldTypes() {
                 </label>
                 <input
                   type="number"
+                  inputMode="numeric"
+                  min="1"
                   placeholder="e.g. 1, 2, 3"
                   value={formData.sort_order}
-                  onChange={(e) => setFormData({ ...formData, sort_order: e.target.value })}
+                  onKeyDown={handleIntegerKeyDown}
+                  onChange={(e) => setFormData({ ...formData, sort_order: sanitizeInteger(e.target.value) })}
                   className="w-full px-3.5 h-[40px] bg-gray-50 border border-gray-300 rounded-lg text-xs text-gray-800 focus:outline-none focus:border-[#b01622] focus:bg-white"
                 />
               </div>

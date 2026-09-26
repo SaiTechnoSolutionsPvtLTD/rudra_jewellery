@@ -5,6 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import { compressImageFile } from '../../utils/imageCompressor';
 import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
 import { STAMP_OPTIONS, STONE_SIZE_OPTIONS, STONE_COLOR_OPTIONS } from '../../constants/productOptions';
+import { handleIntegerKeyDown, handleDecimalKeyDown, sanitizeInteger, sanitizeDecimal } from '../../utils/numberInputUtils';
 
 export default function InventoryEditProduct() {
   const { id } = useParams();
@@ -711,8 +712,11 @@ export default function InventoryEditProduct() {
                   <input
                     type="number"
                     step="0.001"
+                    min="0"
+                    inputMode="decimal"
+                    onKeyDown={handleDecimalKeyDown}
                     value={newVariant.net_wt}
-                    onChange={(e) => setNewVariant({ ...newVariant, net_wt: e.target.value })}
+                    onChange={(e) => setNewVariant({ ...newVariant, net_wt: sanitizeDecimal(e.target.value) })}
                     placeholder={formData.net_wt || "0.000"}
                     className="w-full px-2.5 py-1.5 h-[34px] text-xs border border-stone-300 rounded-lg focus:border-[#b01622] font-mono"
                   />
@@ -724,8 +728,10 @@ export default function InventoryEditProduct() {
                   <input
                     type="number"
                     min="1"
+                    inputMode="numeric"
+                    onKeyDown={handleIntegerKeyDown}
                     value={newVariant.stock_qty}
-                    onChange={(e) => setNewVariant({ ...newVariant, stock_qty: e.target.value })}
+                    onChange={(e) => setNewVariant({ ...newVariant, stock_qty: sanitizeInteger(e.target.value) })}
                     placeholder="1"
                     className="w-full px-2.5 py-1.5 h-[34px] text-xs border border-stone-300 rounded-lg focus:border-[#b01622] font-mono"
                   />
@@ -736,8 +742,12 @@ export default function InventoryEditProduct() {
                   </label>
                   <input
                     type="number"
+                    min="0"
+                    step="0.01"
+                    inputMode="decimal"
+                    onKeyDown={handleDecimalKeyDown}
                     value={newVariant.price}
-                    onChange={(e) => setNewVariant({ ...newVariant, price: e.target.value })}
+                    onChange={(e) => setNewVariant({ ...newVariant, price: sanitizeDecimal(e.target.value) })}
                     placeholder="0"
                     className="w-full px-2.5 py-1.5 h-[34px] text-xs border border-stone-300 rounded-lg focus:border-[#b01622] font-mono text-emerald-700"
                   />

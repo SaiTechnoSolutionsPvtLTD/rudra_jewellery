@@ -129,7 +129,6 @@ export default function Step4Download() {
         <div>
           <h1 className="text-xl font-bold text-gray-900 tracking-tight flex items-center gap-2">
             <span>Selected Designs &amp; Share Catalog</span>
-            <span className="bg-emerald-100 text-emerald-800 text-xs px-2.5 py-0.5 rounded-full font-bold">Auto-Reflected from Inventory</span>
           </h1>
           <p className="text-xs text-gray-400 mt-1">{selectedCount} Designs selected for digital catalog export &amp; sharing</p>
         </div>

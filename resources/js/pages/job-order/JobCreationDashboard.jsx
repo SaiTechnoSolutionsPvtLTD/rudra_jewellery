@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, Navigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 
@@ -19,8 +20,13 @@ export const resolveItemImage = (item) => {
 };
 
 export default function JobCreationDashboard() {
+  const { isKarigar } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
+
+  if (isKarigar) {
+    return <Navigate to="/job-order/in-progress" replace />;
+  }
 
   // Active navigation tab
   const [activeTab, setActiveTab] = useState('wip');

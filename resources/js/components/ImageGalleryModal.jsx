@@ -31,9 +31,15 @@ export default function ImageGalleryModal({ isOpen, onClose, images = [], title 
   const currentImage = images[currentIndex];
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+    <div
+      className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200 cursor-pointer"
+      onClick={onClose}
+    >
       {/* Top Bar */}
-      <div className="absolute top-4 left-4 right-4 flex items-center justify-between text-white z-20">
+      <div
+        className="absolute top-4 left-4 right-4 flex items-center justify-between text-white z-20 cursor-default"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div>
           <h3 className="font-bold text-lg tracking-wide">{title || 'Design Preview'}</h3>
           {details.design_no && (
@@ -45,8 +51,12 @@ export default function ImageGalleryModal({ isOpen, onClose, images = [], title 
           )}
         </div>
         <button
-          onClick={onClose}
-          className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/25 text-white flex items-center justify-center transition-colors text-lg"
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+          className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/25 text-white flex items-center justify-center transition-colors text-lg cursor-pointer"
           title="Close (Esc)"
         >
           <i className="fa-solid fa-xmark"></i>
@@ -54,11 +64,18 @@ export default function ImageGalleryModal({ isOpen, onClose, images = [], title 
       </div>
 
       {/* Main Image Container */}
-      <div className="relative max-w-4xl max-h-[75vh] w-full h-full flex items-center justify-center">
+      <div
+        className="relative max-w-4xl max-h-[75vh] w-full h-full flex items-center justify-center cursor-default"
+        onClick={(e) => e.stopPropagation()}
+      >
         {images.length > 1 && (
           <button
-            onClick={handlePrev}
-            className="absolute left-2 sm:-left-12 z-20 w-11 h-11 rounded-full bg-black/50 hover:bg-black/80 text-white border border-white/20 flex items-center justify-center transition-all"
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handlePrev();
+            }}
+            className="absolute left-2 sm:-left-12 z-20 w-11 h-11 rounded-full bg-black/50 hover:bg-black/80 text-white border border-white/20 flex items-center justify-center transition-all cursor-pointer"
             title="Previous (Left Arrow)"
           >
             <i className="fa-solid fa-chevron-left text-lg"></i>
@@ -73,8 +90,12 @@ export default function ImageGalleryModal({ isOpen, onClose, images = [], title 
 
         {images.length > 1 && (
           <button
-            onClick={handleNext}
-            className="absolute right-2 sm:-right-12 z-20 w-11 h-11 rounded-full bg-black/50 hover:bg-black/80 text-white border border-white/20 flex items-center justify-center transition-all"
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleNext();
+            }}
+            className="absolute right-2 sm:-right-12 z-20 w-11 h-11 rounded-full bg-black/50 hover:bg-black/80 text-white border border-white/20 flex items-center justify-center transition-all cursor-pointer"
             title="Next (Right Arrow)"
           >
             <i className="fa-solid fa-chevron-right text-lg"></i>
@@ -83,7 +104,10 @@ export default function ImageGalleryModal({ isOpen, onClose, images = [], title 
       </div>
 
       {/* Bottom Thumbnail Bar & Counter */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 z-20">
+      <div
+        className="absolute bottom-4 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 z-20 cursor-default"
+        onClick={(e) => e.stopPropagation()}
+      >
         {images.length > 1 && (
           <>
             <div className="flex items-center gap-2 max-w-md overflow-x-auto py-1 px-2 bg-black/60 backdrop-blur-sm rounded-full border border-white/10">

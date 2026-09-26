@@ -1295,7 +1295,10 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
       </section>
       {/* 6. Professional A4 Tax Report & Remittance Statement Print Sheet Modal */}
       {showPrintModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs z-[99] flex items-center justify-center p-2 sm:p-4 overflow-y-auto font-['Inter',-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif]">
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-xs z-[99] flex items-center justify-center p-2 sm:p-4 overflow-y-auto font-['Inter',-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif] cursor-pointer"
+          onClick={() => setShowPrintModal(false)}
+        >
           <style>{`
             @media print {
               .no-print, .print\\:hidden {
@@ -1338,7 +1341,10 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
               }
             }
           `}</style>
-          <div className="bg-white rounded-2xl max-w-4xl w-full p-4 sm:p-6 shadow-2xl border border-stone-200 space-y-4 max-h-[94vh] flex flex-col">
+          <div
+            className="bg-white rounded-2xl max-w-4xl w-full p-4 sm:p-6 shadow-2xl border border-stone-200 space-y-4 max-h-[94vh] flex flex-col cursor-default"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Modal Control Action Bar */}
             <div className="flex items-center justify-between border-b border-stone-100 pb-3 shrink-0 print:hidden">
               <div className="flex items-center gap-2.5">
@@ -1364,7 +1370,10 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowPrintModal(false)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowPrintModal(false);
+                  }}
                   className="text-stone-400 hover:text-stone-700 text-lg cursor-pointer p-1"
                 >
                   <i className="fa-solid fa-xmark"></i>
@@ -1878,8 +1887,14 @@ function ProfitManagementReport({ sales, filters, setFilters, reload, companyInf
 
       {/* Print Sheet Modal */}
       {showPrintModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs z-[99] flex items-center justify-center p-2 sm:p-4 overflow-y-auto font-['Inter',-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif]">
-          <div className="bg-white rounded-2xl max-w-4xl w-full p-4 sm:p-6 shadow-2xl border border-stone-200 space-y-4 max-h-[94vh] flex flex-col">
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-xs z-[99] flex items-center justify-center p-2 sm:p-4 overflow-y-auto font-['Inter',-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif] cursor-pointer"
+          onClick={() => setShowPrintModal(false)}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-4xl w-full p-4 sm:p-6 shadow-2xl border border-stone-200 space-y-4 max-h-[94vh] flex flex-col cursor-default"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between border-b border-stone-100 pb-3 shrink-0 print:hidden">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-red-50 text-[#b01622] flex items-center justify-center font-bold text-base">
@@ -1900,7 +1915,10 @@ function ProfitManagementReport({ sales, filters, setFilters, reload, companyInf
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowPrintModal(false)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowPrintModal(false);
+                  }}
                   className="text-stone-400 hover:text-stone-700 text-lg cursor-pointer p-1"
                 >
                   <i className="fa-solid fa-xmark"></i>
@@ -2445,8 +2463,14 @@ function ProfitPerMetalReport({ data, filters, setFilters, reload, companyInfo }
 
       {/* Printable Sheet Modal */}
       {showPrintModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs z-[99] flex items-center justify-center p-2 sm:p-4 overflow-y-auto font-['Inter',-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif]">
-          <div className="bg-white rounded-2xl max-w-4xl w-full p-4 sm:p-6 shadow-2xl border border-stone-200 space-y-4 max-h-[94vh] flex flex-col">
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-xs z-[99] flex items-center justify-center p-2 sm:p-4 overflow-y-auto font-['Inter',-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif] cursor-pointer"
+          onClick={() => setShowPrintModal(false)}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-4xl w-full p-4 sm:p-6 shadow-2xl border border-stone-200 space-y-4 max-h-[94vh] flex flex-col cursor-default"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between border-b border-stone-100 pb-3 shrink-0 print:hidden">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-red-50 text-[#b01622] flex items-center justify-center font-bold text-base">
@@ -2467,7 +2491,10 @@ function ProfitPerMetalReport({ data, filters, setFilters, reload, companyInfo }
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowPrintModal(false)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowPrintModal(false);
+                  }}
                   className="text-stone-400 hover:text-stone-700 text-lg cursor-pointer p-1"
                 >
                   <i className="fa-solid fa-xmark"></i>
@@ -3548,8 +3575,14 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
 
                   {/* Master Diamond Popup Modal matching Image 2 */}
                   {showDiamondDropdown && (
-                    <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-6 overflow-y-auto font-sans">
-                      <div className="bg-white rounded-2xl max-w-6xl w-full p-5 shadow-2xl border border-stone-200 space-y-4 animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] flex flex-col">
+                    <div
+                      className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-6 overflow-y-auto font-sans cursor-pointer"
+                      onClick={() => setShowDiamondDropdown(false)}
+                    >
+                      <div
+                        className="bg-white rounded-2xl max-w-6xl w-full p-5 shadow-2xl border border-stone-200 space-y-4 animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] flex flex-col cursor-default"
+                        onClick={(e) => e.stopPropagation()}
+                      >
 
                         {/* Modal Top Control Bar */}
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-stone-100 shrink-0">
@@ -3595,7 +3628,10 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                             </button>
                             <button
                               type="button"
-                              onClick={() => setShowDiamondDropdown(false)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setShowDiamondDropdown(false);
+                              }}
                               className="text-stone-400 hover:text-stone-700 text-lg cursor-pointer p-1"
                             >
                               <i className="fa-solid fa-xmark"></i>

@@ -4,24 +4,28 @@ import { useNavigate } from 'react-router-dom';
 export default function BenchMetalModal({ isOpen, onClose, totalBenchMetal = 0, karigarsList = [], liveJobs = [] }) {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
+  const [activeMaterialTab, setActiveMaterialTab] = useState('all'); // 'all', 'gold', 'silver', 'diamond'
 
   if (!isOpen) return null;
 
   // Aggregate metal on bench per Karigar
   const karigarDataMap = {};
 
-  // First populate from karigarsList if available
+  // First populate from karigarsList
   karigarsList.forEach((k) => {
     karigarDataMap[k.id] = {
       id: k.id,
       name: k.name,
       karigar_code: k.karigar_code || `KAR-${k.id}`,
-      specialization: k.specialization || 'Goldsmith',
+      specialization: k.specialization || '-',
       phone: k.primary_phone || k.phone || '',
-      base_balance: Number(k.current_gold_balance_grams || 0),
-      allotted: 0,
-      completed: 0,
-      pending: 0,
+      base_gold_balance: Number(k.current_gold_balance_grams || 0),
+      gold_pending: 0,
+      silver_pending: 0,
+      diamond_pending: 0,
+      gold_allotted: 0,
+      silver_allotted: 0,
+      diamond_allotted: 0,
       active_jobs_count: 0,
     };
   });
@@ -30,7 +34,7 @@ export default function BenchMetalModal({ isOpen, onClose, totalBenchMetal = 0, 
   liveJobs.forEach((job) => {
     const kId = job.karigar_id || job.artisan_id;
     const kName = job.karigar_name || job.artisan_name || 'Unassigned';
-    
+
     if (!kId) return;
 
     if (!karigarDataMap[kId]) {
@@ -38,12 +42,15 @@ export default function BenchMetalModal({ isOpen, onClose, totalBenchMetal = 0, 
         id: kId,
         name: kName,
         karigar_code: `KAR-${kId}`,
-        specialization: 'Goldsmith',
+        specialization: job.specialization || '-',
         phone: '',
-        base_balance: 0,
-        allotted: 0,
-        completed: 0,
-        pending: 0,
+        base_gold_balance: 0,
+        gold_pending: 0,
+        silver_pending: 0,
+        diamond_pending: 0,
+        gold_allotted: 0,
+        silver_allotted: 0,
+        diamond_allotted: 0,
         active_jobs_count: 0,
       };
     }
@@ -52,23 +59,47 @@ export default function BenchMetalModal({ isOpen, onClose, totalBenchMetal = 0, 
     const itemCompleted = Number(job.completed_weight || 0);
     const itemPending = Number(job.pending_weight || Math.max(0, itemAllotted - itemCompleted));
 
-    karigarDataMap[kId].allotted += itemAllotted;
-    karigarDataMap[kId].completed += itemCompleted;
-    karigarDataMap[kId].pending += itemPending;
+    const mat = (job.material || job.material_type || '').toLowerCase();
+
+    if (mat.includes('silver')) {
+      karigarDataMap[kId].silver_allotted += itemAllotted;
+      karigarDataMap[kId].silver_pending += itemPending;
+    } else if (mat.includes('diamond')) {
+      karigarDataMap[kId].diamond_allotted += itemAllotted;
+      karigarDataMap[kId].diamond_pending += itemPending;
+    } else {
+      // Default to Gold
+      karigarDataMap[kId].gold_allotted += itemAllotted;
+      karigarDataMap[kId].gold_pending += itemPending;
+    }
+
     karigarDataMap[kId].active_jobs_count += 1;
   });
 
   const karigarsArray = Object.values(karigarDataMap).map((k) => {
-    // Total metal on bench for artisan = base balance or active pending
-    const netBenchGold = k.pending > 0 ? k.pending : k.base_balance;
+    const netGold = k.gold_pending > 0 ? k.gold_pending : k.base_gold_balance;
+    const netSilver = k.silver_pending;
+    const netDiamond = k.diamond_pending;
     return {
       ...k,
-      netBenchGold,
+      netGold,
+      netSilver,
+      netDiamond,
+      totalBenchGramEquiv: netGold + netSilver,
     };
   });
 
+  // Calculate totals across all Karigars
+  const sumGoldBench = karigarsArray.reduce((acc, k) => acc + k.netGold, 0) || totalBenchMetal;
+  const sumSilverBench = karigarsArray.reduce((acc, k) => acc + k.netSilver, 0);
+  const sumDiamondBench = karigarsArray.reduce((acc, k) => acc + k.netDiamond, 0);
+
   // Filter karigars
   const filteredKarigars = karigarsArray.filter((k) => {
+    if (activeMaterialTab === 'gold' && k.netGold <= 0) return false;
+    if (activeMaterialTab === 'silver' && k.netSilver <= 0) return false;
+    if (activeMaterialTab === 'diamond' && k.netDiamond <= 0) return false;
+
     if (!searchTerm.trim()) return true;
     const q = searchTerm.toLowerCase();
     return (
@@ -78,12 +109,10 @@ export default function BenchMetalModal({ isOpen, onClose, totalBenchMetal = 0, 
     );
   });
 
-  const sumBenchGold = karigarsArray.reduce((acc, k) => acc + k.netBenchGold, 0) || totalBenchMetal;
-
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-150">
-      <div className="bg-white rounded-2xl shadow-2xl border border-stone-200 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden my-auto">
-        
+      <div className="bg-white rounded-2xl shadow-2xl border border-stone-200 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden my-auto font-['Inter',sans-serif]">
+
         {/* Header */}
         <div className="px-6 py-4 border-b border-stone-100 flex items-center justify-between bg-amber-50/40">
           <div className="flex items-center gap-3">
@@ -92,12 +121,12 @@ export default function BenchMetalModal({ isOpen, onClose, totalBenchMetal = 0, 
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-gray-900 leading-tight">Metal On Bench Details</h2>
+                <h2 className="text-base font-bold text-gray-900 leading-tight">All Materials On Bench Details</h2>
                 <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md border border-amber-300/60">
-                  Pure 24K / 22K Balance
+                  Gold, Silver & Diamond Balances
                 </span>
               </div>
-              <p className="text-xs text-stone-500 mt-0.5">Raw bullion and active work-in-progress held at artisan workshop benches</p>
+              <p className="text-xs text-stone-500 mt-0.5">Comprehensive real-time tracking of all metals and gemstones held on artisan benches</p>
             </div>
           </div>
           <button
@@ -109,37 +138,117 @@ export default function BenchMetalModal({ isOpen, onClose, totalBenchMetal = 0, 
           </button>
         </div>
 
-        {/* Top Big Stat Card */}
-        <div className="p-5 border-b border-stone-100 bg-gradient-to-r from-amber-500/10 via-yellow-500/5 to-stone-50">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-amber-200 shadow-2xs">
-            <div>
-              <div className="text-[11px] font-bold text-amber-800 uppercase tracking-wider">Total Metal Currently On Bench</div>
-              <div className="text-3xl font-black text-stone-900 font-mono tracking-tight mt-1 flex items-baseline gap-1.5">
-                <span>{sumBenchGold.toFixed(3)}</span>
-                <span className="text-sm font-sans font-bold text-amber-700">grams</span>
+        {/* Top 3 Material Breakdown Metric Cards */}
+        <div className="p-5 border-b border-stone-100 bg-gradient-to-r from-amber-50/60 via-stone-50 to-blue-50/40">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+            {/* Gold Bench */}
+            <div className="bg-white p-4 rounded-xl border border-amber-200/90 shadow-2xs flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                  Gold On Bench
+                </span>
+                <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100">
+                  24K / 22K
+                </span>
               </div>
-              <p className="text-[11px] text-amber-800/90 font-medium mt-1">
-                Pure 24K / 22K balance across all active artisan workshops
-              </p>
+              <div className="text-2xl font-black text-stone-900 font-mono tracking-tight mt-2 flex items-baseline gap-1">
+                <span>{sumGoldBench.toFixed(3)}</span>
+                <span className="text-xs font-sans font-bold text-amber-700">grams</span>
+              </div>
+              <p className="text-[10.5px] text-stone-500 font-medium mt-1">Active gold held by artisans</p>
             </div>
 
-            <div className="bg-amber-50/80 p-3 rounded-lg border border-amber-200 text-xs text-amber-900 space-y-1">
-              <div className="flex items-center gap-2 font-semibold">
-                <i className="fa-solid fa-circle-info text-amber-700"></i>
-                <span>Auto-Inventory Reduction Rules:</span>
+            {/* Silver Bench */}
+            <div className="bg-white p-4 rounded-xl border border-stone-200 shadow-2xs flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-stone-600 uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-stone-400"></span>
+                  Silver On Bench
+                </span>
+                <span className="text-[10px] font-bold text-stone-600 bg-stone-100 px-1.5 py-0.5 rounded border border-stone-200">
+                  Silver 925
+                </span>
               </div>
-              <p className="text-[11px] text-amber-800 leading-relaxed">
-                When a product is completed and delivered, the material amount automatically reduces from the artisan bench balance.
-              </p>
+              <div className="text-2xl font-black text-stone-900 font-mono tracking-tight mt-2 flex items-baseline gap-1">
+                <span>{sumSilverBench.toFixed(3)}</span>
+                <span className="text-xs font-sans font-bold text-stone-500">grams</span>
+              </div>
+              <p className="text-[10.5px] text-stone-500 font-medium mt-1">Active silver bullion on bench</p>
+            </div>
+
+            {/* Diamond Bench */}
+            <div className="bg-white p-4 rounded-xl border border-blue-200/90 shadow-2xs flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-blue-700 uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                  Diamond Embellishments
+                </span>
+                <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
+                  Carats
+                </span>
+              </div>
+              <div className="text-2xl font-black text-stone-900 font-mono tracking-tight mt-2 flex items-baseline gap-1">
+                <span>{sumDiamondBench.toFixed(3)}</span>
+                <span className="text-xs font-sans font-bold text-blue-600">ct</span>
+              </div>
+              <p className="text-[10.5px] text-stone-500 font-medium mt-1">Active stones issued to bench</p>
             </div>
           </div>
         </div>
 
-        {/* Search Bar */}
-        <div className="px-6 py-3 border-b border-stone-100 flex items-center justify-between gap-3 bg-stone-50/30">
-          <div className="text-xs font-bold text-stone-700">
-            Artisan Workshop Breakdown ({filteredKarigars.length} Artisans)
+        {/* Filter and Search Bar */}
+        <div className="px-6 py-3 border-b border-stone-100 flex flex-col sm:flex-row items-center justify-between gap-3 bg-stone-50/30">
+          <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto">
+            <button
+              type="button"
+              onClick={() => setActiveMaterialTab('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                activeMaterialTab === 'all'
+                  ? 'bg-stone-900 text-white'
+                  : 'bg-white border border-stone-200 text-stone-600 hover:bg-stone-100'
+              }`}
+            >
+              All Artisans ({karigarsArray.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveMaterialTab('gold')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 ${
+                activeMaterialTab === 'gold'
+                  ? 'bg-amber-600 text-white'
+                  : 'bg-white border border-amber-200 text-amber-800 hover:bg-amber-50'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+              Gold Bench
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveMaterialTab('silver')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 ${
+                activeMaterialTab === 'silver'
+                  ? 'bg-stone-600 text-white'
+                  : 'bg-white border border-stone-200 text-stone-700 hover:bg-stone-100'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-stone-400"></span>
+              Silver Bench
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveMaterialTab('diamond')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 ${
+                activeMaterialTab === 'diamond'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white border border-blue-200 text-blue-700 hover:bg-blue-50'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+              Diamonds
+            </button>
           </div>
+
           <div className="relative w-full sm:w-64">
             <i className="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-xs text-stone-400"></i>
             <input
@@ -147,8 +256,17 @@ export default function BenchMetalModal({ isOpen, onClose, totalBenchMetal = 0, 
               placeholder="Search artisan or code..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 bg-white border border-stone-200 rounded-lg text-xs focus:outline-none focus:border-amber-600"
+              className="w-full pl-8 pr-8 py-1.5 bg-white border border-stone-200 rounded-lg text-xs focus:outline-none focus:border-amber-600"
             />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 text-xs"
+              >
+                <i className="fa-solid fa-circle-xmark"></i>
+              </button>
+            )}
           </div>
         </div>
 
@@ -159,11 +277,11 @@ export default function BenchMetalModal({ isOpen, onClose, totalBenchMetal = 0, 
               <tr className="bg-stone-100/70 text-[11px] font-bold uppercase tracking-wider text-stone-500 border-b border-stone-200">
                 <th className="py-3 px-4">Artisan Code</th>
                 <th className="py-3 px-4">Artisan Name</th>
-                <th className="py-3 px-4">Craft Specialization</th>
+                <th className="py-3 px-4">Specialization</th>
                 <th className="py-3 px-4 text-center">Active Jobs</th>
-                <th className="py-3 px-4 text-right">Allotted Gold</th>
-                <th className="py-3 px-4 text-right">Returned / Completed</th>
-                <th className="py-3 px-4 text-right">Net Metal on Bench</th>
+                <th className="py-3 px-4 text-right">Gold Bench</th>
+                <th className="py-3 px-4 text-right">Silver Bench</th>
+                <th className="py-3 px-4 text-right">Diamond Bench</th>
                 <th className="py-3 px-4 text-center">Action</th>
               </tr>
             </thead>
@@ -199,14 +317,14 @@ export default function BenchMetalModal({ isOpen, onClose, totalBenchMetal = 0, 
                         {k.active_jobs_count} Jobs
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-right font-mono font-bold text-stone-900 whitespace-nowrap">
-                      {k.allotted.toFixed(3)}g
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono font-semibold text-emerald-700 whitespace-nowrap">
-                      {k.completed.toFixed(3)}g
-                    </td>
                     <td className="py-3 px-4 text-right font-mono font-black text-amber-800 text-sm whitespace-nowrap">
-                      {k.netBenchGold.toFixed(3)}g
+                      {k.netGold.toFixed(3)} <span className="text-[10px] text-amber-600 font-sans font-normal">g</span>
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono font-bold text-stone-700 whitespace-nowrap">
+                      {k.netSilver.toFixed(3)} <span className="text-[10px] text-stone-400 font-sans font-normal">g</span>
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono font-bold text-blue-700 whitespace-nowrap">
+                      {k.netDiamond.toFixed(3)} <span className="text-[10px] text-blue-500 font-sans font-normal">ct</span>
                     </td>
                     <td className="py-3 px-4 text-center whitespace-nowrap">
                       <button
@@ -228,9 +346,11 @@ export default function BenchMetalModal({ isOpen, onClose, totalBenchMetal = 0, 
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-stone-100 bg-stone-50/50 flex items-center justify-between">
-          <div className="text-xs text-stone-500 font-medium">
-            Total Metal On Bench: <strong className="text-amber-800 font-mono text-sm">{sumBenchGold.toFixed(3)}g</strong>
+        <div className="px-6 py-4 border-t border-stone-100 bg-stone-50/50 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="text-xs text-stone-500 font-medium flex items-center gap-4 flex-wrap">
+            <span>Gold Bench: <strong className="text-amber-800 font-mono text-xs">{sumGoldBench.toFixed(3)}g</strong></span>
+            <span>Silver Bench: <strong className="text-stone-800 font-mono text-xs">{sumSilverBench.toFixed(3)}g</strong></span>
+            <span>Diamonds: <strong className="text-blue-800 font-mono text-xs">{sumDiamondBench.toFixed(3)}ct</strong></span>
           </div>
           <div className="flex items-center gap-3">
             <button

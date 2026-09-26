@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import ConfirmModal from '../../components/ConfirmModal';
@@ -6,6 +7,7 @@ import Pagination from '../../components/Pagination';
 import FormBuilderModal from '../../components/FormBuilderModal';
 
 export default function Categories() {
+  const location = useLocation();
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -48,7 +50,11 @@ export default function Categories() {
 
   useEffect(() => {
     fetchCategories();
-  }, []);
+    const searchParams = new URLSearchParams(location.search);
+    if (location.state?.openCreate || searchParams.get('action') === 'create' || searchParams.get('create') === 'true') {
+      handleOpenCreateModal();
+    }
+  }, [location]);
 
   const handleOpenCreateModal = () => {
     setEditingId(null);
@@ -236,8 +242,20 @@ export default function Categories() {
                 setCurrentPage(1);
               }}
               placeholder="Search by code, name, or description..."
-              className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
+              className="w-full pl-9 pr-8 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
             />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  setCurrentPage(1);
+                }}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
+              >
+                <i className="fa-solid fa-circle-xmark"></i>
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-3 w-full sm:w-auto">

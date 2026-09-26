@@ -4,216 +4,127 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Models\Karigar;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\Cache;
 
 class UserController extends Controller
 {
-    private function getInitialUsers()
-    {
-        return [
-            [
-                'id' => 1,
-                'name' => 'Arvind',
-                'email' => 'admin@rudrajewellers.com',
-                'mobile_number' => '+91 98765 43210',
-                'role' => 'Super Administrator',
-            ],
-            [
-                'id' => 2,
-                'name' => 'Rajesh Varma',
-                'email' => 'rajesh.v@rudrajewellers.com',
-                'mobile_number' => '+91 98765 43211',
-                'role' => 'Master Karigar',
-            ],
-            [
-                'id' => 3,
-                'name' => 'Amin Khan',
-                'email' => 'amin.k@rudrajewellers.com',
-                'mobile_number' => '+91 98765 43212',
-                'role' => 'Sales Manager',
-            ],
-            [
-                'id' => 4,
-                'name' => 'Suresh Lal',
-                'email' => 'suresh.l@rudrajewellers.com',
-                'mobile_number' => '+91 98765 43213',
-                'role' => 'Inventory Head',
-            ]
-        ];
-    }
-
     public function index(Request $request)
     {
-        try {
-            if (Schema::hasTable('users')) {
-                $users = User::orderBy('id', 'desc')->get(['id', 'name', 'email', 'mobile_number', 'role', 'created_at']);
-                return response()->json($users);
-            }
-        } catch (\Exception $e) {
-            // Fallback
-        }
-
-        return response()->json([]);
+        $users = User::with('karigar')->orderBy('id', 'desc')->get();
+        return response()->json($users);
     }
 
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'name' => 'required|string',
-            'email' => 'required|email',
-            'mobile_number' => 'nullable|string',
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email',
+            'mobile_number' => 'nullable|string|max:20',
             'role' => 'required|string',
+            'status' => 'nullable|in:active,inactive',
             'password' => 'required|string|min:6',
+            'karigar_id' => 'nullable|integer',
         ]);
 
-        try {
-            if (Schema::hasTable('users')) {
-                $user = User::create([
-                    'name' => $validated['name'],
-                    'email' => $validated['email'],
-                    'mobile_number' => $validated['mobile_number'] ?? null,
-                    'role' => $validated['role'],
-                    'password' => Hash::make($validated['password']),
-                ]);
-
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'User created successfully',
-                    'user' => [
-                        'id' => $user->id,
-                        'name' => $user->name,
-                        'email' => $user->email,
-                        'mobile_number' => $user->mobile_number,
-                        'role' => $user->role,
-                    ]
-                ], 201);
-            }
-        } catch (\Exception $e) {
-            // Fallback
-        }
-
-        $users = Cache::get('mock_users', $this->getInitialUsers());
-        $newId = count($users) > 0 ? max(array_column($users, 'id')) + 1 : 1;
-        $newUser = [
-            'id' => $newId,
+        $user = User::create([
             'name' => $validated['name'],
             'email' => $validated['email'],
             'mobile_number' => $validated['mobile_number'] ?? null,
             'role' => $validated['role'],
-        ];
-        array_unshift($users, $newUser);
-        Cache::put('mock_users', $users, 86400);
+            'status' => $validated['status'] ?? 'active',
+            'password' => Hash::make($validated['password']),
+        ]);
+
+        if (!empty($validated['karigar_id'])) {
+            $karigar = Karigar::find($validated['karigar_id']);
+            if ($karigar) {
+                $karigar->user_id = $user->id;
+                $karigar->save();
+            }
+        }
 
         return response()->json([
             'status' => 'success',
             'message' => 'User created successfully',
-            'user' => $newUser
+            'user' => $user->load('karigar')
         ], 201);
     }
 
     public function show(Request $request, $id)
     {
-        try {
-            if (Schema::hasTable('users')) {
-                $user = User::find($id, ['id', 'name', 'email', 'mobile_number', 'role']);
-                if ($user) {
-                    return response()->json($user);
-                }
-            }
-        } catch (\Exception $e) {
-            // Fallback
+        $user = User::with('karigar')->find($id);
+        if (!$user) {
+            return response()->json(['message' => 'User not found'], 404);
         }
-
-        $users = Cache::get('mock_users', $this->getInitialUsers());
-        foreach ($users as $u) {
-            if ($u['id'] == $id) {
-                return response()->json($u);
-            }
-        }
-
-        return response()->json(['message' => 'User not found'], 404);
+        return response()->json($user);
     }
 
     public function update(Request $request, $id)
     {
+        $user = User::findOrFail($id);
+
         $validated = $request->validate([
-            'name' => 'required|string',
-            'email' => 'required|email',
-            'mobile_number' => 'nullable|string',
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email,' . $id,
+            'mobile_number' => 'nullable|string|max:20',
             'role' => 'required|string',
+            'status' => 'nullable|in:active,inactive',
             'password' => 'nullable|string|min:6',
+            'karigar_id' => 'nullable|integer',
         ]);
 
-        try {
-            if (Schema::hasTable('users')) {
-                $user = User::find($id);
-                if ($user) {
-                    $updateData = [
-                        'name' => $validated['name'],
-                        'email' => $validated['email'],
-                        'mobile_number' => $validated['mobile_number'] ?? null,
-                        'role' => $validated['role'],
-                    ];
-                    if (!empty($validated['password'])) {
-                        $updateData['password'] = Hash::make($validated['password']);
-                    }
-                    $user->update($updateData);
+        $updateData = [
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+            'mobile_number' => $validated['mobile_number'] ?? null,
+            'role' => $validated['role'],
+            'status' => $validated['status'] ?? $user->status ?? 'active',
+        ];
 
-                    return response()->json([
-                        'status' => 'success',
-                        'message' => 'User updated successfully',
-                        'user' => $user
-                    ]);
+        if (!empty($validated['password'])) {
+            $updateData['password'] = Hash::make($validated['password']);
+        }
+
+        $user->update($updateData);
+
+        if (isset($validated['karigar_id'])) {
+            if ($validated['karigar_id']) {
+                $karigar = Karigar::find($validated['karigar_id']);
+                if ($karigar) {
+                    $karigar->user_id = $user->id;
+                    $karigar->save();
                 }
-            }
-        } catch (\Exception $e) {
-            // Fallback
-        }
-
-        $users = Cache::get('mock_users', $this->getInitialUsers());
-        $updatedUser = null;
-        foreach ($users as &$u) {
-            if ($u['id'] == $id) {
-                $u['name'] = $validated['name'];
-                $u['email'] = $validated['email'];
-                $u['mobile_number'] = $validated['mobile_number'] ?? null;
-                $u['role'] = $validated['role'];
-                $updatedUser = $u;
-                break;
+            } else {
+                Karigar::where('user_id', $user->id)->update(['user_id' => null]);
             }
         }
-        Cache::put('mock_users', $users, 86400);
 
         return response()->json([
             'status' => 'success',
             'message' => 'User updated successfully',
-            'user' => $updatedUser
+            'user' => $user->load('karigar')
         ]);
     }
 
     public function destroy(Request $request, $id)
     {
-        try {
-            if (Schema::hasTable('users')) {
-                $user = User::find($id);
-                if ($user) {
-                    $user->delete();
-                    return response()->json([
-                        'status' => 'success',
-                        'message' => 'User deleted successfully'
-                    ]);
-                }
-            }
-        } catch (\Exception $e) {
-            // Fallback
+        $user = User::findOrFail($id);
+        
+        // Prevent deleting Super Admin User ID 1 (Arvind)
+        if ($user->id === 1 || $user->email === 'admin@rudrajewellers.com') {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Super Administrator account cannot be deleted.'
+            ], 422);
         }
 
-        $users = Cache::get('mock_users', $this->getInitialUsers());
-        $users = array_values(array_filter($users, fn($u) => $u['id'] != $id));
-        Cache::put('mock_users', $users, 86400);
+        // Unlink Karigar
+        Karigar::where('user_id', $user->id)->update(['user_id' => null]);
+        
+        $user->delete();
 
         return response()->json([
             'status' => 'success',

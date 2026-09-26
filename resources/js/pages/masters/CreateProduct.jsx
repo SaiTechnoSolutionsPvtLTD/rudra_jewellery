@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import { handleIntegerKeyDown, handleDecimalKeyDown, sanitizeInteger, sanitizeDecimal } from '../../utils/numberInputUtils';
 
 export default function CreateProduct() {
   const { id } = useParams();
@@ -629,8 +630,11 @@ export default function CreateProduct() {
                     <input
                       type="number"
                       step="any"
+                      min="0"
+                      inputMode="decimal"
+                      onKeyDown={handleDecimalKeyDown}
                       value={formData.attributes[field.key] || ''}
-                      onChange={(e) => handleAttributeChange(field.key, e.target.value)}
+                      onChange={(e) => handleAttributeChange(field.key, sanitizeDecimal(e.target.value))}
                       placeholder="0.00"
                       required={field.required}
                       className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
@@ -700,9 +704,11 @@ export default function CreateProduct() {
                     type="number"
                     min="0"
                     step="1"
+                    inputMode="numeric"
+                    onKeyDown={handleIntegerKeyDown}
                     name="opening_stock_qty"
                     value={formData.opening_stock_qty}
-                    onChange={handleInputChange}
+                    onChange={(e) => setFormData({ ...formData, opening_stock_qty: sanitizeInteger(e.target.value) })}
                     placeholder="e.g. 10"
                     className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-bold text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
                   />
@@ -718,9 +724,11 @@ export default function CreateProduct() {
                     type="number"
                     step="any"
                     min="0"
+                    inputMode="decimal"
+                    onKeyDown={handleDecimalKeyDown}
                     name="opening_stock_weight"
                     value={formData.opening_stock_weight}
-                    onChange={handleInputChange}
+                    onChange={(e) => setFormData({ ...formData, opening_stock_weight: sanitizeDecimal(e.target.value) })}
                     placeholder="e.g. 2.500"
                     className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-bold text-blue-700 placeholder-gray-400 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
                   />
@@ -759,9 +767,11 @@ export default function CreateProduct() {
                     type="number"
                     step="any"
                     min="0"
+                    inputMode="decimal"
+                    onKeyDown={handleDecimalKeyDown}
                     name="opening_stock_rate"
                     value={formData.opening_stock_rate}
-                    onChange={handleInputChange}
+                    onChange={(e) => setFormData({ ...formData, opening_stock_rate: sanitizeDecimal(e.target.value) })}
                     placeholder="Rate per carat"
                     className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-bold text-emerald-700 placeholder-gray-400 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
                   />
@@ -810,9 +820,11 @@ export default function CreateProduct() {
                   type="number"
                   min="0"
                   step="1"
+                  inputMode="numeric"
+                  onKeyDown={handleIntegerKeyDown}
                   name="opening_stock_qty"
                   value={formData.opening_stock_qty}
-                  onChange={handleInputChange}
+                  onChange={(e) => setFormData({ ...formData, opening_stock_qty: sanitizeInteger(e.target.value) })}
                   placeholder="0"
                   className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-bold text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
                 />
@@ -826,9 +838,11 @@ export default function CreateProduct() {
                   type="number"
                   step="any"
                   min="0"
+                  inputMode="decimal"
+                  onKeyDown={handleDecimalKeyDown}
                   name="opening_stock_weight"
                   value={formData.opening_stock_weight}
-                  onChange={handleInputChange}
+                  onChange={(e) => setFormData({ ...formData, opening_stock_weight: sanitizeDecimal(e.target.value) })}
                   placeholder="0.000"
                   className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-bold text-amber-700 placeholder-gray-400 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
                 />
@@ -879,9 +893,11 @@ export default function CreateProduct() {
                       step="0.01"
                       min="0"
                       max="100"
+                      inputMode="decimal"
+                      onKeyDown={handleDecimalKeyDown}
                       name="opening_touch"
                       value={formData.opening_touch}
-                      onChange={handleInputChange}
+                      onChange={(e) => setFormData({ ...formData, opening_touch: sanitizeDecimal(e.target.value) })}
                       placeholder="100.00"
                       autoFocus
                       className="w-full px-4 py-3 bg-emerald-50/60 border border-emerald-300 rounded-xl text-sm font-bold text-emerald-800 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
@@ -909,9 +925,11 @@ export default function CreateProduct() {
                   type="number"
                   step="0.01"
                   min="0"
+                  inputMode="decimal"
+                  onKeyDown={handleDecimalKeyDown}
                   name="opening_stock_rate"
                   value={formData.opening_stock_rate}
-                  onChange={handleInputChange}
+                  onChange={(e) => setFormData({ ...formData, opening_stock_rate: sanitizeDecimal(e.target.value) })}
                   placeholder="0.00"
                   className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
                 />

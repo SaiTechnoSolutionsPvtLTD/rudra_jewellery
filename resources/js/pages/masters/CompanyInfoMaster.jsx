@@ -297,8 +297,17 @@ export default function CompanyInfoMaster() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search company profiles by name, city, GSTIN..."
-              className="w-full pl-9 pr-3 py-2 border border-stone-200 rounded-lg text-xs focus:outline-none focus:border-[#b01622] bg-stone-50/50"
+              className="w-full pl-9 pr-8 py-2 border border-stone-200 rounded-lg text-xs focus:outline-none focus:border-[#b01622] bg-stone-50/50"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-stone-400 hover:text-stone-600 cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark"></i>
+              </button>
+            )}
           </div>
 
           <span className="text-xs text-stone-500 font-medium">

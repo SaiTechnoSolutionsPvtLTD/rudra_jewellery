@@ -25,17 +25,24 @@ class WorkOrderController extends Controller
      */
     protected array $stageOrder = [
         'created' => 1,
+        'assigned' => 2,
         'allocated' => 2,
         'received_by_artisan' => 3,
         'work_started' => 4,
         'work_in_progress' => 5,
+        'in_progress' => 5,
+        'delayed' => 5,
+        'on_hold' => 5,
         'work_completed' => 6,
+        'submitted' => 7,
+        'resubmitted' => 7,
         'sent_for_approval' => 7,
         'quality_check' => 8,
         'approved' => 9,
         'ready' => 10,
         'delivered' => 11,
         'final_received' => 12,
+        'completed' => 12,
     ];
 
     /**
@@ -81,7 +88,7 @@ class WorkOrderController extends Controller
 
         // Server-Side Karigar Authorization: if logged in as Karigar, strictly restrict to their assigned work orders
         $currentUser = Auth::user();
-        if ($currentUser && ($currentUser->role === 'Karigar' || $currentUser->role === 'Master Karigar' || $currentUser->karigar)) {
+        if ($currentUser && $currentUser->isKarigar()) {
             $userKarigarId = $currentUser->karigar?->id ?? Karigar::where('email', $currentUser->email)->orWhere('name', $currentUser->name)->value('id');
             if ($userKarigarId) {
                 $query->where('karigar_id', $userKarigarId);
@@ -322,8 +329,8 @@ class WorkOrderController extends Controller
                 'making_charge_per_gram' => $makingChargePerGram,
                 'total_making_charges' => $totalMakingCharges,
                 'total_price' => (float) ($request->input('total_price') ?? $totalMakingCharges),
-                'current_stage' => 'created',
-                'status' => 'ongoing',
+                'current_stage' => !empty($validated['karigar_id']) ? 'assigned' : 'created',
+                'status' => !empty($validated['karigar_id']) ? 'assigned' : 'ongoing',
                 'checklist' => $validated['checklist'] ?? [
                     'product_received' => false,
                     'weight_verified' => false,
@@ -355,6 +362,21 @@ class WorkOrderController extends Controller
                 'created_at' => now(),
             ]);
 
+            if (!empty($validated['karigar_id'])) {
+                WorkOrderTimeline::create([
+                    'work_order_id' => $workOrder->id,
+                    'stage' => 'assigned',
+                    'stage_label' => "Assigned to Artisan ({$karigarName})",
+                    'completed_weight_at_step' => 0,
+                    'pending_weight_at_step' => $allottedWeight,
+                    'status' => 'completed',
+                    'notes' => "Work order assigned to {$karigarName}.",
+                    'user_id' => Auth::id() ?? 1,
+                    'action_by_name' => Auth::user()?->name ?? 'Admin',
+                    'created_at' => now()->addSecond(),
+                ]);
+            }
+
             // Send notification for Karigar Work Order assignment
             if ($workOrder->karigar_id) {
                 WorkOrderNotification::create([
@@ -369,6 +391,7 @@ class WorkOrderController extends Controller
                         'product_name' => $workOrder->product_name,
                         'allotted_weight' => $workOrder->allotted_weight,
                         'status' => $workOrder->status,
+                        'target_role' => 'karigar',
                     ],
                     'is_read' => false,
                 ]);
@@ -451,7 +474,7 @@ class WorkOrderController extends Controller
 
         // Server-Side Authorization: Karigar can only access their assigned work order
         $currentUser = Auth::user();
-        if ($currentUser && ($currentUser->role === 'Karigar' || $currentUser->role === 'Master Karigar' || $currentUser->karigar)) {
+        if ($currentUser && $currentUser->isKarigar()) {
             $userKarigarId = $currentUser->karigar?->id ?? Karigar::where('email', $currentUser->email)->orWhere('name', $currentUser->name)->value('id');
             if ($userKarigarId && $order->karigar_id && (int)$order->karigar_id !== (int)$userKarigarId) {
                 return response()->json([
@@ -668,6 +691,7 @@ class WorkOrderController extends Controller
                     'order_id' => $order->id,
                     'work_order_number' => $order->work_order_number,
                     'status' => 'completed',
+                    'target_role' => 'karigar',
                 ],
                 'is_read' => false,
             ]);
@@ -698,6 +722,7 @@ class WorkOrderController extends Controller
         $order = WorkOrder::findOrFail($id);
 
         $order->status = 'returned';
+        $order->current_stage = 'reworking';
         $order->quality_status = 'returned';
         $order->return_reason = $request->return_reason;
         $order->return_count = ($order->return_count ?? 0) + 1;
@@ -705,16 +730,25 @@ class WorkOrderController extends Controller
         $order->return_date = now()->toDateString();
         $order->returned_weight = (float) $request->input('returned_weight', $order->completed_weight);
         $order->quality_notes = $request->return_reason;
+        $order->checklist = [
+            'product_received' => false,
+            'weight_verified' => false,
+            'stone_verified' => false,
+            'design_verified' => false,
+            'work_completed' => false,
+            'quality_checked' => false,
+            'documents_verified' => false,
+        ];
         $order->save();
 
         WorkOrderTimeline::create([
             'work_order_id' => $order->id,
-            'stage' => 'returned',
-            'stage_label' => "Returned for Rework (Cycle #{$order->return_count})",
+            'stage' => 'reworking',
+            'stage_label' => "Reworking in Progress (Cycle #{$order->return_count})",
             'completed_weight_at_step' => $order->completed_weight,
             'pending_weight_at_step' => $order->pending_weight,
             'status' => 'returned',
-            'notes' => "Return Reason: " . $request->return_reason,
+            'notes' => "Order returned to artisan for rework. Reason: " . $request->return_reason,
             'user_id' => Auth::id() ?? 1,
             'action_by_name' => Auth::user()?->name ?? 'Quality Head',
             'created_at' => now(),
@@ -732,6 +766,7 @@ class WorkOrderController extends Controller
                 'work_order_number' => $order->work_order_number,
                 'return_reason' => $request->return_reason,
                 'return_count' => $order->return_count,
+                'target_role' => 'karigar',
             ],
             'is_read' => false,
         ]);
@@ -752,7 +787,7 @@ class WorkOrderController extends Controller
         $currentUser = Auth::user();
 
         // Server-Side Authorization: Karigar can only update their own assigned work
-        if ($currentUser && ($currentUser->role === 'Karigar' || $currentUser->role === 'Master Karigar' || $currentUser->karigar)) {
+        if ($currentUser && $currentUser->isKarigar()) {
             $userKarigarId = $currentUser->karigar?->id ?? Karigar::where('email', $currentUser->email)->orWhere('name', $currentUser->name)->value('id');
             if ($userKarigarId && $order->karigar_id && (int)$order->karigar_id !== (int)$userKarigarId) {
                 return response()->json([
@@ -881,6 +916,7 @@ class WorkOrderController extends Controller
                         'product_name' => $order->product_name,
                         'karigar_name' => $order->karigar_name,
                         'status' => $newStatus,
+                        'target_role' => 'admin',
                     ],
                     'is_read' => false,
                 ]);
@@ -920,6 +956,7 @@ class WorkOrderController extends Controller
                         'work_order_number' => $order->work_order_number,
                         'karigar_name' => $order->karigar_name,
                         'status' => $order->status,
+                        'target_role' => 'admin',
                     ],
                     'is_read' => false,
                 ]);
@@ -1020,6 +1057,7 @@ class WorkOrderController extends Controller
                 'work_order_number' => $order->work_order_number,
                 'karigar_name' => $order->karigar_name,
                 'status' => $order->status,
+                'target_role' => 'admin',
             ],
             'is_read' => false,
         ]);
@@ -1150,6 +1188,7 @@ class WorkOrderController extends Controller
                 'delay_reason' => $validated['delay_reason'],
                 'delay_days' => $validated['delay_days'],
                 'expected_date' => $toDate,
+                'target_role' => 'admin',
             ],
             'is_read' => false,
         ]);
@@ -1306,11 +1345,6 @@ class WorkOrderController extends Controller
         $totalCompletedWeight = (float) $activeOrders->sum('completed_weight');
         $totalPendingWeight = (float) $activeOrders->sum('pending_weight');
 
-        $goldQuery = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received'])
-            ->where('material_type', 'like', '%gold%');
-        $applyDateRange($goldQuery);
-        $goldWeight = (float) $goldQuery->sum('allotted_weight');
-
         $silverQuery = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received'])
             ->where('material_type', 'like', '%silver%');
         $applyDateRange($silverQuery);
@@ -1320,6 +1354,22 @@ class WorkOrderController extends Controller
             ->where('material_type', 'like', '%diamond%');
         $applyDateRange($diamondQuery);
         $diamondWeight = (float) $diamondQuery->sum('allotted_weight');
+
+        $goldQuery = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received'])
+            ->where(function ($q) {
+                $q->where('material_type', 'like', '%gold%')
+                  ->orWhere('material_type', 'like', '%22k%')
+                  ->orWhere('material_type', 'like', '%18k%')
+                  ->orWhere('material_type', 'like', '%24k%')
+                  ->orWhereNull('material_type')
+                  ->orWhere('material_type', '');
+            });
+        $applyDateRange($goldQuery);
+        $goldWeight = (float) $goldQuery->sum('allotted_weight');
+
+        if ($totalAllocatedWeight > 0 && ($goldWeight + $silverWeight + $diamondWeight) < $totalAllocatedWeight) {
+            $goldWeight += max(0, $totalAllocatedWeight - ($goldWeight + $silverWeight + $diamondWeight));
+        }
 
         // 3. Real Material Allocations per active Artisan from filtered active work orders
         $materialAllocations = [];

@@ -205,10 +205,24 @@ export default function Products() {
               onChange={(e) => {
                 setSearchTerm(e.target.value);
                 setCurrentPage(1);
+                setGroupedPage(1);
               }}
               placeholder="Search product name, code/SKU..."
-              className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
+              className="w-full pl-9 pr-8 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
             />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  setCurrentPage(1);
+                  setGroupedPage(1);
+                }}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark text-xs"></i>
+              </button>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">

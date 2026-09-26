@@ -346,6 +346,11 @@ class ClientController extends Controller
                             $q->whereDate('invoice_date', Carbon::today())
                               ->orWhere(function($sub) { $sub->whereNull('invoice_date')->whereDate('created_at', Carbon::today()); });
                         });
+                    } elseif ($period === 'yesterday') {
+                        $query->where(function($q) {
+                            $q->whereDate('invoice_date', Carbon::yesterday())
+                              ->orWhere(function($sub) { $sub->whereNull('invoice_date')->whereDate('created_at', Carbon::yesterday()); });
+                        });
                     } elseif ($period === 'week' || $period === 'this week' || $period === '7d') {
                         $query->where(function($q) {
                             $q->where('invoice_date', '>=', Carbon::now()->startOfWeek())
@@ -355,6 +360,11 @@ class ClientController extends Controller
                         $query->where(function($q) {
                             $q->where('invoice_date', '>=', Carbon::now()->startOfMonth())
                               ->orWhere(function($sub) { $sub->whereNull('invoice_date')->where('created_at', '>=', Carbon::now()->startOfMonth()); });
+                        });
+                    } elseif ($period === 'quarter' || $period === 'this quarter' || $period === '3m') {
+                        $query->where(function($q) {
+                            $q->where('invoice_date', '>=', Carbon::now()->startOfQuarter())
+                              ->orWhere(function($sub) { $sub->whereNull('invoice_date')->where('created_at', '>=', Carbon::now()->startOfQuarter()); });
                         });
                     } elseif ($period === 'year' || $period === 'this year' || $period === '1y') {
                         $query->where(function($q) {
@@ -661,6 +671,36 @@ class ClientController extends Controller
     {
         try {
             if (Schema::hasTable('clients')) {
+                // Determine Period Label and Month Bounds
+                $mStart = null;
+                $mEnd = null;
+                $periodLabel = 'This Month';
+
+                if ($request->filled('month')) {
+                    $mStr = trim($request->month);
+                    $mStrLower = strtolower($mStr);
+                    if ($mStrLower === 'month' || $mStrLower === 'this month') {
+                        $mStart = Carbon::now()->startOfMonth();
+                        $mEnd = Carbon::now()->endOfMonth();
+                        $periodLabel = 'This Month';
+                    } elseif ($mStrLower !== 'all' && $mStrLower !== 'all time') {
+                        if (preg_match('/([a-zA-Z]+)\s*(\d{4})/', $mStr, $m)) {
+                            try {
+                                $mStart = Carbon::parse("1 {$m[1]} {$m[2]}")->startOfMonth();
+                                $mEnd = Carbon::parse("1 {$m[1]} {$m[2]}")->endOfMonth();
+                                $periodLabel = $mStart->format('F Y');
+                            } catch (\Exception $e) {}
+                        }
+                    } else {
+                        $periodLabel = 'All Time';
+                    }
+                } else {
+                    $mStart = Carbon::now()->startOfMonth();
+                    $mEnd = Carbon::now()->endOfMonth();
+                    $periodLabel = 'This Month';
+                }
+
+                // Base Query for Removed Clients
                 $query = Client::where('is_removed', true);
 
                 if ($request->filled('search')) {
@@ -673,11 +713,11 @@ class ClientController extends Controller
                     });
                 }
 
-                if ($request->filled('reason') && $request->reason !== 'all') {
+                if ($request->filled('reason') && strtolower($request->reason) !== 'all') {
                     $query->where('remove_reason', $request->reason);
                 }
 
-                if ($request->filled('can_be_restored') && $request->can_be_restored !== 'all') {
+                if ($request->filled('can_be_restored') && strtolower($request->can_be_restored) !== 'all') {
                     $canVal = in_array(strtolower($request->can_be_restored), ['yes', '1', 'true']);
                     $query->where('can_be_restored', $canVal);
                 }
@@ -686,21 +726,11 @@ class ClientController extends Controller
                     $query->whereDate('removed_at', $request->remove_date);
                 }
 
-                if ($request->filled('month') && strtolower($request->month) !== 'all' && strtolower($request->month) !== 'month' && strtolower($request->month) !== 'this month') {
-                    $mStr = trim($request->month);
-                    if (preg_match('/([a-zA-Z]+)\s*(\d{4})/', $mStr, $m)) {
-                        try {
-                            $mStart = Carbon::parse("1 {$m[1]} {$m[2]}")->startOfMonth();
-                            $mEnd = Carbon::parse("1 {$m[1]} {$m[2]}")->endOfMonth();
-                            $query->whereBetween('removed_at', [$mStart, $mEnd]);
-                        } catch (\Exception $e) {}
-                    }
-                } elseif ($request->filled('month') && (strtolower($request->month) === 'month' || strtolower($request->month) === 'this month')) {
-                    $query->whereMonth('removed_at', Carbon::now()->month)
-                          ->whereYear('removed_at', Carbon::now()->year);
+                if ($mStart && $mEnd) {
+                    $query->whereBetween('removed_at', [$mStart, $mEnd]);
                 }
 
-                $clients = $query->orderBy('removed_at', 'desc')->get()->map(function($c) {
+                $clients = (clone $query)->orderBy('removed_at', 'desc')->get()->map(function($c) {
                     $removedAt = $c->removed_at ? Carbon::parse($c->removed_at) : Carbon::now();
                     $initials = collect(explode(' ', $c->full_name))->map(fn($part) => strtoupper(substr($part, 0, 1)))->take(2)->implode('');
                     
@@ -732,33 +762,85 @@ class ClientController extends Controller
                     ];
                 });
 
-                $activeCount = Client::where(function($q) {
+                // Compute Stats dynamically matching filters
+                $activeQuery = Client::where(function($q) {
                     $q->whereNull('is_removed')->orWhere('is_removed', false);
-                })->count();
+                });
+                if ($request->filled('search')) {
+                    $s = $request->search;
+                    $activeQuery->where(function($q) use ($s) {
+                        $q->where('full_name', 'like', "%{$s}%")
+                          ->orWhere('email', 'like', "%{$s}%")
+                          ->orWhere('primary_phone', 'like', "%{$s}%")
+                          ->orWhere('client_code', 'like', "%{$s}%");
+                    });
+                }
+                $activeCount = $activeQuery->count();
 
-                $removedCount = Client::where('is_removed', true)->count();
-                $thisMonthCount = Client::where('is_removed', true)
-                    ->whereMonth('removed_at', Carbon::now()->month)
-                    ->whereYear('removed_at', Carbon::now()->year)
-                    ->count();
-                $canBeRestoredCount = Client::where('is_removed', true)
-                    ->where('can_be_restored', true)
-                    ->count();
+                // Removed Count matching active filters
+                $removedCount = (clone $query)->count();
 
-                $prevMonthActive = Client::where('created_at', '<', Carbon::now()->startOfMonth())->where('is_removed', false)->count();
-                $activeGrowthPct = $prevMonthActive > 0 ? round((($activeCount - $prevMonthActive) / $prevMonthActive) * 100, 1) : ($activeCount > 0 ? 100.0 : 0.0);
-                $activeGrowth = ($activeGrowthPct >= 0 ? '+' : '') . number_format($activeGrowthPct, 1) . '% vs last month';
+                // Period Specific Removed Count
+                $periodRemovedQuery = Client::where('is_removed', true);
+                if ($request->filled('search')) {
+                    $s = $request->search;
+                    $periodRemovedQuery->where(function($q) use ($s) {
+                        $q->where('full_name', 'like', "%{$s}%")
+                          ->orWhere('email', 'like', "%{$s}%")
+                          ->orWhere('primary_phone', 'like', "%{$s}%")
+                          ->orWhere('client_code', 'like', "%{$s}%");
+                    });
+                }
+                if ($request->filled('reason') && strtolower($request->reason) !== 'all') {
+                    $periodRemovedQuery->where('remove_reason', $request->reason);
+                }
+                if ($request->filled('can_be_restored') && strtolower($request->can_be_restored) !== 'all') {
+                    $canVal = in_array(strtolower($request->can_be_restored), ['yes', '1', 'true']);
+                    $periodRemovedQuery->where('can_be_restored', $canVal);
+                }
+                if ($request->filled('remove_date')) {
+                    $periodRemovedQuery->whereDate('removed_at', $request->remove_date);
+                }
+                if ($mStart && $mEnd) {
+                    $periodRemovedQuery->whereBetween('removed_at', [$mStart, $mEnd]);
+                } else {
+                    $periodRemovedQuery->whereMonth('removed_at', Carbon::now()->month)
+                                       ->whereYear('removed_at', Carbon::now()->year);
+                }
+                $periodRemovedCount = $periodRemovedQuery->count();
 
-                $prevMonthRemoved = Client::where('removed_at', '<', Carbon::now()->startOfMonth())->where('is_removed', true)->count();
-                $removedGrowthPct = $prevMonthRemoved > 0 ? round((($removedCount - $prevMonthRemoved) / $prevMonthRemoved) * 100, 1) : 0.0;
-                $removedGrowth = ($removedGrowthPct >= 0 ? '+' : '') . number_format($removedGrowthPct, 1) . '% vs last month';
+                // Can Be Restored Count matching active filters
+                $canBeRestoredQuery = (clone $query)->where('can_be_restored', true);
+                $canBeRestoredCount = $canBeRestoredQuery->count();
 
-                $lastMonthRemovedCount = Client::where('is_removed', true)
-                    ->whereMonth('removed_at', Carbon::now()->subMonth()->month)
-                    ->whereYear('removed_at', Carbon::now()->subMonth()->year)
-                    ->count();
-                $thisMonthGrowthPct = $lastMonthRemovedCount > 0 ? round((($thisMonthCount - $lastMonthRemovedCount) / $lastMonthRemovedCount) * 100, 1) : 0.0;
-                $thisMonthGrowth = ($thisMonthGrowthPct >= 0 ? '+' : '') . number_format($thisMonthGrowthPct, 1) . '% vs last month';
+                // Growth Percentages & Dynamic Comparison Labels
+                if ($mStart) {
+                    $prevMonthStart = $mStart->copy()->subMonth()->startOfMonth();
+                    $prevMonthEnd = $mStart->copy()->subMonth()->endOfMonth();
+                    if ($periodLabel === 'This Month') {
+                        $comparisonLabel = 'vs last month';
+                    } else {
+                        $comparisonLabel = 'vs ' . $mStart->copy()->subMonth()->format('M Y');
+                    }
+                } else {
+                    $prevMonthStart = Carbon::now()->subMonth()->startOfMonth();
+                    $prevMonthEnd = Carbon::now()->subMonth()->endOfMonth();
+                    $comparisonLabel = $periodLabel === 'All Time' ? 'vs prev period' : 'vs last month';
+                }
+
+                $prevActiveRef = $mStart ? $mStart : Carbon::now()->startOfMonth();
+                $prevActive = Client::where(function($q) {
+                    $q->whereNull('is_removed')->orWhere('is_removed', false);
+                })->where('created_at', '<', $prevActiveRef)->count();
+                $activeGrowthPct = $prevActive > 0 ? round((($activeCount - $prevActive) / $prevActive) * 100, 1) : ($activeCount > 0 ? 100.0 : 0.0);
+                $activeGrowth = ($activeGrowthPct >= 0 ? '+' : '') . number_format($activeGrowthPct, 1) . "% {$comparisonLabel}";
+
+                $prevPeriodRemoved = Client::where('is_removed', true)->whereBetween('removed_at', [$prevMonthStart, $prevMonthEnd])->count();
+                $periodGrowthPct = $prevPeriodRemoved > 0 ? round((($periodRemovedCount - $prevPeriodRemoved) / $prevPeriodRemoved) * 100, 1) : 0.0;
+                $periodGrowth = ($periodGrowthPct >= 0 ? '+' : '') . number_format($periodGrowthPct, 1) . "% {$comparisonLabel}";
+
+                $removedGrowthPct = $prevPeriodRemoved > 0 ? round((($removedCount - $prevPeriodRemoved) / $prevPeriodRemoved) * 100, 1) : 0.0;
+                $removedGrowth = ($removedGrowthPct >= 0 ? '+' : '') . number_format($removedGrowthPct, 1) . "% {$comparisonLabel}";
 
                 return response()->json([
                     'stats' => [
@@ -766,9 +848,11 @@ class ClientController extends Controller
                         'activeGrowth' => $activeGrowth,
                         'removedClients' => number_format($removedCount),
                         'removedGrowth' => $removedGrowth,
-                        'thisMonthRemoved' => number_format($thisMonthCount),
-                        'thisMonthGrowth' => $thisMonthGrowth,
+                        'thisMonthRemoved' => number_format($periodRemovedCount),
+                        'thisMonthGrowth' => $periodGrowth,
                         'canBeRestored' => number_format($canBeRestoredCount),
+                        'periodLabel' => $periodLabel,
+                        'comparisonLabel' => $comparisonLabel,
                     ],
                     'clients' => $clients,
                 ]);

@@ -51,6 +51,13 @@ class AuthController extends Controller
             ], 401);
         }
 
+        if (($user->status ?? 'active') === 'inactive') {
+            return response()->json([
+                'status' => false,
+                'message' => 'Your account is inactive. Please contact the system administrator.',
+            ], 403);
+        }
+
         // Create Sanctum Token
         $token = $user->createToken('auth_token')->plainTextToken;
 
@@ -59,13 +66,7 @@ class AuthController extends Controller
             'message' => 'Login successful',
             'access_token' => $token,
             'token_type' => 'Bearer',
-            'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'mobile_number' => $user->mobile_number,
-                'role' => $user->role,
-            ]
+            'user' => $this->formatUserData($user)
         ], 200);
     }
 
@@ -89,9 +90,38 @@ class AuthController extends Controller
      */
     public function me(Request $request)
     {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['status' => false, 'message' => 'Unauthenticated'], 401);
+        }
+
+        if (($user->status ?? 'active') === 'inactive') {
+            return response()->json(['status' => false, 'message' => 'Account inactive'], 403);
+        }
+
         return response()->json([
             'status' => true,
-            'user' => $request->user()
+            'user' => $this->formatUserData($user)
         ], 200);
+    }
+
+    private function formatUserData(User $user): array
+    {
+        $user->loadMissing('karigar');
+        return [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'mobile_number' => $user->mobile_number,
+            'role' => $user->role,
+            'status' => $user->status ?? 'active',
+            'permissions' => $user->permissions,
+            'karigar' => $user->karigar ? [
+                'id' => $user->karigar->id,
+                'karigar_code' => $user->karigar->karigar_code,
+                'name' => $user->karigar->name,
+                'specialization' => $user->karigar->specialization,
+            ] : null,
+        ];
     }
 }
