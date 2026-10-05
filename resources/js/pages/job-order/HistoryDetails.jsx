@@ -4,8 +4,8 @@ import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 
 const tabs = [
-  ['Work in Progress', '/job-order/in-progress'],
-  ['Delay / Job Details', '/job-order/delay'],
+  ['Work In Progress', '/job-order/in-progress'],
+  ['Dealy/ Job Details', '/job-order/delay'],
   ['Waste Details', '/job-order/waste'],
   ['Quality Check & Final Receive', '/job-order/quality-check'],
   ['History', '/job-order/history'],
@@ -152,13 +152,13 @@ export default function HistoryDetails() {
         )}
       </div>
 
-      <div className="border-b border-stone-200 flex items-center gap-8 overflow-x-auto no-scrollbar">
+      <div className="border-b border-[#eed5d1] flex items-center gap-10 overflow-x-auto no-scrollbar">
         {tabs.filter(([_, path]) => !isKarigar || path !== '/job-order/quality-check').map(([label, path]) => (
-          <Link key={path} to={openTab(path)} className={`pb-3 text-sm whitespace-nowrap border-b-2 ${path === '/job-order/history' ? 'font-bold text-[#b01622] border-[#b01622]' : 'font-medium text-stone-500 border-transparent hover:text-stone-900'}`}>{label}</Link>
+          <Link key={path} to={openTab(path)} className={`pb-3 text-[14px] font-bold whitespace-nowrap border-b-2 transition-colors ${path === '/job-order/history' ? 'border-[#b01622] text-[#5c2725]' : 'border-transparent text-[#6e2d27] hover:text-[#b01622]'}`}>{label}</Link>
         ))}
       </div>
 
-      <div className="bg-white rounded-xl border border-stone-200 p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className="bg-[#F4F6F7] rounded-xl border border-[#eed5d1] p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 shadow-2xs">
         {[['Job ID', jobId], ['Client ID', clientId], ['Client Name', clientName], ['Assigned Karigar', karigarName], ['Current Status', order?.status || 'In Progress']].map(([label, value]) => (
           <div key={label} className="min-w-0">
             <span className="text-[11px] font-medium text-stone-400 block">{label}</span>
@@ -168,15 +168,15 @@ export default function HistoryDetails() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        <section className="lg:col-span-8 bg-white rounded-xl border border-stone-200 p-4">
+        <section className="lg:col-span-8 bg-[#F4F6F7] rounded-xl border border-[#eed5d1] p-5 shadow-2xs">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-bold text-gray-900">Work Order Timeline</h2>
+            <h2 className="text-sm font-bold text-gray-900 uppercase tracking-wider">Work Order Timeline</h2>
             <span className="text-xs text-stone-400">{timeline.length} updates</span>
           </div>
-          <div className="relative pl-7 space-y-5 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-px before:bg-stone-200">
+          <div className="relative pl-7 space-y-5 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-px before:bg-[#eed5d1]">
             {timeline.map((event, index) => (
               <div key={event.id || `${event.stage}-${index}`} className="relative">
-                <span className="absolute -left-[29px] top-1 w-3 h-3 rounded-full bg-[#b01622] ring-4 ring-white"></span>
+                <span className="absolute -left-[29px] top-1 w-3 h-3 rounded-full bg-[#b01622] ring-4 ring-[#F4F6F7]"></span>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
                   <span className="text-xs font-bold text-gray-900">{event.stage_label || event.stage || 'Update'}</span>
                   <span className="text-[11px] font-mono text-stone-400">{event.created_at ? new Date(event.created_at).toLocaleString('en-GB') : '—'}</span>
@@ -188,31 +188,31 @@ export default function HistoryDetails() {
           </div>
         </section>
 
-        <section className="lg:col-span-4 bg-white rounded-xl border border-stone-200 p-4 h-fit">
-          <h2 className="text-sm font-bold text-gray-900 mb-4">Audit Summary</h2>
-          <div className="space-y-3 text-xs">
+        <section className="lg:col-span-4 bg-[#F4F6F7] rounded-xl border border-[#eed5d1] p-5 shadow-2xs h-fit">
+          <h2 className="text-sm font-bold text-gray-900 mb-4 uppercase tracking-wider">Audit Summary</h2>
+          <div className="bg-white rounded-xl border border-[#eed5d1] p-4 space-y-3 text-xs">
             <div className="flex justify-between"><span className="text-stone-500">Created Date</span><span className="font-semibold">{displayDate(order?.created_at)}</span></div>
             <div className="flex justify-between"><span className="text-stone-500">Allotted Date</span><span className="font-semibold">{displayDate(order?.allotted_date)}</span></div>
             <div className="flex justify-between"><span className="text-stone-500">Due Date</span><span className="font-semibold">{displayDate(order?.delivery_date)}</span></div>
             <div className="flex justify-between"><span className="text-stone-500">Last Updated</span><span className="font-semibold">{displayDate(order?.updated_at)}</span></div>
-            <div className="border-t border-stone-200 pt-3 flex justify-between"><span className="text-stone-500">Current Stage</span><span className="font-bold text-[#b01622]">{String(order?.current_stage || 'created').replace(/_/g, ' ')}</span></div>
+            <div className="border-t border-[#eed5d1] pt-3 flex justify-between"><span className="text-stone-500">Current Stage</span><span className="font-bold text-[#b01622]">{String(order?.current_stage || 'created').replace(/_/g, ' ')}</span></div>
           </div>
         </section>
       </div>
 
-      <section className="bg-white rounded-xl border border-stone-200 overflow-hidden">
-        <div className="px-4 py-3 border-b border-stone-200"><h2 className="text-sm font-bold text-gray-900">Audit Details</h2></div>
+      <section className="bg-[#F4F6F7] rounded-xl border border-[#eed5d1] overflow-hidden shadow-2xs">
+        <div className="px-4 py-3 border-b border-[#eed5d1]"><h2 className="text-sm font-bold text-gray-900 uppercase tracking-wider">Audit Details</h2></div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-xs">
+          <table className="w-full min-w-[720px] text-xs bg-white">
             <thead>
-              <tr className="bg-stone-50 text-stone-500 uppercase text-[11px] border-b border-stone-200">
+              <tr className="bg-stone-50 text-stone-500 uppercase text-[11px] border-b border-[#eed5d1]">
                 <th className="text-left px-4 py-3">Date &amp; Time</th>
                 <th className="text-left px-3 py-3">Event</th>
                 <th className="text-left px-3 py-3">Updated By</th>
                 <th className="text-left px-4 py-3">Remarks</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-stone-100">
+            <tbody className="divide-y divide-[#eed5d1]">
               {paginatedTimeline.map((event, index) => (
                 <tr key={`audit-${event.id || index}`}>
                   <td className="px-4 py-3 font-mono text-stone-500">{event.created_at ? new Date(event.created_at).toLocaleString('en-GB') : '—'}</td>
@@ -226,7 +226,7 @@ export default function HistoryDetails() {
         </div>
 
         {/* Pagination Controls */}
-        <div className="px-4 py-3 border-t border-stone-200 bg-stone-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-stone-500">
+        <div className="px-4 py-3 border-t border-[#eed5d1] bg-stone-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-stone-500">
           <div>
             Showing {startRecord} to {endRecord} of {totalTimeline} entries
           </div>
@@ -236,7 +236,7 @@ export default function HistoryDetails() {
               type="button"
               onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
               disabled={safePage <= 1}
-              className="w-7 h-7 rounded-md border border-stone-200 hover:bg-white flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              className="w-7 h-7 rounded-md border border-[#eed5d1] hover:bg-white flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               &lt;
             </button>
@@ -249,7 +249,7 @@ export default function HistoryDetails() {
                 className={`w-7 h-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors cursor-pointer ${
                   safePage === pageNum
                     ? 'bg-[#b01622] text-white'
-                    : 'border border-stone-200 hover:bg-white text-stone-700'
+                    : 'border border-[#eed5d1] hover:bg-white text-stone-700'
                 }`}
               >
                 {pageNum}
@@ -260,7 +260,7 @@ export default function HistoryDetails() {
               type="button"
               onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
               disabled={safePage >= totalPages}
-              className="w-7 h-7 rounded-md border border-stone-200 hover:bg-white flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              className="w-7 h-7 rounded-md border border-[#eed5d1] hover:bg-white flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               &gt;
             </button>

@@ -28,8 +28,8 @@ export default function JobCreationDashboard() {
     return <Navigate to="/job-order/in-progress" replace />;
   }
 
-  // Active navigation tab
-  const [activeTab, setActiveTab] = useState('wip');
+  // Active navigation tab (default null so red line only appears when clicked)
+  const [activeTab, setActiveTab] = useState(null);
 
   // Filter range
   const [timeRange, setTimeRange] = useState('Month');
@@ -267,10 +267,10 @@ export default function JobCreationDashboard() {
       {/* 1. Header & Top Actions */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div>
-          <h1 className="text-[28px] font-bold text-[#111827] tracking-tight leading-tight">
+          <h1 className="text-[32px] font-bold text-[#18181b] tracking-tight leading-none font-serif">
             Dashboard
           </h1>
-          <p className="text-[13px] text-[#6b7280] font-normal mt-1">
+          <p className="text-[13.5px] text-[#786966] font-normal mt-2">
             Real-time Artisan performance and order distribution tracking.
           </p>
         </div>
@@ -280,49 +280,59 @@ export default function JobCreationDashboard() {
           <button
             type="button"
             onClick={handleDownloadReport}
-            className="px-4 py-2 bg-white hover:bg-gray-50 text-[#374151] text-xs font-semibold rounded-md border border-[#d1d5db] transition-colors flex items-center gap-2 cursor-pointer shadow-2xs"
+            className="px-4 py-2 bg-white hover:bg-[#fdfaf9] text-[#8c2520] text-xs font-semibold rounded-lg border border-[#8c2520] transition-colors flex items-center gap-2 cursor-pointer shadow-2xs"
           >
-            <i className="fa-solid fa-arrow-down-to-line text-xs text-gray-500"></i>
             <span>Download Report</span>
           </button>
 
           {/* New Work Order Button */}
           <Link
             to="/job-order/new"
-            className="px-4 py-2 bg-[#9e1b27] hover:bg-[#83141f] text-white text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 shadow-2xs"
+            className="px-4.5 py-2 bg-[#b31d24] hover:bg-[#96151c] text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-2 cursor-pointer shadow-2xs"
           >
-            <i className="fa-solid fa-plus text-xs"></i>
+            <span className="text-sm font-bold">+</span>
             <span>New Work Order</span>
           </Link>
         </div>
       </div>
 
-      {/* 2. Filter Dropdown (Month ⌵) */}
-      <div className="flex justify-end mt-4 mb-3">
+      {/* 2. Filter Dropdown Controls (Funnel + Month ⌵) */}
+      <div className="flex items-center justify-end gap-2.5 mt-3 mb-2">
+        {/* Circular Funnel Button */}
+        <button
+          type="button"
+          onClick={() => setFilterDropdownOpen(!filterDropdownOpen)}
+          className="w-8 h-8 rounded-full border border-[#e5e7eb] bg-white text-[#6b7280] flex items-center justify-center hover:bg-stone-50 transition-colors cursor-pointer shadow-2xs"
+          title="Filter Options"
+        >
+          <i className="fa-solid fa-filter text-[11px] text-[#786966]"></i>
+        </button>
+
+        {/* Month Dropdown Pill */}
         <div className="relative" ref={filterRef}>
           <button
             type="button"
             onClick={() => setFilterDropdownOpen(!filterDropdownOpen)}
-            className="flex items-center gap-2 px-3 py-1.5 bg-white border border-[#e5e7eb] rounded-full text-xs font-medium text-[#4b5563] hover:border-gray-300 hover:text-gray-900 transition-colors cursor-pointer shadow-2xs"
+            className="flex items-center gap-2.5 px-4 py-1.5 bg-white border border-[#e5e7eb] rounded-full text-xs font-semibold text-[#4b5563] hover:border-gray-300 hover:text-gray-900 transition-colors cursor-pointer shadow-2xs"
           >
-            <i className="fa-solid fa-filter text-[11px] text-[#9ca3af]"></i>
             <span>{timeRange}</span>
-            <i className={`fa-solid fa-chevron-down text-[9px] text-[#9ca3af] transition-transform ${filterDropdownOpen ? 'rotate-180' : ''}`}></i>
+            <i className={`fa-solid fa-chevron-down text-[10px] text-[#9ca3af] transition-transform ${filterDropdownOpen ? 'rotate-180' : ''}`}></i>
           </button>
 
           {filterDropdownOpen && (
             <div className="absolute right-0 mt-1.5 w-36 bg-white rounded-xl shadow-lg border border-gray-100 py-1.5 z-30 animate-in fade-in zoom-in-95 duration-100">
-              {['Today', 'This Week', 'Month', 'This Quarter', 'This Year'].map((range) => (
+              {['Today', 'This Week', 'Month', 'This Quarter', 'This Year', 'All Time'].map((range) => (
                 <button
                   key={range}
                   type="button"
                   onClick={() => {
                     setTimeRange(range);
+                    setCurrentPage(1);
                     setFilterDropdownOpen(false);
                   }}
                   className={`w-full text-left px-3 py-1.5 text-xs font-medium transition-colors ${
                     timeRange === range
-                      ? 'bg-red-50 text-[#9e1b27] font-bold'
+                      ? 'bg-red-50 text-[#8c2520] font-bold'
                       : 'text-gray-700 hover:bg-gray-50'
                   }`}
                 >
@@ -334,16 +344,16 @@ export default function JobCreationDashboard() {
         </div>
       </div>
 
-      {/* 3. Tab Navigation Bar */}
-      <div className="border-b border-[#f0f2f5] mt-1 mb-6">
-        <nav className="flex items-center gap-8 -mb-px overflow-x-auto no-scrollbar">
+      {/* 3. Tab Navigation Bar (Exact Match to Image 1) */}
+      <div className="border-b border-[#ebd0cb] mt-1 mb-6">
+        <nav className="flex items-center gap-10 -mb-px overflow-x-auto no-scrollbar">
           <button
             type="button"
             onClick={() => handleTabClick('wip', '/job-order/in-progress')}
-            className={`pb-3 text-[13px] font-medium whitespace-nowrap transition-colors border-b-2 cursor-pointer ${
+            className={`pb-3 text-[14px] font-bold whitespace-nowrap transition-colors border-b-2 cursor-pointer ${
               activeTab === 'wip'
-                ? 'border-[#9e1b27] text-[#9e1b27] font-bold'
-                : 'border-transparent text-[#6b7280] hover:text-[#111827]'
+                ? 'border-[#b01622] text-[#5c2725]'
+                : 'border-transparent text-[#6e2d27] hover:text-[#b01622]'
             }`}
           >
             Work In Progress
@@ -352,10 +362,10 @@ export default function JobCreationDashboard() {
           <button
             type="button"
             onClick={() => handleTabClick('delay', '/job-order/delay')}
-            className={`pb-3 text-[13px] font-medium whitespace-nowrap transition-colors border-b-2 cursor-pointer ${
+            className={`pb-3 text-[14px] font-bold whitespace-nowrap transition-colors border-b-2 cursor-pointer ${
               activeTab === 'delay'
-                ? 'border-[#9e1b27] text-[#9e1b27] font-bold'
-                : 'border-transparent text-[#6b7280] hover:text-[#111827]'
+                ? 'border-[#b01622] text-[#5c2725]'
+                : 'border-transparent text-[#6e2d27] hover:text-[#b01622]'
             }`}
           >
             Dealy/ Job Details
@@ -364,10 +374,10 @@ export default function JobCreationDashboard() {
           <button
             type="button"
             onClick={() => handleTabClick('waste', '/job-order/waste')}
-            className={`pb-3 text-[13px] font-medium whitespace-nowrap transition-colors border-b-2 cursor-pointer ${
+            className={`pb-3 text-[14px] font-bold whitespace-nowrap transition-colors border-b-2 cursor-pointer ${
               activeTab === 'waste'
-                ? 'border-[#9e1b27] text-[#9e1b27] font-bold'
-                : 'border-transparent text-[#6b7280] hover:text-[#111827]'
+                ? 'border-[#b01622] text-[#5c2725]'
+                : 'border-transparent text-[#6e2d27] hover:text-[#b01622]'
             }`}
           >
             Waste Details
@@ -376,10 +386,10 @@ export default function JobCreationDashboard() {
           <button
             type="button"
             onClick={() => handleTabClick('qc', '/job-order/quality-check')}
-            className={`pb-3 text-[13px] font-medium whitespace-nowrap transition-colors border-b-2 cursor-pointer ${
+            className={`pb-3 text-[14px] font-bold whitespace-nowrap transition-colors border-b-2 cursor-pointer ${
               activeTab === 'qc'
-                ? 'border-[#9e1b27] text-[#9e1b27] font-bold'
-                : 'border-transparent text-[#6b7280] hover:text-[#111827]'
+                ? 'border-[#b01622] text-[#5c2725]'
+                : 'border-transparent text-[#6e2d27] hover:text-[#b01622]'
             }`}
           >
             Quality Check & Final Receive
@@ -388,10 +398,10 @@ export default function JobCreationDashboard() {
           <button
             type="button"
             onClick={() => handleTabClick('history', '/job-order/history')}
-            className={`pb-3 text-[13px] font-medium whitespace-nowrap transition-colors border-b-2 cursor-pointer ${
+            className={`pb-3 text-[14px] font-bold whitespace-nowrap transition-colors border-b-2 cursor-pointer ${
               activeTab === 'history'
-                ? 'border-[#9e1b27] text-[#9e1b27] font-bold'
-                : 'border-transparent text-[#6b7280] hover:text-[#111827]'
+                ? 'border-[#b01622] text-[#5c2725]'
+                : 'border-transparent text-[#6e2d27] hover:text-[#b01622]'
             }`}
           >
             History

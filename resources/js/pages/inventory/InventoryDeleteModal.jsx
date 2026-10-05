@@ -57,11 +57,11 @@ export default function InventoryDeleteModal({ product, isOpen, onClose, onConfi
           Are you sure you want to delete this product? This action cannot be undone and will remove all associated stock data from the system.
         </p>
 
-        {/* 3. Product Preview Card (Exact Match to Reference Image) */}
-        <div className="bg-[#f9f9f9] rounded-2xl border border-stone-200/90 p-4 sm:p-5 flex items-center gap-4 sm:gap-6 my-4">
+        {/* 3. Product Preview Card (Matching Reference Image 1) */}
+        <div className="bg-[#fbf3f3] rounded-2xl border border-[#f5dcdb] p-4 sm:p-5 flex items-center gap-4 sm:gap-6 my-4">
           
           {/* Left: Product Image */}
-          <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden bg-white border border-stone-200 shrink-0 shadow-2xs flex items-center justify-center">
+          <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden bg-white border border-[#edd5d4] shrink-0 shadow-2xs flex items-center justify-center">
             <img
               src={imageSrc}
               alt={product.name}
@@ -79,7 +79,7 @@ export default function InventoryDeleteModal({ product, isOpen, onClose, onConfi
           <div className="grid grid-cols-2 gap-x-6 gap-y-3 min-w-0 flex-1 text-xs">
             {/* Row 1: Product ID & Category */}
             <div>
-              <span className="block text-[10px] font-bold text-stone-400 tracking-wider uppercase">
+              <span className="block text-[10px] font-bold text-[#856161] tracking-wider uppercase">
                 PRODUCT ID
               </span>
               <span className="font-bold text-[#b01622] font-mono text-xs block truncate mt-0.5">
@@ -88,48 +88,48 @@ export default function InventoryDeleteModal({ product, isOpen, onClose, onConfi
             </div>
 
             <div>
-              <span className="block text-[10px] font-bold text-stone-400 tracking-wider uppercase">
+              <span className="block text-[10px] font-bold text-[#856161] tracking-wider uppercase">
                 CATEGORY
               </span>
-              <span className="font-semibold text-stone-800 text-xs block truncate mt-0.5">
+              <span className="font-semibold text-[#2c2222] text-xs block truncate mt-0.5">
                 {categoryName}
               </span>
             </div>
 
             {/* Row 2: Purity & Quantity */}
             <div>
-              <span className="block text-[10px] font-bold text-stone-400 tracking-wider uppercase">
+              <span className="block text-[10px] font-bold text-[#856161] tracking-wider uppercase">
                 PURITY
               </span>
-              <span className="font-semibold text-stone-800 text-xs block truncate mt-0.5">
+              <span className="font-semibold text-[#2c2222] text-xs block truncate mt-0.5">
                 {purity}
               </span>
             </div>
 
             <div>
-              <span className="block text-[10px] font-bold text-stone-400 tracking-wider uppercase">
+              <span className="block text-[10px] font-bold text-[#856161] tracking-wider uppercase">
                 QUANTITY
               </span>
-              <span className="font-semibold text-stone-800 text-xs block truncate mt-0.5">
+              <span className="font-semibold text-[#2c2222] text-xs block truncate mt-0.5">
                 {quantity}
               </span>
             </div>
 
             {/* Row 3: Quality & Weight */}
             <div>
-              <span className="block text-[10px] font-bold text-stone-400 tracking-wider uppercase">
+              <span className="block text-[10px] font-bold text-[#856161] tracking-wider uppercase">
                 QUALITY
               </span>
-              <span className="font-semibold text-stone-800 text-xs block truncate mt-0.5">
+              <span className="font-semibold text-[#2c2222] text-xs block truncate mt-0.5">
                 {quality}
               </span>
             </div>
 
             <div>
-              <span className="block text-[10px] font-bold text-stone-400 tracking-wider uppercase">
+              <span className="block text-[10px] font-bold text-[#856161] tracking-wider uppercase">
                 WEIGHT
               </span>
-              <span className="font-semibold text-stone-800 text-xs block truncate mt-0.5">
+              <span className="font-semibold text-[#2c2222] text-xs block truncate mt-0.5">
                 {formattedWeight}
               </span>
             </div>

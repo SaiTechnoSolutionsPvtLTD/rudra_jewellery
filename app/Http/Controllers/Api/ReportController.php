@@ -53,9 +53,15 @@ class ReportController extends Controller
 
         if ($search) {
             $salesQuery->where(function ($q) use ($search) {
-                $q->where('invoice_number', 'like', "%{$search}%")
-                  ->orWhere('customer_name', 'like', "%{$search}%")
-                  ->orWhere('customer_phone', 'like', "%{$search}%");
+                $q->where('invoice_no', 'like', "%{$search}%")
+                  ->orWhere('client_name', 'like', "%{$search}%")
+                  ->orWhere('client_email', 'like', "%{$search}%")
+                  ->orWhereHas('client', function ($cq) use ($search) {
+                      $cq->where('full_name', 'like', "%{$search}%")
+                        ->orWhere('client_code', 'like', "%{$search}%")
+                        ->orWhere('primary_phone', 'like', "%{$search}%")
+                        ->orWhere('secondary_phone', 'like', "%{$search}%");
+                  });
             });
         }
 
@@ -156,8 +162,11 @@ class ReportController extends Controller
         if ($search) {
             $inventoryQuery->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('sku', 'like', "%{$search}%")
-                  ->orWhere('design_code', 'like', "%{$search}%");
+                  ->orWhere('product_code', 'like', "%{$search}%")
+                  ->orWhere('description', 'like', "%{$search}%")
+                  ->orWhereHas('category', function ($cq) use ($search) {
+                      $cq->where('name', 'like', "%{$search}%");
+                  });
             });
         }
         $allProducts = (clone $inventoryQuery)->get();
@@ -201,7 +210,13 @@ class ReportController extends Controller
             $workOrderQuery->where(function ($q) use ($search) {
                 $q->where('work_order_number', 'like', "%{$search}%")
                   ->orWhere('karigar_name', 'like', "%{$search}%")
-                  ->orWhere('product_name', 'like', "%{$search}%");
+                  ->orWhere('product_name', 'like', "%{$search}%")
+                  ->orWhere('material_type', 'like', "%{$search}%")
+                  ->orWhere('current_stage', 'like', "%{$search}%")
+                  ->orWhere('status', 'like', "%{$search}%")
+                  ->orWhereHas('karigar', function ($kq) use ($search) {
+                      $kq->where('name', 'like', "%{$search}%");
+                  });
             });
         }
 
@@ -240,7 +255,14 @@ class ReportController extends Controller
         if ($search) {
             $purchaseQuery->where(function ($q) use ($search) {
                 $q->where('purchase_no', 'like', "%{$search}%")
-                  ->orWhere('supplier_name', 'like', "%{$search}%");
+                  ->orWhereHas('supplier', function ($sq) use ($search) {
+                      $sq->where('name', 'like', "%{$search}%")
+                        ->orWhere('phone', 'like', "%{$search}%");
+                  })
+                  ->orWhereHas('product', function ($pq) use ($search) {
+                      $pq->where('name', 'like', "%{$search}%")
+                        ->orWhere('product_code', 'like', "%{$search}%");
+                  });
             });
         }
 

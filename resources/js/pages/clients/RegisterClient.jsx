@@ -36,6 +36,7 @@ export default function RegisterClient() {
     designation: '',
     membershipTier: '',
     status: 'active',
+    preferredCommunication: 'Email',
     quickNotes: ''
   });
 
@@ -88,6 +89,7 @@ export default function RegisterClient() {
           designation: data.designation || '',
           membershipTier: data.membership_tier || (memRes.data.length > 0 ? memRes.data[0].code : ''),
           status: data.status || 'active',
+          preferredCommunication: data.preferred_communication || 'Email',
           quickNotes: data.quick_notes || ''
         });
 
@@ -181,6 +183,8 @@ export default function RegisterClient() {
       payload.append('membership_tier', formData.membershipTier || '');
       payload.append('membershipTier', formData.membershipTier || '');
       payload.append('status', formData.status || 'active');
+      payload.append('preferred_communication', formData.preferredCommunication || 'Email');
+      payload.append('preferredCommunication', formData.preferredCommunication || 'Email');
       payload.append('quick_notes', formData.quickNotes || '');
       payload.append('quickNotes', formData.quickNotes || '');
 
@@ -499,6 +503,32 @@ export default function RegisterClient() {
                   <option value="active">Active</option>
                   <option value="inactive">Inactive</option>
                 </select>
+              </div>
+
+              {/* Preferred Communication */}
+              <div className="pt-1">
+                <label className="block text-xs font-semibold text-gray-700 mb-2">
+                  Preferred Communication
+                </label>
+                <div className="flex items-center gap-2">
+                  {['WhatsApp', 'Email', 'Phone Call'].map((mode) => {
+                    const isSelected = (formData.preferredCommunication || 'Email') === mode;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setFormData(prev => ({ ...prev, preferredCommunication: mode }))}
+                        className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-[#b01622] text-white font-bold border border-[#b01622] shadow-2xs'
+                            : 'bg-white text-stone-800 border border-rose-200/90 hover:border-[#b01622]/50 hover:bg-rose-50/40'
+                        }`}
+                      >
+                        {mode}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 

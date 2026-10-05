@@ -168,4 +168,23 @@ class ClientPriceListController extends Controller
             'client' => $client
         ]);
     }
+
+    /**
+     * Get price list version history for a given client
+     */
+    public function history($clientId)
+    {
+        $client = Client::find($clientId);
+        if (!$client) {
+            return response()->json(['message' => 'Client not found'], 404);
+        }
+
+        $history = ClientPriceList::where('client_id', $clientId)->orderBy('id', 'desc')->get();
+
+        return response()->json([
+            'status' => 'success',
+            'history' => $history,
+            'client' => $client
+        ]);
+    }
 }

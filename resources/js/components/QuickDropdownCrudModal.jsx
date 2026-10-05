@@ -52,6 +52,41 @@ export default function QuickDropdownCrudModal({
       itemName: 'Diamond Range',
       emptyNamePlaceholder: 'e.g. 2 – 3 Carat or Solitaire Above 3 CT',
     },
+    karat: {
+      title: 'Manage Karat Masters',
+      icon: 'fa-solid fa-award',
+      endpoint: '/karats',
+      itemName: 'Karat',
+      emptyNamePlaceholder: 'e.g. 22K, 24K, 18K',
+    },
+    stamp: {
+      title: 'Manage Stamp Masters',
+      icon: 'fa-solid fa-certificate',
+      endpoint: '/stamps',
+      itemName: 'Stamp',
+      emptyNamePlaceholder: 'e.g. 916, 999, 750, HM',
+    },
+    unit: {
+      title: 'Manage Unit Masters',
+      icon: 'fa-solid fa-scale-balanced',
+      endpoint: '/units',
+      itemName: 'Unit',
+      emptyNamePlaceholder: 'e.g. Grams, Carats, Milligrams',
+    },
+    item: {
+      title: 'Manage Items',
+      icon: 'fa-solid fa-box-open',
+      endpoint: '/items',
+      itemName: 'Item',
+      emptyNamePlaceholder: 'e.g. Box Link Chain or Antique Temple Necklace',
+    },
+    item_master: {
+      title: 'Manage Items',
+      icon: 'fa-solid fa-box-open',
+      endpoint: '/items',
+      itemName: 'Item',
+      emptyNamePlaceholder: 'e.g. Box Link Chain or Antique Temple Necklace',
+    },
   }[type] || {
     title: 'Manage Options',
     icon: 'fa-solid fa-list',
@@ -60,11 +95,17 @@ export default function QuickDropdownCrudModal({
     emptyNamePlaceholder: 'Enter name',
   };
 
+  const [karats, setKarats] = useState([]);
+
   const fetchItems = async () => {
     try {
       setLoading(true);
       const res = await api.get(config.endpoint);
       setItems(res.data || []);
+      if (type === 'gold_type') {
+        const kRes = await api.get('/karats').catch(() => ({ data: [] }));
+        setKarats(kRes.data || []);
+      }
     } catch (err) {
       console.error(err);
       showToast(`Failed to load ${config.itemName} list`, 'error');
@@ -253,17 +294,73 @@ export default function QuickDropdownCrudModal({
                 </div>
               )}
 
-              {/* Gold Type specific field: Purity */}
+              {/* Gold Type specific fields: Purity & Karat */}
               {type === 'gold_type' && (
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Purity / Karat Note (Optional)</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 75.0% Fine Gold / 18KT"
-                    value={formData.purity}
-                    onChange={(e) => setFormData({ ...formData, purity: e.target.value })}
-                    className="w-full px-3.5 h-[38px] bg-white border border-gray-300 rounded-lg text-xs text-gray-800 focus:outline-none focus:border-[#b01622]"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Purity <span className="text-gray-400 font-normal font-sans">(Typing format)</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 91.6% or Fine 916"
+                      value={formData.purity || ''}
+                      onChange={(e) => setFormData({ ...formData, purity: e.target.value })}
+                      className="w-full px-3.5 h-[38px] bg-white border border-gray-300 rounded-lg text-xs text-gray-800 focus:outline-none focus:border-[#b01622]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Karat <span className="text-gray-400 font-normal font-sans">(Master Dropdown)</span>
+                    </label>
+                    <select
+                      value={formData.karat || ''}
+                      onChange={(e) => {
+                        const selectedKarat = e.target.value;
+                        let suggestedPurity = formData.purity;
+                        if (!formData.purity && selectedKarat) {
+                          const match = karats.find(k => (k.name || k.code) === selectedKarat);
+                          if (match && match.description) {
+                            suggestedPurity = match.description;
+                          } else {
+                            if (selectedKarat === '24K') suggestedPurity = '99.9% Fine Pure';
+                            else if (selectedKarat === '23K') suggestedPurity = '95.8% Gold';
+                            else if (selectedKarat === '22K') suggestedPurity = '91.6% Standard';
+                            else if (selectedKarat === '20K') suggestedPurity = '83.3% Gold';
+                            else if (selectedKarat === '18K') suggestedPurity = '75.0% Jewel Gold';
+                            else if (selectedKarat === '14K') suggestedPurity = '58.5% Fashion Gold';
+                            else if (selectedKarat === '10K') suggestedPurity = '41.7% Gold';
+                            else if (selectedKarat === '9K') suggestedPurity = '37.5% Gold';
+                          }
+                        }
+                        setFormData({ ...formData, karat: selectedKarat, purity: suggestedPurity });
+                      }}
+                      className="w-full px-3.5 h-[38px] bg-white border border-gray-300 rounded-lg text-xs text-gray-800 focus:outline-none focus:border-[#b01622] cursor-pointer"
+                    >
+                      <option value="">Select Karat</option>
+                      {karats.length > 0 ? (
+                        karats.map((k) => {
+                          const kVal = k.name || k.code;
+                          return (
+                            <option key={k.id || kVal} value={kVal}>
+                              {k.name} {k.code && k.code !== k.name ? `(${k.code})` : ''}
+                            </option>
+                          );
+                        })
+                      ) : (
+                        <>
+                          <option value="24K">24K (99.9% Pure Gold)</option>
+                          <option value="23K">23K (95.8% Gold)</option>
+                          <option value="22K">22K (91.6% Standard Gold)</option>
+                          <option value="20K">20K (83.3% Gold)</option>
+                          <option value="18K">18K (75.0% Jewel Gold)</option>
+                          <option value="14K">14K (58.5% Fashion Gold)</option>
+                          <option value="10K">10K (41.7% Gold)</option>
+                          <option value="9K">9K (37.5% Gold)</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
                 </div>
               )}
 

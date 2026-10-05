@@ -8,27 +8,30 @@ import GoldRateEditModal from './GoldRateEditModal';
 import { SHOW_STOCK_MANAGEMENT } from './Sidebar';
 
 const QUICK_SEARCH_ITEMS = [
-  { label: 'Inventory', path: '/inventory', section: 'Inventory', icon: 'fa-solid fa-boxes-stacked' },
-  { label: 'Karigar Management', path: '/karigars', section: 'Artisans', icon: 'fa-solid fa-people-group' },
-  { label: 'Work Specifications Master', path: '/masters/work-specifications', section: 'Masters', icon: 'fa-solid fa-shapes' },
-  { label: 'Billing Dashboard', path: '/clients/billing', section: 'Clients', icon: 'fa-solid fa-receipt' },
-  { label: 'Client Directory', path: '/clients', section: 'Clients', icon: 'fa-solid fa-user-group' },
-  { label: 'Register New Client', path: '/clients/register', section: 'Clients', icon: 'fa-solid fa-user-plus' },
-  { label: 'Product Upload', path: '/product-upload/step1', section: 'Product Upload', icon: 'fa-solid fa-cloud-arrow-up' },
-  ...(SHOW_STOCK_MANAGEMENT ? [{ label: 'Stock Management', path: '/stock-management', section: 'Inventory', icon: 'fa-solid fa-boxes-stacked' }] : []),
-  { label: 'Supplier Management', path: '/stock-management/suppliers', section: 'Inventory', icon: 'fa-solid fa-building-user' },
-  { label: 'Purchase Entry', path: '/purchase/entry', section: 'Inventory', icon: 'fa-solid fa-cart-shopping' },
+  { label: 'Inventory Overview', path: '/inventory', section: 'Inventory', icon: 'fa-solid fa-boxes-stacked' },
+  { label: 'Add New Product (Page 5)', path: '/inventory/add-new/category', section: 'Inventory', icon: 'fa-solid fa-plus' },
+  { label: 'Product Upload (Page 6 & 7)', path: '/inventory/add-new/upload', section: 'Inventory', icon: 'fa-solid fa-cloud-arrow-up' },
+  { label: 'Bulk Product Upload', path: '/inventory/bulk-upload', section: 'Inventory', icon: 'fa-solid fa-cloud-arrow-up' },
   { label: 'Categories Master', path: '/masters/categories', section: 'Masters', icon: 'fa-solid fa-layer-group' },
   { label: 'Subcategories Master', path: '/masters/subcategories', section: 'Masters', icon: 'fa-solid fa-diagram-project' },
-  { label: 'Inventory & Products', path: '/inventory', section: 'Inventory', icon: 'fa-solid fa-boxes-stacked' },
-  { label: 'Add New Product', path: '/inventory/add-new/category', section: 'Inventory', icon: 'fa-solid fa-plus' },
-  { label: 'Bulk Product Upload', path: '/inventory/bulk-upload', section: 'Inventory', icon: 'fa-solid fa-cloud-arrow-up' },
+  { label: 'Karat Master', path: '/masters/karats', section: 'Masters', icon: 'fa-solid fa-award' },
+  { label: 'Stamp Master', path: '/masters/stamps', section: 'Masters', icon: 'fa-solid fa-certificate' },
+  { label: 'Unit Master', path: '/masters/units', section: 'Masters', icon: 'fa-solid fa-scale-balanced' },
   { label: 'Setting Styles Master', path: '/masters/setting-styles', section: 'Masters', icon: 'fa-solid fa-ring' },
   { label: 'Gold Types Master', path: '/masters/gold-types', section: 'Masters', icon: 'fa-solid fa-coins' },
-  { label: 'Diamond Ranges Master', path: '/masters/diamond-ranges', section: 'Masters', icon: 'fa-solid fa-certificate' },
+  { label: 'Diamond Ranges Master', path: '/masters/diamond-ranges', section: 'Masters', icon: 'fa-solid fa-gem' },
+  { label: 'Diamond Colour Master', path: '/masters/diamond-colors', section: 'Masters', icon: 'fa-solid fa-palette' },
+  { label: 'Diamond Clarity Master', path: '/masters/diamond-clarities', section: 'Masters', icon: 'fa-solid fa-sparkles' },
+  { label: 'Work Specifications Master', path: '/masters/work-specifications', section: 'Masters', icon: 'fa-solid fa-shapes' },
   { label: 'Memberships Master', path: '/masters/memberships', section: 'Masters', icon: 'fa-solid fa-id-card' },
   { label: 'Bank Accounts Master', path: '/masters/bank-accounts', section: 'Masters', icon: 'fa-solid fa-building-columns' },
   { label: 'Company Info Master', path: '/masters/info', section: 'Masters', icon: 'fa-solid fa-building' },
+  { label: 'Karigar Management', path: '/karigars', section: 'Artisans', icon: 'fa-solid fa-people-group' },
+  { label: 'Billing Dashboard', path: '/clients/billing', section: 'Clients', icon: 'fa-solid fa-receipt' },
+  { label: 'Client Directory', path: '/clients', section: 'Clients', icon: 'fa-solid fa-user-group' },
+  { label: 'Register New Client', path: '/clients/register', section: 'Clients', icon: 'fa-solid fa-user-plus' },
+  { label: 'Supplier Management', path: '/stock-management/suppliers', section: 'Inventory', icon: 'fa-solid fa-building-user' },
+  { label: 'Purchase Entry', path: '/purchase/entry', section: 'Inventory', icon: 'fa-solid fa-cart-shopping' },
   { label: 'User Accounts', path: '/authentication/users', section: 'Security', icon: 'fa-solid fa-users-gear' },
   { label: 'Roles & Permissions', path: '/authentication/roles', section: 'Security', icon: 'fa-solid fa-user-shield' },
 ];
@@ -42,6 +45,9 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
   const [rates, setRates] = useState(null);
   const [loadingRates, setLoadingRates] = useState(true);
   const [isRateModalOpen, setIsRateModalOpen] = useState(false);
+
+  // Dynamic Categories & Subcategories for Auto Search
+  const [dynamicSearchItems, setDynamicSearchItems] = useState([]);
 
   // Quick Auto-Search
   const [globalSearch, setGlobalSearch] = useState('');
@@ -61,8 +67,52 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
       });
   };
 
+  const fetchMasterItemsForSearch = async () => {
+    try {
+      const [catRes, subRes, itemRes, prodRes] = await Promise.all([
+        api.get('/categories').catch(() => ({ data: [] })),
+        api.get('/subcategories').catch(() => ({ data: [] })),
+        api.get('/items').catch(() => ({ data: [] })),
+        api.get('/inventory?per_page=100').catch(() => ({ data: { products: { data: [] } } })),
+      ]);
+
+      const catItems = (catRes.data || []).map((c) => ({
+        label: `Category: ${c.name}`,
+        path: `/masters/categories`,
+        section: 'Category Master',
+        icon: 'fa-solid fa-layer-group',
+      }));
+
+      const subItems = (subRes.data || []).map((s) => ({
+        label: `Subcategory: ${s.name}`,
+        path: `/masters/subcategories`,
+        section: 'Subcategory Master',
+        icon: 'fa-solid fa-diagram-project',
+      }));
+
+      const masterItems = (itemRes.data || []).map((i) => ({
+        label: `Item Master: ${i.name}`,
+        path: `/masters/items`,
+        section: 'Item Master',
+        icon: 'fa-solid fa-tags',
+      }));
+
+      const productsList = (prodRes.data?.products?.data || prodRes.data?.data || []).map((p) => ({
+        label: `Product: ${p.name} (${p.product_code || 'SKU'})`,
+        path: `/inventory/products/${p.id}`,
+        section: 'Inventory Product',
+        icon: 'fa-solid fa-gem',
+      }));
+
+      setDynamicSearchItems([...catItems, ...subItems, ...masterItems, ...productsList]);
+    } catch (e) {
+      console.error('Failed to load dynamic master search items', e);
+    }
+  };
+
   useEffect(() => {
     fetchMetalRates();
+    fetchMasterItemsForSearch();
     const interval = setInterval(fetchMetalRates, 60000);
     const handleSync = (e) => {
       if (e?.detail) setRates(prev => ({ ...prev, ...e.detail }));
@@ -80,27 +130,76 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
     };
   }, []);
 
-  // Keyboard shortcut Ctrl+F or Cmd+F
+  // Keyboard shortcut Ctrl+F / Cmd+F & Barcode Scanner Listener
   useEffect(() => {
+    let barcodeBuffer = '';
+    let lastKeyTime = Date.now();
+
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'k')) {
         e.preventDefault();
         searchInputRef.current?.focus();
         setSearchOpen(true);
+        return;
       }
       if (e.key === 'Escape') {
         setSearchOpen(false);
+        return;
+      }
+
+      // Barcode Scanner listener
+      const activeTag = document.activeElement?.tagName;
+      if (activeTag === 'TEXTAREA' || (activeTag === 'INPUT' && document.activeElement !== searchInputRef.current)) {
+        return;
+      }
+
+      const currentTime = Date.now();
+      if (currentTime - lastKeyTime > 150) {
+        barcodeBuffer = '';
+      }
+      lastKeyTime = currentTime;
+
+      if (e.key === 'Enter') {
+        if (barcodeBuffer.length >= 3) {
+          const scannedCode = barcodeBuffer.trim().replace(/^\*/, '').replace(/\*$/, '');
+          barcodeBuffer = '';
+          api.get(`/inventory?search=${encodeURIComponent(scannedCode)}`).then((res) => {
+            const list = res.data?.products?.data || [];
+            if (list.length > 0) {
+              navigate(`/inventory/products/${list[0].id}`);
+            }
+          }).catch(() => {});
+        }
+        barcodeBuffer = '';
+      } else if (e.key.length === 1) {
+        barcodeBuffer += e.key;
       }
     };
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [navigate]);
 
   // Live Notifications Feed
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
   const notifContainerRef = useRef(null);
+
+  const allSearchItems = [...QUICK_SEARCH_ITEMS, ...dynamicSearchItems];
+
+  const searchResults = globalSearch.trim()
+    ? allSearchItems.filter(item =>
+      item.label.toLowerCase().includes(globalSearch.toLowerCase()) ||
+      item.section.toLowerCase().includes(globalSearch.toLowerCase())
+    )
+    : [];
+
+  const handleSelectResult = (path) => {
+    setGlobalSearch('');
+    setSearchOpen(false);
+    navigate(path);
+  };
 
   const fetchNotifications = async () => {
     try {
@@ -165,18 +264,6 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
     }
   };
 
-  const searchResults = globalSearch.trim()
-    ? QUICK_SEARCH_ITEMS.filter(item =>
-      item.label.toLowerCase().includes(globalSearch.toLowerCase()) ||
-      item.section.toLowerCase().includes(globalSearch.toLowerCase())
-    )
-    : [];
-
-  const handleSelectResult = (path) => {
-    setGlobalSearch('');
-    setSearchOpen(false);
-    navigate(path);
-  };
 
   const handleConfirmLogout = async () => {
     setIsLoggingOut(true);
@@ -307,9 +394,9 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
               <i className="fa-solid fa-pen text-[9px] text-[#a38749] opacity-60 group-hover:opacity-100 transition-opacity"></i>
             </div>
             <div className="flex items-center gap-2 text-[10px] mt-0.5 whitespace-nowrap">
-              <span className="text-[#a38749] font-semibold">24K (999) <span className="text-[#b01622] font-bold text-[11px]">₹{rates?.gold24k || '14,634'}</span></span>
+              <span className="text-[#a38749] font-semibold">24K (999) <span className="text-[#b01622] font-bold text-[11px]">{rates?.gold24kGram || rates?.gold24k ? `₹${rates?.gold24kGram || rates?.gold24k}/g` : '...'}</span></span>
               <span className="text-stone-300">|</span>
-              <span className="text-[#a38749] font-semibold">22K (916) <span className="text-[#b01622] font-bold text-[11px]">₹{rates?.gold22k || '13,414'}</span></span>
+              <span className="text-[#a38749] font-semibold">22K (916) <span className="text-[#b01622] font-bold text-[11px]">{rates?.gold22kGram || rates?.gold22k ? `₹${rates?.gold22kGram || rates?.gold22k}/g` : '...'}</span></span>
               {rates?.isManual && (
                 <span className="text-[8px] font-extrabold bg-amber-200/80 text-amber-900 px-1 rounded uppercase tracking-wider">Manual</span>
               )}
@@ -429,15 +516,30 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
         {/* Subtle Vertical Divider */}
         <div className="h-6 w-[1px] bg-gray-200 mx-1"></div>
 
-        {/* User Profile Pill (Clean Text without avatar photo/logo) */}
+        {/* User Profile Pill (Profile photo on the far right end matching Image 2) */}
         <button
           onClick={() => setShowLogoutModal(true)}
-          className="flex items-center gap-1.5 px-4 py-1.5 rounded-full border border-gray-300 bg-white hover:bg-gray-50 transition-colors cursor-pointer shadow-2xs"
+          className="flex items-center gap-1.5 pl-4 pr-1 py-1 rounded-full border border-gray-300 bg-white hover:bg-gray-50 transition-colors cursor-pointer shadow-2xs"
           title="Account Menu / Logout"
         >
           <span className="text-[#a5141f] font-bold text-xs">{user?.name || 'Arvind'}</span>
           <span className="text-gray-500 font-normal text-xs">({user?.role || 'Super Admin'})</span>
-          <i className="fa-solid fa-chevron-down text-[10px] text-gray-700 ml-1"></i>
+          <i className="fa-solid fa-chevron-down text-[10px] text-gray-700 mx-1"></i>
+          {user?.avatar || user?.karigar?.avatar_url || '/images/samples/arvind_profile.jpg' ? (
+            <img
+              src={user?.avatar || user?.karigar?.avatar_url || '/images/samples/arvind_profile.jpg'}
+              alt={user?.name || 'User'}
+              className="w-7 h-7 rounded-full object-cover border border-stone-200 shrink-0 shadow-2xs"
+              onError={(e) => {
+                e.target.onerror = null;
+                e.target.src = '/images/samples/arvind_profile.jpg';
+              }}
+            />
+          ) : (
+            <div className="w-7 h-7 rounded-full bg-[#b01622] text-white flex items-center justify-center font-bold text-xs shrink-0">
+              {(user?.name || 'A')[0]}
+            </div>
+          )}
         </button>
       </div>
 

@@ -221,7 +221,12 @@ export default function Categories() {
           <div>
             <p className="text-xs font-medium text-gray-400 mb-1">Metal & Gem Categories</p>
             <div className="text-2xl font-bold text-gray-900 tracking-tight">
-              {categories.filter(c => ['GOLD', 'SILVER', 'DIAMOND', 'PLATINUM'].includes((c.code || '').toUpperCase())).length}
+              {categories.filter(c => {
+                const code = (c.code || '').toUpperCase();
+                const name = (c.name || '').toUpperCase();
+                const keywords = ['GOLD', 'SILVER', 'DIAMOND', 'PLATINUM', 'STONE', 'GEM', 'RUBY', 'EMERALD', 'SAPPHIRE', 'PEARL', 'METAL'];
+                return keywords.some(kw => code.includes(kw) || name.includes(kw));
+              }).length}
             </div>
           </div>
         </div>

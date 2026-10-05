@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/AuthContext';
 import ConfirmModal from '../../components/ConfirmModal';
 import Pagination from '../../components/Pagination';
 
@@ -13,6 +14,7 @@ export default function Users() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(5);
   const { showToast } = useToast();
+  const { user: currentUser, updateUser } = useAuth();
 
   // Modal State
   const [showModal, setShowModal] = useState(false);
@@ -29,6 +31,7 @@ export default function Users() {
     mobile_number: '',
     role: 'Staff',
     status: 'active',
+    avatar: '',
     password: '',
     confirm_password: ''
   });
@@ -71,6 +74,7 @@ export default function Users() {
       mobile_number: '',
       role: rolesList[0] || 'Staff',
       status: 'active',
+      avatar: '',
       password: '',
       confirm_password: ''
     });
@@ -85,10 +89,25 @@ export default function Users() {
       mobile_number: user.mobile_number || '',
       role: user.role || 'Staff',
       status: user.status || 'active',
+      avatar: user.avatar || '',
       password: '',
       confirm_password: ''
     });
     setShowModal(true);
+  };
+
+  const handleAvatarUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('Image size should be less than 5MB', 'error');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setFormData(prev => ({ ...prev, avatar: reader.result }));
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleChange = (e) => {
@@ -129,13 +148,30 @@ export default function Users() {
     }
 
     try {
+      let savedUser = null;
       if (editingId) {
-        await api.put(`/users/${editingId}`, formData);
+        const res = await api.put(`/users/${editingId}`, formData);
+        savedUser = res.data?.user || res.data;
         showToast(`User "${formData.name}" updated successfully!`, 'success', 'Updated');
       } else {
-        await api.post('/users', formData);
+        const res = await api.post('/users', formData);
+        savedUser = res.data?.user || res.data;
         showToast(`New user "${formData.name}" created successfully!`, 'success', 'Created');
       }
+
+      // Sync active logged-in user profile & photo immediately across the app
+      if (currentUser && (currentUser.id === editingId || currentUser.email === formData.email || currentUser.name === formData.name)) {
+        if (updateUser) {
+          updateUser({
+            name: formData.name,
+            email: formData.email,
+            avatar: formData.avatar,
+            role: formData.role,
+            mobile_number: formData.mobile_number,
+          });
+        }
+      }
+
       setShowModal(false);
       fetchUsers();
     } catch (err) {
@@ -296,9 +332,17 @@ export default function Users() {
                     <tr key={user.id} className="hover:bg-gray-50/60 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-red-100 text-[#b01622] flex items-center justify-center font-bold text-xs shrink-0">
-                            {initials}
-                          </div>
+                          {user.avatar ? (
+                            <img
+                              src={user.avatar}
+                              alt={user.name}
+                              className="w-10 h-10 rounded-full object-cover border border-stone-200 shadow-xs shrink-0"
+                            />
+                          ) : (
+                            <div className="w-10 h-10 rounded-full bg-red-100 text-[#b01622] flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                              {initials}
+                            </div>
+                          )}
                           <div>
                             <div className="font-bold text-gray-900">{user.name}</div>
                           </div>
@@ -384,6 +428,63 @@ export default function Users() {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               
+              {/* Profile Photo Uploader */}
+              <div className="flex items-center gap-4 bg-stone-50 p-3.5 rounded-xl border border-stone-200/80">
+                <div className="relative shrink-0">
+                  {formData.avatar ? (
+                    <img
+                      src={formData.avatar}
+                      alt="Profile Preview"
+                      className="w-16 h-16 rounded-full object-cover border-2 border-[#b01622] shadow-sm"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 rounded-full bg-red-100 text-[#b01622] border-2 border-dashed border-red-200 flex items-center justify-center text-xl font-bold">
+                      <i className="fa-solid fa-user"></i>
+                    </div>
+                  )}
+                  <label
+                    htmlFor="user-avatar-upload"
+                    className="absolute bottom-0 right-0 w-6 h-6 bg-[#b01622] hover:bg-[#8f1019] text-white rounded-full flex items-center justify-center text-xs shadow-md cursor-pointer transition-colors"
+                    title="Upload Profile Photo"
+                  >
+                    <i className="fa-solid fa-camera text-[10px]"></i>
+                  </label>
+                  <input
+                    id="user-avatar-upload"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleAvatarUpload}
+                    className="hidden"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-gray-800">
+                    Profile Photo / Image
+                  </label>
+                  <p className="text-[11px] text-gray-500 leading-tight">
+                    Upload PNG, JPG, or GIF (max 5MB).
+                  </p>
+                  <div className="flex items-center gap-2 pt-0.5">
+                    <label
+                      htmlFor="user-avatar-upload"
+                      className="px-3 py-1 bg-white hover:bg-stone-100 text-stone-700 border border-stone-300 rounded-lg text-xs font-semibold cursor-pointer transition-colors inline-block"
+                    >
+                      {formData.avatar ? 'Change Photo' : 'Upload Photo'}
+                    </label>
+                    {formData.avatar && (
+                      <button
+                        type="button"
+                        onClick={() => setFormData(prev => ({ ...prev, avatar: '' }))}
+                        className="px-2.5 py-1 text-red-600 hover:text-red-800 text-xs font-semibold transition-colors"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {/* Name */}
               <div>
                 <label className="block text-xs font-bold text-gray-700 mb-1.5">

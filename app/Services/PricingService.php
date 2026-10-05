@@ -42,7 +42,9 @@ class PricingService
 
         $attrs = is_array($product->attributes) ? $product->attributes : (json_decode($product->attributes ?? '[]', true) ?: []);
         $weight = $customWeight ?: floatval($attrs['gross_wt'] ?? $product->opening_stock_weight ?? $product->weight ?? 1.0);
-        $baseRate = floatval($attrs['sale_rate'] ?? $attrs['rate'] ?? $product->opening_stock_rate ?? 6850.0);
+        $liveRates = \App\Http\Controllers\Api\DashboardController::getLiveMetalRatesData();
+        $defaultLiveRate = floatval($liveRates['raw22k'] ?? 13207.0);
+        $baseRate = floatval($attrs['sale_rate'] ?? $attrs['rate'] ?? $product->opening_stock_rate ?? $defaultLiveRate);
 
         $makingChargePerGram = floatval($attrs['making_charge'] ?? 650.0);
         $stoneCharge = floatval($attrs['stone_charge'] ?? $attrs['diamond_charge'] ?? 0.0);

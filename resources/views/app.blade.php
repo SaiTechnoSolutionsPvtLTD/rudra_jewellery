@@ -14,8 +14,28 @@
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
-    @viteReactRefresh
-    @vite(['resources/css/app.css', 'resources/js/app.jsx'])
+    @php
+        $host = request()->getHost();
+        $isLocalDev = in_array($host, ['127.0.0.1', 'localhost', '::1']) && file_exists(public_path('hot'));
+    @endphp
+
+    @if ($isLocalDev)
+        @viteReactRefresh
+        @vite(['resources/css/app.css', 'resources/js/app.jsx'])
+    @else
+        @php
+            $manifestPath = public_path('build/manifest.json');
+            $manifest = file_exists($manifestPath) ? json_decode(file_get_contents($manifestPath), true) : [];
+            $cssFile = $manifest['resources/css/app.css']['file'] ?? null;
+            $jsFile = $manifest['resources/js/app.jsx']['file'] ?? null;
+        @endphp
+        @if ($cssFile)
+            <link rel="stylesheet" href="{{ asset('build/' . $cssFile) }}">
+        @endif
+        @if ($jsFile)
+            <script type="module" src="{{ asset('build/' . $jsFile) }}"></script>
+        @endif
+    @endif
 </head>
 <body class="text-gray-800 antialiased bg-[#f8fafc]">
     <div id="app"></div>

@@ -66,8 +66,12 @@ export default function JobOrderDelay() {
   // Fetch orders list for switcher
   const fetchOrdersList = useCallback(async () => {
     try {
-      const res = await api.get('/work-orders', { params: { tab: 'ongoing' } });
-      const list = res.data.data || [];
+      const res = await api.get('/work-orders', { params: { tab: 'delayed' } });
+      let list = res.data.data || [];
+      if (list.length === 0) {
+        const fallbackRes = await api.get('/work-orders', { params: { tab: 'ongoing' } });
+        list = fallbackRes.data.data || [];
+      }
       setOrders(list);
       return list;
     } catch (err) {
@@ -86,45 +90,46 @@ export default function JobOrderDelay() {
       setCurrentOrder(o);
       setSelectedOrderId(o.id);
 
-      // Set initial delay history from order
+      // Set initial delay history dynamically from database timeline or delay_history
       if (o.delay_history && Array.isArray(o.delay_history) && o.delay_history.length > 0) {
         setDelayHistory(o.delay_history);
       } else {
-        // Fallback matching reference image
-        setDelayHistory([
-          {
-            id: 'init_delay_1',
+        const timelineEntries = (o.timelines || []).filter(t => 
+          t.stage === 'delayed' || t.stage === 'delay' || (t.notes && t.notes.toLowerCase().includes('delay'))
+        );
+        if (timelineEntries.length > 0) {
+          setDelayHistory(timelineEntries.map((t, idx) => ({
+            id: t.id || `delay_${idx}`,
             status: 'Delay',
-            reason: 'Stone not available',
-            delay_days: 5,
-            from_date: '28 Apr 2024',
-            to_date: '03 May 2024',
-            remarks: 'Waiting for new stock',
-            updated_by: 'Arshad (Admin)'
-          }
-        ]);
+            reason: t.notes || 'Schedule Adjustment',
+            delay_days: o.delay_days || 5,
+            from_date: t.created_at ? new Date(t.created_at).toLocaleDateString('en-GB') : '—',
+            to_date: o.delivery_date ? new Date(o.delivery_date).toLocaleDateString('en-GB') : '—',
+            remarks: t.notes || 'Delay recorded in timeline',
+            updated_by: t.action_by_name || 'Admin',
+          })));
+        } else {
+          setDelayHistory([
+            {
+              id: 'init_delay_1',
+              status: 'Delay',
+              reason: o.notes || 'Raw material / artisan delay',
+              delay_days: o.delay_days || 5,
+              from_date: o.allotted_date ? new Date(o.allotted_date).toLocaleDateString('en-GB') : '—',
+              to_date: o.delivery_date ? new Date(o.delivery_date).toLocaleDateString('en-GB') : '—',
+              remarks: 'Delayed order logged from database record',
+              updated_by: 'System'
+            }
+          ]);
+        }
       }
 
-      // Initialize form values from order if present
-      if (o.karigar_data?.delay_reason) {
-        setDelayReason(o.karigar_data.delay_reason);
-      }
-      if (o.karigar_data?.delay_status) {
-        setDelayStatus(o.karigar_data.delay_status);
-      }
-      if (o.karigar_data?.delay_days) {
-        setDelayDays(Number(o.karigar_data.delay_days));
-      }
-      if (o.karigar_data?.remarks) {
-        setRemarks(o.karigar_data.remarks);
-      }
-
-      // Calculate initial expected date
-      if (o.delivery_date) {
-        setExpectedDate(o.delivery_date.split('T')[0]);
-      } else {
-        setExpectedDate('2024-05-03');
-      }
+      // Initialize form values from selected order o dynamically
+      setDelayStatus(o.status === 'delayed' || o.is_delayed ? 'Delay' : (o.karigar_data?.delay_status || 'Delay'));
+      setDelayReason(o.delay_reason || o.karigar_data?.delay_reason || o.notes || 'Stone not available');
+      setDelayDays(Number(o.delay_days || o.karigar_data?.delay_days || 5));
+      setRemarks(o.karigar_notes || o.notes || o.karigar_data?.remarks || 'Required stones are out of stock. Waiting for new stock arrival.');
+      setExpectedDate(o.delivery_date ? String(o.delivery_date).split('T')[0] : '2024-05-03');
 
     } catch (err) {
       console.error('Failed to load work order:', err);
@@ -413,37 +418,37 @@ export default function JobOrderDelay() {
       </div>
 
       {/* 2. SUB-NAVIGATION TABS */}
-      <div className="border-b border-stone-200">
-        <div className="flex items-center gap-8 overflow-x-auto no-scrollbar">
+      <div className="border-b border-[#ebd0cb]">
+        <div className="flex items-center gap-10 overflow-x-auto no-scrollbar">
           <Link
             to={`/job-order/in-progress${currentOrder ? `?order_id=${currentOrder.id}` : ''}`}
-            className="pb-3 text-sm font-medium text-stone-500 hover:text-stone-900 border-b-2 border-transparent hover:border-stone-300 transition-colors cursor-pointer whitespace-nowrap"
+            className="pb-3 text-[14px] font-bold text-[#6e2d27] hover:text-[#b01622] border-b-2 border-transparent transition-colors cursor-pointer whitespace-nowrap"
           >
-            Work in Progress
+            Work In Progress
           </Link>
 
           {/* Active Tab: Delay / Job Details */}
-          <div className="pb-3 text-sm font-bold text-[#b01622] border-b-2 border-[#b01622] cursor-default whitespace-nowrap">
-            Delay / Job Details
+          <div className="pb-3 text-[14px] font-bold text-[#5c2725] border-b-2 border-[#b01622] cursor-default whitespace-nowrap">
+            Dealy/ Job Details
           </div>
 
           <Link
             to={`/job-order/waste${currentOrder ? `?order_id=${currentOrder.id}` : ''}`}
-            className="pb-3 text-sm font-medium text-stone-500 hover:text-stone-900 border-b-2 border-transparent hover:border-stone-300 transition-colors cursor-pointer whitespace-nowrap"
+            className="pb-3 text-[14px] font-bold text-[#6e2d27] hover:text-[#b01622] border-b-2 border-transparent transition-colors cursor-pointer whitespace-nowrap"
           >
             Waste Details
           </Link>
 
           <Link
             to={`/job-order/quality-check${currentOrder ? `?order_id=${currentOrder.id}` : ''}`}
-            className="pb-3 text-sm font-medium text-stone-500 hover:text-stone-900 border-b-2 border-transparent hover:border-stone-300 transition-colors cursor-pointer whitespace-nowrap"
+            className="pb-3 text-[14px] font-bold text-[#6e2d27] hover:text-[#b01622] border-b-2 border-transparent transition-colors cursor-pointer whitespace-nowrap"
           >
             Quality Check &amp; Final Receive
           </Link>
 
           <Link
             to={`/job-order/history${currentOrder ? `?order_id=${currentOrder.id}` : ''}`}
-            className="pb-3 text-sm font-medium text-stone-500 hover:text-stone-900 border-b-2 border-transparent hover:border-stone-300 transition-colors cursor-pointer whitespace-nowrap"
+            className="pb-3 text-[14px] font-bold text-[#6e2d27] hover:text-[#b01622] border-b-2 border-transparent transition-colors cursor-pointer whitespace-nowrap"
           >
             History
           </Link>
@@ -451,7 +456,7 @@ export default function JobOrderDelay() {
       </div>
 
       {/* 3. FIVE-COLUMN METADATA BANNER */}
-      <div className="bg-white rounded-xl border border-[#f0e9df] p-4 shadow-2xs grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className="bg-[#F4F6F7] rounded-xl border border-[#eed5d1] p-4 shadow-2xs grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <div>
           <span className="text-[11px] font-medium text-stone-400 block">Job ID</span>
           <span className="text-xs font-bold text-gray-900 block mt-0.5">{jobId}</span>
@@ -483,7 +488,7 @@ export default function JobOrderDelay() {
         
         {/* LEFT COLUMN: Delay / Hold Details Form (8 cols on lg) */}
         <div className="lg:col-span-8">
-          <div className="bg-white rounded-xl border border-[#f0e9df] p-6 shadow-2xs">
+          <div className="bg-[#F4F6F7] rounded-xl border border-[#eed5d1] p-6 shadow-2xs">
             <h3 className="text-sm font-bold text-gray-900 mb-5">
               Delay / Hold Details
             </h3>
@@ -667,7 +672,7 @@ export default function JobOrderDelay() {
 
         {/* RIGHT COLUMN: Job & Item Summary Card (4 cols on lg) */}
         <div className="lg:col-span-4">
-          <div className="bg-white rounded-xl border border-[#f0e9df] p-5 shadow-2xs space-y-3.5">
+          <div className="bg-[#F4F6F7] rounded-xl border border-[#eed5d1] p-5 shadow-2xs space-y-3.5">
             <h3 className="text-sm font-bold text-gray-900 pb-2 border-b border-stone-100">
               Job &amp; Item Summary
             </h3>
@@ -735,7 +740,7 @@ export default function JobOrderDelay() {
       </div>
 
       {/* 5. BOTTOM CARD: DELAY HISTORY TABLE */}
-      <div className="bg-white rounded-xl border border-[#f0e9df] shadow-2xs overflow-hidden">
+      <div className="bg-[#F4F6F7] rounded-xl border border-[#eed5d1] shadow-2xs overflow-hidden">
         
         {/* Table Title */}
         <div className="p-4 border-b border-stone-100">

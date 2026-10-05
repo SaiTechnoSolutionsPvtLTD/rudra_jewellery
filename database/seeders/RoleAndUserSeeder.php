@@ -163,6 +163,7 @@ class RoleAndUserSeeder extends Seeder
                 'mobile_number' => '+91 98765 43210',
                 'role' => 'Super Admin',
                 'status' => 'active',
+                'avatar' => '/images/samples/arvind_profile.jpg',
                 'password' => Hash::make('admin123'),
             ]
         );
@@ -205,7 +206,7 @@ class RoleAndUserSeeder extends Seeder
         $masterKarigarUser = User::updateOrCreate(
             ['email' => 'masterkarigar.test@rudrajewellers.com'],
             [
-                'name' => 'Rajesh Varma (Karigar)',
+                'name' => 'Rajesh Varma (Master)',
                 'mobile_number' => '+91 98765 43214',
                 'role' => 'Karigar',
                 'status' => 'active',

@@ -103,7 +103,10 @@ class ProductDesignController extends Controller
             return $design;
         });
 
-        return response()->json($designs);
+        $responseData = $designs->toArray();
+        $responseData['all_ids'] = ProductDesign::pluck('id')->map(fn($id) => (int)$id)->toArray();
+
+        return response()->json($responseData);
     }
 
     /**

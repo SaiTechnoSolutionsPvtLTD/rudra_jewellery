@@ -83,6 +83,15 @@ export default function Step2Catalog() {
       setTotalDesigns(res.data.total || 0);
       setCurrentPage(res.data.current_page || 1);
       setLastPage(res.data.last_page || 1);
+
+      // Dynamically sanitize selection against real database design IDs
+      const validDbIds = res.data.all_ids || [];
+      if (Array.isArray(validDbIds)) {
+        const sanitized = selectedIds.filter((id) => validDbIds.includes(Number(id)));
+        if (sanitized.length !== selectedIds.length) {
+          setSelectedIds(sanitized);
+        }
+      }
     } catch (err) {
       console.error(err);
       showToast('Failed to load designs', 'error');
@@ -179,29 +188,18 @@ export default function Step2Catalog() {
         <div>
           <h1 className="text-xl font-bold text-gray-900 tracking-tight">Design List & Catalog</h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            View designs, select items to export, or export all directly.
+            View designs, filter options, and select items for your catalog.
           </p>
         </div>
 
-        {/* Export Buttons: If selected, exports selected. If not, exports all! */}
+        {/* Dynamic Selected Count Button */}
         <div className="flex items-center gap-2.5 shrink-0">
           <button
             type="button"
-            onClick={() => handleExport('excel')}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors shadow-2xs cursor-pointer"
-            title={selectedCount > 0 ? `Export ${selectedCount} selected designs to Excel` : 'Export all designs to Excel'}
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-[#b01622] bg-red-50 border border-red-200 rounded-lg shadow-2xs transition-all hover:bg-red-100"
           >
-            <i className="fa-solid fa-file-excel text-emerald-600"></i>
-            {selectedCount > 0 ? `Export Excel (${selectedCount})` : 'Export Excel (All)'}
-          </button>
-          <button
-            type="button"
-            onClick={() => handleExport('pdf')}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-[#b01622] bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors shadow-2xs cursor-pointer"
-            title={selectedCount > 0 ? `Export ${selectedCount} selected designs to PDF` : 'Export all designs to PDF'}
-          >
-            <i className="fa-solid fa-file-pdf text-[#b01622]"></i>
-            {selectedCount > 0 ? `Export PDF (${selectedCount})` : 'Export PDF (All)'}
+            <i className="fa-regular fa-square-check text-sm text-[#b01622]"></i>
+            <span>Selected : <strong className="font-extrabold text-sm text-[#b01622] ml-0.5">{selectedCount}</strong></span>
           </button>
         </div>
       </div>

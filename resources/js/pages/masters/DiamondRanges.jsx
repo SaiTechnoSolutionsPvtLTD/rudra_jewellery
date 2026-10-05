@@ -39,6 +39,12 @@ export default function DiamondRanges() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
+  // Master options state
+  const [masterColors, setMasterColors] = useState([]);
+  const [masterClarities, setMasterClarities] = useState([]);
+  const [stamps, setStamps] = useState([]);
+  const [units, setUnits] = useState([]);
+
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -46,8 +52,18 @@ export default function DiamondRanges() {
   const fetchRanges = async () => {
     try {
       setLoading(true);
-      const res = await api.get('/diamond-ranges');
-      setRanges(res.data || []);
+      const [rangeRes, colorRes, clarityRes, stampRes, unitRes] = await Promise.all([
+        api.get('/diamond-ranges').catch(() => ({ data: [] })),
+        api.get('/diamond-colors').catch(() => ({ data: [] })),
+        api.get('/diamond-clarities').catch(() => ({ data: [] })),
+        api.get('/stamps').catch(() => ({ data: [] })),
+        api.get('/units').catch(() => ({ data: [] })),
+      ]);
+      setRanges(rangeRes.data || []);
+      setMasterColors((colorRes.data || []).filter(c => c.status !== 'inactive'));
+      setMasterClarities((clarityRes.data || []).filter(c => c.status !== 'inactive'));
+      setStamps(stampRes.data || []);
+      setUnits(unitRes.data || []);
     } catch (err) {
       console.error(err);
       showToast('Failed to load diamond master items', 'error');
@@ -359,13 +375,29 @@ export default function DiamondRanges() {
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block text-stone-600 font-bold mb-1">Stamp</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 1"
+                  <select
                     value={formData.stamp}
                     onChange={(e) => setFormData({ ...formData, stamp: e.target.value })}
-                    className="w-full px-3 py-2 border border-stone-300 rounded-xl font-mono focus:outline-hidden focus:border-[#b01622]"
-                  />
+                    className="w-full px-3 py-2 border border-stone-300 rounded-xl focus:outline-hidden focus:border-[#b01622] cursor-pointer"
+                  >
+                    <option value="">Select Stamp</option>
+                    {stamps.length > 0 ? (
+                      stamps.map((st) => (
+                        <option key={st.id || st.code || st.name} value={st.name || st.code || st}>
+                          {st.name || st.code || st}
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="1">1</option>
+                        <option value="916">916</option>
+                        <option value="750">750</option>
+                        <option value="585">585</option>
+                        <option value="999">999</option>
+                        <option value="+0">+0</option>
+                      </>
+                    )}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-stone-600 font-bold mb-1">Part</label>
@@ -382,11 +414,24 @@ export default function DiamondRanges() {
                   <select
                     value={formData.unit}
                     onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
-                    className="w-full px-3 py-2 border border-stone-300 rounded-xl focus:outline-hidden focus:border-[#b01622]"
+                    className="w-full px-3 py-2 border border-stone-300 rounded-xl focus:outline-hidden focus:border-[#b01622] cursor-pointer"
                   >
-                    <option value="Carat">Carat</option>
-                    <option value="Pc">Pc</option>
-                    <option value="Gram">Gram</option>
+                    <option value="">Select Unit</option>
+                    {units.length > 0 ? (
+                      units.map((u) => (
+                        <option key={u.id || u.code || u.name} value={u.name || u.code || u}>
+                          {u.name || u.code || u}
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="Carat">Carat</option>
+                        <option value="Pc">Pc</option>
+                        <option value="Gram">Gram</option>
+                        <option value="Ct">Ct</option>
+                        <option value="Kg">Kg</option>
+                      </>
+                    )}
                   </select>
                 </div>
               </div>
@@ -400,12 +445,22 @@ export default function DiamondRanges() {
                     onChange={(e) => setFormData({ ...formData, colour: e.target.value })}
                     className="w-full px-3 py-2 border border-stone-300 rounded-xl focus:outline-hidden focus:border-[#b01622]"
                   >
-                    <option value="D">D (Colorless)</option>
-                    <option value="E">E (Colorless)</option>
-                    <option value="F">F (Colorless)</option>
-                    <option value="G">G (Near Colorless)</option>
-                    <option value="H">H (Near Colorless)</option>
-                    <option value="I">I (Slight Tint)</option>
+                    {masterColors.length > 0 ? (
+                      masterColors.map((c) => (
+                        <option key={c.id} value={c.code || c.name}>
+                          {c.name}
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="D">D (Colorless)</option>
+                        <option value="E">E (Colorless)</option>
+                        <option value="F">F (Colorless)</option>
+                        <option value="G">G (Near Colorless)</option>
+                        <option value="H">H (Near Colorless)</option>
+                        <option value="I">I (Slight Tint)</option>
+                      </>
+                    )}
                   </select>
                 </div>
                 <div>
@@ -415,11 +470,21 @@ export default function DiamondRanges() {
                     onChange={(e) => setFormData({ ...formData, clarity: e.target.value })}
                     className="w-full px-3 py-2 border border-stone-300 rounded-xl focus:outline-hidden focus:border-[#b01622]"
                   >
-                    <option value="FL/IF">FL / IF (Flawless)</option>
-                    <option value="VVS1">VVS1</option>
-                    <option value="VVS2">VVS2</option>
-                    <option value="VS">VS (VS1/VS2)</option>
-                    <option value="SI1">SI1</option>
+                    {masterClarities.length > 0 ? (
+                      masterClarities.map((cl) => (
+                        <option key={cl.id} value={cl.code || cl.name}>
+                          {cl.name}
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="FL/IF">FL / IF (Flawless)</option>
+                        <option value="VVS1">VVS1</option>
+                        <option value="VVS2">VVS2</option>
+                        <option value="VS">VS (VS1/VS2)</option>
+                        <option value="SI1">SI1</option>
+                      </>
+                    )}
                   </select>
                 </div>
                 <div>

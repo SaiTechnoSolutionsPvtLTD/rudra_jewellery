@@ -176,6 +176,7 @@ class ClientController extends Controller
             'gst_percentage' => $request->input('gst_percentage') ?: $request->input('gstPercentage'),
             'designation' => $request->input('designation'),
             'membership_tier' => $request->input('membership_tier') ?: ($request->input('membershipTier') ?: 'silver'),
+            'preferred_communication' => $request->input('preferred_communication') ?: ($request->input('preferredCommunication') ?: 'Email'),
             'quick_notes' => $request->input('quick_notes') ?: $request->input('quickNotes'),
             'status' => $request->input('status', 'active'),
             'last_visit' => Carbon::now(),
@@ -252,6 +253,7 @@ class ClientController extends Controller
                         'gst_percentage' => $request->input('gst_percentage') !== null ? $request->input('gst_percentage') : $request->input('gstPercentage', $client->gst_percentage),
                         'designation' => $request->input('designation', $client->designation),
                         'membership_tier' => $request->input('membership_tier') ?: $request->input('membershipTier', $client->membership_tier),
+                        'preferred_communication' => $request->input('preferred_communication') ?: $request->input('preferredCommunication', $client->preferred_communication),
                         'quick_notes' => $request->input('quick_notes') ?: $request->input('quickNotes', $client->quick_notes),
                         'status' => $request->input('status', $client->status),
                     ];

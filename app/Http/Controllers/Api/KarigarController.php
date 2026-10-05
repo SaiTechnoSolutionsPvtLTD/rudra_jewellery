@@ -176,6 +176,7 @@ class KarigarController extends Controller
             'primary_phone' => 'required|string|max:20',
             'secondary_phone' => 'nullable|string|max:20',
             'email' => 'nullable|email|max:255',
+            'password' => 'nullable|string|min:6',
             'specialization' => 'required|string|max:100',
             'experience_years' => 'nullable|integer|min:0',
             'workshop_name' => 'nullable|string|max:255',
@@ -206,6 +207,9 @@ class KarigarController extends Controller
         }
 
         $data = $validator->validated();
+        $rawPassword = $data['password'] ?? null;
+        unset($data['password']);
+
         if (empty($data['status'])) {
             $data['status'] = 'active';
         }
@@ -218,10 +222,34 @@ class KarigarController extends Controller
 
         $karigar = Karigar::create($data);
 
+        // Auto-create/link User account if email is provided
+        if (!empty($karigar->email)) {
+            $userPassword = !empty($rawPassword) ? \Illuminate\Support\Facades\Hash::make($rawPassword) : \Illuminate\Support\Facades\Hash::make('admin123');
+
+            $user = \App\Models\User::firstOrCreate(
+                ['email' => $karigar->email],
+                [
+                    'name' => $karigar->name,
+                    'mobile_number' => $karigar->primary_phone,
+                    'role' => 'Karigar',
+                    'status' => $karigar->status === 'inactive' ? 'inactive' : 'active',
+                    'password' => $userPassword,
+                ]
+            );
+
+            if (!empty($rawPassword)) {
+                $user->password = $userPassword;
+                $user->save();
+            }
+
+            $karigar->user_id = $user->id;
+            $karigar->save();
+        }
+
         return response()->json([
             'status' => 'success',
             'message' => 'Karigar created successfully',
-            'data' => $karigar,
+            'data' => $karigar->load('user'),
         ], 201);
     }
 
@@ -265,6 +293,7 @@ class KarigarController extends Controller
             'primary_phone' => 'required|string|max:20',
             'secondary_phone' => 'nullable|string|max:20',
             'email' => 'nullable|email|max:255',
+            'password' => 'nullable|string|min:6',
             'specialization' => 'required|string|max:100',
             'experience_years' => 'nullable|integer|min:0',
             'workshop_name' => 'nullable|string|max:255',
@@ -294,12 +323,52 @@ class KarigarController extends Controller
             ], 422);
         }
 
-        $karigar->update($validator->validated());
+        $validatedData = $validator->validated();
+        $rawPassword = $validatedData['password'] ?? null;
+        unset($validatedData['password']);
+
+        $karigar->update($validatedData);
+
+        // Keep User account name, mobile, and password in sync
+        if ($karigar->user_id) {
+            $userUpdate = [
+                'name' => $karigar->name,
+                'mobile_number' => $karigar->primary_phone,
+            ];
+            if (!empty($karigar->email)) {
+                $userUpdate['email'] = $karigar->email;
+            }
+            if (!empty($rawPassword)) {
+                $userUpdate['password'] = \Illuminate\Support\Facades\Hash::make($rawPassword);
+            }
+            \App\Models\User::where('id', $karigar->user_id)->update($userUpdate);
+        } elseif (!empty($karigar->email)) {
+            $userPassword = !empty($rawPassword) ? \Illuminate\Support\Facades\Hash::make($rawPassword) : \Illuminate\Support\Facades\Hash::make('admin123');
+
+            $user = \App\Models\User::firstOrCreate(
+                ['email' => $karigar->email],
+                [
+                    'name' => $karigar->name,
+                    'mobile_number' => $karigar->primary_phone,
+                    'role' => 'Karigar',
+                    'status' => $karigar->status === 'inactive' ? 'inactive' : 'active',
+                    'password' => $userPassword,
+                ]
+            );
+
+            if (!empty($rawPassword)) {
+                $user->password = $userPassword;
+                $user->save();
+            }
+
+            $karigar->user_id = $user->id;
+            $karigar->save();
+        }
 
         return response()->json([
             'status' => 'success',
             'message' => 'Karigar updated successfully',
-            'data' => $karigar,
+            'data' => $karigar->load('user'),
         ]);
     }
 

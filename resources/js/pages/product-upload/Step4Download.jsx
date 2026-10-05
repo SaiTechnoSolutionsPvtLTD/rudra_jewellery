@@ -8,7 +8,7 @@ import ImageGalleryModal from '../../components/ImageGalleryModal';
 
 export default function Step4Download() {
   const { showToast } = useToast();
-  const { selectedIds, selectedCount, removeSelection } = useProductSelection();
+  const { selectedIds, selectedCount, removeSelection, setSelectedIds } = useProductSelection();
 
   const [designs, setDesigns] = useState([]);
   const [totalDesigns, setTotalDesigns] = useState(0);
@@ -57,6 +57,15 @@ export default function Step4Download() {
       setTotalDesigns(res.data.total || 0);
       setCurrentPage(res.data.current_page || 1);
       setLastPage(res.data.last_page || 1);
+
+      // Dynamically sanitize selection against real database design IDs
+      const validDbIds = res.data.all_ids || [];
+      if (Array.isArray(validDbIds)) {
+        const sanitized = selectedIds.filter((id) => validDbIds.includes(Number(id)));
+        if (sanitized.length !== selectedIds.length) {
+          setSelectedIds(sanitized);
+        }
+      }
     } catch (err) {
       console.error(err);
       showToast('Failed to load selected designs', 'error');
@@ -134,23 +143,6 @@ export default function Step4Download() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-          <button
-            type="button"
-            onClick={handleShareWhatsApp}
-            disabled={selectedCount === 0}
-            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors shadow-xs disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-          >
-            <i className="fa-brands fa-whatsapp text-sm"></i>
-            <span>Share via WhatsApp</span>
-          </button>
-          <button
-            type="button"
-            onClick={handleCopyShareLink}
-            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-bold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors shadow-2xs cursor-pointer"
-          >
-            <i className="fa-solid fa-link text-stone-500"></i>
-            <span>Copy Link</span>
-          </button>
           <button
             type="button"
             onClick={() => handleDownload('excel')}

@@ -19,6 +19,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        if (!app()->environment('local') && file_exists(public_path('hot'))) {
+            @unlink(public_path('hot'));
+        }
+
+        if (request()->secure() || str_contains(request()->header('x-forwarded-proto', ''), 'https')) {
+            \Illuminate\Support\Facades\URL::forceScheme('https');
+        }
     }
 }

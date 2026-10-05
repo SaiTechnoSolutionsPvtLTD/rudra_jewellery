@@ -4,140 +4,94 @@ import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { compressImageFile } from '../../utils/imageCompressor';
 import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
-import { STAMP_OPTIONS, STONE_SIZE_OPTIONS, STONE_COLOR_OPTIONS } from '../../constants/productOptions';
 
 export default function InventoryAddNewUpload() {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const fileInputRef = useRef(null);
 
-  // Setting Styles Master Data State
-  const [settingStyles, setSettingStyles] = useState([]);
-  const [showStylesModal, setShowStylesModal] = useState(false);
+  // Flow step state: 6 = Item Detail Entry (Component 1), 7 = Paired Component Entry (Component 2+)
+  const [pageStep, setPageStep] = useState(6);
 
-  // Stored Category & Subcategory context
-  const [category, setCategory] = useState(null);
-  const [subcategory, setSubcategory] = useState(null);
+  // Master lists
+  const [categoriesList, setCategoriesList] = useState([]);
+  const [subcategoriesList, setSubcategoriesList] = useState([]);
+  const [karatsList, setKaratsList] = useState([]);
+  const [stampsList, setStampsList] = useState([]);
+  const [unitsList, setUnitsList] = useState([]);
+  const [itemsMasterList, setItemsMasterList] = useState([]);
+  const [selectedItemMasterId, setSelectedItemMasterId] = useState('');
 
-  // Subscreen-3: Batch items ready to commit
-  const [batchItems, setBatchItems] = useState([]);
+  // Master management modals
+  const [crudModalType, setCrudModalType] = useState(null); // 'karat' | 'stamp' | 'unit'
+  const [showCrudModal, setShowCrudModal] = useState(false);
 
-  // Form State for current product being created
+  // Context from Page 5
+  const [primaryCategory, setPrimaryCategory] = useState(null);
+  const [primarySubcategory, setPrimarySubcategory] = useState(null);
+
+  // Added components for current product
+  const [addedComponents, setAddedComponents] = useState([]);
+
+  // Form State for current active component form entry
+  const [activeCategory, setActiveCategory] = useState(null);
+  const [activeSubcategory, setActiveSubcategory] = useState(null);
+
   const [formData, setFormData] = useState({
-    product_code: '',
-    name: '',
+    item_code: '',
+    item_name: '',
+    karat: '22K',
+    purity: '91.6',
     gross_wt: '',
     net_wt: '',
-    purity: '22K (91.6%)',
-    size: '',
-    setting_style: 'Prong Setting',
-    dia_wt_ct: '',
-    stone_size: '',
-    stone_color: '',
-    stamp: '+0',
-    wastage_percent: '3.50',
-    making_charge: '650',
-    open_close_type: 'Close',
-    open_close_details: 'Standard Fixed Bangle / Ring',
-    stock_qty: '1',
-    description: '',
-    // Pricing & Measurement fields
+    pure_weight: '',
+    stamp: '916',
     unit: 'Carat',
-    no_of_pieces: '',
-    weight: '',
-    rate: '',
+    gold_rate: '',
+    other_rate: '',
     sale_rate: '',
     sale_value: '',
-    variants: [],
+    size: '0.00',
+    no_of_pieces: '1',
+    description: '',
   });
 
-  // Variant draft state for creating model variants
-  const [newVariant, setNewVariant] = useState({
-    sku: '',
-    title: '',
-    size: '',
-    color: '',
-    net_wt: '',
-    stock_qty: '1',
-    price: '',
-    stone_size: '',
-    stone_color: '',
-  });
+  const [liveRates, setLiveRates] = useState(null);
 
-  const handleAddVariant = () => {
-    if (!newVariant.title && !newVariant.size && !newVariant.color) {
-      showToast('Please specify a title, size, or color for the variant', 'warning');
-      return;
-    }
-    const variantItem = {
-      id: Date.now(),
-      sku: newVariant.sku || `${formData.product_code || 'RJ'}-V${(formData.variants?.length || 0) + 1}`,
-      title: newVariant.title || `${newVariant.size ? 'Size ' + newVariant.size : ''} ${newVariant.color ? newVariant.color : ''}`.trim() || `Variant #${(formData.variants?.length || 0) + 1}`,
-      size: newVariant.size || '',
-      color: newVariant.color || '',
-      stone_size: newVariant.stone_size || formData.stone_size || '',
-      stone_color: newVariant.stone_color || formData.stone_color || '',
-      net_wt: newVariant.net_wt || formData.net_wt || '',
-      stock_qty: newVariant.stock_qty || '1',
-      price: newVariant.price || formData.sale_rate || '',
-    };
-    setFormData(prev => ({
-      ...prev,
-      variants: [...(prev.variants || []), variantItem]
-    }));
-    setNewVariant({
-      sku: '',
-      title: '',
-      size: '',
-      color: '',
-      net_wt: '',
-      stock_qty: '1',
-      price: '',
-      stone_size: '',
-      stone_color: '',
-    });
-    showToast('Variant added to product model!', 'success');
-  };
-
-  const handleRemoveVariant = (variantId) => {
-    setFormData(prev => ({
-      ...prev,
-      variants: (prev.variants || []).filter(v => v.id !== variantId)
-    }));
-  };
-
-  // Images state for current product (first image is Thumb Image, others are Child Images)
+  // Multi-Image Upload state for current active component
   const [images, setImages] = useState([]);
   const [imageError, setImageError] = useState(false);
-  const [rateManuallyEdited, setRateManuallyEdited] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Metal bullion base rate helper
-  const getBaseRateForPurity = (purityStr = '', catName = '') => {
-    const cat = (catName || '').toLowerCase();
-    if (cat.includes('silver')) return 85;
-    if (cat.includes('diamond')) return 65000;
-    if (cat.includes('platinum')) return 3450;
-
-    if (purityStr?.includes('24K')) return 7480;
-    if (purityStr?.includes('22K')) return 6850;
-    if (purityStr?.includes('18K')) return 5600;
-    if (purityStr?.includes('14K')) return 4360;
-    return 6850;
-  };
-
-  const fetchSettingStyles = async () => {
+  // 1. Fetch Masters & Load Initial Category Context
+  const fetchMasters = async () => {
     try {
-      const res = await api.get('/styles');
-      setSettingStyles(res.data || []);
+      const [catRes, karatRes, stampRes, unitRes, rateRes] = await Promise.all([
+        api.get('/inventory/categories').catch(() => api.get('/categories')),
+        api.get('/karats').catch(() => ({ data: [] })),
+        api.get('/stamps').catch(() => ({ data: [] })),
+        api.get('/units').catch(() => ({ data: [] })),
+        api.get('/metal-rates').catch(() => ({ data: null })),
+      ]);
+
+      const cats = catRes.data?.categories || catRes.data || [];
+      setCategoriesList(cats);
+      setKaratsList(karatRes.data || []);
+      setStampsList(stampRes.data || []);
+      setUnitsList(unitRes.data || []);
+
+      if (rateRes.data) {
+        setLiveRates(rateRes.data);
+      }
     } catch (err) {
-      console.error('Failed to fetch setting styles:', err);
+      console.error('Failed to load master data:', err);
     }
   };
 
   useEffect(() => {
-    fetchSettingStyles();
-    // 1. Retrieve session selections
+    fetchMasters();
+
+    // Retrieve session category/subcategory selected on Page 5
     const savedCat = sessionStorage.getItem('inventory_selected_category');
     const savedSub = sessionStorage.getItem('inventory_selected_subcategory');
 
@@ -148,154 +102,191 @@ export default function InventoryAddNewUpload() {
     }
 
     try {
-      const parsedCat = JSON.parse(savedCat);
-      setCategory(parsedCat);
+      const catObj = JSON.parse(savedCat);
+      const subObj = savedSub ? JSON.parse(savedSub) : null;
 
-      if (savedSub) {
-        setSubcategory(JSON.parse(savedSub));
-      }
+      setPrimaryCategory(catObj);
+      setPrimarySubcategory(subObj);
+      setActiveCategory(catObj);
+      setActiveSubcategory(subObj);
 
-      // Generate a default product code based on category
-      generateNewCode(parsedCat);
-
-      // Auto-compute default rates for standard 22K gold or metal
-      const baseRate = getBaseRateForPurity('22K (91.6%)', parsedCat?.name);
-      const wastage = 3.50;
-      const making = 650;
-      const autoSaleRate = Math.round(baseRate * (1 + wastage / 100) + making);
+      const subName = subObj?.name || catObj?.name || 'Jewelry';
+      const defaultCode = generateCode(catObj);
 
       setFormData((prev) => ({
         ...prev,
-        rate: baseRate.toString(),
-        sale_rate: autoSaleRate.toString(),
+        item_code: defaultCode,
+        item_name: subName,
       }));
     } catch (e) {
       navigate('/inventory/add-new/category');
     }
   }, []);
 
-  const generateNewCode = (catObj) => {
-    const prefix = catObj?.code ? catObj.code.slice(0, 3).toUpperCase() : 'RJ';
-    const randNum = Math.floor(1000 + Math.random() * 9000);
-    setFormData((prev) => ({
-      ...prev,
-      product_code: `${prefix}-${randNum}`,
-    }));
+  // Update gold_rate dynamically whenever liveRates or activeCategory changes
+  useEffect(() => {
+    if (liveRates) {
+      const autoRate = getAutoGoldRate(activeCategory?.name || primaryCategory?.name, formData.purity, formData.karat, liveRates);
+      if (autoRate) {
+        setFormData(prev => ({
+          ...prev,
+          gold_rate: prev.gold_rate || autoRate,
+          sale_rate: prev.sale_rate || String(Math.round(parseFloat(autoRate) * 1.08)),
+        }));
+      }
+    }
+  }, [liveRates, activeCategory]);
+
+  // Update subcategories list when active category changes
+  useEffect(() => {
+    if (activeCategory) {
+      const subcats = activeCategory.subcategories || [];
+      setSubcategoriesList(subcats);
+    } else {
+      setSubcategoriesList([]);
+    }
+  }, [activeCategory]);
+
+  // Fetch items master dynamically when active subcategory changes
+  useEffect(() => {
+    if (activeSubcategory?.id) {
+      api.get('/items', { params: { subcategory_id: activeSubcategory.id } })
+        .then((res) => {
+          const list = Array.isArray(res.data) ? res.data : (res.data?.data || []);
+          setItemsMasterList(list);
+          if (list.length > 0) {
+            setSelectedItemMasterId(list[0].id);
+            setFormData(prev => ({
+              ...prev,
+              item_name: list[0].name,
+            }));
+          } else {
+            setSelectedItemMasterId('');
+          }
+        })
+        .catch((err) => console.error('Failed to load items for subcategory:', err));
+    } else {
+      setItemsMasterList([]);
+      setSelectedItemMasterId('');
+    }
+  }, [activeSubcategory]);
+
+  const handleItemMasterChange = (itemId) => {
+    setSelectedItemMasterId(itemId);
+    const found = itemsMasterList.find((i) => String(i.id) === String(itemId));
+    if (found) {
+      setFormData((prev) => ({
+        ...prev,
+        item_name: found.name,
+      }));
+    }
   };
 
-  // Re-calculate rates automatically whenever purity, weights, wastage, or making charges change
-  const handleChange = (e) => {
+  const generateCode = (catObj) => {
+    const prefix = catObj?.code ? catObj.code.slice(0, 3).toUpperCase() : 'RJ';
+    const rand = Math.floor(1000 + Math.random() * 9000);
+    return `${prefix}-${rand}`;
+  };
+
+  const getAutoGoldRate = (catName = '', purityStr = '', karatStr = '', ratesObj = null) => {
+    const rates = ratesObj || liveRates;
+    const cat = (catName || '').toLowerCase();
+
+    if (cat.includes('silver')) {
+      const silRate = rates?.rawSilverGram || rates?.silverGram || '';
+      return silRate ? String(silRate) : '';
+    }
+
+    const g24 = rates?.raw24k || (rates?.gold24k ? parseFloat(String(rates.gold24k).replace(/,/g, '')) : 0);
+    const g22 = rates?.raw22k || (rates?.gold22k ? parseFloat(String(rates.gold22k).replace(/,/g, '')) : 0);
+    const g18 = rates?.raw18k || (rates?.gold18k ? parseFloat(String(rates.gold18k).replace(/,/g, '')) : 0);
+
+    const pur = parseFloat(purityStr) || 0;
+    const kStr = (karatStr || '').toUpperCase();
+
+    if (kStr.includes('24') || pur > 95) {
+      return g24 ? String(g24) : '';
+    }
+    if (kStr.includes('22') || (pur > 88 && pur <= 95)) {
+      return g22 ? String(g22) : (g24 ? String(Math.round(g24 * (22 / 24))) : '');
+    }
+    if (kStr.includes('18') || (pur > 70 && pur <= 88)) {
+      return g18 ? String(g18) : (g24 ? String(Math.round(g24 * (18 / 24))) : '');
+    }
+    if (pur > 0 && g24 > 0) {
+      return String(Math.round(g24 * (pur / 100)));
+    }
+    return g22 ? String(g22) : (g24 ? String(g24) : '');
+  };
+
+  const computePureWeight = (netWtStr, purityStr) => {
+    const net = parseFloat(netWtStr) || 0;
+    let purity = parseFloat(purityStr) || 0;
+    if (net <= 0 || purity <= 0) return '';
+    const factor = purity > 1 ? purity / 100 : purity;
+    return (net * factor).toFixed(3);
+  };
+
+  const handleInputChange = (e) => {
     const { name, value } = e.target;
+
     setFormData((prev) => {
       const updated = { ...prev, [name]: value };
 
-      // Auto compute net weight if gross weight provided and net weight empty
+      if (name === 'gross_wt' || name === 'net_wt' || name === 'purity') {
+        const netValue = name === 'net_wt' ? value : (updated.net_wt || updated.gross_wt);
+        const calcPure = computePureWeight(netValue, updated.purity);
+        updated.pure_weight = calcPure;
+      }
+
       if (name === 'gross_wt' && (!prev.net_wt || prev.net_wt === prev.gross_wt)) {
         updated.net_wt = value;
+        const calcPure = computePureWeight(value, updated.purity);
+        updated.pure_weight = calcPure;
       }
 
-      if (name === 'rate') {
-        setRateManuallyEdited(true);
-      }
+      if (name === 'karat') {
+        if (value.includes('24')) updated.purity = '99.9';
+        else if (value.includes('22')) updated.purity = '91.6';
+        else if (value.includes('18')) updated.purity = '75.0';
+        else if (value.includes('14')) updated.purity = '58.5';
 
-      // Determine effective metal base rate
-      let baseRate = parseFloat(updated.rate) || 0;
-      if (name === 'purity' || (!rateManuallyEdited && (name !== 'rate' || !updated.rate))) {
-        if (name === 'purity' || !rateManuallyEdited) {
-          baseRate = getBaseRateForPurity(updated.purity, category?.name);
-          updated.rate = baseRate.toString();
+        const autoRate = getAutoGoldRate(activeCategory?.name || primaryCategory?.name, updated.purity, value);
+        if (autoRate) {
+          updated.gold_rate = autoRate;
+          updated.sale_rate = String(Math.round(parseFloat(autoRate) * 1.08));
         }
       }
 
-      const wastage = parseFloat(updated.wastage_percent) || 0;
-      const making = parseFloat(updated.making_charge) || 0;
-      const computedSaleRate = baseRate > 0 ? Math.round(baseRate * (1 + wastage / 100) + making) : 0;
-
-      const effectiveWt = parseFloat(updated.net_wt) || parseFloat(updated.gross_wt) || 0;
-      const diaWt = parseFloat(updated.dia_wt_ct) || 0;
-      const diaVal = diaWt * 65000;
-      const computedSaleValue = effectiveWt > 0 ? Math.round(effectiveWt * computedSaleRate + diaVal) : 0;
-
-      if (name !== 'sale_rate') {
-        updated.sale_rate = computedSaleRate > 0 ? computedSaleRate.toString() : '';
-      }
-      if (name !== 'sale_value') {
-        updated.sale_value = computedSaleValue > 0 ? computedSaleValue.toString() : '';
+      if (name === 'gross_wt' || name === 'net_wt' || name === 'gold_rate' || name === 'sale_rate') {
+        const wt = parseFloat(updated.net_wt || updated.gross_wt) || 0;
+        const sRate = parseFloat(updated.sale_rate) || 0;
+        if (wt > 0 && sRate > 0) {
+          updated.sale_value = (wt * sRate).toFixed(2);
+        }
       }
 
       return updated;
     });
   };
 
-  const handleResetToAutoRates = () => {
-    setRateManuallyEdited(false);
-    const baseRate = getBaseRateForPurity(formData.purity, category?.name);
-    const wastage = parseFloat(formData.wastage_percent) || 0;
-    const making = parseFloat(formData.making_charge) || 0;
-    const autoSaleRate = Math.round(baseRate * (1 + wastage / 100) + making);
-    const effectiveWt = parseFloat(formData.net_wt) || parseFloat(formData.gross_wt) || 0;
-    const diaWt = parseFloat(formData.dia_wt_ct) || 0;
-    const autoSaleValue = Math.round(effectiveWt * autoSaleRate + (diaWt * 65000));
-
-    setFormData((prev) => ({
-      ...prev,
-      rate: baseRate.toString(),
-      sale_rate: autoSaleRate > 0 ? autoSaleRate.toString() : '',
-      sale_value: autoSaleValue > 0 ? autoSaleValue.toString() : '',
-    }));
-    showToast(`Rates auto-recalculated based on ${formData.purity} (Base ₹${baseRate}/g)`, 'info');
-  };
-
-  const handleOpenCloseChange = (type) => {
-    let details = 'Standard Fixed Circumference';
-    if (type === 'Open') details = 'Adjustable Open Cuff / Free Size';
-    if (type === 'Open-Close') details = 'Hinged Clasp with Safety Screw Lock';
-
-    setFormData((prev) => ({
-      ...prev,
-      open_close_type: type,
-      open_close_details: details,
-    }));
-  };
-
-  // Image Upload handler - Supports multiple photos
-  const handleImageUpload = (e) => {
+  // Handle Multi-Image Upload & Compression
+  const handleImageUpload = async (e) => {
     const files = Array.from(e.target.files || []);
-    if (!files.length) return;
+    if (files.length === 0) return;
 
-    let hasInvalid = false;
-    const validFiles = files.filter((file) => {
-      if (!file.type.startsWith('image/')) {
-        hasInvalid = true;
-        return false;
-      }
-      return true;
-    });
+    try {
+      showToast(`Processing ${files.length} photo(s)...`, 'info');
+      const compressedDataUrls = await Promise.all(
+        files.map((file) => compressImageFile(file, 1200, 0.8))
+      );
 
-    if (hasInvalid) {
-      showToast('Only image files (PNG, JPG, WEBP) are accepted', 'warning');
-    }
-
-    if (!validFiles.length) return;
-
-    // Fast asynchronous compression for instant preview and lightweight storage
-    Promise.all(validFiles.map((file) => compressImageFile(file, 800, 0.82)))
-      .then((compressedList) => {
-        const successful = compressedList.filter(Boolean);
-        if (successful.length > 0) {
-          setImages((prev) => [...prev, ...successful]);
-          setImageError(false);
-          showToast(`Added ${successful.length} image(s). 1st image is the Main Thumbnail.`, 'success');
-        }
-      })
-      .catch((err) => {
-        console.error('Image compression failed', err);
-        showToast('Failed to process image(s)', 'error');
-      });
-
-    // Reset input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+      setImages((prev) => [...prev, ...compressedDataUrls]);
+      setImageError(false);
+      showToast('Photos added successfully!', 'success');
+    } catch (err) {
+      console.error('Failed to process uploaded images:', err);
+      showToast('Failed to process image file', 'error');
     }
   };
 
@@ -303,1233 +294,1016 @@ export default function InventoryAddNewUpload() {
     setImages((prev) => prev.filter((_, idx) => idx !== indexToRemove));
   };
 
-  // Promote any child image to become the Primary Thumbnail (index 0)
-  const handleSetAsThumb = (index) => {
-    if (index === 0) return;
+  const handleSetPrimaryImage = (indexToMakePrimary) => {
     setImages((prev) => {
       const copy = [...prev];
-      const [chosen] = copy.splice(index, 1);
-      copy.unshift(chosen);
-      return copy;
+      const target = copy.splice(indexToMakePrimary, 1)[0];
+      return [target, ...copy];
     });
-    showToast('Image set as primary Main Thumbnail', 'info');
+    showToast('Main thumbnail updated', 'info');
   };
 
-  // SUB-SCREEN 3: "Upload New Item" (Add current form item to batch list)
-  const handleAddBatchItem = (e) => {
-    e?.preventDefault();
+  const handleOpenMasterModal = (type) => {
+    setCrudModalType(type);
+    setShowCrudModal(true);
+  };
 
-    // 1. Mandatory Image Check
-    if (!images || images.length === 0) {
-      setImageError(true);
-      showToast('Product image is required! Please upload at least one image before adding.', 'error');
-      const dropzone = document.getElementById('image-upload-section');
-      if (dropzone) dropzone.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      return;
-    }
+  // Main product data captured on Page 6
+  const [mainProductData, setMainProductData] = useState(null);
 
-    if (!formData.product_code.trim()) {
-      showToast('Please enter an Item Code / SKU', 'error');
-      return;
-    }
-    if (!formData.name.trim()) {
-      showToast('Please enter a Product Name', 'error');
-      return;
-    }
-    if (!formData.gross_wt) {
-      showToast('Please enter Gross Weight in grams', 'error');
-      return;
-    }
+  // Add current active component to addedComponents array (Page 7)
+  const handleAddComponent = (e) => {
+    e.preventDefault();
 
-    const thumbImage = images[0];
-    const childImages = images.slice(1);
-
-    const newItem = {
-      ...formData,
-      category_id: category?.id,
-      subcategory_id: subcategory?.id,
-      category_name: category?.name,
-      subcategory_name: subcategory?.name,
-      image: thumbImage,
-      thumb_image: thumbImage,
-      child_images: childImages,
-      images: images,
+    const componentPayload = {
+      id_temp: Date.now() + Math.random(),
+      component_type: `Component ${addedComponents.length + 1}`,
+      category_id: activeCategory?.id,
+      subcategory_id: activeSubcategory?.id,
+      category_name: activeCategory?.name || 'Category',
+      subcategory_name: activeSubcategory?.name || 'Subcategory',
+      item_code: formData.item_code,
+      item_name: formData.item_name || activeSubcategory?.name || activeCategory?.name || 'Component',
+      karat: formData.karat,
+      purity: formData.purity,
       gross_wt: parseFloat(formData.gross_wt) || 0,
       net_wt: parseFloat(formData.net_wt) || parseFloat(formData.gross_wt) || 0,
-      dia_wt_ct: formData.dia_wt_ct ? parseFloat(formData.dia_wt_ct) : null,
-      stock_qty: parseInt(formData.stock_qty, 10) || 1,
-      id_temp: Date.now(),
-    };
-
-    setBatchItems((prev) => [...prev, newItem]);
-    showToast(`Added "${newItem.name}" to batch upload queue!`, 'success');
-
-    // Reset form for next product and auto-increment code
-    const parts = formData.product_code.split('-');
-    let nextCode = '';
-    if (parts.length > 1 && !isNaN(parts[parts.length - 1])) {
-      const nextNum = parseInt(parts[parts.length - 1], 10) + 1;
-      nextCode = `${parts.slice(0, -1).join('-')}-${nextNum}`;
-    } else {
-      const prefix = category?.code ? category.code.slice(0, 3).toUpperCase() : 'RJ';
-      nextCode = `${prefix}-${Math.floor(1000 + Math.random() * 9000)}`;
-    }
-
-    const baseRate = getBaseRateForPurity(formData.purity, category?.name);
-    const wastage = parseFloat(formData.wastage_percent) || 3.50;
-    const making = parseFloat(formData.making_charge) || 650;
-    const nextSaleRate = Math.round(baseRate * (1 + wastage / 100) + making);
-
-    setFormData({
-      product_code: nextCode,
-      name: '',
-      gross_wt: '',
-      net_wt: '',
-      purity: formData.purity,
-      setting_style: formData.setting_style,
-      dia_wt_ct: '',
-      wastage_percent: formData.wastage_percent,
-      making_charge: formData.making_charge,
-      open_close_type: formData.open_close_type,
-      open_close_details: formData.open_close_details,
-      stock_qty: '1',
-      description: '',
+      pure_weight: parseFloat(formData.pure_weight) || 0,
       stamp: formData.stamp,
       unit: formData.unit,
-      no_of_pieces: '',
-      weight: '',
-      rate: baseRate.toString(),
-      sale_rate: nextSaleRate.toString(),
-      sale_value: '',
-    });
-    setImages([]);
+      gold_rate: formData.gold_rate,
+      other_rate: formData.other_rate,
+      sale_rate: formData.sale_rate,
+      sale_value: formData.sale_value,
+      size: formData.size,
+      no_of_pieces: formData.no_of_pieces,
+      images: [...images],
+      thumb_image: images[0] || '',
+    };
+
+    setAddedComponents((prev) => [...prev, componentPayload]);
+    showToast(`Added component "${componentPayload.item_name}"!`, 'success');
+
+    // Reset component form state for next component entry on Page 7 (preserve uploaded product photos)
     setImageError(false);
+
+    const defaultCode = generateCode(activeCategory);
+
+    setFormData({
+      item_code: defaultCode,
+      item_name: activeCategory?.name || 'Component',
+      karat: '22K',
+      purity: '91.6',
+      gross_wt: '',
+      net_wt: '',
+      pure_weight: '',
+      stamp: '916',
+      unit: 'Carat',
+      gold_rate: liveRates ? getAutoGoldRate(activeCategory?.name, '916', '22K', liveRates) : '',
+      other_rate: '',
+      sale_rate: '',
+      sale_value: '',
+      size: '0.00',
+      no_of_pieces: '1',
+      description: '',
+    });
   };
 
-  const handleRemoveBatchItem = (tempId) => {
-    setBatchItems((prev) => prev.filter((item) => item.id_temp !== tempId));
-    showToast('Removed item from batch', 'info');
+  const handlePage6Next = (e) => {
+    e.preventDefault();
+
+    const mainRecord = {
+      category_id: activeCategory?.id,
+      subcategory_id: activeSubcategory?.id,
+      category_name: activeCategory?.name || 'Category',
+      subcategory_name: activeSubcategory?.name || 'Subcategory',
+      item_code: formData.item_code,
+      item_name: formData.item_name || activeSubcategory?.name || activeCategory?.name || 'Main Product',
+      karat: formData.karat,
+      purity: formData.purity,
+      gross_wt: parseFloat(formData.gross_wt) || 0,
+      net_wt: parseFloat(formData.net_wt) || parseFloat(formData.gross_wt) || 0,
+      pure_weight: parseFloat(formData.pure_weight) || 0,
+      stamp: formData.stamp,
+      unit: formData.unit,
+      gold_rate: formData.gold_rate,
+      other_rate: formData.other_rate,
+      sale_rate: formData.sale_rate,
+      sale_value: formData.sale_value,
+      size: formData.size,
+      no_of_pieces: formData.no_of_pieces,
+      images: [...images],
+      thumb_image: images[0] || '',
+    };
+
+    setMainProductData(mainRecord);
+    setPageStep(7);
+    // Keep uploaded product images intact across continuous pages
+    setImageError(false);
+
+    // Reset form for Page 7 components
+    setFormData({
+      item_code: generateCode(activeCategory),
+      item_name: activeCategory?.name || 'Component',
+      karat: '22K',
+      purity: '91.6',
+      gross_wt: '',
+      net_wt: '',
+      pure_weight: '',
+      stamp: '916',
+      unit: 'Carat',
+      gold_rate: liveRates ? getAutoGoldRate(activeCategory?.name, '916', '22K', liveRates) : '',
+      other_rate: '',
+      sale_rate: '',
+      sale_value: '',
+      size: '0.00',
+      no_of_pieces: '1',
+      description: '',
+    });
+
+    showToast('Main product saved! Enter component details now.', 'info');
   };
 
-  // FINAL STEP: Commit All Batch Items (or single current item if not batched)
-  const handleCommitToInventory = async () => {
-    let itemsToCommit = [...batchItems];
+  const handleRemoveComponent = (tempId) => {
+    setAddedComponents((prev) => prev.filter((c) => c.id_temp !== tempId));
+    showToast('Component removed', 'info');
+  };
 
-    // If batch is empty but current form has data, prompt/commit current form
-    if (itemsToCommit.length === 0) {
-      if (formData.name.trim() && formData.gross_wt) {
-        if (!images || images.length === 0) {
-          setImageError(true);
-          showToast('Product image is required! Please upload at least one image before adding.', 'error');
-          const dropzone = document.getElementById('image-upload-section');
-          if (dropzone) dropzone.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          return;
-        }
+  // Final Product Save & Upload to Backend
+  const handleUploadProductToInventory = async () => {
+    const defaultCode = generateCode(activeCategory || primaryCategory);
 
-        const thumbImage = images[0];
-        const childImages = images.slice(1);
+    let primaryComp = mainProductData;
 
-        const singleItem = {
-          ...formData,
-          category_id: category?.id,
-          subcategory_id: subcategory?.id,
-          image: thumbImage,
-          thumb_image: thumbImage,
-          child_images: childImages,
-          images: images,
+    if (!primaryComp) {
+      if (addedComponents.length > 0) {
+        primaryComp = addedComponents[0];
+      } else {
+        primaryComp = {
+          category_id: activeCategory?.id || primaryCategory?.id,
+          subcategory_id: activeSubcategory?.id || primarySubcategory?.id,
+          category_name: activeCategory?.name || primaryCategory?.name || 'Category',
+          subcategory_name: activeSubcategory?.name || primarySubcategory?.name || 'Subcategory',
+          item_code: formData.item_code || defaultCode,
+          item_name: formData.item_name || activeSubcategory?.name || activeCategory?.name || 'Main Product',
+          karat: formData.karat || '22K',
+          purity: formData.purity || '91.6',
           gross_wt: parseFloat(formData.gross_wt) || 0,
           net_wt: parseFloat(formData.net_wt) || parseFloat(formData.gross_wt) || 0,
-          dia_wt_ct: formData.dia_wt_ct ? parseFloat(formData.dia_wt_ct) : null,
-          stock_qty: parseInt(formData.stock_qty, 10) || 1,
+          pure_weight: parseFloat(formData.pure_weight) || 0,
+          stamp: formData.stamp || '916',
+          unit: formData.unit || 'Carat',
+          sale_value: parseFloat(formData.sale_value) || 0,
+          thumb_image: images[0] || '',
+          images: [...images],
         };
-        itemsToCommit.push(singleItem);
-      } else {
-        showToast('Please fill product details and upload an image before committing', 'warning');
-        return;
       }
     }
+
+    const extraComponents = mainProductData
+      ? [...addedComponents]
+      : (addedComponents.length > 0 ? addedComponents.slice(1) : []);
+
+    const allComponents = [primaryComp, ...extraComponents];
+
+    const totalGross = allComponents.reduce((sum, c) => sum + (parseFloat(c.gross_wt) || 0), 0);
+    const totalNet = allComponents.reduce((sum, c) => sum + (parseFloat(c.net_wt) || 0), 0);
+    const totalPure = allComponents.reduce((sum, c) => sum + (parseFloat(c.pure_weight) || 0), 0);
+    const totalSaleVal = allComponents.reduce((sum, c) => sum + (parseFloat(c.sale_value) || 0), 0);
+
+    const catCodeStr = (primaryCategory?.code || primaryComp.category_name || 'PRD').replace(/[^A-Za-z0-9]/g, '').slice(0, 4).toUpperCase();
+    const subCodeStr = (primarySubcategory?.code || primaryComp.subcategory_name || 'GEN').replace(/[^A-Za-z0-9]/g, '').slice(0, 4).toUpperCase();
+    const generatedSku = `SKU-${catCodeStr}-${subCodeStr}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const cleanName = primaryComp.item_name && primaryComp.item_name.toLowerCase() !== 'main product'
+      ? primaryComp.item_name
+      : `${primaryCategory?.name || primaryComp.category_name || 'Jewelry'} - ${primarySubcategory?.name || primaryComp.subcategory_name || 'Product'}`;
+
+    const productRecord = {
+      category_id: primaryCategory?.id || primaryComp.category_id,
+      subcategory_id: primarySubcategory?.id || primaryComp.subcategory_id,
+      category_name: primaryCategory?.name || primaryComp.category_name,
+      subcategory_name: primarySubcategory?.name || primaryComp.subcategory_name,
+      product_code: primaryComp.item_code || defaultCode,
+      sku: generatedSku,
+      name: cleanName,
+      gross_wt: totalGross,
+      net_wt: totalNet,
+      pure_weight: totalPure,
+      purity: primaryComp.purity,
+      karat: primaryComp.karat,
+      stamp: primaryComp.stamp,
+      unit: primaryComp.unit,
+      sale_value: totalSaleVal,
+      thumb_image: primaryComp.thumb_image,
+      image: primaryComp.thumb_image,
+      images: primaryComp.images,
+      components: allComponents,
+      stock_qty: 1,
+    };
 
     try {
       setIsSubmitting(true);
       const res = await api.post('/inventory', {
-        items: itemsToCommit,
+        items: [productRecord],
       });
 
-      showToast(res.data?.message || 'Inventory updated successfully!', 'success');
+      const savedProducts = res.data?.products || [productRecord];
 
-      // Save uploaded items to session for completion summary screen
-      sessionStorage.setItem('inventory_last_uploaded_items', JSON.stringify(itemsToCommit));
+      try {
+        sessionStorage.setItem('inventory_last_uploaded_items', JSON.stringify(savedProducts));
+        sessionStorage.removeItem('inventory_selected_category');
+        sessionStorage.removeItem('inventory_selected_subcategory');
+      } catch (storageErr) {
+        console.warn('SessionStorage quota bypass:', storageErr);
+      }
 
-      // Clear session category/subcategory navigation
-      sessionStorage.removeItem('inventory_selected_category');
-      sessionStorage.removeItem('inventory_selected_subcategory');
-
-      // Redirect to Upload Complete screen
+      showToast(res.data?.message || 'Product and all components uploaded successfully!', 'success');
       navigate('/inventory/add-new/complete');
     } catch (err) {
-      console.error('Failed to commit inventory', err);
-      const msg = err.response?.data?.message || 'Failed to save products to inventory';
+      console.error('Failed to save product to inventory', err);
+      let msg = err.response?.data?.message || err.message || 'Failed to upload product';
+      if (err.response?.data?.errors && typeof err.response.data.errors === 'object') {
+        const firstErr = Object.values(err.response.data.errors).flat()[0];
+        if (firstErr) msg = firstErr;
+      }
       showToast(msg, 'error');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  return (
-    <div className="w-full pb-20 space-y-6 font-['Inter',-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif] max-w-6xl mx-auto">
+  // Reusable Left Side Multi-Image Upload Component matching Figma exact design
+  const renderMultiImageUploader = () => (
+    <div className="space-y-3">
+      <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wider block">
+        PRODUCT MEDIA
+      </span>
 
-      {/* 1. Header & Navigation */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 mb-1">
-            <Link to="/inventory" className="hover:text-gray-900 transition-colors">Inventory</Link>
-            <span>›</span>
-            <Link to="/inventory/add-new/category" className="hover:text-gray-900 transition-colors">Category</Link>
-            <span>›</span>
-            <Link to="/inventory/add-new/subcategory" className="hover:text-gray-900 transition-colors">Subcategory</Link>
-            <span>›</span>
-            <span className="text-[#b01622] font-bold">Step 3: Product Upload & Batch</span>
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept="image/*"
+        className="hidden"
+        onChange={handleImageUpload}
+      />
+
+      {/* Main Thumbnail Dropzone */}
+      <div
+        onClick={() => fileInputRef.current?.click()}
+        className={`relative border-2 border-dashed rounded-2xl overflow-hidden text-center cursor-pointer transition-all flex flex-col items-center justify-center min-h-[260px] group ${imageError
+          ? 'border-red-500 bg-red-50/70 ring-2 ring-red-200'
+          : 'border-[#e6c5c5] hover:border-[#b01622] bg-[#f7f0f0] hover:bg-[#f2e6e6]'
+          }`}
+      >
+        {images.length > 0 ? (
+          <div className="relative w-full h-[260px] bg-stone-900 flex items-center justify-center">
+            <img
+              src={images[0]}
+              alt="Primary Thumbnail"
+              className="w-full h-full object-contain"
+            />
+            <div className="absolute top-2 left-2 bg-[#b01622] text-white text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-wider shadow-md">
+              Primary Thumbnail
+            </div>
+            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 text-white p-4">
+              <span className="text-xs font-bold">+ Click to Add More Photos</span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  fileInputRef.current?.click();
+                }}
+                className="px-4 py-1.5 bg-white text-[#b01622] hover:bg-stone-100 rounded-full text-xs font-bold shadow-sm transition-colors cursor-pointer"
+              >
+                Browse Files
+              </button>
+            </div>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Add Product Details</h1>
-        </div>
+        ) : (
+          <div className="p-8 flex flex-col items-center justify-center">
+            <div className="w-14 h-14 rounded-full flex items-center justify-center text-2xl mb-3 text-[#b01622]">
+              <i className="fa-solid fa-camera"></i>
+            </div>
 
-        <div className="flex items-center gap-2">
-          <Link
-            to="/inventory/add-new/subcategory"
-            className="px-4 py-2 bg-white border border-stone-300 hover:border-stone-400 text-stone-700 text-xs font-bold rounded-xl shadow-2xs transition-colors flex items-center gap-2"
-          >
-            <i className="fa-solid fa-arrow-left text-xs"></i>
-            <span>Back to Subcategory</span>
-          </Link>
+            <h4 className="text-sm font-bold text-gray-900 tracking-tight">
+              Drag & Drop Product Images
+            </h4>
 
-          {batchItems.length > 0 && (
+            <p className="text-[11px] text-stone-400 mt-1 mb-4">
+              Support JPG, PNG, or TIFF. Max 10MB per file.
+            </p>
+
             <button
               type="button"
-              onClick={handleCommitToInventory}
-              disabled={isSubmitting}
-              className="px-5 py-2 bg-[#b01622] hover:bg-[#8f1019] text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              onClick={(e) => {
+                e.stopPropagation();
+                fileInputRef.current?.click();
+              }}
+              className="px-6 py-2 bg-white hover:bg-stone-50 text-stone-800 border border-stone-300 rounded-full text-xs font-bold shadow-2xs transition-colors cursor-pointer"
             >
-              {isSubmitting ? (
-                <>
-                  <i className="fa-solid fa-circle-notch fa-spin text-xs"></i>
-                  <span>Saving...</span>
-                </>
-              ) : (
-                <>
-                  <i className="fa-solid fa-cloud-arrow-up text-xs"></i>
-                  <span>Commit {batchItems.length} Item(s) to Inventory</span>
-                </>
-              )}
+              Browse Files
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
-      {/* 2. Step Indicator matching Storyboard (Step 3 Active) */}
-      <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs">
-        <div className="flex items-center justify-center gap-3 sm:gap-6 text-xs font-bold">
+      {imageError && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs font-semibold flex items-center gap-2">
+          <i className="fa-solid fa-circle-exclamation text-sm text-red-600"></i>
+          <span>At least one image is required before proceeding.</span>
+        </div>
+      )}
 
-          {/* Step 1 (Completed) */}
-          <Link to="/inventory/add-new/category" className="flex items-center gap-2 text-stone-700 hover:text-[#b01622] transition-colors">
-            <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs font-bold shadow-2xs">
-              <i className="fa-solid fa-check text-[10px]"></i>
+      {/* Child Images Gallery below Main Dropzone */}
+      {images.length > 0 && (
+        <div className="space-y-2 pt-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-stone-700 block">
+              Uploaded Images ({images.length})
+            </span>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="text-[11px] font-bold text-[#b01622] hover:underline"
+            >
+              + Add Child Image
+            </button>
+          </div>
+
+          <div className="grid grid-cols-4 gap-2">
+            {images.map((img, idx) => (
+              <div
+                key={idx}
+                className={`relative group rounded-xl overflow-hidden border-2 aspect-square bg-stone-900 shadow-2xs ${idx === 0 ? 'border-[#b01622] ring-2 ring-red-100' : 'border-stone-200'
+                  }`}
+              >
+                <img src={img} alt={`Image ${idx + 1}`} className="w-full h-full object-cover" />
+                {idx === 0 && (
+                  <span className="absolute top-1 left-1 bg-[#b01622] text-white text-[7px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-wider">
+                    Main
+                  </span>
+                )}
+                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1 p-1">
+                  {idx !== 0 && (
+                    <button
+                      type="button"
+                      onClick={() => handleSetPrimaryImage(idx)}
+                      className="w-6 h-6 rounded-md bg-amber-500 hover:bg-amber-600 text-white flex items-center justify-center text-[9px] cursor-pointer"
+                      title="Set as Main Thumbnail"
+                    >
+                      <i className="fa-solid fa-star"></i>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveImage(idx)}
+                    className="w-6 h-6 rounded-md bg-red-600 hover:bg-red-700 text-white flex items-center justify-center text-[9px] cursor-pointer"
+                    title="Remove Image"
+                  >
+                    <i className="fa-solid fa-trash-can"></i>
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {/* Add More slot */}
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              className="border-2 border-dashed border-[#e6c5c5] hover:border-[#b01622] bg-[#f7f0f0] rounded-xl flex flex-col items-center justify-center aspect-square cursor-pointer transition-colors text-stone-500 hover:text-[#b01622]"
+              title="Add More Photos"
+            >
+              <i className="fa-solid fa-plus text-sm mb-0.5"></i>
+              <span className="text-[9px] font-bold">Add</span>
             </div>
-            <span className="text-stone-500">{category?.name || 'Category'}</span>
-          </Link>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 
-          <div className="w-8 sm:w-16 h-0.5 bg-emerald-500"></div>
+  return (
+    <div className="w-full pb-20 space-y-6 font-['Inter',-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif] max-w-5xl mx-auto pt-2">
 
-          {/* Step 2 (Completed) */}
-          <Link to="/inventory/add-new/subcategory" className="flex items-center gap-2 text-stone-700 hover:text-[#b01622] transition-colors">
-            <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs font-bold shadow-2xs">
-              <i className="fa-solid fa-check text-[10px]"></i>
+      {/* 1. Exact Stepper Matching Screenshot */}
+      <div className="flex items-center justify-center pt-2 pb-4">
+        <div className="flex items-center gap-4 sm:gap-12">
+
+          {/* Step 1 */}
+          <div className="flex flex-col items-center">
+            <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shadow-2xs ${pageStep >= 6 ? 'bg-[#b01622] text-white' : 'bg-stone-200 text-stone-600'
+              }`}>
+              1
             </div>
-            <span className="text-stone-500">{subcategory?.name || 'Subcategory'}</span>
-          </Link>
+            <span className={`text-xs font-bold mt-2 ${pageStep >= 6 ? 'text-[#b01622]' : 'text-stone-500'}`}>
+              Upload File
+            </span>
+          </div>
 
-          <div className="w-8 sm:w-16 h-0.5 bg-emerald-500"></div>
+          <div className={`w-16 sm:w-32 h-0.5 -mt-5 ${pageStep >= 7 ? 'bg-[#b01622]' : 'bg-stone-300'}`}></div>
 
-          {/* Step 3 (Active) */}
-          <div className="flex items-center gap-2 text-[#b01622]">
-            <div className="w-7 h-7 rounded-full bg-[#b01622] text-white flex items-center justify-center text-xs font-bold shadow-2xs">
+          {/* Step 2 */}
+          <div className="flex flex-col items-center">
+            <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shadow-2xs ${pageStep >= 7 ? 'bg-[#b01622] text-white' : 'bg-stone-200 text-stone-600'
+              }`}>
+              2
+            </div>
+            <span className={`text-xs font-bold mt-2 ${pageStep >= 7 ? 'text-[#b01622]' : 'text-stone-500'}`}>
+              Valid Data
+            </span>
+          </div>
+
+          <div className="w-16 sm:w-32 h-0.5 bg-stone-300 -mt-5"></div>
+
+          {/* Step 3 */}
+          <div className="flex flex-col items-center">
+            <div className="w-9 h-9 rounded-full bg-stone-200 text-stone-600 flex items-center justify-center text-sm font-bold shadow-2xs">
               3
             </div>
-            <span>Product Details</span>
+            <span className="text-xs font-bold text-stone-500 mt-2">Complete</span>
           </div>
 
         </div>
       </div>
 
-      {/* 3. Subscreen-3: Batch Table (Screen 8 & 9) */}
-      {batchItems.length > 0 && (
-        <div className="bg-white rounded-2xl border border-stone-200/80 shadow-sm overflow-hidden transition-all animate-fadeIn">
-          <div className="px-6 py-4 bg-red-50/50 border-b border-stone-200/80 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-[#b01622] text-white flex items-center justify-center text-xs font-bold shadow-2xs">
-                {batchItems.length}
-              </div>
-              <div>
-                <h3 className="font-bold text-gray-900 text-sm">Batch Upload Queue (Subscreen-3)</h3>
-                <p className="text-[11px] text-stone-500">
-                  {batchItems.length} item(s) prepared. Fill the form below to add another item or click Commit.
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleCommitToInventory}
-              disabled={isSubmitting}
-              className="px-4 py-2 bg-[#b01622] hover:bg-[#8f1019] text-white text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
-            >
-              <i className="fa-solid fa-check-double text-xs"></i>
-              <span>Finish & Commit to Inventory</span>
-            </button>
-          </div>
-
+      {/* 2. Added Components Queue Table (Matching Image 1) */}
+      {addedComponents.length > 0 && (
+        <div className="bg-stone-50/70 rounded-2xl border border-stone-200/80 shadow-2xs overflow-hidden mb-6 animate-fadeIn">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="border-b border-stone-200 bg-stone-50/80 text-stone-500 font-bold uppercase tracking-wider text-[10px]">
-                  <th className="py-3 px-4">Item Preview</th>
-                  <th className="py-3 px-4">Item Code</th>
-                  <th className="py-3 px-4">Product Name</th>
-                  <th className="py-3 px-4 text-right">Gross Wt (g)</th>
-                  <th className="py-3 px-4 text-right">Net Wt (g)</th>
-                  <th className="py-3 px-4">Purity</th>
-                  <th className="py-3 px-4">Type</th>
-                  <th className="py-3 px-4 text-center">Action</th>
+                <tr className="border-b border-stone-200/80 bg-stone-100/50 text-gray-700 font-bold text-center text-xs">
+                  <th className="py-4 px-6 text-center">Product Image</th>
+                  <th className="py-4 px-6 text-center">Category</th>
+                  <th className="py-4 px-6 text-center">Stamp</th>
+                  <th className="py-4 px-6 text-center">Unit</th>
+                  <th className="py-4 px-6 text-center">Pieces</th>
+                  <th className="py-4 px-6 text-center">Weight</th>
+                  <th className="py-4 px-6 text-center">Rate</th>
+                  <th className="py-4 px-3 text-center w-10"></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-stone-100">
-                {batchItems.map((item, idx) => (
-                  <tr key={item.id_temp || idx} className="hover:bg-stone-50/60 transition-colors">
-                    <td className="py-3 px-4">
-                      <img
-                        src={item.image || '/placeholder-jewelry.png'}
-                        alt={item.name}
-                        className="w-11 h-11 rounded-lg object-cover border border-stone-200 shadow-2xs bg-stone-50"
-                      />
-                    </td>
-                    <td className="py-3 px-4 font-mono font-bold text-gray-900">
-                      {item.product_code}
-                    </td>
-                    <td className="py-3 px-4 font-bold text-stone-800">
-                      {item.name}
-                      <span className="block text-[10px] text-stone-400 font-normal">
-                        {item.category_name} › {item.subcategory_name}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono font-semibold text-stone-800">
-                      {Number(item.gross_wt).toFixed(3)}g
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono font-semibold text-stone-800">
-                      {Number(item.net_wt).toFixed(3)}g
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-bold">
-                        {item.purity}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-stone-600 font-medium">
-                      {item.open_close_type}
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveBatchItem(item.id_temp)}
-                        className="w-8 h-8 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 flex items-center justify-center mx-auto transition-colors cursor-pointer"
-                        title="Remove item"
-                      >
-                        <i className="fa-solid fa-trash-can text-xs"></i>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+              <tbody className="divide-y divide-stone-200/60 bg-white">
+                {addedComponents.map((comp, idx) => {
+                  const img = comp.thumb_image || (comp.images && comp.images[0]) || '/placeholder-jewelry.png';
+                  const catName = comp.category_name || comp.item_name || 'Category';
+                  const stamp = comp.stamp || '+0';
+                  const unit = comp.unit || 'Carat';
+                  const pieces = comp.no_of_pieces || 1;
+                  const weight = (parseFloat(comp.gross_wt) || parseFloat(comp.net_wt) || 0).toFixed(1) + 'g';
+                  const rate = parseFloat(comp.gold_rate || comp.sale_rate || 0).toFixed(2);
+
+                  return (
+                    <tr key={comp.id_temp || idx} className="hover:bg-stone-50/60 transition-colors text-center text-xs font-medium text-gray-800">
+                      <td className="py-3 px-6 text-center">
+                        <div className="w-10 h-10 rounded-lg overflow-hidden bg-stone-900 shadow-2xs mx-auto border border-stone-200 flex items-center justify-center">
+                          <img
+                            src={img}
+                            alt={catName}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              e.target.onerror = null;
+                              e.target.src = '/placeholder-jewelry.png';
+                            }}
+                          />
+                        </div>
+                      </td>
+                      <td className="py-3 px-6 text-center text-gray-900 font-medium">
+                        {catName}
+                      </td>
+                      <td className="py-3 px-6 text-center text-stone-600 font-mono">
+                        {stamp}
+                      </td>
+                      <td className="py-3 px-6 text-center text-stone-600 font-medium">
+                        {unit}
+                      </td>
+                      <td className="py-3 px-6 text-center text-gray-900 font-bold">
+                        {pieces}
+                      </td>
+                      <td className="py-3 px-6 text-center font-mono font-semibold text-gray-800">
+                        {weight}
+                      </td>
+                      <td className="py-3 px-6 text-center font-mono font-semibold text-stone-700">
+                        {rate}
+                      </td>
+                      <td className="py-3 px-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveComponent(comp.id_temp)}
+                          className="w-6 h-6 rounded-md bg-stone-100 hover:bg-red-100 text-stone-400 hover:text-red-600 flex items-center justify-center transition-colors cursor-pointer mx-auto"
+                          title="Remove Component"
+                        >
+                          <i className="fa-solid fa-xmark text-xs"></i>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
-      {/* 4. Product Upload Form (Screens 6, 7 & 8) */}
-      <div className="bg-white rounded-2xl border border-stone-200/80 shadow-sm overflow-hidden">
+      {/* 3. Main Form Card matching exact Screenshot */}
+      <div className="bg-white rounded-3xl border border-stone-200/90 shadow-sm overflow-hidden">
 
-        {/* Red banner matching Storyboard */}
-        <div className="bg-[#b01622] text-white px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        {/* Dark Red Header Banner matching Screenshot */}
+        <div className="bg-[#b01622] text-white px-8 py-5 flex items-center justify-between">
           <div>
-            <span className="text-[10px] uppercase font-bold tracking-wider text-red-200 block">
-              Product Specifications Form
-            </span>
-            <h2 className="text-lg font-bold">
-              Add New {subcategory?.name || 'Jewelry'} Item
-            </h2>
+            <h2 className="text-xl font-bold tracking-tight">New Item Upload</h2>
+            <p className="text-xs text-red-100 font-normal mt-0.5">
+              Efficiently add individual items to the diamond inventory with direct data entry.
+            </p>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs bg-white/20 backdrop-blur-xs px-3 py-1 rounded-full font-semibold">
-              Category: {category?.name}
-            </span>
-            <span className="text-xs bg-white/20 backdrop-blur-xs px-3 py-1 rounded-full font-semibold">
-              Subcategory: {subcategory?.name}
-            </span>
+          <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-xs flex items-center justify-center text-white text-xl">
+            <i className="fa-solid fa-cloud-arrow-up"></i>
           </div>
         </div>
 
-        <form onSubmit={handleAddBatchItem} className="p-6 lg:p-8 space-y-8">
+        {/* Clean White Inner Form Container */}
+        <form onSubmit={pageStep === 6 ? handlePage6Next : handleAddComponent} className="p-8 bg-white space-y-6">
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
 
-            {/* Left Column: Image Upload Manager */}
-            <div id="image-upload-section" className="lg:col-span-4 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Product Images</span>
-                  <span className="text-red-500 font-bold">*</span>
-                  <span className="text-[10px] text-red-500 font-normal lowercase">(required)</span>
-                </div>
-                <span className="text-[10px] text-stone-400 font-medium whitespace-nowrap">
-                  1st = Thumb, rest = Child
-                </span>
-              </div>
-
-              {/* Upload Dropzone */}
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all flex flex-col items-center justify-center min-h-[190px] ${
-                  imageError
-                    ? 'border-red-500 bg-red-50/50 ring-2 ring-red-200'
-                    : 'border-stone-300 hover:border-[#b01622] bg-stone-50/60 hover:bg-red-50/20'
-                }`}
-              >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleImageUpload}
-                />
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl mb-3 ${
-                  imageError ? 'bg-red-100 text-red-600' : 'bg-red-100/60 text-[#b01622]'
-                }`}>
-                  <i className="fa-solid fa-cloud-arrow-up"></i>
-                </div>
-                <h4 className="text-xs font-bold text-gray-900">
-                  {images.length > 0 ? '+ Add More Product Images' : 'Upload Product Images *'}
-                </h4>
-                <p className="text-[11px] text-stone-500 mt-1">
-                  Drag and drop or browse multiple files
-                </p>
-                <span className="text-[10px] text-stone-400 mt-2">
-                  1st image is Thumbnail, others are Child Images
-                </span>
-              </div>
-
-              {/* Error Alert if no image uploaded */}
-              {imageError && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs font-semibold flex items-center gap-2">
-                  <i className="fa-solid fa-circle-exclamation text-sm text-red-600"></i>
-                  <span>Product image is required! Please upload at least one image.</span>
-                </div>
-              )}
-
-              {/* Thumbnails & Child Images list */}
-              {images.length > 0 && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-stone-700 flex items-center gap-1.5">
-                      <i className="fa-solid fa-images text-[#b01622] text-xs"></i>
-                      <span>Images ({images.length})</span>
-                    </span>
-                    <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="text-[11px] text-[#b01622] hover:underline font-semibold cursor-pointer"
-                      >
-                        + Add More
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setImages([])}
-                        className="text-[11px] text-stone-500 hover:text-red-600 hover:underline font-semibold cursor-pointer"
-                      >
-                        Clear All
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2.5">
-                    {images.map((img, idx) => (
-                      <div
-                        key={idx}
-                        className={`relative group rounded-xl overflow-hidden border shadow-2xs aspect-square bg-stone-100 ${
-                          idx === 0 ? 'border-2 border-[#b01622] ring-2 ring-red-100' : 'border-stone-200'
-                        }`}
-                      >
-                        <img src={img} alt={`Image ${idx + 1}`} className="w-full h-full object-cover" />
-
-                        {/* First Image: Thumb Badge */}
-                        {idx === 0 ? (
-                          <span className="absolute top-1 left-1 bg-[#b01622] text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-xs flex items-center gap-1">
-                            <i className="fa-solid fa-star text-[8px] text-amber-300"></i> Thumb
-                          </span>
-                        ) : (
-                          /* Other Images: Child Badge + Set as Thumb button */
-                          <>
-                            <span className="absolute top-1 left-1 bg-black/70 text-white text-[8px] font-semibold px-1.5 py-0.5 rounded">
-                              Child #{idx}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleSetAsThumb(idx);
-                              }}
-                              className="absolute bottom-1 left-1 right-1 text-[9px] bg-white/95 hover:bg-[#b01622] text-stone-800 hover:text-white font-bold py-0.5 rounded shadow text-center transition-colors cursor-pointer"
-                              title="Set this image as primary thumbnail"
-                            >
-                              Set as Thumb
-                            </button>
-                          </>
-                        )}
-
-                        {/* Remove Image Button */}
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRemoveImage(idx);
-                          }}
-                          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 text-white flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:bg-red-600"
-                          title="Delete photo"
-                        >
-                          <i className="fa-solid fa-xmark"></i>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Informational helper banner */}
-                  <div className="p-2.5 bg-stone-50 border border-stone-200/80 rounded-xl text-[11px] text-stone-600 flex items-start gap-2">
-                    <i className="fa-solid fa-circle-info text-[#b01622] text-xs mt-0.5"></i>
-                    <span>
-                      <strong>1st image</strong> is the catalog <strong>Thumbnail</strong>. Additional images are saved as <strong>Child/Gallery images</strong>. Click &ldquo;Set as Thumb&rdquo; on any child photo to make it primary.
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* Open / Close / Open-Close selector */}
-              <div className="pt-4 border-t border-stone-100">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
-                  Structure / Locking Type
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {['Close', 'Open', 'Open-Close'].map((type) => {
-                    const isSelected = formData.open_close_type === type;
-                    return (
-                      <button
-                        key={type}
-                        type="button"
-                        onClick={() => handleOpenCloseChange(type)}
-                        className={`py-2 px-2 text-xs font-bold rounded-xl border transition-all cursor-pointer ${isSelected
-                          ? 'bg-[#b01622] text-white border-[#b01622] shadow-2xs'
-                          : 'bg-stone-50 hover:bg-stone-100 text-stone-700 border-stone-200'
-                          }`}
-                      >
-                        {type}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Conditional detail field based on Open/Close */}
-                <div className="mt-3">
-                  <label className="block text-[11px] font-semibold text-stone-600 mb-1">
-                    Lock / Hinge Specification
-                  </label>
-                  <input
-                    type="text"
-                    name="open_close_details"
-                    value={formData.open_close_details}
-                    onChange={handleChange}
-                    className="w-full px-3 py-2 text-xs border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden"
-                    placeholder="e.g. Screw Clasp, Spring Hinge, Adjustable Free Size"
-                  />
-                </div>
-              </div>
-
+            {/* Left Column: Product Media Upload */}
+            <div className="lg:col-span-5">
+              {renderMultiImageUploader()}
             </div>
 
-            {/* Right Column: Main Specifications */}
-            <div className="lg:col-span-8 space-y-5">
+            {/* Right Column: Form Inputs with Soft Pinkish-Beige Input Boxes (#f7f0f0 background & #e6c5c5 border) */}
+            <div className="lg:col-span-7 space-y-5">
 
-              {/* Row 1: SKU & Name */}
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
-                <div className="sm:col-span-4">
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Item Code / SKU <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      name="product_code"
-                      value={formData.product_code}
-                      onChange={handleChange}
-                      required
-                      className="w-full px-3.5 py-2.5 text-xs font-mono font-bold border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden uppercase"
-                      placeholder="e.g. RJ-GLD-101"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => generateNewCode(category)}
-                      className="absolute right-2 top-2 text-[10px] text-stone-400 hover:text-[#b01622] font-semibold cursor-pointer"
-                      title="Auto generate code"
-                    >
-                      <i className="fa-solid fa-arrows-rotate mr-1"></i>Gen
-                    </button>
-                  </div>
-                </div>
-
-                <div className="sm:col-span-8">
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Product Title / Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    name="name"
-                    value={formData.name}
-                    onChange={handleChange}
-                    required
-                    className="w-full px-3.5 py-2.5 text-xs border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden font-semibold"
-                    placeholder="e.g. 22K Antique Temple Floral Kada Bangle"
-                  />
-                </div>
-              </div>
-
-              {/* Row 2: Weights & Karat */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Gross Wt (Grams) <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      step="0.001"
-                      name="gross_wt"
-                      value={formData.gross_wt}
-                      onChange={handleChange}
-                      required
-                      className="w-full px-3.5 py-2.5 text-xs font-mono font-semibold border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden"
-                      placeholder="0.000"
-                    />
-                    <span className="absolute right-3.5 top-2.5 text-xs text-stone-400 font-bold">g</span>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Net Wt (Grams)
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      step="0.001"
-                      name="net_wt"
-                      value={formData.net_wt}
-                      onChange={handleChange}
-                      className="w-full px-3.5 py-2.5 text-xs font-mono font-semibold border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden"
-                      placeholder="0.000"
-                    />
-                    <span className="absolute right-3.5 top-2.5 text-xs text-stone-400 font-bold">g</span>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Purity / Karat
-                  </label>
-                  <select
-                    name="purity"
-                    value={formData.purity}
-                    onChange={handleChange}
-                    className="w-full px-3.5 py-2.5 text-xs border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden font-semibold bg-white"
-                  >
-                    <option value="24K (99.9%)">24K (99.9% Fine Gold)</option>
-                    <option value="22K (91.6%)">22K (91.6% BIS Hallmark)</option>
-                    <option value="18K (75.0%)">18K (75.0% Diamond Gold)</option>
-                    <option value="14K (58.5%)">14K (58.5% Dailywear)</option>
-                    <option value="925 Sterling Silver">925 Sterling Silver</option>
-                    <option value="Platinum 950">Platinum 950</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Row 3: Size, Diamond Weight & Setting Style */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Product Size / Length
-                  </label>
-                  <input
-                    type="text"
-                    name="size"
-                    value={formData.size}
-                    onChange={handleChange}
-                    className="w-full px-3.5 py-2.5 text-xs font-semibold border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden"
-                    placeholder="e.g. Ring 16 / Bangle 2.4 / 18 inch"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Diamond Weight (Carats)
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      step="0.01"
-                      name="dia_wt_ct"
-                      value={formData.dia_wt_ct}
-                      onChange={handleChange}
-                      className="w-full px-3.5 py-2.5 text-xs font-mono font-semibold border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden"
-                      placeholder="e.g. 0.45"
-                    />
-                    <span className="absolute right-3.5 top-2.5 text-xs text-stone-400 font-bold">ct</span>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
-                      Setting Style
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => setShowStylesModal(true)}
-                      className="text-[11px] font-bold text-[#b01622] hover:underline flex items-center gap-1 cursor-pointer"
-                      title="Manage Setting Styles Master list"
-                    >
-                      <i className="fa-solid fa-plus text-[9px]"></i>
-                      <span>Manage Styles</span>
-                    </button>
-                  </div>
-                  <select
-                    name="setting_style"
-                    value={formData.setting_style}
-                    onChange={handleChange}
-                    className="w-full px-3.5 py-2.5 text-xs border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden font-semibold bg-white"
-                  >
-                    {settingStyles.length > 0 ? (
-                      settingStyles.map((s) => (
-                        <option key={s.id || s.name} value={s.name}>
-                          {s.name}
-                        </option>
-                      ))
-                    ) : (
-                      <>
-                        <option value="Prong Setting">Prong Setting</option>
-                        <option value="Bezel Setting">Bezel Setting</option>
-                        <option value="Channel Setting">Channel Setting</option>
-                        <option value="Pave Setting">Pave Setting</option>
-                        <option value="Micro Pave">Micro Pave</option>
-                        <option value="Tension Setting">Tension Setting</option>
-                        <option value="Antique Cast / Temple Work">Antique Cast / Temple Work</option>
-                      </>
-                    )}
-                  </select>
-                </div>
-              </div>
-
-              {/* Row 3.5: Stone Size & Stone Colour Options */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Stone Size / Carat Pointer
-                  </label>
-                  <select
-                    name="stone_size"
-                    value={formData.stone_size}
-                    onChange={handleChange}
-                    className="w-full px-3.5 py-2.5 text-xs border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden font-semibold bg-white"
-                  >
-                    <option value="">Select Stone Size / Range</option>
-                    {STONE_SIZE_OPTIONS.map((opt) => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Stone Colour / Gemstone Type
-                  </label>
-                  <select
-                    name="stone_color"
-                    value={formData.stone_color}
-                    onChange={handleChange}
-                    className="w-full px-3.5 py-2.5 text-xs border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden font-semibold bg-white"
-                  >
-                    <option value="">Select Stone Colour / Type</option>
-                    {STONE_COLOR_OPTIONS.map((opt) => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Row 4: Making charges & Wastage */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Making Charge (₹/g)
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      name="making_charge"
-                      value={formData.making_charge}
-                      onChange={handleChange}
-                      className="w-full px-3.5 py-2.5 text-xs font-mono font-semibold border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden"
-                      placeholder="650"
-                    />
-                    <span className="absolute right-3.5 top-2.5 text-xs text-stone-400 font-bold">₹</span>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Wastage (%)
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      step="0.01"
-                      name="wastage_percent"
-                      value={formData.wastage_percent}
-                      onChange={handleChange}
-                      className="w-full px-3.5 py-2.5 text-xs font-mono font-semibold border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden"
-                      placeholder="3.50"
-                    />
-                    <span className="absolute right-3.5 top-2.5 text-xs text-stone-400 font-bold">%</span>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Initial Stock Qty
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    name="stock_qty"
-                    value={formData.stock_qty}
-                    onChange={handleChange}
-                    className="w-full px-3.5 py-2.5 text-xs font-mono font-semibold border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden"
-                    placeholder="1"
-                  />
-                </div>
-              </div>
-
-              {/* Row 5: Stamp, Unit, No. of Pieces, Weight */}
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Stamp / Hallmark
-                  </label>
-                  <select
-                    name="stamp"
-                    value={formData.stamp}
-                    onChange={handleChange}
-                    className="w-full px-3.5 py-2.5 text-xs border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden font-semibold bg-white"
-                  >
-                    {STAMP_OPTIONS.map((s) => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Unit
-                  </label>
-                  <select
-                    name="unit"
-                    value={formData.unit}
-                    onChange={handleChange}
-                    className="w-full px-3.5 py-2.5 text-xs border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden font-semibold bg-white"
-                  >
-                    {['Carat', 'Gram', 'Piece', 'Set', 'Pair'].map((u) => (
-                      <option key={u} value={u}>{u}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                    No. of Pieces
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    name="no_of_pieces"
-                    value={formData.no_of_pieces}
-                    onChange={handleChange}
-                    className="w-full px-3.5 py-2.5 text-xs font-mono font-semibold border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden"
-                    placeholder="0.00"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Weight
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      name="weight"
-                      value={formData.weight}
-                      onChange={handleChange}
-                      className="w-full px-3.5 py-2.5 text-xs font-mono font-semibold border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden"
-                      placeholder="0.00"
-                    />
-                    <span className="absolute right-3.5 top-2.5 text-xs text-stone-400 font-bold">g</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Row 6: Rate, Sale Rate, Sale Value */}
-              <div className="space-y-3 pt-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
-                      Pricing & Valuation
-                    </label>
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200 flex items-center gap-1">
-                      <i className="fa-solid fa-wand-magic-sparkles text-[9px]"></i>
-                      Auto-Calculated
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleResetToAutoRates}
-                    className="text-[11px] text-[#b01622] hover:text-[#8f1019] hover:underline font-semibold flex items-center gap-1 cursor-pointer transition-colors"
-                    title="Recalculate rates automatically from bullion purity"
-                  >
-                    <i className="fa-solid fa-rotate-right text-[10px]"></i>
-                    <span>Recalculate Auto Bullion</span>
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  {/* Base Rate */}
-                  <div>
-                    <label className="block text-[11px] font-bold text-gray-600 mb-1">
-                      Base Metal Rate <span className="text-[10px] text-stone-400 font-normal">({formData.purity})</span>
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        step="1"
-                        min="0"
-                        name="rate"
-                        value={formData.rate}
-                        onChange={handleChange}
-                        className="w-full px-3.5 py-2.5 text-xs font-mono font-bold border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden text-gray-900"
-                        placeholder="6850"
-                      />
-                      <span className="absolute right-3.5 top-2.5 text-xs text-stone-400 font-bold">₹/g</span>
+              {pageStep === 6 ? (
+                <>
+                  {/* Page 6 Fields: Basic Item Detail Entry */}
+                  {/* Row 1: ITEM NAME (Dropdown from Item Masters) & DESIGN NO */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider">
+                          ITEM NAME
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenMasterModal('item')}
+                          className="text-[10px] text-[#b01622] font-bold hover:underline cursor-pointer"
+                        >
+                          + CRUD
+                        </button>
+                      </div>
+                      <select
+                        name="item_name"
+                        value={formData.item_name}
+                        onChange={(e) => {
+                          handleInputChange(e);
+                          const found = itemsMasterList.find((i) => i.name === e.target.value);
+                          if (found) setSelectedItemMasterId(found.id);
+                        }}
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622] cursor-pointer"
+                      >
+                        <option value="">-- Select Item Name --</option>
+                        {itemsMasterList.length > 0 ? (
+                          itemsMasterList.map((itm) => (
+                            <option key={itm.id} value={itm.name}>
+                              {itm.name} {itm.code ? `[${itm.code}]` : ''}
+                            </option>
+                          ))
+                        ) : (
+                          <>
+                            <option value={formData.item_name || activeSubcategory?.name || 'Diamond Ring (Open)'}>
+                              {formData.item_name || activeSubcategory?.name || 'Diamond Ring (Open)'}
+                            </option>
+                            <option value="Box Link Chain">Box Link Chain</option>
+                            <option value="Antique Temple Necklace">Antique Temple Necklace</option>
+                            <option value="Solitaire Diamond Ring">Solitaire Diamond Ring</option>
+                            <option value="Kada Bangles Pair">Kada Bangles Pair</option>
+                          </>
+                        )}
+                      </select>
                     </div>
-                    <span className="text-[10px] text-stone-400 mt-1 block">
-                      Bullion rate per gram
-                    </span>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                        DESIGN NO
+                      </label>
+                      <input
+                        type="text"
+                        name="item_code"
+                        value={formData.item_code}
+                        onChange={handleInputChange}
+                        placeholder="RD-DIA-001"
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                      />
+                    </div>
                   </div>
 
-                  {/* Sale Rate */}
-                  <div>
-                    <label className="block text-[11px] font-bold text-gray-600 mb-1">
-                      Sale Rate <span className="text-[10px] text-stone-400 font-normal">(incl. wastage & making)</span>
-                    </label>
-                    <div className="relative">
+                  {/* Row 2: KARAT (MASTER), PURITY (NUMERIC), SIZE, NO. OF PIECES */}
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider">
+                          KARAT
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenMasterModal('karat')}
+                          className="text-[10px] text-[#b01622] font-bold hover:underline"
+                        >
+                          + CRUD
+                        </button>
+                      </div>
+                      <select
+                        name="karat"
+                        value={formData.karat}
+                        onChange={(e) => {
+                          handleInputChange(e);
+                          const kVal = e.target.value;
+                          let pVal = '91.6';
+                          if (kVal.includes('24')) pVal = '99.9';
+                          else if (kVal.includes('18')) pVal = '75.0';
+                          else if (kVal.includes('14')) pVal = '58.5';
+                          setFormData((prev) => ({
+                            ...prev,
+                            karat: kVal,
+                            purity: pVal,
+                            pure_weight: computePureWeight(prev.net_wt || prev.gross_wt, pVal),
+                          }));
+                        }}
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622] cursor-pointer"
+                      >
+                        {karatsList.map((k) => (
+                          <option key={k.id} value={k.name}>
+                            {k.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                        PURITY (%)
+                      </label>
                       <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        name="sale_rate"
-                        value={formData.sale_rate}
-                        onChange={handleChange}
-                        className="w-full px-3.5 py-2.5 text-xs font-mono font-bold border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden text-[#b01622]"
+                        type="text"
+                        name="purity"
+                        value={formData.purity}
+                        onChange={handleInputChange}
+                        placeholder="91.6"
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                        SIZE
+                      </label>
+                      <input
+                        type="text"
+                        name="size"
+                        value={formData.size}
+                        onChange={handleInputChange}
                         placeholder="0.00"
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
                       />
-                      <span className="absolute right-3.5 top-2.5 text-xs text-stone-400 font-bold">₹/g</span>
                     </div>
-                    <span className="text-[10px] text-stone-400 mt-1 block">
-                      Base × (1 + {formData.wastage_percent}%) + ₹{formData.making_charge}
-                    </span>
-                  </div>
 
-                  {/* Sale Value */}
-                  <div>
-                    <label className="block text-[11px] font-bold text-gray-600 mb-1">
-                      Total Sale Value <span className="text-[10px] text-stone-400 font-normal">(Est. Retail Price)</span>
-                    </label>
-                    <div className="relative">
+                    <div>
+                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                        NO. OF PIECES
+                      </label>
                       <input
                         type="number"
-                        step="0.01"
-                        min="0"
-                        name="sale_value"
-                        value={formData.sale_value}
-                        onChange={handleChange}
-                        className="w-full px-3.5 py-2.5 text-xs font-mono font-bold border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden text-emerald-700 bg-emerald-50/20"
-                        placeholder="0.00"
-                      />
-                      <span className="absolute right-3.5 top-2.5 text-xs text-stone-400 font-bold">₹</span>
-                    </div>
-                    <span className="text-[10px] text-stone-400 mt-1 block">
-                      Net wt ({formData.net_wt || formData.gross_wt || 0}g) × Sale Rate
-                    </span>
-                  </div>
-                </div>
-
-                {/* Calculation formula explanation banner */}
-                <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl text-[11px] text-amber-900 flex items-start gap-2.5 shadow-2xs">
-                  <i className="fa-solid fa-calculator text-amber-700 mt-0.5 text-xs"></i>
-                  <div>
-                    <span className="font-bold text-amber-950">How Rate &amp; Price are Auto-Generated:</span>
-                    <div className="mt-1 space-y-0.5 text-stone-700 text-[11px]">
-                      <div>
-                        &bull; <strong>Base Rate:</strong> Set from purity (<strong>{formData.purity}</strong> = <strong>₹{formData.rate || 6850}/g</strong>).
-                      </div>
-                      <div>
-                        &bull; <strong>Sale Rate / Gram:</strong> Base Rate × (1 + {formData.wastage_percent}% Wastage) + ₹{formData.making_charge} Making Charge = <strong className="text-[#b01622]">₹{formData.sale_rate || 0}/g</strong>.
-                      </div>
-                      <div>
-                        &bull; <strong>Total Sale Value:</strong> Net Weight ({formData.net_wt || formData.gross_wt || 0}g) × Sale Rate {formData.dia_wt_ct ? `+ Diamonds (${formData.dia_wt_ct}ct × ₹65,000)` : ''} = <strong className="text-emerald-700">₹{Number(formData.sale_value || 0).toLocaleString('en-IN')}</strong>.
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Row 7: Notes */}
-              <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                  Item Description / Hallmarking Notes
-                </label>
-                <textarea
-                  name="description"
-                  rows="2"
-                  value={formData.description}
-                  onChange={handleChange}
-                  className="w-full px-3.5 py-2 text-xs border border-stone-300 rounded-xl focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] focus:outline-hidden"
-                  placeholder="e.g. BIS Hallmark certified, handcrafted filigree antique temple work with ruby accents..."
-                ></textarea>
-              </div>
-
-              {/* Product Model Variants Manager */}
-              <div className="p-4 bg-stone-50/80 border border-stone-200/80 rounded-2xl space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <i className="fa-solid fa-layer-group text-[#b01622] text-sm"></i>
-                    <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
-                      Product Model Variants ({formData.variants?.length || 0})
-                    </h4>
-                  </div>
-                  <span className="text-[10px] text-stone-500 font-medium">
-                    Store different sizes, metal colors &amp; stone variants under this model
-                  </span>
-                </div>
-
-                {/* Inline Variant Creation Form */}
-                <div className="bg-white p-3 rounded-xl border border-stone-200 space-y-3 shadow-2xs">
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
-                    <div>
-                      <label className="block text-[10px] font-bold text-stone-600 mb-1">
-                        Variant Code / SKU
-                      </label>
-                      <input
-                        type="text"
-                        value={newVariant.sku}
-                        onChange={(e) => setNewVariant({ ...newVariant, sku: e.target.value })}
-                        placeholder={`Ex: ${formData.product_code || 'SKU'}-V1`}
-                        className="w-full px-2.5 py-1.5 text-xs border border-stone-300 rounded-lg focus:border-[#b01622] font-mono"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-stone-600 mb-1">
-                        Variant Title / Option
-                      </label>
-                      <input
-                        type="text"
-                        value={newVariant.title}
-                        onChange={(e) => setNewVariant({ ...newVariant, title: e.target.value })}
-                        placeholder="Ex: Ring Size 14 - Rose Gold"
-                        className="w-full px-2.5 py-1.5 text-xs border border-stone-300 rounded-lg focus:border-[#b01622]"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-stone-600 mb-1">
-                        Size (Ring / Bangle)
-                      </label>
-                      <input
-                        type="text"
-                        value={newVariant.size}
-                        onChange={(e) => setNewVariant({ ...newVariant, size: e.target.value })}
-                        placeholder="Ex: 14 or 2-4"
-                        className="w-full px-2.5 py-1.5 text-xs border border-stone-300 rounded-lg focus:border-[#b01622]"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-stone-600 mb-1">
-                        Metal / Finish Colour
-                      </label>
-                      <input
-                        type="text"
-                        value={newVariant.color}
-                        onChange={(e) => setNewVariant({ ...newVariant, color: e.target.value })}
-                        placeholder="Ex: Yellow Gold / Rose Gold"
-                        className="w-full px-2.5 py-1.5 text-xs border border-stone-300 rounded-lg focus:border-[#b01622]"
+                        name="no_of_pieces"
+                        value={formData.no_of_pieces}
+                        onChange={handleInputChange}
+                        placeholder="1"
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
                       />
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 items-end">
+                  {/* Row 3: GROSS WEIGHT, NET WEIGHT, and PURE WEIGHT OF 24K */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-[10px] font-bold text-stone-600 mb-1 whitespace-nowrap overflow-hidden text-ellipsis">
-                        Net Wt (g)
+                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                        GROSS WEIGHT
                       </label>
                       <input
                         type="number"
                         step="0.001"
-                        value={newVariant.net_wt}
-                        onChange={(e) => setNewVariant({ ...newVariant, net_wt: e.target.value })}
-                        placeholder={formData.net_wt || "0.000"}
-                        className="w-full px-2.5 py-1.5 h-[34px] text-xs border border-stone-300 rounded-lg focus:border-[#b01622] font-mono"
+                        name="gross_wt"
+                        value={formData.gross_wt}
+                        onChange={handleInputChange}
+                        placeholder="0.00g"
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
                       />
                     </div>
+
                     <div>
-                      <label className="block text-[10px] font-bold text-stone-600 mb-1 whitespace-nowrap overflow-hidden text-ellipsis">
-                        Stock Qty
+                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                        NET WEIGHT
                       </label>
                       <input
                         type="number"
-                        min="1"
-                        value={newVariant.stock_qty}
-                        onChange={(e) => setNewVariant({ ...newVariant, stock_qty: e.target.value })}
-                        placeholder="1"
-                        className="w-full px-2.5 py-1.5 h-[34px] text-xs border border-stone-300 rounded-lg focus:border-[#b01622] font-mono"
+                        step="0.001"
+                        name="net_wt"
+                        value={formData.net_wt}
+                        onChange={handleInputChange}
+                        placeholder="0.00g"
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
                       />
                     </div>
+
                     <div>
-                      <label className="block text-[10px] font-bold text-stone-600 mb-1 whitespace-nowrap overflow-hidden text-ellipsis" title="Price Override (₹)">
-                        Price Override (₹)
+                      <label className="block text-[11px] font-bold text-[#b01622] uppercase tracking-wider mb-1">
+                        PURE WEIGHT OF 24K
                       </label>
                       <input
-                        type="number"
-                        value={newVariant.price}
-                        onChange={(e) => setNewVariant({ ...newVariant, price: e.target.value })}
-                        placeholder={formData.sale_rate || "0"}
-                        className="w-full px-2.5 py-1.5 h-[34px] text-xs border border-stone-300 rounded-lg focus:border-[#b01622] font-mono text-emerald-700"
+                        type="text"
+                        name="pure_weight"
+                        value={formData.pure_weight ? `${formData.pure_weight}g` : ''}
+                        placeholder="0.00g"
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-black text-[#b01622] focus:outline-none"
+                        readOnly
                       />
                     </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Page 7 Fields: Component Detail Entry */}
+                  {/* Row 1: CATEGORY & STAMP */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <button
-                        type="button"
-                        onClick={handleAddVariant}
-                        className="w-full h-[34px] px-2.5 bg-[#b01622] hover:bg-[#8f1019] text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs whitespace-nowrap"
+                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                        CATEGORY
+                      </label>
+                      <select
+                        name="category_id"
+                        value={activeCategory?.id || ''}
+                        onChange={(e) => {
+                          const cat = categoriesList.find((c) => String(c.id) === String(e.target.value));
+                          if (cat) {
+                            setActiveCategory(cat);
+                            const sub = cat.subcategories?.[0] || null;
+                            setActiveSubcategory(sub);
+                            setFormData((prev) => ({
+                              ...prev,
+                              item_name: sub?.name || cat.name || 'Component',
+                            }));
+                          }
+                        }}
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622] cursor-pointer"
                       >
-                        <i className="fa-solid fa-plus text-[10px]"></i>
-                        <span>Add Variant</span>
-                      </button>
+                        {categoriesList.map((cat) => (
+                          <option key={cat.id} value={cat.id}>
+                            {cat.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider">
+                          STAMP
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenMasterModal('stamp')}
+                          className="text-[10px] text-[#b01622] font-bold hover:underline"
+                        >
+                          + CRUD
+                        </button>
+                      </div>
+                      <select
+                        name="stamp"
+                        value={formData.stamp}
+                        onChange={handleInputChange}
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622] cursor-pointer"
+                      >
+                        {stampsList.map((st) => (
+                          <option key={st.id} value={st.name}>
+                            {st.name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
-                </div>
 
-                {/* Table of Added Variants */}
-                {formData.variants && formData.variants.length > 0 && (
-                  <div className="overflow-x-auto bg-white rounded-xl border border-stone-200">
-                    <table className="w-full text-left text-xs">
-                      <thead>
-                        <tr className="bg-stone-50 border-b border-stone-200 text-stone-500 font-bold uppercase text-[9px]">
-                          <th className="py-2 px-3">SKU</th>
-                          <th className="py-2 px-3">Variant Title</th>
-                          <th className="py-2 px-3">Size / Colour</th>
-                          <th className="py-2 px-3 text-right">Net Wt</th>
-                          <th className="py-2 px-3 text-center">Stock</th>
-                          <th className="py-2 px-3 text-right">Price</th>
-                          <th className="py-2 px-3 text-center">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-stone-100">
-                        {formData.variants.map((varItem) => (
-                          <tr key={varItem.id} className="hover:bg-stone-50/60">
-                            <td className="py-2 px-3 font-mono font-bold text-gray-900">{varItem.sku}</td>
-                            <td className="py-2 px-3 font-semibold text-stone-800">{varItem.title}</td>
-                            <td className="py-2 px-3">
-                              {varItem.size && <span className="px-1.5 py-0.5 mr-1 bg-stone-100 border border-stone-200 rounded text-[10px] font-bold">Size: {varItem.size}</span>}
-                              {varItem.color && <span className="px-1.5 py-0.5 bg-red-50 text-[#b01622] border border-red-100 rounded text-[10px] font-bold">{varItem.color}</span>}
-                            </td>
-                            <td className="py-2 px-3 text-right font-mono">{varItem.net_wt ? `${varItem.net_wt}g` : '-'}</td>
-                            <td className="py-2 px-3 text-center font-bold">{varItem.stock_qty}</td>
-                            <td className="py-2 px-3 text-right font-mono text-emerald-700 font-bold">{varItem.price ? `₹${Number(varItem.price).toLocaleString('en-IN')}` : '-'}</td>
-                            <td className="py-2 px-3 text-center">
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveVariant(varItem.id)}
-                                className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
-                                title="Remove Variant"
-                              >
-                                <i className="fa-solid fa-trash-can text-xs"></i>
-                              </button>
-                            </td>
-                          </tr>
+                  {/* Row 2: UNIT (MASTER), SIZE, NO. OF PIECES */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider">
+                          UNIT
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenMasterModal('unit')}
+                          className="text-[10px] text-[#b01622] font-bold hover:underline"
+                        >
+                          + CRUD
+                        </button>
+                      </div>
+                      <select
+                        name="unit"
+                        value={formData.unit}
+                        onChange={handleInputChange}
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622] cursor-pointer"
+                      >
+                        {unitsList.map((u) => (
+                          <option key={u.id} value={u.name}>
+                            {u.name}
+                          </option>
                         ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
+                      </select>
+                    </div>
 
-              {/* Form Action Buttons */}
-              <div className="pt-4 border-t border-stone-200/80 flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                        SIZE
+                      </label>
+                      <input
+                        type="text"
+                        name="size"
+                        value={formData.size}
+                        onChange={handleInputChange}
+                        placeholder="0.00"
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                        NO. OF PIECES
+                      </label>
+                      <input
+                        type="number"
+                        name="no_of_pieces"
+                        value={formData.no_of_pieces}
+                        onChange={handleInputChange}
+                        placeholder="1"
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 3: GROSS WEIGHT, NET WEIGHT, PURE WEIGHT OF 24K */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                        GROSS WEIGHT
+                      </label>
+                      <input
+                        type="number"
+                        step="0.001"
+                        name="gross_wt"
+                        value={formData.gross_wt}
+                        onChange={handleInputChange}
+                        placeholder="0.00g"
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                        NET WEIGHT
+                      </label>
+                      <input
+                        type="number"
+                        step="0.001"
+                        name="net_wt"
+                        value={formData.net_wt}
+                        onChange={handleInputChange}
+                        placeholder="0.00g"
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-[#b01622] uppercase tracking-wider mb-1">
+                        PURE WEIGHT OF 24K
+                      </label>
+                      <input
+                        type="text"
+                        name="pure_weight"
+                        value={formData.pure_weight ? `${formData.pure_weight}g` : ''}
+                        placeholder="0.00g"
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-black text-[#b01622] focus:outline-none"
+                        readOnly
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 4: RATE, SALE RATE, SALE VALUE */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                        RATE
+                      </label>
+                      <input
+                        type="text"
+                        name="gold_rate"
+                        value={formData.gold_rate}
+                        onChange={handleInputChange}
+                        placeholder="Auto Generate"
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                        SALE RATE
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        name="sale_rate"
+                        value={formData.sale_rate}
+                        onChange={handleInputChange}
+                        placeholder="0.00"
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                        SALE VALUE
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        name="sale_value"
+                        value={formData.sale_value}
+                        onChange={handleInputChange}
+                        placeholder="0.00"
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Bottom Actions */}
+              <div className="pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-stone-200/80">
                 <button
                   type="button"
                   onClick={() => {
-                    generateNewCode(category);
-                    setFormData((prev) => ({
-                      ...prev,
-                      name: '',
-                      gross_wt: '',
-                      net_wt: '',
-                      dia_wt_ct: '',
-                      description: '',
-                      no_of_pieces: '',
-                      weight: '',
-                      rate: '',
-                      sale_rate: '',
-                      sale_value: '',
-                    }));
-                    setImages([]);
+                    if (pageStep === 7) {
+                      setPageStep(6);
+                    } else {
+                      navigate('/inventory/add-new/subcategory');
+                    }
                   }}
-                  className="px-5 py-2.5 text-xs font-bold text-stone-600 hover:text-stone-900 border border-stone-300 hover:border-stone-400 rounded-xl transition-colors cursor-pointer"
+                  className="w-full sm:w-auto px-6 py-3 bg-white border border-stone-300 hover:border-stone-400 text-stone-700 hover:bg-stone-50 rounded-xl text-xs font-bold shadow-2xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
                 >
-                  Reset Form
+                  <i className="fa-solid fa-arrow-left text-xs"></i>
+                  <span>Back</span>
                 </button>
 
-                {/* "Upload New Product" button (Batch add) */}
-                <button
-                  type="submit"
-                  className="px-6 py-2.5 bg-[#b01622] hover:bg-[#8f1019] text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <i className="fa-solid fa-plus text-xs"></i>
-                  <span>Upload New Product</span>
-                </button>
+                <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+                  {pageStep === 6 ? (
+                    <button
+                      type="submit"
+                      className="w-full sm:w-auto px-10 py-3.5 bg-[#b01622] hover:bg-[#8f1019] text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <span>Next</span>
+                      <i className="fa-solid fa-arrow-right text-xs"></i>
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="submit"
+                        className="w-full sm:w-auto px-6 py-3 bg-white border-2 border-[#b01622] text-[#b01622] hover:bg-red-50/50 rounded-xl text-xs font-bold shadow-2xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <i className="fa-solid fa-plus text-xs"></i>
+                        <span>Add New Item</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleUploadProductToInventory}
+                        disabled={isSubmitting}
+                        className="w-full sm:w-auto px-8 py-3.5 bg-[#b01622] hover:bg-[#8f1019] text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                      >
+                        {isSubmitting ? (
+                          <>
+                            <i className="fa-solid fa-circle-notch fa-spin text-xs"></i>
+                            <span>Uploading...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>Upload New Item</span>
+                            <i className="fa-solid fa-cloud-arrow-up text-xs"></i>
+                          </>
+                        )}
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
 
             </div>
@@ -1538,19 +1312,24 @@ export default function InventoryAddNewUpload() {
 
         </form>
 
-      {/* Quick Dropdown CRUD Modal for Setting Styles */}
-      <QuickDropdownCrudModal
-        isOpen={showStylesModal}
-        onClose={() => setShowStylesModal(false)}
-        type="setting_style"
-        onItemSelect={(newStyleName) => {
-          setFormData((prev) => ({ ...prev, setting_style: newStyleName }));
-          fetchSettingStyles();
-        }}
-        onRefresh={fetchSettingStyles}
-      />
-
       </div>
+
+      {/* 4. Quick CRUD Master Modal for Item, Karat, Stamp, Unit */}
+      {showCrudModal && (
+        <QuickDropdownCrudModal
+          isOpen={showCrudModal}
+          onClose={() => setShowCrudModal(false)}
+          type={crudModalType}
+          onItemSelect={(val) => {
+            if (crudModalType === 'item' || crudModalType === 'item_master') setFormData((prev) => ({ ...prev, item_name: val }));
+            if (crudModalType === 'karat') setFormData((prev) => ({ ...prev, karat: val }));
+            if (crudModalType === 'stamp') setFormData((prev) => ({ ...prev, stamp: val }));
+            if (crudModalType === 'unit') setFormData((prev) => ({ ...prev, unit: val }));
+          }}
+          onRefresh={fetchMasters}
+        />
+      )}
+
     </div>
   );
 }

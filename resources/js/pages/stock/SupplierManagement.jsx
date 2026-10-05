@@ -222,10 +222,11 @@ export default function SupplierManagement() {
   // Helper Badge Colors for Supplier Type
   const getSupplierTypeBadge = (type) => {
     switch (type) {
+      case 'raw_metal':
       case 'raw_gold':
-        return { label: 'Raw Gold Dealer', color: 'bg-amber-100 text-amber-800 border-amber-300', icon: 'fa-solid fa-coins' };
+        return { label: 'Raw Metal Dealer', color: 'bg-amber-100 text-amber-800 border-amber-300', icon: 'fa-solid fa-coins' };
       case 'bullion':
-        return { label: 'Bullion Merchant', color: 'bg-[#b01622]/10 text-[#b01622] border-red-200', icon: 'fa-solid fa-[#b01622] fa-vault' };
+        return { label: 'Bullion Merchant', color: 'bg-[#b01622]/10 text-[#b01622] border-red-200', icon: 'fa-solid fa-vault' };
       case 'finished_jewellery':
         return { label: 'Jewellery Vendor', color: 'bg-emerald-100 text-emerald-800 border-emerald-300', icon: 'fa-solid fa-gem' };
       case 'gemstones':
@@ -236,7 +237,7 @@ export default function SupplierManagement() {
   };
 
   // Metrics Summary
-  const rawGoldCount = suppliers.filter(s => s.supplier_type === 'raw_gold').length;
+  const rawMetalCount = suppliers.filter(s => s.supplier_type === 'raw_gold' || s.supplier_type === 'raw_metal').length;
   const bullionCount = suppliers.filter(s => s.supplier_type === 'bullion').length;
   const activeCount = suppliers.filter(s => s.status === 'active').length;
 
@@ -251,7 +252,7 @@ export default function SupplierManagement() {
           </div>
           <h1 className="text-2xl font-bold text-gray-900 font-serif">Supplier Management</h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            Manage Raw Gold Vendors, Bullion Merchants, Finished Jewellery Wholesalers & Gemstone Suppliers.
+            Manage Raw Precious Metal Vendors (Gold, Silver, Platinum), Bullion Merchants, Finished Jewellery Wholesalers & Gemstone Suppliers.
           </p>
         </div>
 
@@ -291,8 +292,8 @@ export default function SupplierManagement() {
             <i className="fa-solid fa-coins"></i>
           </div>
           <div>
-            <span className="text-xs text-gray-400 font-medium uppercase tracking-wider">Raw Gold Dealers</span>
-            <div className="text-xl font-bold text-amber-800">{rawGoldCount} Vendors</div>
+            <span className="text-xs text-gray-400 font-medium uppercase tracking-wider">Raw Metal Dealers</span>
+            <div className="text-xl font-bold text-amber-800">{rawMetalCount} Vendors</div>
           </div>
         </div>
 
@@ -349,8 +350,9 @@ export default function SupplierManagement() {
               className="px-3 py-2 text-xs bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#b01622]"
             >
               <option value="all">All Supplier Types</option>
+              <option value="raw_metal">Raw Metal Dealers (Gold, Silver, Platinum)</option>
               <option value="raw_gold">Raw Gold Dealers</option>
-              <option value="bullion">Bullion Merchants</option>
+              <option value="bullion">Bullion Merchants (Bars & Coins)</option>
               <option value="finished_jewellery">Finished Jewellery Vendors</option>
               <option value="gemstones">Gemstone Suppliers</option>
               <option value="packaging">Packaging & Other</option>
@@ -605,8 +607,9 @@ export default function SupplierManagement() {
                       onChange={handleInputChange}
                       className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#b01622]"
                     >
+                      <option value="raw_metal">Raw Metal Dealer (Gold, Silver, Platinum)</option>
                       <option value="raw_gold">Raw Gold Dealer (Melting Gold)</option>
-                      <option value="bullion">Bullion Merchant (Coins & Bars)</option>
+                      <option value="bullion">Bullion Merchant (Coins, Bars & Bullion)</option>
                       <option value="finished_jewellery">Finished Jewellery Vendor</option>
                       <option value="gemstones">Gemstone / Diamond Merchant</option>
                       <option value="packaging">Packaging & Accessories</option>

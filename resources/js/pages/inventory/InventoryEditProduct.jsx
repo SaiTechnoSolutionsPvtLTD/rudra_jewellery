@@ -4,8 +4,6 @@ import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { compressImageFile } from '../../utils/imageCompressor';
 import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
-import { STAMP_OPTIONS, STONE_SIZE_OPTIONS, STONE_COLOR_OPTIONS } from '../../constants/productOptions';
-import { handleIntegerKeyDown, handleDecimalKeyDown, sanitizeInteger, sanitizeDecimal } from '../../utils/numberInputUtils';
 
 export default function InventoryEditProduct() {
   const { id } = useParams();
@@ -13,102 +11,66 @@ export default function InventoryEditProduct() {
   const { showToast } = useToast();
   const fileInputRef = useRef(null);
 
-  const [categories, setCategories] = useState([]);
-  const [subcategories, setSubcategories] = useState([]);
-  const [styles, setStyles] = useState([]);
-  const [showStylesModal, setShowStylesModal] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [imageError, setImageError] = useState(false);
+  // Master lists
+  const [categoriesList, setCategoriesList] = useState([]);
+  const [subcategoriesList, setSubcategoriesList] = useState([]);
+  const [itemsMasterList, setItemsMasterList] = useState([]);
+  const [karatsList, setKaratsList] = useState([]);
+  const [stampsList, setStampsList] = useState([]);
+  const [unitsList, setUnitsList] = useState([]);
 
-  const refreshStyles = async () => {
-    try {
-      const res = await api.get('/styles');
-      setStyles(res.data || []);
-    } catch (err) {
-      console.error(err);
-    }
+  // Master management modals
+  const [crudModalType, setCrudModalType] = useState(null); // 'karat' | 'stamp' | 'unit'
+  const [showCrudModal, setShowCrudModal] = useState(false);
+
+  const handleOpenMasterModal = (type) => {
+    setCrudModalType(type);
+    setShowCrudModal(true);
   };
 
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [savingStockOnly, setSavingStockOnly] = useState(false);
+  const [imageError, setImageError] = useState(false);
+
+  // Image Gallery State for Main Product
+  const [imageUrls, setImageUrls] = useState([]);
+
+  // Main Form Data pre-filled from DB
   const [formData, setFormData] = useState({
-    name: '',
+    item_name: '',
     product_code: '',
     category_id: '',
     subcategory_id: '',
+    karat: '22K',
+    purity: '91.6',
+    stamp: '916',
+    unit: 'Carat',
+    size: '0.00',
+    no_of_pieces: '1',
     gross_wt: '',
     net_wt: '',
-    purity: '22K (91.6%)',
-    size: '',
-    setting_style: '',
-    stamp: '+0',
-    stone_size: '',
-    stone_color: '',
-    dia_wt_ct: '',
-    wastage_percent: '3.50',
-    making_charge: '650',
-    stock_qty: 1,
-    status: 'active',
-    open_close_type: 'Close',
+    pure_weight: '',
+    gold_rate: '',
+    sale_rate: '',
+    sale_value: '',
     description: '',
-    image: '',
-    variants: [],
   });
 
-  const [newVariant, setNewVariant] = useState({
-    sku: '',
-    title: '',
-    size: '',
-    color: '',
-    net_wt: '',
-    stock_qty: '1',
-    price: '',
-    stone_size: '',
-    stone_color: '',
-  });
+  // Paired / Sub-Components list
+  const [components, setComponents] = useState([]);
 
-  const handleAddVariant = () => {
-    if (!newVariant.title && !newVariant.size && !newVariant.color) {
-      showToast('Please specify a title, size, or color for the variant', 'warning');
-      return;
+  const [rawAttributes, setRawAttributes] = useState({});
+
+  // Compute pure weight 24K automatically
+  const computePureWeight = (netWt, purityPct) => {
+    const net = parseFloat(netWt) || 0;
+    const pur = parseFloat(purityPct) || 0;
+    if (net > 0 && pur > 0) {
+      return ((net * pur) / 100).toFixed(3);
     }
-    const variantItem = {
-      id: Date.now(),
-      sku: newVariant.sku || `${formData.product_code || 'RJ'}-V${(formData.variants?.length || 0) + 1}`,
-      title: newVariant.title || `${newVariant.size ? 'Size ' + newVariant.size : ''} ${newVariant.color ? newVariant.color : ''}`.trim() || `Variant #${(formData.variants?.length || 0) + 1}`,
-      size: newVariant.size || '',
-      color: newVariant.color || '',
-      stone_size: newVariant.stone_size || formData.stone_size || '',
-      stone_color: newVariant.stone_color || formData.stone_color || '',
-      net_wt: newVariant.net_wt || formData.net_wt || '',
-      stock_qty: newVariant.stock_qty || '1',
-      price: newVariant.price || '',
-    };
-    setFormData(prev => ({
-      ...prev,
-      variants: [...(prev.variants || []), variantItem]
-    }));
-    setNewVariant({
-      sku: '',
-      title: '',
-      size: '',
-      color: '',
-      net_wt: '',
-      stock_qty: '1',
-      price: '',
-      stone_size: '',
-      stone_color: '',
-    });
-    showToast('Variant added to product model!', 'success');
+    return '';
   };
-
-  const handleRemoveVariant = (variantId) => {
-    setFormData(prev => ({
-      ...prev,
-      variants: (prev.variants || []).filter(v => v.id !== variantId)
-    }));
-  };
-
-  const [imageUrls, setImageUrls] = useState([]);
 
   useEffect(() => {
     fetchInitialData();
@@ -117,16 +79,30 @@ export default function InventoryEditProduct() {
   const fetchInitialData = async () => {
     try {
       setLoading(true);
-      const [prodRes, catRes, stylesRes] = await Promise.all([
+
+      const [prodRes, catRes, itemMasterRes, karatRes, stampRes, unitRes] = await Promise.all([
         api.get(`/inventory/products/${id}`),
-        api.get('/categories'),
-        api.get('/styles').catch(() => ({ data: [] })),
+        api.get('/inventory/categories').catch(() => api.get('/categories')),
+        api.get('/items').catch(() => api.get('/item-masters')).catch(() => ({ data: [] })),
+        api.get('/karats').catch(() => ({ data: [] })),
+        api.get('/stamps').catch(() => ({ data: [] })),
+        api.get('/units').catch(() => ({ data: [] })),
       ]);
 
-      const p = prodRes.data.product;
-      const attrs = prodRes.data.attributes || {};
-      const rawImgs = prodRes.data.images || [];
-      const validImgs = rawImgs.filter(
+      const cats = catRes.data?.categories || catRes.data || [];
+      setCategoriesList(cats);
+      setItemsMasterList(itemMasterRes.data || []);
+      setKaratsList(karatRes.data || []);
+      setStampsList(stampRes.data || []);
+      setUnitsList(unitRes.data || []);
+
+      const p = prodRes.data.product || {};
+      const attrs = prodRes.data.attributes || (typeof p.attributes === 'string' ? JSON.parse(p.attributes || '{}') : (p.attributes || {}));
+      setRawAttributes(attrs);
+
+      // Populate image gallery
+      const rawImgs = prodRes.data.images || attrs.images || [];
+      const validImgs = (Array.isArray(rawImgs) ? rawImgs : []).filter(
         (img) =>
           img &&
           typeof img === 'string' &&
@@ -136,105 +112,147 @@ export default function InventoryEditProduct() {
           img.length > 5
       );
 
-      setCategories(catRes.data || []);
-      setStyles(stylesRes.data || []);
+      if (validImgs.length === 0 && (p.image_url || p.image)) {
+        validImgs.push(p.image_url || p.image);
+      }
       setImageUrls(validImgs);
 
-      // Load subcategories for product's category
+      // Populate subcategories for product's category
       if (p.category_id) {
-        const cat = (catRes.data || []).find((c) => c.id === p.category_id);
-        setSubcategories(cat?.subcategories || []);
+        const selCat = cats.find((c) => String(c.id) === String(p.category_id));
+        setSubcategoriesList(selCat?.subcategories || []);
       }
 
-      let parsedVariants = [];
-      if (attrs.variants) {
-        parsedVariants = typeof attrs.variants === 'string' ? JSON.parse(attrs.variants || '[]') : (Array.isArray(attrs.variants) ? attrs.variants : []);
-      }
+      const gross = attrs.gross_wt || p.opening_stock_weight || '';
+      const net = attrs.net_wt || p.opening_fine_weight || gross;
+      const pur = attrs.purity || attrs.gold_type || '91.6';
+      const pureWt = attrs.pure_weight || computePureWeight(net || gross, pur);
+      const itemName = (p.name || attrs.item_name || '').replace(/\s*\(\d+\s*Parts\)/gi, '');
 
       setFormData({
-        name: p.name || '',
-        product_code: p.product_code || '',
+        item_name: itemName,
+        product_code: p.product_code || attrs.item_code || '',
         category_id: p.category_id || '',
         subcategory_id: p.subcategory_id || '',
-        gross_wt: attrs.gross_wt || p.opening_stock_weight || '',
-        net_wt: attrs.net_wt || p.opening_fine_weight || '',
-        purity: attrs.purity || attrs.gold_type || '22K (91.6%)',
-        size: attrs.size || '',
-        setting_style: attrs.setting_style || '',
-        stamp: attrs.stamp || '+0',
-        stone_size: attrs.stone_size || '',
-        stone_color: attrs.stone_color || '',
-        dia_wt_ct: attrs.dia_wt_ct || attrs.diamond_wt || '',
-        wastage_percent: attrs.wastage_percent || '3.50',
-        making_charge: attrs.making_charge || '650',
-        stock_qty: p.current_stock_qty ?? 1,
-        status: p.status || 'active',
-        open_close_type: attrs.open_close_type || 'Close',
+        karat: attrs.karat || '22K',
+        purity: pur,
+        stamp: attrs.stamp || '916',
+        unit: attrs.unit || 'Carat',
+        size: attrs.size || '0.00',
+        no_of_pieces: String(p.current_stock_qty ?? attrs.no_of_pieces ?? 1),
+        gross_wt: gross,
+        net_wt: net,
+        pure_weight: pureWt,
+        gold_rate: attrs.gold_rate || attrs.rate || p.opening_stock_rate || '',
+        sale_rate: attrs.sale_rate || attrs.rate || p.opening_stock_rate || '',
+        sale_value: attrs.sale_value || attrs.price || '',
         description: p.description || '',
-        image: p.image || validImgs[0] || '',
-        variants: parsedVariants,
       });
+
+      // Populate Components if available in DB attributes
+      if (Array.isArray(attrs.components) && attrs.components.length > 0) {
+        setComponents(attrs.components);
+      } else {
+        setComponents([]);
+      }
     } catch (err) {
-      console.error('Failed to load product data:', err);
+      console.error('Failed to load product for editing:', err);
       showToast('Failed to load product details', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCategoryChange = (e) => {
-    const catId = e.target.value;
+  const handleCategorySelect = (catId) => {
     setFormData((prev) => ({ ...prev, category_id: catId, subcategory_id: '' }));
-    const selected = categories.find((c) => String(c.id) === String(catId));
-    setSubcategories(selected?.subcategories || []);
+    const selected = categoriesList.find((c) => String(c.id) === String(catId));
+    setSubcategoriesList(selected?.subcategories || []);
   };
 
-  // Handle file upload for multiple images
+  const handleCategoryChange = (e) => {
+    handleCategorySelect(e.target.value);
+  };
+
+  const handleSubcategorySelect = (subId) => {
+    setFormData((prev) => ({ ...prev, subcategory_id: subId }));
+  };
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => {
+      const updated = { ...prev, [name]: value };
+
+      if (name === 'gross_wt' || name === 'net_wt' || name === 'purity') {
+        const calcNet = updated.net_wt || updated.gross_wt;
+        updated.pure_weight = computePureWeight(calcNet, updated.purity);
+      }
+
+      if (name === 'sale_rate' || name === 'gross_wt' || name === 'net_wt') {
+        const wt = parseFloat(updated.net_wt || updated.gross_wt || 0);
+        const sRate = parseFloat(updated.sale_rate || 0);
+        if (wt > 0 && sRate > 0) {
+          updated.sale_value = (wt * sRate).toFixed(2);
+        }
+      }
+
+      return updated;
+    });
+  };
+
+  // Quick Stock Update Action
+  const handleQuickStockSave = async () => {
+    try {
+      setSavingStockOnly(true);
+      const newStock = Math.max(0, parseInt(formData.no_of_pieces) || 0);
+      const updatedAttributes = {
+        ...rawAttributes,
+        no_of_pieces: String(newStock),
+        components: components,
+      };
+
+      await api.put(`/inventory/products/${id}`, {
+        name: formData.item_name,
+        product_code: formData.product_code,
+        category_id: formData.category_id,
+        subcategory_id: formData.subcategory_id,
+        current_stock_qty: newStock,
+        stock_qty: newStock,
+        attributes: updatedAttributes,
+      });
+
+      showToast(`Stock quantity updated to ${newStock} units in inventory successfully!`, 'success', 'Stock Updated');
+      navigate('/inventory');
+    } catch (err) {
+      console.error('Failed to update stock:', err);
+      showToast(err.response?.data?.message || 'Failed to update stock quantity', 'error');
+    } finally {
+      setSavingStockOnly(false);
+    }
+  };
+
+  // Image Upload Handlers for Main Product
   const handleFileUpload = (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
 
-    let hasInvalid = false;
-    const validFiles = files.filter((file) => {
-      if (!file.type.startsWith('image/')) {
-        hasInvalid = true;
-        return false;
-      }
-      return true;
-    });
-
-    if (hasInvalid) {
-      showToast('Only image files (PNG, JPG, WEBP) are accepted', 'warning');
+    const validFiles = files.filter((f) => f.type.startsWith('image/'));
+    if (!validFiles.length) {
+      showToast('Please upload valid image files (PNG, JPG, WEBP)', 'warning');
+      return;
     }
 
-    if (!validFiles.length) return;
-
-    // Fast asynchronous compression for instant preview and lightweight storage
     Promise.all(validFiles.map((file) => compressImageFile(file, 800, 0.82)))
       .then((compressedList) => {
         const successful = compressedList.filter(Boolean);
         if (successful.length > 0) {
-          setImageUrls((prev) => {
-            const cleanPrev = prev.filter(
-              (img) =>
-                img &&
-                typeof img === 'string' &&
-                img !== '/placeholder-jewelry.png' &&
-                !img.includes('/storage/data:image') &&
-                img.trim() !== '1' &&
-                img.length > 5
-            );
-            const combined = [...cleanPrev, ...successful];
-            setFormData((f) => ({ ...f, image: combined[0] || '' }));
-            return combined;
-          });
+          setImageUrls((prev) => [...prev, ...successful]);
           setImageError(false);
-          showToast(`Added ${successful.length} image(s). 1st image is Thumbnail, others are Child images.`, 'success');
+          showToast(`Added ${successful.length} photo(s)`, 'success');
         }
       })
       .catch((err) => {
-        console.error('Image compression error', err);
-        showToast('Failed to process image(s)', 'error');
+        console.error('Image upload error:', err);
+        showToast('Failed to process image', 'error');
       });
 
     if (fileInputRef.current) {
@@ -242,57 +260,143 @@ export default function InventoryEditProduct() {
     }
   };
 
-  // Promote any child image to primary thumbnail (index 0)
-  const handleSetAsThumb = (index) => {
+  const handleSetPrimaryImage = (index) => {
     if (index === 0) return;
     setImageUrls((prev) => {
       const copy = [...prev];
       const [chosen] = copy.splice(index, 1);
       copy.unshift(chosen);
-      setFormData((f) => ({ ...f, image: chosen }));
       return copy;
     });
     showToast('Image set as primary thumbnail', 'info');
   };
 
   const handleRemoveImage = (index) => {
-    setImageUrls((prev) => {
-      const filtered = prev.filter((_, i) => i !== index);
-      setFormData((f) => ({ ...f, image: filtered[0] || '' }));
-      return filtered;
+    setImageUrls((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  // Components Management Handlers
+  const handleAddComponent = () => {
+    const newComp = {
+      id_temp: Date.now() + Math.random(),
+      component_type: `Component ${components.length + 1}`,
+      category_id: formData.category_id,
+      subcategory_id: formData.subcategory_id,
+      item_code: `${formData.product_code}-C${components.length + 1}`,
+      item_name: `Component ${components.length + 1}`,
+      karat: formData.karat || '22K',
+      purity: formData.purity || '91.6',
+      stamp: formData.stamp || '916',
+      unit: formData.unit || 'Carat',
+      gross_wt: '',
+      net_wt: '',
+      pure_weight: '',
+      gold_rate: formData.gold_rate || '',
+      sale_rate: formData.sale_rate || '',
+      sale_value: '',
+      size: '0.00',
+      no_of_pieces: '1',
+      images: [],
+    };
+    setComponents((prev) => [...prev, newComp]);
+    showToast('New component form added below', 'info');
+  };
+
+  const handleRemoveComponent = (compIdx) => {
+    setComponents((prev) => prev.filter((_, idx) => idx !== compIdx));
+    showToast('Component removed', 'info');
+  };
+
+  const handleComponentChange = (compIdx, fieldName, value) => {
+    setComponents((prev) => {
+      const copy = [...prev];
+      const comp = { ...copy[compIdx], [fieldName]: value };
+
+      if (fieldName === 'gross_wt' || fieldName === 'net_wt' || fieldName === 'purity') {
+        const net = comp.net_wt || comp.gross_wt;
+        comp.pure_weight = computePureWeight(net, comp.purity);
+      }
+
+      if (fieldName === 'sale_rate' || fieldName === 'gross_wt' || fieldName === 'net_wt') {
+        const wt = parseFloat(comp.net_wt || comp.gross_wt || 0);
+        const sRate = parseFloat(comp.sale_rate || 0);
+        if (wt > 0 && sRate > 0) {
+          comp.sale_value = (wt * sRate).toFixed(2);
+        }
+      }
+
+      copy[compIdx] = comp;
+      return copy;
     });
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!formData.name.trim()) {
-      showToast('Product name is required', 'error');
+  // Full Form Save Handler
+  const handleSubmitFinal = async (e) => {
+    if (e) e.preventDefault();
+
+    if (!formData.item_name.trim()) {
+      showToast('Item Name is required', 'error');
       return;
     }
 
     if (!imageUrls || imageUrls.length === 0) {
       setImageError(true);
       showToast('Product image is required! Please upload at least one image.', 'error');
-      const dropzone = document.getElementById('edit-image-upload-section');
-      if (dropzone) dropzone.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
 
     setSaving(true);
     try {
-      await api.put(`/inventory/products/${id}`, {
-        ...formData,
-        image: imageUrls[0],
-        thumb_image: imageUrls[0],
-        child_images: imageUrls.slice(1),
+      const updatedStockQty = parseInt(formData.no_of_pieces) || 1;
+      const updatedAttributes = {
+        ...rawAttributes,
+        item_name: formData.item_name,
+        item_code: formData.product_code,
+        karat: formData.karat,
+        purity: formData.purity,
+        stamp: formData.stamp,
+        unit: formData.unit,
+        size: formData.size,
+        no_of_pieces: formData.no_of_pieces,
+        gross_wt: parseFloat(formData.gross_wt) || 0,
+        net_wt: parseFloat(formData.net_wt) || parseFloat(formData.gross_wt) || 0,
+        pure_weight: parseFloat(formData.pure_weight) || 0,
+        gold_rate: formData.gold_rate,
+        sale_rate: formData.sale_rate,
+        sale_value: formData.sale_value,
+        rate: formData.gold_rate || formData.sale_rate,
+        price: formData.sale_value,
         images: imageUrls,
+        child_images: imageUrls.slice(1),
+        thumb_image: imageUrls[0],
+        components: components,
+      };
+
+      await api.put(`/inventory/products/${id}`, {
+        name: formData.item_name,
+        product_code: formData.product_code,
+        category_id: formData.category_id,
+        subcategory_id: formData.subcategory_id,
+        current_stock_qty: updatedStockQty,
+        stock_qty: updatedStockQty,
+        gross_wt: parseFloat(formData.gross_wt) || 0,
+        net_wt: parseFloat(formData.net_wt) || parseFloat(formData.gross_wt) || 0,
+        sale_rate: parseFloat(formData.sale_rate || formData.gold_rate) || 0,
+        gold_rate: parseFloat(formData.gold_rate || formData.sale_rate) || 0,
+        opening_stock_weight: parseFloat(formData.gross_wt) || 0,
+        opening_fine_weight: parseFloat(formData.net_wt) || 0,
+        opening_stock_rate: parseFloat(formData.sale_rate || formData.gold_rate) || 0,
+        description: formData.description,
+        image: imageUrls[0],
+        thumbnail: imageUrls[0],
+        attributes: updatedAttributes,
       });
 
-      showToast(`Product "${formData.name}" updated successfully!`, 'success', 'Inventory Updated');
+      showToast(`Product "${formData.item_name}" updated in inventory successfully!`, 'success', 'Inventory Updated');
       navigate('/inventory');
     } catch (err) {
-      console.error(err);
-      showToast(err.response?.data?.message || 'Failed to update product', 'error');
+      console.error('Failed to update product:', err);
+      showToast(err.response?.data?.message || 'Failed to update product details', 'error');
     } finally {
       setSaving(false);
     }
@@ -302,535 +406,236 @@ export default function InventoryEditProduct() {
     return (
       <div className="flex items-center justify-center h-80 text-stone-400">
         <i className="fa-solid fa-circle-notch fa-spin text-2xl text-[#b01622] mr-3"></i>
-        <span className="text-sm font-semibold">Loading product for editing...</span>
+        <span className="text-sm font-semibold">Loading product specifications...</span>
       </div>
     );
   }
 
+  const activeCategoryObj = categoriesList.find((c) => String(c.id) === String(formData.category_id));
+
   return (
-    <div className="w-full pb-14 space-y-6 font-['Inter',-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif] max-w-5xl mx-auto">
-      
-      {/* Header */}
+    <div className="w-full pb-20 space-y-6 font-['Inter',-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif] max-w-5xl mx-auto pt-2">
+
+      {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
-          <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 mb-1">
-            <Link to="/inventory" className="hover:text-gray-900 transition-colors">Inventory</Link>
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-stone-500 mb-0.5">
+            <Link to="/inventory" className="hover:text-stone-900 transition-colors">Inventory</Link>
             <span>›</span>
             <span>Edit Product</span>
             <span>›</span>
             <span className="text-[#b01622] font-mono font-bold">{formData.product_code}</span>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Edit Inventory Product</h1>
+          <h1 className="text-xl font-bold text-gray-900 tracking-tight">Edit Inventory Product Specifications</h1>
         </div>
+
         <Link
           to="/inventory"
-          className="px-4 py-2 bg-white border border-stone-300 hover:border-stone-400 text-stone-700 text-xs font-bold rounded-xl shadow-2xs transition-colors flex items-center gap-2"
+          className="px-3.5 py-1.5 bg-white border border-stone-300 hover:border-stone-400 text-stone-700 text-xs font-bold rounded-xl shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer"
         >
-          <i className="fa-solid fa-arrow-left text-xs"></i>
-          <span>Cancel & Back</span>
+          <i className="fa-solid fa-arrow-left text-[11px]"></i>
+          <span>Cancel &amp; Exit</span>
         </Link>
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-stone-200/80 shadow-sm overflow-hidden">
-        
-        {/* Banner */}
-        <div className="bg-gradient-to-r from-[#b01622] to-[#8f1019] text-white px-6 py-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-bold tracking-wide uppercase">Modify Product Specifications</h2>
-            <p className="text-[11px] text-red-100 mt-0.5">Update bullion weights, stone counts and catalog status</p>
+      {/* ========================================================================= */}
+      {/* SECTION 1: QUICK IN-STOCK QUANTITY ENTRY BOX                              */}
+      {/* ========================================================================= */}
+      <div className="bg-gradient-to-r from-amber-500/10 via-amber-100/60 to-orange-50/70 rounded-2xl border border-amber-300 p-4 sm:p-5 shadow-2xs space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center text-lg shadow-2xs shrink-0">
+              <i className="fa-solid fa-boxes-stacked"></i>
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-gray-900 tracking-tight">
+                Quick In-Stock Quantity Entry
+              </h3>
+              <p className="text-[11px] text-stone-600 font-medium">
+                Update physical inventory count instantly in the database without altering other product specs.
+              </p>
+            </div>
           </div>
-          <span className="font-mono text-xs font-bold bg-white/20 px-3 py-1 rounded-full border border-white/30">
-            {formData.product_code}
-          </span>
+
+          <button
+            type="button"
+            onClick={handleQuickStockSave}
+            disabled={savingStockOnly}
+            className="px-4 py-2 bg-[#b01622] hover:bg-[#8f1019] text-white text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50"
+          >
+            {savingStockOnly ? (
+              <i className="fa-solid fa-circle-notch fa-spin"></i>
+            ) : (
+              <i className="fa-solid fa-check text-xs"></i>
+            )}
+            <span>Save Stock &amp; Exit</span>
+          </button>
         </div>
 
-        <div className="p-6 space-y-6">
-          
-          {/* Row 1: Name & SKU */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-bold text-stone-700 uppercase tracking-wider block mb-1.5">
-                Product Name <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-medium text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
-                required
-              />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-stone-700 uppercase tracking-wider block mb-1.5">
-                Product Code / SKU <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={formData.product_code}
-                onChange={(e) => setFormData({ ...formData, product_code: e.target.value })}
-                className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
-                required
-              />
-            </div>
-          </div>
+        {/* Quick Stock Controls Input */}
+        <div className="bg-white rounded-xl p-3 border border-amber-200/90 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-2xs">
+          <span className="text-[11px] font-bold text-stone-700 uppercase tracking-wider">
+            CURRENT IN-STOCK QUANTITY (PIECES)
+          </span>
 
-          {/* Row 2: Category & Subcategory */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-bold text-stone-700 uppercase tracking-wider block mb-1.5">
-                Category <span className="text-red-500">*</span>
-              </label>
-              <select
-                value={formData.category_id}
-                onChange={handleCategoryChange}
-                className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
-                required
-              >
-                <option value="">Select Category</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-bold text-stone-700 uppercase tracking-wider block mb-1.5">
-                Subcategory
-              </label>
-              <select
-                value={formData.subcategory_id}
-                onChange={(e) => setFormData({ ...formData, subcategory_id: e.target.value })}
-                className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
-              >
-                <option value="">Select Subcategory (Optional)</option>
-                {subcategories.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Row 3: Gross Wt, Net Wt, Purity, Setting Style */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div>
-              <label className="text-xs font-bold text-stone-700 uppercase tracking-wider block mb-1.5">
-                Gross Weight (g) <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="number"
-                step="0.001"
-                value={formData.gross_wt}
-                onChange={(e) => setFormData({ ...formData, gross_wt: e.target.value })}
-                className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
-                required
-              />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-stone-700 uppercase tracking-wider block mb-1.5">
-                Net Weight (g)
-              </label>
-              <input
-                type="number"
-                step="0.001"
-                value={formData.net_wt}
-                onChange={(e) => setFormData({ ...formData, net_wt: e.target.value })}
-                className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-stone-700 uppercase tracking-wider block mb-1.5">
-                Gold Purity / Karat
-              </label>
-              <select
-                value={formData.purity}
-                onChange={(e) => setFormData({ ...formData, purity: e.target.value })}
-                className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
-              >
-                <option value="24K (99.9% Pure)">24K (99.9% Pure)</option>
-                <option value="22K (91.6%)">22K (91.6% Standard)</option>
-                <option value="18K (75.0%)">18K (75.0% Jewel)</option>
-                <option value="14K (58.5%)">14K (58.5% Fashion)</option>
-                <option value="925 Sterling Silver">925 Sterling Silver</option>
-                <option value="950 Platinum">950 Platinum</option>
-              </select>
-            </div>
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-bold text-stone-700 uppercase tracking-wider block">
-                  Setting Style
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setShowStylesModal(true)}
-                  className="text-[11px] font-bold text-[#b01622] hover:underline flex items-center gap-1 cursor-pointer"
-                  title="Manage Setting Styles Master list"
-                >
-                  <i className="fa-solid fa-plus text-[9px]"></i>
-                  <span>Manage Styles</span>
-                </button>
-              </div>
-              <select
-                value={formData.setting_style}
-                onChange={(e) => setFormData({ ...formData, setting_style: e.target.value })}
-                className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-medium text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
-              >
-                <option value="">Select Setting Style</option>
-                {styles && styles.length > 0 ? (
-                  styles.map((s) => (
-                    <option key={s.id || s.name} value={s.name}>
-                      {s.name}
-                    </option>
-                  ))
-                ) : (
-                  <>
-                    <option value="Prong Setting">Prong Setting</option>
-                    <option value="Bezel Setting">Bezel Setting</option>
-                    <option value="Channel Setting">Channel Setting</option>
-                    <option value="Pave Setting">Pave Setting</option>
-                    <option value="Micro Pave">Micro Pave</option>
-                    <option value="Tension Setting">Tension Setting</option>
-                    <option value="Antique Cast / Temple Work">Antique Cast / Temple Work</option>
-                  </>
-                )}
-              </select>
-            </div>
-          </div>
-
-          {/* Row 4: Diamond Carats, Wastage %, Making Charge, Classification */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div>
-              <label className="text-xs font-bold text-stone-700 uppercase tracking-wider block mb-1.5">
-                Diamond Weight (Cts)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.dia_wt_ct}
-                onChange={(e) => setFormData({ ...formData, dia_wt_ct: e.target.value })}
-                className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-stone-700 uppercase tracking-wider block mb-1.5">
-                Standard Wastage (%)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.wastage_percent}
-                onChange={(e) => setFormData({ ...formData, wastage_percent: e.target.value })}
-                className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-stone-700 uppercase tracking-wider block mb-1.5">
-                Making Charge (₹/g)
-              </label>
-              <input
-                type="number"
-                value={formData.making_charge}
-                onChange={(e) => setFormData({ ...formData, making_charge: e.target.value })}
-                className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-stone-700 uppercase tracking-wider block mb-1.5">
-                Open / Close Form
-              </label>
-              <select
-                value={formData.open_close_type}
-                onChange={(e) => setFormData({ ...formData, open_close_type: e.target.value })}
-                className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-bold text-[#b01622] focus:outline-none focus:border-[#b01622] focus:bg-white"
-              >
-                <option value="Close">Close</option>
-                <option value="Open">Open</option>
-                <option value="Open Close">Open Close</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Row 4.5: Product Size, Stone Size, Stone Colour & Stamp / Hallmark */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div>
-              <label className="text-xs font-bold text-stone-700 uppercase tracking-wider block mb-1.5">
-                Product Size / Length
-              </label>
-              <input
-                type="text"
-                value={formData.size}
-                onChange={(e) => setFormData({ ...formData, size: e.target.value })}
-                placeholder="e.g. Ring 16 / Bangle 2.4"
-                className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-stone-700 uppercase tracking-wider block mb-1.5">
-                Stone Size / Pointer
-              </label>
-              <select
-                value={formData.stone_size}
-                onChange={(e) => setFormData({ ...formData, stone_size: e.target.value })}
-                className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
-              >
-                <option value="">Select Stone Size / Range</option>
-                {STONE_SIZE_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt}>{opt}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-bold text-stone-700 uppercase tracking-wider block mb-1.5">
-                Stone Colour / Gemstone
-              </label>
-              <select
-                value={formData.stone_color}
-                onChange={(e) => setFormData({ ...formData, stone_color: e.target.value })}
-                className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
-              >
-                <option value="">Select Stone Colour / Type</option>
-                {STONE_COLOR_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt}>{opt}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-bold text-stone-700 uppercase tracking-wider block mb-1.5">
-                Stamp / Hallmark
-              </label>
-              <select
-                value={formData.stamp}
-                onChange={(e) => setFormData({ ...formData, stamp: e.target.value })}
-                className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
-              >
-                {STAMP_OPTIONS.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Row 5: Stock Quantity & Status */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-bold text-stone-700 uppercase tracking-wider block mb-1.5">
-                In-Stock Quantity
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={formData.stock_qty}
-                onChange={(e) => setFormData({ ...formData, stock_qty: e.target.value })}
-                className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-stone-700 uppercase tracking-wider block mb-1.5">
-                Status
-              </label>
-              <select
-                value={formData.status}
-                onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
-              >
-                <option value="active">Active (Available for orders)</option>
-                <option value="inactive">Inactive (Hidden from catalog)</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Product Model Variants Manager */}
-          <div className="p-4 bg-stone-50/80 border border-stone-200/80 rounded-2xl space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <i className="fa-solid fa-layer-group text-[#b01622] text-sm"></i>
-                <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
-                  Product Model Variants ({formData.variants?.length || 0})
-                </h4>
-              </div>
-              <span className="text-[10px] text-stone-500 font-medium">
-                Store different sizes, metal colors &amp; stone variants under this model
-              </span>
-            </div>
-
-            {/* Inline Variant Creation Form */}
-            <div className="bg-white p-3 rounded-xl border border-stone-200 space-y-3 shadow-2xs">
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
-                <div>
-                  <label className="block text-[10px] font-bold text-stone-600 mb-1">
-                    Variant Code / SKU
-                  </label>
-                  <input
-                    type="text"
-                    value={newVariant.sku}
-                    onChange={(e) => setNewVariant({ ...newVariant, sku: e.target.value })}
-                    placeholder={`Ex: ${formData.product_code || 'SKU'}-V1`}
-                    className="w-full px-2.5 py-1.5 text-xs border border-stone-300 rounded-lg focus:border-[#b01622] font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-stone-600 mb-1">
-                    Variant Title / Option
-                  </label>
-                  <input
-                    type="text"
-                    value={newVariant.title}
-                    onChange={(e) => setNewVariant({ ...newVariant, title: e.target.value })}
-                    placeholder="Ex: Ring Size 14 - Rose Gold"
-                    className="w-full px-2.5 py-1.5 text-xs border border-stone-300 rounded-lg focus:border-[#b01622]"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-stone-600 mb-1">
-                    Size (Ring / Bangle)
-                  </label>
-                  <input
-                    type="text"
-                    value={newVariant.size}
-                    onChange={(e) => setNewVariant({ ...newVariant, size: e.target.value })}
-                    placeholder="Ex: 14 or 2-4"
-                    className="w-full px-2.5 py-1.5 text-xs border border-stone-300 rounded-lg focus:border-[#b01622]"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-stone-600 mb-1">
-                    Metal / Finish Colour
-                  </label>
-                  <input
-                    type="text"
-                    value={newVariant.color}
-                    onChange={(e) => setNewVariant({ ...newVariant, color: e.target.value })}
-                    placeholder="Ex: Yellow Gold / Rose Gold"
-                    className="w-full px-2.5 py-1.5 text-xs border border-stone-300 rounded-lg focus:border-[#b01622]"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 items-end">
-                <div>
-                  <label className="block text-[10px] font-bold text-stone-600 mb-1 whitespace-nowrap overflow-hidden text-ellipsis">
-                    Net Wt (g)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.001"
-                    min="0"
-                    inputMode="decimal"
-                    onKeyDown={handleDecimalKeyDown}
-                    value={newVariant.net_wt}
-                    onChange={(e) => setNewVariant({ ...newVariant, net_wt: sanitizeDecimal(e.target.value) })}
-                    placeholder={formData.net_wt || "0.000"}
-                    className="w-full px-2.5 py-1.5 h-[34px] text-xs border border-stone-300 rounded-lg focus:border-[#b01622] font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-stone-600 mb-1 whitespace-nowrap overflow-hidden text-ellipsis">
-                    Stock Qty
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    inputMode="numeric"
-                    onKeyDown={handleIntegerKeyDown}
-                    value={newVariant.stock_qty}
-                    onChange={(e) => setNewVariant({ ...newVariant, stock_qty: sanitizeInteger(e.target.value) })}
-                    placeholder="1"
-                    className="w-full px-2.5 py-1.5 h-[34px] text-xs border border-stone-300 rounded-lg focus:border-[#b01622] font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-stone-600 mb-1 whitespace-nowrap overflow-hidden text-ellipsis" title="Price Override (₹)">
-                    Price Override (₹)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    inputMode="decimal"
-                    onKeyDown={handleDecimalKeyDown}
-                    value={newVariant.price}
-                    onChange={(e) => setNewVariant({ ...newVariant, price: sanitizeDecimal(e.target.value) })}
-                    placeholder="0"
-                    className="w-full px-2.5 py-1.5 h-[34px] text-xs border border-stone-300 rounded-lg focus:border-[#b01622] font-mono text-emerald-700"
-                  />
-                </div>
-                <div>
-                  <button
-                    type="button"
-                    onClick={handleAddVariant}
-                    className="w-full h-[34px] px-2.5 bg-[#b01622] hover:bg-[#8f1019] text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs whitespace-nowrap"
-                  >
-                    <i className="fa-solid fa-plus text-[10px]"></i>
-                    <span>Add Variant</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Table of Added Variants */}
-            {formData.variants && formData.variants.length > 0 && (
-              <div className="overflow-x-auto bg-white rounded-xl border border-stone-200">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="bg-stone-50 border-b border-stone-200 text-stone-500 font-bold uppercase text-[9px]">
-                      <th className="py-2 px-3">SKU</th>
-                      <th className="py-2 px-3">Variant Title</th>
-                      <th className="py-2 px-3">Size / Colour</th>
-                      <th className="py-2 px-3 text-right">Net Wt</th>
-                      <th className="py-2 px-3 text-center">Stock</th>
-                      <th className="py-2 px-3 text-right">Price</th>
-                      <th className="py-2 px-3 text-center">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-100">
-                    {formData.variants.map((varItem) => (
-                      <tr key={varItem.id} className="hover:bg-stone-50/60">
-                        <td className="py-2 px-3 font-mono font-bold text-gray-900">{varItem.sku}</td>
-                        <td className="py-2 px-3 font-semibold text-stone-800">{varItem.title}</td>
-                        <td className="py-2 px-3">
-                          {varItem.size && <span className="px-1.5 py-0.5 mr-1 bg-stone-100 border border-stone-200 rounded text-[10px] font-bold">Size: {varItem.size}</span>}
-                          {varItem.color && <span className="px-1.5 py-0.5 bg-red-50 text-[#b01622] border border-red-100 rounded text-[10px] font-bold">{varItem.color}</span>}
-                        </td>
-                        <td className="py-2 px-3 text-right font-mono">{varItem.net_wt ? `${varItem.net_wt}g` : '-'}</td>
-                        <td className="py-2 px-3 text-center font-bold">{varItem.stock_qty}</td>
-                        <td className="py-2 px-3 text-right font-mono text-emerald-700 font-bold">{varItem.price ? `₹${Number(varItem.price).toLocaleString('en-IN')}` : '-'}</td>
-                        <td className="py-2 px-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveVariant(varItem.id)}
-                            className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
-                            title="Remove Variant"
-                          >
-                            <i className="fa-solid fa-trash-can text-xs"></i>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* Image Gallery Manager */}
-          <div id="edit-image-upload-section" className="space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-1">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-bold text-stone-700 uppercase tracking-wider">Product Images Gallery</span>
-                <span className="text-red-500 font-bold">*</span>
-              </div>
-              <span className="text-[10px] text-stone-400 font-medium whitespace-nowrap">
-                1st image = Thumb, others = Child
-              </span>
-            </div>
-
-            {/* Upload Dropzone */}
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all flex flex-col items-center justify-center min-h-[140px] ${
-                imageError
-                  ? 'border-red-500 bg-red-50/50 ring-2 ring-red-200'
-                  : 'border-stone-300 hover:border-[#b01622] bg-stone-50/60 hover:bg-red-50/20'
-              }`}
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => {
+                const curr = Math.max(0, (parseInt(formData.no_of_pieces) || 0) - 1);
+                setFormData((prev) => ({ ...prev, no_of_pieces: String(curr) }));
+              }}
+              className="w-8 h-8 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold text-base flex items-center justify-center transition-colors cursor-pointer"
+              title="Decrease stock count"
             >
+              -
+            </button>
+
+            <input
+              type="number"
+              min="0"
+              name="no_of_pieces"
+              value={formData.no_of_pieces}
+              onChange={handleInputChange}
+              className="w-20 text-center py-1.5 px-2 bg-[#f7f0f0] border border-[#e6c5c5] rounded-lg text-sm font-mono font-bold text-[#b01622] focus:outline-none focus:bg-white focus:border-[#b01622]"
+            />
+
+            <button
+              type="button"
+              onClick={() => {
+                const curr = (parseInt(formData.no_of_pieces) || 0) + 1;
+                setFormData((prev) => ({ ...prev, no_of_pieces: String(curr) }));
+              }}
+              className="w-8 h-8 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold text-base flex items-center justify-center transition-colors cursor-pointer"
+              title="Increase stock count"
+            >
+              +
+            </button>
+
+            <span className="text-xs font-semibold text-stone-500 pl-1">
+              Units in vault
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* SECTION 2: CATEGORY & SUBCATEGORY SELECTION                               */}
+      {/* ========================================================================= */}
+      <div className="bg-white rounded-2xl border border-stone-200/90 p-6 shadow-2xs space-y-5">
+        <div>
+          <h2 className="text-base font-bold text-gray-900 tracking-tight">Category &amp; Subcategory Selection</h2>
+          <p className="text-xs text-stone-500 mt-0.5">
+            Select or update the product classification for <strong className="font-mono text-[#b01622]">{formData.product_code}</strong>
+          </p>
+        </div>
+
+        {/* Categories Grid */}
+        <div className="space-y-2">
+          <span className="text-[11px] font-bold text-stone-600 uppercase tracking-wider block">
+            Category
+          </span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            {categoriesList.map((cat) => {
+              const isSelected = String(formData.category_id) === String(cat.id);
+              return (
+                <div
+                  key={cat.id}
+                  onClick={() => handleCategorySelect(cat.id)}
+                  className={`p-4 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${isSelected
+                    ? 'border-[#b01622] bg-[#fdf5f5] ring-2 ring-red-100 shadow-2xs'
+                    : 'border-stone-200 bg-white hover:border-stone-300 hover:bg-stone-50/60'
+                    }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-base ${isSelected ? 'bg-[#b01622] text-white' : 'bg-red-50 text-[#b01622]'
+                      }`}>
+                      <i className="fa-solid fa-gem"></i>
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-bold text-gray-900 leading-snug">{cat.name}</h3>
+                      <span className="text-[10px] font-mono text-stone-400 font-semibold">{cat.code || 'CAT'}</span>
+                    </div>
+                  </div>
+
+                  <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${isSelected ? 'border-[#b01622] bg-[#b01622] text-white' : 'border-stone-300'
+                    }`}>
+                    {isSelected && <i className="fa-solid fa-check text-[9px]"></i>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Subcategories Grid */}
+        {subcategoriesList.length > 0 && (
+          <div className="space-y-2 pt-2 border-t border-stone-100">
+            <span className="text-[11px] font-bold text-stone-600 uppercase tracking-wider block">
+              Subcategory for {activeCategoryObj?.name || 'Category'}
+            </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+              {subcategoriesList.map((sub) => {
+                const isSelected = String(formData.subcategory_id) === String(sub.id);
+                return (
+                  <div
+                    key={sub.id}
+                    onClick={() => handleSubcategorySelect(sub.id)}
+                    className={`p-4 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${isSelected
+                      ? 'border-[#b01622] bg-[#fdf5f5] ring-2 ring-red-100 shadow-2xs'
+                      : 'border-stone-200 bg-white hover:border-stone-300 hover:bg-stone-50/60'
+                      }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-base ${isSelected ? 'bg-[#b01622] text-white' : 'bg-red-50 text-[#b01622]'
+                        }`}>
+                        <i className="fa-solid fa-layer-group"></i>
+                      </div>
+                      <div>
+                        <h3 className="text-xs font-bold text-gray-900 leading-snug">{sub.name}</h3>
+                        <span className="text-[10px] font-mono text-stone-400 font-semibold">{sub.code || 'SUB'}</span>
+                      </div>
+                    </div>
+
+                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${isSelected ? 'border-[#b01622] bg-[#b01622] text-white' : 'border-stone-300'
+                      }`}>
+                      {isSelected && <i className="fa-solid fa-check text-[9px]"></i>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ========================================================================= */}
+      {/* SECTION 3: MAIN PRODUCT SPECIFICATIONS & MEDIA UPLOAD                     */}
+      {/* ========================================================================= */}
+      <form onSubmit={handleSubmitFinal} className="bg-white rounded-2xl border border-stone-200/90 shadow-2xs overflow-hidden space-y-0">
+
+        {/* Header Banner */}
+        <div className="bg-[#b01622] text-white px-6 py-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold tracking-tight">Main Product Specifications &amp; Media</h2>
+            <p className="text-xs text-red-100 font-normal mt-0.5">
+              Edit item specifications and media details.
+            </p>
+          </div>
+          <div className="px-3 py-1 rounded-lg bg-white/10 text-white text-xs font-mono font-bold">
+            {formData.product_code}
+          </div>
+        </div>
+
+        <div className="p-6 bg-white space-y-5">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+            {/* Left Column: Product Media Upload */}
+            <div className="lg:col-span-5 space-y-3">
+              <span className="text-[11px] font-bold text-stone-600 uppercase tracking-wider block">
+                PRODUCT MEDIA
+              </span>
+
               <input
                 ref={fileInputRef}
                 type="file"
@@ -839,172 +644,693 @@ export default function InventoryEditProduct() {
                 className="hidden"
                 onChange={handleFileUpload}
               />
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg mb-2 ${
-                imageError ? 'bg-red-100 text-red-600' : 'bg-red-100/60 text-[#b01622]'
-              }`}>
-                <i className="fa-solid fa-cloud-arrow-up"></i>
-              </div>
-              <h4 className="text-xs font-bold text-gray-900">
-                {imageUrls.length > 0 ? '+ Upload More Product Photos' : 'Upload Product Photos *'}
-              </h4>
-              <p className="text-[11px] text-stone-500 mt-0.5">
-                Drag and drop or click to browse image files (PNG, JPG, WEBP)
-              </p>
-            </div>
 
-            {/* Error banner if no images */}
-            {imageError && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs font-semibold flex items-center gap-2">
-                <i className="fa-solid fa-circle-exclamation text-sm text-red-600"></i>
-                <span>Product image is required! Please upload at least one image.</span>
-              </div>
-            )}
-
-            {/* Thumbnails list */}
-            {imageUrls.length > 0 && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-stone-700 flex items-center gap-1.5">
-                    <i className="fa-solid fa-images text-[#b01622] text-xs"></i>
-                    <span>Uploaded Images ({imageUrls.length})</span>
-                  </span>
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="text-[11px] text-[#b01622] hover:underline font-semibold cursor-pointer"
-                    >
-                      + Add More Photos
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setImageUrls([]);
-                        setFormData((f) => ({ ...f, image: '' }));
-                      }}
-                      className="text-[11px] text-stone-500 hover:text-red-600 hover:underline font-semibold cursor-pointer"
-                    >
-                      Clear All
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-                  {imageUrls.map((url, idx) => (
-                    <div
-                      key={idx}
-                      className={`relative group rounded-xl overflow-hidden border shadow-2xs aspect-square bg-stone-100 ${
-                        idx === 0 ? 'border-2 border-[#b01622] ring-2 ring-red-100' : 'border-stone-200'
-                      }`}
-                    >
-                      <img
-                        src={url}
-                        alt={idx === 0 ? 'Main Thumbnail' : `Child #${idx}`}
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          e.target.onerror = null;
-                          e.target.src = '/placeholder-jewelry.png';
-                        }}
-                      />
-
-                      {/* First Image: Thumb Badge */}
-                      {idx === 0 ? (
-                        <span className="absolute top-1 left-1 bg-[#b01622] text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-xs flex items-center gap-1 z-10">
-                          <i className="fa-solid fa-star text-[8px] text-amber-300"></i> Thumb
-                        </span>
-                      ) : (
-                        /* Child Images: Child Badge + Set as Thumb button */
-                        <>
-                          <span className="absolute top-1 left-1 bg-black/75 text-white text-[8px] font-semibold px-1.5 py-0.5 rounded z-10">
-                            Child #{idx}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleSetAsThumb(idx);
-                            }}
-                            className="absolute bottom-1 left-1 right-1 text-[9px] bg-white hover:bg-[#b01622] text-stone-800 hover:text-white font-bold py-1 rounded shadow text-center transition-colors cursor-pointer z-10 border border-stone-200"
-                            title="Set this image as primary thumbnail"
-                          >
-                            Set as Thumb
-                          </button>
-                        </>
-                      )}
-
-                      {/* Remove Image Button */}
+              {/* Main Thumbnail Dropzone */}
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className={`relative border-2 border-dashed rounded-xl overflow-hidden text-center cursor-pointer transition-all flex flex-col items-center justify-center min-h-[220px] group ${imageError
+                  ? 'border-red-500 bg-red-50/70 ring-2 ring-red-200'
+                  : 'border-[#e6c5c5] hover:border-[#b01622] bg-[#f7f0f0] hover:bg-[#f2e6e6]'
+                  }`}
+              >
+                {imageUrls.length > 0 ? (
+                  <div className="relative w-full h-[220px] bg-stone-900 flex items-center justify-center">
+                    <img
+                      src={imageUrls[0]}
+                      alt="Primary Thumbnail"
+                      className="w-full h-full object-contain"
+                    />
+                    <div className="absolute top-2 left-2 bg-[#b01622] text-white text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-wider shadow-2xs">
+                      Primary Thumbnail
+                    </div>
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1.5 text-white p-4">
+                      <span className="text-xs font-bold">+ Click to Add More Photos</span>
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleRemoveImage(idx);
+                          fileInputRef.current?.click();
                         }}
-                        className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 text-white flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:bg-red-600"
-                        title="Remove photo"
+                        className="px-3.5 py-1 bg-white text-[#b01622] hover:bg-stone-100 rounded-full text-xs font-bold shadow-2xs transition-colors cursor-pointer"
                       >
-                        <i className="fa-solid fa-xmark"></i>
+                        Browse Files
                       </button>
                     </div>
-                  ))}
+                  </div>
+                ) : (
+                  <div className="p-6 flex flex-col items-center justify-center">
+                    <div className="w-12 h-12 rounded-full flex items-center justify-center text-xl mb-2 text-[#b01622]">
+                      <i className="fa-solid fa-camera"></i>
+                    </div>
+                    <h4 className="text-xs font-bold text-gray-900 tracking-tight">
+                      Drag &amp; Drop Product Images
+                    </h4>
+                    <p className="text-[10px] text-stone-400 mt-0.5 mb-3">
+                      Support JPG, PNG, or WEBP formats.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        fileInputRef.current?.click();
+                      }}
+                      className="px-5 py-1.5 bg-white hover:bg-stone-50 text-stone-800 border border-stone-300 rounded-full text-xs font-bold shadow-2xs transition-colors cursor-pointer"
+                    >
+                      Browse Files
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {imageError && (
+                <div className="p-2.5 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs font-semibold flex items-center gap-2">
+                  <i className="fa-solid fa-circle-exclamation text-xs text-red-600"></i>
+                  <span>At least one product image is required.</span>
+                </div>
+              )}
+
+              {/* Child Images Gallery */}
+              {imageUrls.length > 0 && (
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-stone-700 block">
+                      Uploaded Images ({imageUrls.length})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="text-[11px] font-bold text-[#b01622] hover:underline cursor-pointer"
+                    >
+                      + Add Photo
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-4 gap-2">
+                    {imageUrls.map((img, idx) => (
+                      <div
+                        key={idx}
+                        className={`relative group rounded-lg overflow-hidden border aspect-square bg-stone-900 shadow-2xs ${idx === 0 ? 'border-[#b01622] ring-1 ring-red-200' : 'border-stone-200'
+                          }`}
+                      >
+                        <img src={img} alt={`Image ${idx + 1}`} className="w-full h-full object-cover" />
+                        {idx === 0 && (
+                          <span className="absolute top-0.5 left-0.5 bg-[#b01622] text-white text-[7px] font-black px-1 rounded uppercase tracking-wider">
+                            Main
+                          </span>
+                        )}
+                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1 p-1">
+                          {idx !== 0 && (
+                            <button
+                              type="button"
+                              onClick={() => handleSetPrimaryImage(idx)}
+                              className="w-5 h-5 rounded bg-amber-500 hover:bg-amber-600 text-white flex items-center justify-center text-[8px] cursor-pointer"
+                              title="Set as Primary Thumbnail"
+                            >
+                              <i className="fa-solid fa-star"></i>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveImage(idx)}
+                            className="w-5 h-5 rounded bg-red-600 hover:bg-red-700 text-white flex items-center justify-center text-[8px] cursor-pointer"
+                            title="Remove Image"
+                          >
+                            <i className="fa-solid fa-trash-can"></i>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+
+                    <div
+                      onClick={() => fileInputRef.current?.click()}
+                      className="border border-dashed border-[#e6c5c5] hover:border-[#b01622] bg-[#f7f0f0] rounded-lg flex flex-col items-center justify-center aspect-square cursor-pointer transition-colors text-stone-500 hover:text-[#b01622]"
+                      title="Add More Photos"
+                    >
+                      <i className="fa-solid fa-plus text-xs mb-0.5"></i>
+                      <span className="text-[9px] font-bold">Add</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Right Column: Form Inputs */}
+            <div className="lg:col-span-7 space-y-3.5">
+
+              {/* Row 1: CATEGORY & SUBCATEGORY DROPDOWNS */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                    CATEGORY <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    name="category_id"
+                    value={formData.category_id}
+                    onChange={handleCategoryChange}
+                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622] cursor-pointer"
+                    required
+                  >
+                    <option value="">-- Select Category --</option>
+                    {categoriesList.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
-                <div className="p-2.5 bg-stone-50 border border-stone-200/80 rounded-xl text-[11px] text-stone-600 flex items-start gap-2">
-                  <i className="fa-solid fa-circle-info text-[#b01622] text-xs mt-0.5"></i>
-                  <span>
-                    <strong>1st image</strong> is the catalog <strong>Thumbnail</strong>. Additional images are saved as <strong>Child/Gallery images</strong>. Click &ldquo;Set as Thumb&rdquo; on any child photo to make it primary.
-                  </span>
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                    SUBCATEGORY
+                  </label>
+                  <select
+                    name="subcategory_id"
+                    value={formData.subcategory_id}
+                    onChange={(e) => setFormData({ ...formData, subcategory_id: e.target.value })}
+                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622] cursor-pointer"
+                  >
+                    <option value="">-- Select Subcategory --</option>
+                    {subcategoriesList.map((sub) => (
+                      <option key={sub.id} value={sub.id}>
+                        {sub.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
-            )}
-          </div>
 
-          {/* Description */}
-          <div>
-            <label className="text-xs font-bold text-stone-700 uppercase tracking-wider block mb-1.5">
-              Description & Specifications Notes
-            </label>
-            <textarea
-              rows="3"
-              value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              placeholder="Enter product crafting notes, hallmarking details, or artisan specifications..."
-              className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl text-xs text-gray-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
-            />
-          </div>
+              {/* Row 2: ITEM NAME & DESIGN NO */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                    ITEM NAME <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    name="item_name"
+                    value={formData.item_name}
+                    onChange={handleInputChange}
+                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622] cursor-pointer"
+                  >
+                    {itemsMasterList.length > 0 ? (
+                      itemsMasterList.map((itm) => (
+                        <option key={itm.id} value={itm.name}>
+                          {itm.name} {itm.code ? `[${itm.code}]` : ''}
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value={formData.item_name || 'Cocktail Ring'}>{formData.item_name || 'Cocktail Ring'}</option>
+                        <option value="Box Link Chain">Box Link Chain</option>
+                        <option value="Antique Temple Necklace">Antique Temple Necklace</option>
+                        <option value="Solitaire Diamond Ring">Solitaire Diamond Ring</option>
+                        <option value="Kada Bangles Pair">Kada Bangles Pair</option>
+                      </>
+                    )}
+                  </select>
+                </div>
 
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                    DESIGN NO / SKU <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    name="product_code"
+                    value={formData.product_code}
+                    onChange={handleInputChange}
+                    placeholder="RD-DIA-001"
+                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Row 3: KARAT, PURITY (%), STAMP, UNIT */}
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider">
+                      KARAT
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenMasterModal('karat')}
+                      className="text-[10px] text-[#b01622] font-bold hover:underline"
+                    >
+                      + CRUD
+                    </button>
+                  </div>
+                  <select
+                    name="karat"
+                    value={formData.karat}
+                    onChange={(e) => {
+                      const kVal = e.target.value;
+                      let pVal = '91.6';
+                      if (kVal.includes('24')) pVal = '99.9';
+                      else if (kVal.includes('18')) pVal = '75.0';
+                      else if (kVal.includes('14')) pVal = '58.5';
+                      setFormData((prev) => ({
+                        ...prev,
+                        karat: kVal,
+                        purity: pVal,
+                        pure_weight: computePureWeight(prev.net_wt || prev.gross_wt, pVal),
+                      }));
+                    }}
+                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622] cursor-pointer"
+                  >
+                    {karatsList.map((k) => (
+                      <option key={k.id} value={k.name}>
+                        {k.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                    PURITY (%)
+                  </label>
+                  <input
+                    type="text"
+                    name="purity"
+                    value={formData.purity}
+                    onChange={handleInputChange}
+                    placeholder="91.6"
+                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider">
+                      STAMP
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenMasterModal('stamp')}
+                      className="text-[10px] text-[#b01622] font-bold hover:underline"
+                    >
+                      + CRUD
+                    </button>
+                  </div>
+                  <select
+                    name="stamp"
+                    value={formData.stamp}
+                    onChange={handleInputChange}
+                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622] cursor-pointer"
+                  >
+                    {stampsList.map((st) => (
+                      <option key={st.id} value={st.name}>
+                        {st.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider">
+                      UNIT
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenMasterModal('unit')}
+                      className="text-[10px] text-[#b01622] font-bold hover:underline"
+                    >
+                      + CRUD
+                    </button>
+                  </div>
+                  <select
+                    name="unit"
+                    value={formData.unit}
+                    onChange={handleInputChange}
+                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622] cursor-pointer"
+                  >
+                    {unitsList.map((u) => (
+                      <option key={u.id} value={u.name}>
+                        {u.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Row 4: SIZE & NO. OF PIECES */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                    SIZE
+                  </label>
+                  <input
+                    type="text"
+                    name="size"
+                    value={formData.size}
+                    onChange={handleInputChange}
+                    placeholder="0.00"
+                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                    NO. OF PIECES / IN-STOCK QTY
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    name="no_of_pieces"
+                    value={formData.no_of_pieces}
+                    onChange={handleInputChange}
+                    placeholder="1"
+                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                  />
+                </div>
+              </div>
+
+              {/* Row 5: GROSS WEIGHT, NET WEIGHT, PURE WEIGHT OF 24K */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                    GROSS WEIGHT (g)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    name="gross_wt"
+                    value={formData.gross_wt}
+                    onChange={handleInputChange}
+                    placeholder="0.00g"
+                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                    NET WEIGHT (g)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    name="net_wt"
+                    value={formData.net_wt}
+                    onChange={handleInputChange}
+                    placeholder="0.00g"
+                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-[#b01622] uppercase tracking-wider mb-1">
+                    PURE WEIGHT OF 24K
+                  </label>
+                  <input
+                    type="text"
+                    name="pure_weight"
+                    value={formData.pure_weight ? `${formData.pure_weight}g` : ''}
+                    placeholder="0.00g"
+                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-black text-[#b01622] focus:outline-none"
+                    readOnly
+                  />
+                </div>
+              </div>
+
+              {/* Row 6: RATE, SALE RATE, SALE VALUE */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                    RATE (₹)
+                  </label>
+                  <input
+                    type="text"
+                    name="gold_rate"
+                    value={formData.gold_rate}
+                    onChange={handleInputChange}
+                    placeholder="Rate"
+                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                    SALE RATE (₹)
+                  </label>
+                  <input
+                    type="text"
+                    name="sale_rate"
+                    value={formData.sale_rate}
+                    onChange={handleInputChange}
+                    placeholder="Sale Rate"
+                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                    SALE VALUE (₹)
+                  </label>
+                  <input
+                    type="text"
+                    name="sale_value"
+                    value={formData.sale_value}
+                    onChange={handleInputChange}
+                    placeholder="0.00"
+                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-[#b01622] focus:outline-none focus:bg-white focus:border-[#b01622]"
+                  />
+                </div>
+              </div>
+
+              {/* Row 7: DESCRIPTION */}
+              <div>
+                <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                  DESCRIPTION &amp; NOTES
+                </label>
+                <textarea
+                  rows="3"
+                  name="description"
+                  value={formData.description}
+                  onChange={handleInputChange}
+                  placeholder="Enter crafting notes or specifications..."
+                  className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                />
+              </div>
+
+            </div>
+          </div>
         </div>
 
-        {/* Form Footer Buttons */}
-        <div className="p-6 bg-stone-50 border-t border-stone-100 flex items-center justify-end gap-3">
+        {/* ========================================================================= */}
+        {/* SECTION 4: PRODUCT COMPONENTS BREAKDOWN (PAIRED ITEMS / SUB-COMPONENTS)   */}
+        {/* ========================================================================= */}
+        <div className="bg-white rounded-2xl border border-stone-200/90 shadow-2xs overflow-hidden p-6 space-y-4">
+          <div className="flex items-center justify-between border-b border-stone-100 pb-3">
+            <div>
+              <h2 className="text-base font-bold text-gray-900 tracking-tight">Product Components &amp; Paired Items</h2>
+              <p className="text-xs text-stone-500 mt-0.5">
+                Manage individual components and sub-parts attached to this inventory product.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleAddComponent}
+              className="px-4 py-2 bg-[#b01622] hover:bg-[#8f1019] text-white text-xs font-bold rounded-xl shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <i className="fa-solid fa-plus text-xs"></i>
+              <span>+ Add Paired Component</span>
+            </button>
+          </div>
+
+          {components.length > 0 ? (
+            <div className="space-y-6 pt-2">
+              {components.map((comp, compIdx) => (
+                <div key={comp.id_temp || compIdx} className="bg-[#faf7f7] rounded-xl border border-stone-300 p-5 space-y-4 relative">
+
+                  {/* Component Form Header */}
+                  <div className="flex items-center justify-between border-b border-stone-200 pb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="w-6 h-6 rounded-full bg-[#b01622] text-white text-xs font-bold flex items-center justify-center">
+                        {compIdx + 1}
+                      </span>
+                      <h3 className="text-sm font-bold text-gray-900">
+                        {comp.item_name || `Component ${compIdx + 1}`}
+                      </h3>
+                      {comp.item_code && (
+                        <span className="text-xs font-mono text-[#b01622] font-semibold bg-red-50 px-2 py-0.5 rounded">
+                          {comp.item_code}
+                        </span>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveComponent(compIdx)}
+                      className="px-3 py-1 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1"
+                    >
+                      <i className="fa-solid fa-trash-can text-[10px]"></i>
+                      <span>Remove Component</span>
+                    </button>
+                  </div>
+
+                  {/* Component Form Inputs */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-600 uppercase mb-1">
+                        Component Name
+                      </label>
+                      <input
+                        type="text"
+                        value={comp.item_name || ''}
+                        onChange={(e) => handleComponentChange(compIdx, 'item_name', e.target.value)}
+                        className="w-full p-2 bg-white border border-stone-300 rounded-lg text-xs font-semibold text-gray-900"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-600 uppercase mb-1">
+                        Item / Component Code
+                      </label>
+                      <input
+                        type="text"
+                        value={comp.item_code || ''}
+                        onChange={(e) => handleComponentChange(compIdx, 'item_code', e.target.value)}
+                        className="w-full p-2 bg-white border border-stone-300 rounded-lg text-xs font-mono font-bold text-gray-900"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-600 uppercase mb-1">
+                        Karat
+                      </label>
+                      <select
+                        value={comp.karat || '22K'}
+                        onChange={(e) => handleComponentChange(compIdx, 'karat', e.target.value)}
+                        className="w-full p-2 bg-white border border-stone-300 rounded-lg text-xs font-semibold text-gray-900"
+                      >
+                        <option value="22K">22K</option>
+                        <option value="24K">24K</option>
+                        <option value="18K">18K</option>
+                        <option value="14K">14K</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-600 uppercase mb-1">
+                        Purity (%)
+                      </label>
+                      <input
+                        type="text"
+                        value={comp.purity || '91.6'}
+                        onChange={(e) => handleComponentChange(compIdx, 'purity', e.target.value)}
+                        className="w-full p-2 bg-white border border-stone-300 rounded-lg text-xs font-semibold text-gray-900"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-600 uppercase mb-1">
+                        Gross Weight (g)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.001"
+                        value={comp.gross_wt || ''}
+                        onChange={(e) => handleComponentChange(compIdx, 'gross_wt', e.target.value)}
+                        className="w-full p-2 bg-white border border-stone-300 rounded-lg text-xs font-mono font-bold text-gray-900"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-600 uppercase mb-1">
+                        Net Weight (g)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.001"
+                        value={comp.net_wt || ''}
+                        onChange={(e) => handleComponentChange(compIdx, 'net_wt', e.target.value)}
+                        className="w-full p-2 bg-white border border-stone-300 rounded-lg text-xs font-mono font-bold text-gray-900"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-[#b01622] uppercase mb-1">
+                        Pure Weight 24K (g)
+                      </label>
+                      <input
+                        type="text"
+                        value={comp.pure_weight ? `${comp.pure_weight}g` : ''}
+                        readOnly
+                        className="w-full p-2 bg-stone-100 border border-stone-300 rounded-lg text-xs font-mono font-bold text-[#b01622]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-600 uppercase mb-1">
+                        Sale Rate (₹)
+                      </label>
+                      <input
+                        type="text"
+                        value={comp.sale_rate || ''}
+                        onChange={(e) => handleComponentChange(compIdx, 'sale_rate', e.target.value)}
+                        className="w-full p-2 bg-white border border-stone-300 rounded-lg text-xs font-mono text-gray-900"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-6 text-center bg-stone-50 rounded-xl border border-dashed border-stone-300 text-stone-500 text-xs font-semibold space-y-2">
+              <p>No additional paired components attached to this main item.</p>
+              <button
+                type="button"
+                onClick={handleAddComponent}
+                className="px-4 py-1.5 bg-white border border-stone-300 hover:border-[#b01622] text-[#b01622] text-xs font-bold rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5"
+              >
+                <i className="fa-solid fa-plus text-xs"></i>
+                <span>Add Component Box</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Action Bar Footer */}
+        <div className="p-5 bg-stone-50 border-t border-stone-200/80 flex items-center justify-between">
           <Link
             to="/inventory"
-            className="px-5 py-2.5 bg-white border border-stone-300 text-stone-700 hover:bg-stone-100 rounded-xl text-xs font-semibold cursor-pointer"
+            className="px-5 py-2.5 bg-white border border-stone-300 text-stone-700 hover:bg-stone-100 rounded-xl text-xs font-bold transition-colors cursor-pointer"
           >
-            Cancel
+            Cancel &amp; Exit
           </Link>
+
           <button
             type="submit"
             disabled={saving}
-            className="px-6 py-2.5 bg-[#b01622] hover:bg-[#8f1019] text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+            className="px-8 py-3 bg-[#b01622] hover:bg-[#8f1019] text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
           >
             {saving && <i className="fa-solid fa-circle-notch fa-spin"></i>}
-            <span>Save & Update Product</span>
+            <span>Save &amp; Update Inventory Item</span>
           </button>
         </div>
 
       </form>
 
-      {/* Quick Dropdown CRUD Modal for Setting Styles */}
-      <QuickDropdownCrudModal
-        isOpen={showStylesModal}
-        onClose={() => setShowStylesModal(false)}
-        type="setting_style"
-        onItemSelect={(newStyleName) => {
-          setFormData((prev) => ({ ...prev, setting_style: newStyleName }));
-          refreshStyles();
-        }}
-        onRefresh={refreshStyles}
-      />
+      {/* Quick CRUD Master Modal for Karat, Stamp, Unit */}
+      {showCrudModal && (
+        <QuickDropdownCrudModal
+          isOpen={showCrudModal}
+          onClose={() => setShowCrudModal(false)}
+          type={crudModalType}
+          onItemSelect={(val) => {
+            if (crudModalType === 'karat') setFormData((prev) => ({ ...prev, karat: val }));
+            if (crudModalType === 'stamp') setFormData((prev) => ({ ...prev, stamp: val }));
+            if (crudModalType === 'unit') setFormData((prev) => ({ ...prev, unit: val }));
+          }}
+          onRefresh={() => {
+            api.get('/karats').then((r) => setKaratsList(r.data || []));
+            api.get('/stamps').then((r) => setStampsList(r.data || []));
+            api.get('/units').then((r) => setUnitsList(r.data || []));
+          }}
+        />
+      )}
 
     </div>
   );

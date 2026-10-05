@@ -83,6 +83,15 @@ export default function Step3Selection() {
       setTotalDesigns(res.data.total || 0);
       setCurrentPage(res.data.current_page || 1);
       setLastPage(res.data.last_page || 1);
+
+      // Dynamically sanitize selection against real database design IDs
+      const validDbIds = res.data.all_ids || [];
+      if (Array.isArray(validDbIds)) {
+        const sanitized = selectedIds.filter((id) => validDbIds.includes(Number(id)));
+        if (sanitized.length !== selectedIds.length) {
+          setSelectedIds(sanitized);
+        }
+      }
     } catch (err) {
       console.error(err);
       showToast('Failed to load designs', 'error');

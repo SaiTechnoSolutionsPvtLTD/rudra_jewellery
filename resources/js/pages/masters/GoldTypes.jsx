@@ -17,6 +17,7 @@ export default function GoldTypes() {
   const [formData, setFormData] = useState({
     name: '',
     purity: '',
+    karat: '',
     sort_order: '',
     description: '',
   });
@@ -29,11 +30,17 @@ export default function GoldTypes() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
+  const [karats, setKarats] = useState([]);
+
   const fetchTypes = async () => {
     try {
       setLoading(true);
-      const res = await api.get('/gold-types');
-      setTypes(res.data || []);
+      const [typeRes, karatRes] = await Promise.all([
+        api.get('/gold-types').catch(() => ({ data: [] })),
+        api.get('/karats').catch(() => ({ data: [] })),
+      ]);
+      setTypes(typeRes.data || []);
+      setKarats(karatRes.data || []);
     } catch (err) {
       console.error(err);
       showToast('Failed to load gold types', 'error');
@@ -51,6 +58,7 @@ export default function GoldTypes() {
     setFormData({
       name: '',
       purity: '',
+      karat: '',
       sort_order: types.length + 1,
       description: '',
     });
@@ -62,6 +70,7 @@ export default function GoldTypes() {
     setFormData({
       name: item.name || '',
       purity: item.purity || '',
+      karat: item.karat || '',
       sort_order: item.sort_order || '',
       description: item.description || '',
     });
@@ -180,7 +189,8 @@ export default function GoldTypes() {
                   <tr className="bg-gray-50/80 border-b border-gray-200/80 text-[11px] font-bold text-gray-500 uppercase tracking-wider">
                     <th className="px-5 py-3.5">Order</th>
                     <th className="px-5 py-3.5">Gold Type</th>
-                    <th className="px-5 py-3.5">Purity / Karat Note</th>
+                    <th className="px-5 py-3.5">Karat</th>
+                    <th className="px-5 py-3.5">Purity</th>
                     <th className="px-5 py-3.5">Description</th>
                     <th className="px-5 py-3.5 text-right">Actions</th>
                   </tr>
@@ -200,6 +210,15 @@ export default function GoldTypes() {
                           </span>
                           <span className="font-bold text-gray-900 text-[13px]">{type.name}</span>
                         </div>
+                      </td>
+                      <td className="px-5 py-4 text-gray-700">
+                        {type.karat ? (
+                          <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 font-bold text-[11px] border border-amber-200">
+                            {type.karat}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400 italic">—</span>
+                        )}
                       </td>
                       <td className="px-5 py-4 text-gray-700">
                         {type.purity ? (
@@ -284,17 +303,73 @@ export default function GoldTypes() {
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                  Purity / Karat Note (Optional)
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. 75.0% Fine Gold / 18KT"
-                  value={formData.purity}
-                  onChange={(e) => setFormData({ ...formData, purity: e.target.value })}
-                  className="w-full px-3.5 h-[40px] bg-gray-50 border border-gray-300 rounded-lg text-xs text-gray-800 focus:outline-none focus:border-[#b01622] focus:bg-white"
-                />
+              {/* Purity & Karat - Two Individual Input Boxes */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                    Purity <span className="text-gray-400 font-normal font-sans">(Typing format)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 91.6% or Fine 916"
+                    value={formData.purity}
+                    onChange={(e) => setFormData({ ...formData, purity: e.target.value })}
+                    className="w-full px-3.5 h-[40px] bg-gray-50 border border-gray-300 rounded-lg text-xs text-gray-800 focus:outline-none focus:border-[#b01622] focus:bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                    Karat <span className="text-gray-400 font-normal font-sans">(Master Dropdown)</span>
+                  </label>
+                  <select
+                    value={formData.karat}
+                    onChange={(e) => {
+                      const selectedKarat = e.target.value;
+                      let suggestedPurity = formData.purity;
+                      if (!formData.purity && selectedKarat) {
+                        const match = karats.find(k => (k.name || k.code) === selectedKarat);
+                        if (match && match.description) {
+                          suggestedPurity = match.description;
+                        } else {
+                          if (selectedKarat === '24K') suggestedPurity = '99.9% Fine Pure';
+                          else if (selectedKarat === '23K') suggestedPurity = '95.8% Gold';
+                          else if (selectedKarat === '22K') suggestedPurity = '91.6% Standard';
+                          else if (selectedKarat === '20K') suggestedPurity = '83.3% Gold';
+                          else if (selectedKarat === '18K') suggestedPurity = '75.0% Jewel Gold';
+                          else if (selectedKarat === '14K') suggestedPurity = '58.5% Fashion Gold';
+                          else if (selectedKarat === '10K') suggestedPurity = '41.7% Gold';
+                          else if (selectedKarat === '9K') suggestedPurity = '37.5% Gold';
+                        }
+                      }
+                      setFormData({ ...formData, karat: selectedKarat, purity: suggestedPurity });
+                    }}
+                    className="w-full px-3.5 h-[40px] bg-gray-50 border border-gray-300 rounded-lg text-xs text-gray-800 focus:outline-none focus:border-[#b01622] focus:bg-white cursor-pointer"
+                  >
+                    <option value="">Select Karat</option>
+                    {karats.length > 0 ? (
+                      karats.map((k) => {
+                        const kVal = k.name || k.code;
+                        return (
+                          <option key={k.id || kVal} value={kVal}>
+                            {k.name} {k.code && k.code !== k.name ? `(${k.code})` : ''}
+                          </option>
+                        );
+                      })
+                    ) : (
+                      <>
+                        <option value="24K">24K (99.9% Pure Gold)</option>
+                        <option value="23K">23K (95.8% Gold)</option>
+                        <option value="22K">22K (91.6% Standard Gold)</option>
+                        <option value="20K">20K (83.3% Gold)</option>
+                        <option value="18K">18K (75.0% Jewel Gold)</option>
+                        <option value="14K">14K (58.5% Fashion Gold)</option>
+                        <option value="10K">10K (41.7% Gold)</option>
+                        <option value="9K">9K (37.5% Gold)</option>
+                      </>
+                    )}
+                  </select>
+                </div>
               </div>
 
               <div>

@@ -23,15 +23,7 @@ class InventoryController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Product::with(['category', 'subcategory'])
-            ->where(function ($q) {
-                $q->where('attributes->source', 'inventory')
-                  ->orWhereNotNull('attributes->gross_wt')
-                  ->orWhereNotNull('attributes->gross_weight')
-                  ->orWhereNotNull('attributes->is_inventory')
-                  ->orWhereNotNull('attributes->purity')
-                  ->orWhereNull('attributes');
-            });
+        $query = Product::with(['category', 'subcategory']);
 
         // Search (Code, Name, Description, Purity, Style, HUID, Category, Subcategory)
         if ($request->filled('search')) {
@@ -127,6 +119,22 @@ class InventoryController extends Controller
         $perPage = (int) $request->get('per_page', 10);
         $products = $query->paginate($perPage);
 
+        // Ensure clean product names (without '(X Parts)') and unique SKU formatting
+        $products->getCollection()->transform(function ($p) {
+            $attrs = is_array($p->attributes) ? $p->attributes : (json_decode($p->attributes ?? '[]', true) ?: []);
+            if (str_contains($p->name, ' Parts)')) {
+                $p->name = preg_replace('/\s*\(\d+\s*Parts\)/i', '', $p->name);
+            }
+            if (empty($attrs['sku'])) {
+                $catCode = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $p->category->code ?? $p->category->name ?? 'PRD'), 0, 4));
+                $subCode = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $p->subcategory->code ?? $p->subcategory->name ?? 'GEN'), 0, 4));
+                $p->sku = 'SKU-' . $catCode . '-' . $subCode . '-' . str_pad($p->id, 4, '0', STR_PAD_LEFT);
+            } else {
+                $p->sku = $attrs['sku'];
+            }
+            return $p;
+        });
+
         // Fast DB Aggregate Stats calculation computed dynamically on filtered query
         $statsQuery = clone $query;
         $totalProducts = (clone $statsQuery)->count();
@@ -141,9 +149,15 @@ class InventoryController extends Controller
         $totalNetWeight = (float) ((clone $statsQuery)->sum('opening_fine_weight') ?? 0);
         $totalDiamondWeight = 0.0;
 
-        // Rates per unit
-        $goldRatePerGram = 6850;
-        $silverRatePerGram = 85;
+        // Dynamic rates from DB PurchaseEntry
+        $totalPurchaseAmountTemp = (float) \App\Models\PurchaseEntry::sum('total_amount');
+        $totalPurchaseWtTemp = (float) \App\Models\PurchaseEntry::sum('weight');
+        $avg24kBuyingRateGram = $totalPurchaseWtTemp > 0 ? ($totalPurchaseAmountTemp / $totalPurchaseWtTemp) : 0.0;
+
+        // Rates per unit dynamically loaded from live rates API
+        $liveRates = \App\Http\Controllers\Api\DashboardController::getLiveMetalRatesData();
+        $goldRatePerGram = $avg24kBuyingRateGram > 0 ? $avg24kBuyingRateGram : ($liveRates['raw24k'] ?? 14408);
+        $silverRatePerGram = (float) ($liveRates['rawSilverGram'] ?? 216.5);
         $diamondRatePerCt = 65000;
         $stoneRatePerUnit = 2800;
 
@@ -210,6 +224,24 @@ class InventoryController extends Controller
                 'is_increase' => true,
                 'pct' => 0.0
             ];
+        };
+
+        // Helper function for product valuation
+        $calcProdVal = function($p) {
+            $attrs = is_array($p->attributes) ? $p->attributes : (json_decode($p->attributes ?? '[]', true) ?: []);
+            $val = (float) ($attrs['sale_value'] ?? 0);
+            if ($val <= 0) {
+                $rate = (float) ($attrs['sale_rate'] ?? $attrs['rate'] ?? $p->opening_stock_rate ?? 0);
+                $qty = (int) ($p->current_stock_qty ?? $p->opening_stock_qty ?? 1);
+                $wt = (float) ($attrs['gross_wt'] ?? $p->opening_stock_weight ?? 0);
+                $val = $qty * ($wt > 0 ? $wt * $rate : $rate);
+            } else {
+                $qty = (int) ($p->current_stock_qty ?? $p->opening_stock_qty ?? 1);
+                if ($qty > 1) {
+                    $val = $val * $qty;
+                }
+            }
+            return $val;
         };
 
         // 1. Raw Values directly from raw_materials database table
@@ -296,6 +328,10 @@ class InventoryController extends Controller
         $jewelSilverGrams = 0.0;
         $jewelDiamondCts = 0.0;
         $jewelStoneUnits = 0;
+        $jewelGoldTotalVal = 0.0;
+        $jewelSilverTotalVal = 0.0;
+        $jewelDiamondTotalVal = 0.0;
+        $jewelStoneTotalVal = 0.0;
 
         foreach ($inStockProducts as $p) {
             $catName = strtolower($p->category->name ?? '');
@@ -305,16 +341,51 @@ class InventoryController extends Controller
 
             $w = (float) ($p->opening_stock_weight ?: ($p->weight ?: 0));
             $attrs = is_array($p->attributes) ? $p->attributes : (json_decode($p->attributes ?? '[]', true) ?: []);
+            $pVal = $calcProdVal($p);
 
-            if (str_contains($catName, 'silver') || str_contains($catCode, 'silver') || str_contains($pName, 'silver')) {
-                $jewelSilverGrams += ($w * $qty);
-            } elseif (str_contains($catName, 'diamond') || str_contains($catCode, 'diamond') || str_contains($pName, 'diamond')) {
-                $diamondWt = floatval($attrs['diamond_wt'] ?? $attrs['carat'] ?? $w);
-                $jewelDiamondCts += ($diamondWt * $qty);
-            } elseif (str_contains($catName, 'stone') || str_contains($catCode, 'stone') || str_contains($pName, 'stone')) {
-                $jewelStoneUnits += ($qty * intval($attrs['stone_pieces'] ?? 1));
+            $comps = $attrs['components'] ?? [];
+            if (!empty($comps) && is_array($comps)) {
+                foreach ($comps as $c) {
+                    $cCat = strtolower($c['category_name'] ?? $c['item_name'] ?? '');
+                    $cGross = (float) ($c['gross_wt'] ?? $c['net_wt'] ?? 0);
+                    $cVal = (float) ($c['sale_value'] ?? 0);
+                    if ($cVal <= 0) {
+                        $cRate = (float) ($c['sale_rate'] ?? $c['gold_rate'] ?? 0);
+                        $cVal = $cGross * $cRate;
+                    }
+
+                    if (str_contains($cCat, 'silver')) {
+                        $jewelSilverGrams += ($cGross * $qty);
+                        $jewelSilverTotalVal += ($cVal * $qty);
+                    } elseif (str_contains($cCat, 'diamond') || str_contains($cCat, 'solitaire')) {
+                        $cCarat = (float) ($c['net_wt'] ?? $c['gross_wt'] ?? 0);
+                        $jewelDiamondCts += ($cCarat * $qty);
+                        $jewelDiamondTotalVal += ($cVal * $qty);
+                    } elseif (str_contains($cCat, 'stone')) {
+                        $cPcs = (int) ($c['no_of_pieces'] ?? 1);
+                        $jewelStoneUnits += ($cPcs * $qty);
+                        $jewelStoneTotalVal += ($cVal * $qty);
+                    } else {
+                        // Default to Gold for metal components
+                        $jewelGoldGrams += ($cGross * $qty);
+                        $jewelGoldTotalVal += ($cVal * $qty);
+                    }
+                }
             } else {
-                $jewelGoldGrams += ($w * $qty);
+                if (str_contains($catName, 'silver') || str_contains($catCode, 'silver') || str_contains($pName, 'silver')) {
+                    $jewelSilverGrams += ($w * $qty);
+                    $jewelSilverTotalVal += $pVal;
+                } elseif (str_contains($catName, 'diamond') || str_contains($catCode, 'diamond') || str_contains($pName, 'diamond')) {
+                    $diamondWt = floatval($attrs['diamond_wt'] ?? $attrs['carat'] ?? $w);
+                    $jewelDiamondCts += ($diamondWt * $qty);
+                    $jewelDiamondTotalVal += $pVal;
+                } elseif (str_contains($catName, 'stone') || str_contains($catCode, 'stone') || str_contains($pName, 'stone')) {
+                    $jewelStoneUnits += ($qty * intval($attrs['stone_pieces'] ?? 1));
+                    $jewelStoneTotalVal += $pVal;
+                } else {
+                    $jewelGoldGrams += ($w * $qty);
+                    $jewelGoldTotalVal += $pVal;
+                }
             }
         }
 
@@ -323,10 +394,10 @@ class InventoryController extends Controller
         $jewelDiamondDisplayCt = round($jewelDiamondCts, 2);
         $jewelStoneDisplayUnits = $jewelStoneUnits;
 
-        $jewelGoldVal = round($jewelGoldKg * 1000 * $goldRatePerGram);
-        $jewelSilverVal = round($jewelSilverKg * 1000 * $silverRatePerGram);
-        $jewelDiamondVal = round($jewelDiamondDisplayCt * $diamondRatePerCt);
-        $jewelStoneVal = round($jewelStoneDisplayUnits * $stoneRatePerUnit);
+        $jewelGoldVal = round($jewelGoldTotalVal ?: ($jewelGoldKg * 1000 * $goldRatePerGram));
+        $jewelSilverVal = round($jewelSilverTotalVal ?: ($jewelSilverKg * 1000 * $silverRatePerGram));
+        $jewelDiamondVal = round($jewelDiamondTotalVal ?: ($jewelDiamondDisplayCt * $diamondRatePerCt));
+        $jewelStoneVal = round($jewelStoneTotalVal ?: ($jewelStoneDisplayUnits * $stoneRatePerUnit));
 
         // Previous period Jewel values for calculation
         $currProductsVal = Product::when($currentStart, fn($q) => $q->whereBetween('created_at', [$currentStart, $currentEnd]))->sum('opening_stock_rate') ?? 0;
@@ -337,29 +408,41 @@ class InventoryController extends Controller
         $jewelSilverChange = $calcChange($jewelSilverVal, $prevProductsVal > 0 ? $prevProductsVal : ($jewelSilverVal * 0.956));
         $jewelDiamondChange = $calcChange($jewelDiamondVal, $prevProductsVal > 0 ? $prevProductsVal : ($jewelDiamondVal * 0.956));
 
-        // Real low stock products from database (stock <= 2, ordered lowest first)
-        $lowStockProducts = Product::where(function ($q) {
-            $q->where('attributes->source', 'inventory')
-              ->orWhereNotNull('attributes->gross_wt')
-              ->orWhereNotNull('attributes->is_inventory');
-        })
-        ->where('current_stock_qty', '<=', 2)
-        ->orderBy('current_stock_qty', 'asc')
-        ->take(6)
-        ->get();
+        // Real low stock products from database (stock <= 5, ordered lowest first)
+        $lowStockProducts = Product::with(['category', 'subcategory'])
+            ->where('current_stock_qty', '<=', 5)
+            ->orderBy('current_stock_qty', 'asc')
+            ->take(15)
+            ->get();
 
         $lowStockAlerts = [];
 
-        // 1. Raw Material Low Stock Alerts
+        // 1. Finished Products Low Stock Alerts (Across all categories)
+        foreach ($lowStockProducts as $lp) {
+            $qty = (int) $lp->current_stock_qty;
+            $cleanLpName = preg_replace('/\s*\(\d+\s*Parts\)/i', '', $lp->name);
+            $lowStockAlerts[] = [
+                'id' => $lp->id,
+                'name' => $cleanLpName,
+                'product_code' => $lp->product_code,
+                'stock_qty' => $qty,
+                'unit' => 'units',
+                'status_label' => $qty === 0 ? 'Out of Stock (00)' : 'Current Stock: ' . str_pad($qty, 2, '0', STR_PAD_LEFT) . ' ' . ($qty === 1 ? 'unit' : 'units'),
+                'is_out_of_stock' => $qty === 0,
+                'is_raw_material' => false,
+            ];
+        }
+
+        // 2. Raw Material Low Stock Alerts (For raw materials with low balance)
         $rawMaterialsAll = \App\Models\RawMaterial::all();
         foreach ($rawMaterialsAll as $rm) {
             $bal = (float) $rm->current_balance;
             $unit = $rm->unit;
 
             $isLow = false;
-            if ($unit === 'kg' && $bal < 15.0) $isLow = true;
-            if ($unit === 'ct' && $bal < 50.0) $isLow = true;
-            if ($unit === 'units' && $bal < 900) $isLow = true;
+            if ($unit === 'kg' && $bal <= 5.0) $isLow = true;
+            if ($unit === 'ct' && $bal <= 20.0) $isLow = true;
+            if ($unit === 'units' && $bal <= 100) $isLow = true;
 
             if ($isLow) {
                 $lowStockAlerts[] = [
@@ -367,25 +450,12 @@ class InventoryController extends Controller
                     'name' => 'Raw ' . ucfirst($rm->material_type) . ' (Raw Vault)',
                     'product_code' => 'RAW-' . strtoupper($rm->material_type),
                     'stock_qty' => $bal,
-                    'status_label' => 'Current Vault: ' . $bal . ' ' . $unit,
+                    'unit' => $unit,
+                    'status_label' => $bal <= 0 ? 'Out of Stock (00)' : 'Current Vault: ' . $bal . ' ' . $unit,
                     'is_out_of_stock' => $bal <= 0,
                     'is_raw_material' => true,
                 ];
             }
-        }
-
-        // 2. Finished Products Low Stock Alerts
-        foreach ($lowStockProducts as $lp) {
-            $qty = (int) $lp->current_stock_qty;
-            $lowStockAlerts[] = [
-                'id' => $lp->id,
-                'name' => $lp->name,
-                'product_code' => $lp->product_code,
-                'stock_qty' => $qty,
-                'status_label' => $qty === 0 ? 'Out of Stock (00)' : 'Current Stock: ' . str_pad($qty, 2, '0', STR_PAD_LEFT) . ' ' . ($qty === 1 ? 'unit' : 'units'),
-                'is_out_of_stock' => $qty === 0,
-                'is_raw_material' => false,
-            ];
         }
 
         // Category breakdown
@@ -609,7 +679,9 @@ class InventoryController extends Controller
 
         $attrs = is_array($product->attributes) ? $product->attributes : json_decode($product->attributes ?? '[]', true);
         $grossWt = (float) ($attrs['gross_wt'] ?? $product->opening_stock_weight ?? 0);
-        $rate = (float) ($attrs['sale_rate'] ?? $attrs['rate'] ?? $product->opening_stock_rate ?? 6850);
+        $liveRates = \App\Http\Controllers\Api\DashboardController::getLiveMetalRatesData();
+        $defaultRate = $liveRates['raw22k'] ?? 13207;
+        $rate = (float) ($attrs['sale_rate'] ?? $attrs['rate'] ?? $product->opening_stock_rate ?? $defaultRate);
 
         InventoryMovement::create([
             'product_id' => $product->id,
@@ -648,18 +720,92 @@ class InventoryController extends Controller
         DB::beginTransaction();
         try {
             foreach ($items as $idx => $itemData) {
-                $category_id = $itemData['category_id'] ?? null;
-                $subcategory_id = $itemData['subcategory_id'] ?? null;
-                $name = $itemData['name'] ?? 'Product ' . date('Ymd-His');
-                $code = $itemData['product_code'] ?? null;
+                $rawCatId = $itemData['category_id'] ?? null;
+                $rawSubcatId = $itemData['subcategory_id'] ?? null;
+                $catName = $itemData['category_name'] ?? null;
+                $subcatName = $itemData['subcategory_name'] ?? null;
 
-                if (!$code) {
+                // Resolve Category ID
+                $category_id = null;
+                if (!empty($rawCatId) && is_numeric($rawCatId)) {
+                    $catObj = Category::find($rawCatId);
+                    if ($catObj) {
+                        $category_id = $catObj->id;
+                    }
+                }
+
+                if (!$category_id && !empty($rawCatId) && is_string($rawCatId)) {
+                    $catObj = Category::where('name', 'like', "%{$rawCatId}%")
+                        ->orWhere('code', 'like', "%{$rawCatId}%")
+                        ->first();
+                    if ($catObj) {
+                        $category_id = $catObj->id;
+                    }
+                }
+
+                if (!$category_id && !empty($catName)) {
+                    $catObj = Category::where('name', 'like', "%{$catName}%")
+                        ->orWhere('code', 'like', "%{$catName}%")
+                        ->first();
+                    if ($catObj) {
+                        $category_id = $catObj->id;
+                    }
+                }
+
+                // Fallback category if none found
+                if (!$category_id) {
+                    $catObj = Category::where('status', 'active')->first() ?: Category::first();
+                    $category_id = $catObj ? $catObj->id : null;
+                }
+
+                if (!$category_id) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => "Category not found in master database. Please create a category first."
+                    ], 422);
+                }
+
+                // Resolve Subcategory ID
+                $subcategory_id = null;
+                if (!empty($rawSubcatId) && is_numeric($rawSubcatId)) {
+                    $subcatObj = Subcategory::find($rawSubcatId);
+                    if ($subcatObj) {
+                        $subcategory_id = $subcatObj->id;
+                    }
+                }
+
+                if (!$subcategory_id && !empty($rawSubcatId) && is_string($rawSubcatId)) {
+                    $subcatObj = Subcategory::where('category_id', $category_id)
+                        ->where(function ($q) use ($rawSubcatId) {
+                            $q->where('name', 'like', "%{$rawSubcatId}%")
+                              ->orWhere('code', 'like', "%{$rawSubcatId}%");
+                        })->first();
+                    if ($subcatObj) {
+                        $subcategory_id = $subcatObj->id;
+                    }
+                }
+
+                if (!$subcategory_id && !empty($subcatName)) {
+                    $subcatObj = Subcategory::where('category_id', $category_id)
+                        ->where(function ($q) use ($subcatName) {
+                            $q->where('name', 'like', "%{$subcatName}%")
+                              ->orWhere('code', 'like', "%{$subcatName}%");
+                        })->first();
+                    if ($subcatObj) {
+                        $subcategory_id = $subcatObj->id;
+                    }
+                }
+
+                $name = !empty($itemData['name']) ? $itemData['name'] : ('Product ' . date('Ymd-His'));
+                $code = trim($itemData['product_code'] ?? '');
+
+                if (empty($code)) {
                     $code = 'RJ-' . strtoupper(Str::random(3)) . '-' . rand(1000, 9999);
                 }
 
-                // Check duplicate code
-                if (Product::where('product_code', $code)->exists()) {
-                    $code .= '-' . rand(10, 99);
+                // Check duplicate code and generate unique code loop
+                while (Product::where('product_code', $code)->exists()) {
+                    $code = 'RJ-' . strtoupper(Str::random(3)) . '-' . rand(1000, 9999);
                 }
 
                 $processedImages = [];
@@ -682,33 +828,55 @@ class InventoryController extends Controller
                 }
 
                 if (empty($primaryImage)) {
-                    DB::rollBack();
-                    return response()->json([
-                        'message' => "Product '{$name}' cannot be added without an image. Please upload at least one image."
-                    ], 422);
+                    $primaryImage = '/placeholder-jewelry.png';
                 }
 
-                if (!in_array($primaryImage, $processedImages)) {
+                if (!in_array($primaryImage, $processedImages) && $primaryImage !== '/placeholder-jewelry.png') {
                     array_unshift($processedImages, $primaryImage);
                 }
 
                 $childImages = count($processedImages) > 1 ? array_values(array_slice($processedImages, 1)) : [];
 
+                // Process component images safely so base64 strings don't bloat JSON attributes
+                $rawComponents = $itemData['components'] ?? [];
+                $processedComponents = [];
+                if (is_array($rawComponents)) {
+                    foreach ($rawComponents as $comp) {
+                        $cComp = $comp;
+                        if (!empty($cComp['images']) && is_array($cComp['images'])) {
+                            $cImgs = [];
+                            foreach ($cComp['images'] as $ci) {
+                                $sImg = $this->saveImageFile($ci);
+                                if ($sImg) $cImgs[] = $sImg;
+                            }
+                            $cComp['images'] = $cImgs;
+                        }
+                        if (!empty($cComp['thumb_image'])) {
+                            $cComp['thumb_image'] = $this->saveImageFile($cComp['thumb_image']);
+                        }
+                        $processedComponents[] = $cComp;
+                    }
+                }
+
                 // Compile attributes
                 $attributes = [
                     'source' => 'inventory',
                     'is_inventory' => true,
-                    'gross_wt' => $itemData['gross_wt'] ?? null,
-                    'net_wt' => $itemData['net_wt'] ?? null,
-                    'purity' => $itemData['purity'] ?? $itemData['gold_type'] ?? '22K (91.6%)',
-                    'gold_type' => $itemData['gold_type'] ?? $itemData['purity'] ?? '22K (91.6%)',
+                    'gross_wt' => (float) ($itemData['gross_wt'] ?? 0),
+                    'net_wt' => (float) ($itemData['net_wt'] ?? 0),
+                    'pure_weight' => (float) ($itemData['pure_weight'] ?? 0),
+                    'purity' => $itemData['purity'] ?? null,
+                    'karat' => $itemData['karat'] ?? null,
+                    'stamp' => $itemData['stamp'] ?? null,
+                    'unit' => $itemData['unit'] ?? null,
+                    'gold_type' => $itemData['gold_type'] ?? $itemData['purity'] ?? null,
                     'setting_style' => $itemData['setting_style'] ?? null,
                     'dia_wt_ct' => $itemData['dia_wt_ct'] ?? $itemData['diamond_wt'] ?? null,
-                    'stamp' => $itemData['stamp'] ?? '+0',
                     'size' => $itemData['size'] ?? null,
                     'stone_size' => $itemData['stone_size'] ?? null,
                     'stone_color' => $itemData['stone_color'] ?? null,
                     'variants' => $itemData['variants'] ?? [],
+                    'components' => $processedComponents,
                     'wastage_percent' => $itemData['wastage_percent'] ?? '3.50',
                     'making_charge' => $itemData['making_charge'] ?? '650',
                     'making_charge_type' => $itemData['making_charge_type'] ?? 'per_gram',
@@ -718,9 +886,11 @@ class InventoryController extends Controller
                     'child_images' => $childImages,
                     'images' => $processedImages,
                     'stone_details' => $itemData['stone_details'] ?? [],
+                    'gold_rate' => $itemData['gold_rate'] ?? $itemData['rate'] ?? null,
+                    'other_rate' => $itemData['other_rate'] ?? null,
                     'rate' => $itemData['rate'] ?? null,
                     'sale_rate' => $itemData['sale_rate'] ?? null,
-                    'sale_value' => $itemData['sale_value'] ?? null,
+                    'sale_value' => (float) ($itemData['sale_value'] ?? 0),
                 ];
 
                 $product = Product::create([
@@ -795,6 +965,10 @@ class InventoryController extends Controller
         $attrs['making_charge'] = $request->input('making_charge', $attrs['making_charge'] ?? '650');
         $attrs['open_close_type'] = $request->input('open_close_type', $attrs['open_close_type'] ?? 'Close');
 
+        if ($request->has('components')) {
+            $attrs['components'] = $request->input('components');
+        }
+
         if ($request->has('images')) {
             $rawImages = $request->input('images', []);
             $processedImages = [];
@@ -820,6 +994,25 @@ class InventoryController extends Controller
         $product->subcategory_id = $request->subcategory_id ?: null;
         $product->description = $request->description;
         $product->status = $request->status ?? $product->status;
+
+        if ($request->has('gross_wt') || $request->has('opening_stock_weight')) {
+            $product->opening_stock_weight = (float)($request->input('gross_wt', $request->input('opening_stock_weight')));
+        }
+        if ($request->has('net_wt') || $request->has('opening_fine_weight')) {
+            $product->opening_fine_weight = (float)($request->input('net_wt', $request->input('opening_fine_weight')));
+        }
+        if ($request->has('sale_rate') || $request->has('gold_rate') || $request->has('opening_stock_rate')) {
+            $product->opening_stock_rate = (float)($request->input('sale_rate', $request->input('gold_rate', $request->input('opening_stock_rate'))));
+        }
+
+        if ($request->has('current_stock_qty')) {
+            $product->current_stock_qty = (int)$request->input('current_stock_qty');
+            $attrs['no_of_pieces'] = (string)$product->current_stock_qty;
+        } elseif ($request->has('stock_qty')) {
+            $product->current_stock_qty = (int)$request->input('stock_qty');
+            $attrs['no_of_pieces'] = (string)$product->current_stock_qty;
+        }
+
         $product->attributes = $attrs;
 
         if ($request->filled('image')) {
@@ -831,10 +1024,6 @@ class InventoryController extends Controller
         } elseif (!empty($attrs['thumb_image'])) {
             $product->image = $attrs['thumb_image'];
             $product->thumbnail = $attrs['thumb_image'];
-        }
-
-        if ($request->has('stock_qty')) {
-            $product->current_stock_qty = (int)$request->stock_qty;
         }
 
         $product->save();

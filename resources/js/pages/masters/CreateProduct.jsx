@@ -3,6 +3,7 @@ import { useNavigate, useParams, Link } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { handleIntegerKeyDown, handleDecimalKeyDown, sanitizeInteger, sanitizeDecimal } from '../../utils/numberInputUtils';
+import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
 
 export default function CreateProduct() {
   const { id } = useParams();
@@ -33,6 +34,7 @@ export default function CreateProduct() {
   const [saving, setSaving] = useState(false);
   const [generatingSku, setGeneratingSku] = useState(false);
   const [isCustomTouch, setIsCustomTouch] = useState(false);
+  const [showItemCrudModal, setShowItemCrudModal] = useState(false);
 
   const [formData, setFormData] = useState({
     category_id: '',
@@ -53,6 +55,10 @@ export default function CreateProduct() {
   // File objects for upload
   const [imageFile, setImageFile] = useState(null);
   const [thumbnailFile, setThumbnailFile] = useState(null);
+
+  // Items Master state for subcategory dropdown
+  const [itemsMasterList, setItemsMasterList] = useState([]);
+  const [selectedItemMasterId, setSelectedItemMasterId] = useState('');
 
   // Preview URLs
   const [imagePreview, setImagePreview] = useState(null);
@@ -198,6 +204,32 @@ export default function CreateProduct() {
 
     if (!isEditMode) {
       fetchSku(formData.category_id, newSubId);
+    }
+  };
+
+  // Fetch items master dynamically when subcategory_id changes
+  useEffect(() => {
+    if (formData.subcategory_id) {
+      api.get('/items', { params: { subcategory_id: formData.subcategory_id } })
+        .then((res) => {
+          const list = Array.isArray(res.data) ? res.data : (res.data?.data || []);
+          setItemsMasterList(list);
+        })
+        .catch((err) => console.error('Failed to load items for subcategory:', err));
+    } else {
+      setItemsMasterList([]);
+      setSelectedItemMasterId('');
+    }
+  }, [formData.subcategory_id]);
+
+  const handleItemMasterChange = (itemId) => {
+    setSelectedItemMasterId(itemId);
+    const found = itemsMasterList.find((i) => String(i.id) === String(itemId));
+    if (found) {
+      setFormData((prev) => ({
+        ...prev,
+        name: found.name,
+      }));
     }
   };
 
@@ -418,6 +450,34 @@ export default function CreateProduct() {
                 {filteredSubcategories.map(sub => (
                   <option key={sub.id} value={sub.id}>
                     {sub.name} ({sub.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Item Selection */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-bold text-gray-700">
+                  Item <span className="text-gray-400 font-normal">(Linked to Subcategory)</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowItemCrudModal(true)}
+                  className="text-[10px] font-bold text-[#b01622] hover:underline cursor-pointer"
+                >
+                  + CRUD
+                </button>
+              </div>
+              <select
+                value={selectedItemMasterId}
+                onChange={(e) => handleItemMasterChange(e.target.value)}
+                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors font-semibold"
+              >
+                <option value="">-- Select Item --</option>
+                {itemsMasterList.map(itm => (
+                  <option key={itm.id} value={itm.id}>
+                    {itm.name} {itm.code ? `[${itm.code}]` : ''}
                   </option>
                 ))}
               </select>

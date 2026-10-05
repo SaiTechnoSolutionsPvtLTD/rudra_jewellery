@@ -9,30 +9,45 @@ export default function InventoryAddNewCategory() {
 
   const [categories, setCategories] = useState([]);
   const [selectedCategoryKey, setSelectedCategoryKey] = useState('gold');
-  const [selectedCategoryObj, setSelectedCategoryObj] = useState(null);
+  const [selectedCategoryObj, setSelectedCategoryObj] = useState({
+    id: 'gold',
+    name: 'Gold',
+    code: 'GOLD',
+  });
 
-  // Category definitions matching user's requested 5 items
+  // Category definitions matching Figma requested items & exact order: Ornaments, Diamond, Gold, Stone, Silver
   const categoryDefinitions = [
-    {
-      key: 'diamond',
-      title: 'Diamond',
-      icon: 'fa-regular fa-gem',
-      description: 'Elegant designs crafted to perfection',
-      matchTerms: ['diamond'],
-    },
     {
       key: 'ornaments',
       title: 'Ornaments',
-      icon: 'fa-solid fa-award',
+      icon: 'fa-solid fa-gem',
       description: 'Luxury ornaments for every occasion',
       matchTerms: ['ornament', 'ornaments', 'jewellery'],
+      badgeBg: 'bg-[#fce8e8]',
+      iconColor: 'text-[#b01622]',
+    },
+    {
+      key: 'diamond',
+      title: 'Diamond',
+      icon: 'fa-solid fa-certificate',
+      description: 'Elegant designs crafted to perfection',
+      matchTerms: ['diamond'],
+      badgeBg: 'bg-[#fce8e8]',
+      iconColor: 'text-[#b01622]',
     },
     {
       key: 'gold',
       title: 'Gold',
-      icon: 'fa-solid fa-coins',
+      icon: 'fa-solid fa-[#d4af37]',
+      customSvg: (
+        <svg className="w-5 h-5 text-[#b8860b]" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M4 6h16v3H4zM2 11h20v3H2zM4 16h16v3H4z" />
+        </svg>
+      ),
       description: 'Premium gold for fine craftsmanship',
       matchTerms: ['gold', 'raw gold'],
+      badgeBg: 'bg-[#fef3c7]',
+      iconColor: 'text-[#d4af37]',
     },
     {
       key: 'stone',
@@ -40,13 +55,22 @@ export default function InventoryAddNewCategory() {
       icon: 'fa-solid fa-cube',
       description: 'Rare gemstones with lasting brilliance',
       matchTerms: ['stone', 'gem', 'gemstone'],
+      badgeBg: 'bg-[#fce8e8]',
+      iconColor: 'text-[#b01622]',
     },
     {
       key: 'silver',
       title: 'Silver',
-      icon: 'fa-solid fa-ring',
+      icon: 'fa-solid fa-circle-notch',
+      customSvg: (
+        <svg className="w-5 h-5 text-[#c5a059]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <ellipse cx="12" cy="12" rx="8" ry="4" />
+        </svg>
+      ),
       description: 'Quality silver for timeless creations',
       matchTerms: ['silver'],
+      badgeBg: 'bg-[#fef3c7]',
+      iconColor: 'text-[#c5a059]',
     },
   ];
 
@@ -57,7 +81,9 @@ export default function InventoryAddNewCategory() {
   const fetchCategories = async () => {
     try {
       const res = await api.get('/inventory/categories');
-      const cats = res.data || [];
+      const cats = Array.isArray(res.data)
+        ? res.data
+        : res.data?.categories || res.data?.data || [];
       setCategories(cats);
 
       // Check session
@@ -65,13 +91,15 @@ export default function InventoryAddNewCategory() {
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          setSelectedCategoryObj(parsed);
-          const matchedDef = categoryDefinitions.find((def) =>
-            def.matchTerms.some((t) => (parsed.name || '').toLowerCase().includes(t))
-          );
-          if (matchedDef) {
-            setSelectedCategoryKey(matchedDef.key);
-            return;
+          if (parsed && (parsed.id || parsed.name)) {
+            setSelectedCategoryObj(parsed);
+            const matchedDef = categoryDefinitions.find((def) =>
+              def.matchTerms.some((t) => (parsed.name || '').toLowerCase().includes(t))
+            );
+            if (matchedDef) {
+              setSelectedCategoryKey(matchedDef.key);
+              return;
+            }
           }
         } catch (e) {}
       }
@@ -80,6 +108,7 @@ export default function InventoryAddNewCategory() {
       matchAndSetCategory('gold', cats);
     } catch (err) {
       console.error('Failed to load categories', err);
+      matchAndSetCategory('gold', []);
     }
   };
 
@@ -89,7 +118,8 @@ export default function InventoryAddNewCategory() {
 
     setSelectedCategoryKey(key);
 
-    const matchedDbCat = catList.find((c) =>
+    const safeList = Array.isArray(catList) ? catList : [];
+    const matchedDbCat = safeList.find((c) =>
       def.matchTerms.some(
         (t) => (c.name || '').toLowerCase().includes(t) || (c.code || '').toLowerCase().includes(t)
       )
@@ -110,45 +140,47 @@ export default function InventoryAddNewCategory() {
   };
 
   const handleProcessUpload = () => {
-    if (selectedCategoryObj) {
-      sessionStorage.setItem('inventory_selected_category', JSON.stringify(selectedCategoryObj));
-      navigate('/inventory/add-new/subcategory');
-      return;
-    }
+    const currentDef = categoryDefinitions.find((d) => d.key === selectedCategoryKey) || categoryDefinitions[2];
+    const categoryToSave = selectedCategoryObj || {
+      id: currentDef.key,
+      name: currentDef.title,
+      code: currentDef.key.toUpperCase(),
+    };
 
-    showToast('Please select a category to proceed', 'warning');
+    sessionStorage.setItem('inventory_selected_category', JSON.stringify(categoryToSave));
+    navigate('/inventory/add-new/subcategory');
   };
 
   return (
     <div className="w-full pb-16 space-y-6 font-['Inter',-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif] max-w-5xl mx-auto">
       
-      {/* 1. Stepper Header */}
-      <div className="flex items-center justify-center pt-2 pb-3">
-        <div className="flex items-center gap-2 sm:gap-4">
+      {/* 1. Stepper Header (Matching Figma Image 2) */}
+      <div className="flex items-center justify-center pt-2 pb-2">
+        <div className="flex items-center gap-2 sm:gap-6">
           
-          {/* Step 1: Upload File (Active) */}
+          {/* Step 1: Upload File (Active Red Circle) */}
           <div className="flex flex-col items-center">
-            <div className="w-8 h-8 rounded-full bg-[#b01622] text-white flex items-center justify-center text-xs font-bold shadow-2xs">
+            <div className="w-9 h-9 rounded-full bg-[#b01622] text-white flex items-center justify-center text-xs font-bold shadow-xs">
               1
             </div>
             <span className="text-xs font-semibold text-[#b01622] mt-1.5 whitespace-nowrap">Upload File</span>
           </div>
 
-          <div className="w-16 sm:w-28 h-0.5 bg-stone-300 -mt-5"></div>
+          <div className="w-16 sm:w-28 h-[1.5px] bg-stone-200 -mt-5"></div>
 
           {/* Step 2: Valid Data */}
           <div className="flex flex-col items-center">
-            <div className="w-8 h-8 rounded-full bg-white border border-stone-300 text-stone-600 flex items-center justify-center text-xs font-bold">
+            <div className="w-9 h-9 rounded-full bg-stone-100 text-stone-600 flex items-center justify-center text-xs font-bold border border-stone-200/80">
               2
             </div>
             <span className="text-xs font-semibold text-stone-600 mt-1.5 whitespace-nowrap">Valid Data</span>
           </div>
 
-          <div className="w-16 sm:w-28 h-0.5 bg-stone-300 -mt-5"></div>
+          <div className="w-16 sm:w-28 h-[1.5px] bg-stone-200 -mt-5"></div>
 
           {/* Step 3: Complete */}
           <div className="flex flex-col items-center">
-            <div className="w-8 h-8 rounded-full bg-white border border-stone-300 text-stone-600 flex items-center justify-center text-xs font-bold">
+            <div className="w-9 h-9 rounded-full bg-stone-100 text-stone-600 flex items-center justify-center text-xs font-bold border border-stone-200/80">
               3
             </div>
             <span className="text-xs font-semibold text-stone-600 mt-1.5 whitespace-nowrap">Complete</span>
@@ -157,7 +189,7 @@ export default function InventoryAddNewCategory() {
         </div>
       </div>
 
-      {/* 2. Select Inventory Category Card */}
+      {/* 2. Select Inventory Category Card (Matching Figma Image 2) */}
       <div className="bg-white rounded-2xl p-6 sm:p-8 border border-stone-200/80 shadow-2xs space-y-6">
         
         {/* Header with Red Box Icon */}
@@ -173,41 +205,42 @@ export default function InventoryAddNewCategory() {
           </div>
         </div>
 
-        {/* 5 Category Cards:
-            - Default: gentle light pink (bg-[#fff5f5], border-rose-200/60)
-            - Hover: bg-[#ffe4e6]/60, border-rose-300
-            - Selected: uses the perfect hover pink (bg-[#ffe4e6], border-[#b01622], ring-2 ring-red-100)
-        */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 pt-1">
+        {/* 5 Category Cards Grid (Exact match to Image 1) */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3.5 pt-1">
           {categoryDefinitions.map((catDef) => {
             const isSelected = selectedCategoryKey === catDef.key;
             return (
               <div
                 key={catDef.key}
                 onClick={() => handleSelectCategory(catDef)}
-                className={`p-4 rounded-2xl border transition-all cursor-pointer text-center flex flex-col items-center justify-between min-h-[155px] ${
+                className={`p-4 rounded-2xl border transition-all cursor-pointer text-center flex flex-col items-center justify-between min-h-[170px] ${
                   isSelected
-                    ? 'bg-[#ffe4e6] border-[#b01622] ring-2 ring-red-100 shadow-sm scale-[1.02]'
-                    : 'bg-[#fff5f5] border-rose-200/60 hover:bg-[#ffe4e6]/60 hover:border-rose-300 shadow-2xs'
+                    ? 'bg-[#fff0f2] border-[#b01622] ring-2 ring-red-100/80 shadow-xs scale-[1.02]'
+                    : 'bg-[#fff7f8] hover:bg-[#fff0f2] border-stone-200/60 hover:border-rose-200 shadow-2xs'
                 }`}
               >
-                <div className={`w-9 h-9 rounded-full flex items-center justify-center text-base mb-2 transition-transform ${
-                  isSelected ? 'scale-110 text-[#b01622]' :
-                  catDef.key === 'gold' ? 'text-amber-600' :
-                  catDef.key === 'silver' ? 'text-slate-600' : 'text-[#b01622]'
+                {/* Circular Icon Badge */}
+                <div className={`w-12 h-12 rounded-full ${catDef.badgeBg} flex items-center justify-center text-base mb-2 shrink-0 shadow-2xs transition-transform ${
+                  isSelected ? 'scale-105' : ''
                 }`}>
-                  <i className={catDef.icon}></i>
+                  {catDef.customSvg ? (
+                    catDef.customSvg
+                  ) : (
+                    <i className={`${catDef.icon} ${catDef.iconColor}`}></i>
+                  )}
                 </div>
 
-                <div>
-                  <div className={`font-bold text-xs ${
-                    isSelected ? 'text-[#b01622]' : 'text-stone-800'
-                  }`}>
+                <div className="flex flex-col items-center w-full">
+                  {/* Category Title (Crimson Red Text matching Image 1) */}
+                  <div className="font-bold text-xs sm:text-sm text-[#8b131b]">
                     {catDef.title}
                   </div>
-                  <p className={`text-[10px] leading-snug mt-1.5 px-1 ${
-                    isSelected ? 'text-stone-600 font-medium' : 'text-stone-500'
-                  }`}>
+
+                  {/* Gold/Bronze Underline Accent Bar (Matching Image 1) */}
+                  <div className="w-8 h-[2.5px] bg-[#c5a059] my-2 rounded-full opacity-90"></div>
+
+                  {/* Description (Dark grey text matching Image 1) */}
+                  <p className="text-[11px] text-stone-700 font-medium leading-tight px-1 text-center">
                     {catDef.description}
                   </p>
                 </div>
@@ -217,7 +250,7 @@ export default function InventoryAddNewCategory() {
         </div>
       </div>
 
-      {/* 3. Action Buttons (Directly below category card, Drag & Drop removed) */}
+      {/* 3. Action Buttons */}
       <div className="flex items-center justify-center gap-4 pt-4">
         <button
           type="button"

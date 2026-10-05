@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
@@ -22,6 +22,16 @@ export default function ReportModule() {
 
   // Dynamic Company Master Info
   const [companyInfo, setCompanyInfo] = useState(() => getStoredCompanyInfo());
+
+  // Ref and handler for Filter Strip Slider
+  const filterSliderRef = useRef(null);
+
+  const scrollFilterSlider = (direction) => {
+    if (filterSliderRef.current) {
+      const scrollAmount = direction === 'left' ? -250 : 250;
+      filterSliderRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+  };
 
   useEffect(() => {
     fetchCompanyInfo().then(info => {
@@ -446,81 +456,106 @@ export default function ReportModule() {
         ))}
       </div>
 
-      {/* 4. Filter Control Strip */}
-      <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* 4. Filter Control Strip (Single Row Slider Container) */}
+      <div className="bg-white rounded-2xl p-2.5 sm:p-3 border border-stone-200/80 shadow-2xs flex items-center gap-2 relative group">
+        
+        {/* Left Slider Arrow Button */}
+        <button
+          type="button"
+          onClick={() => scrollFilterSlider('left')}
+          className="w-7 h-7 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-600 flex items-center justify-center shrink-0 cursor-pointer transition-colors shadow-2xs z-10"
+          title="Slide Left"
+        >
+          <i className="fa-solid fa-chevron-left text-[11px]"></i>
+        </button>
 
-        {/* Period Preset Dropdown */}
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-stone-500 font-['Inter',sans-serif]">
-            <i className="fa-solid fa-filter text-stone-400"></i>
-            <span>Period:</span>
+        {/* Scrollable Slider Track */}
+        <div
+          ref={filterSliderRef}
+          className="flex-1 flex flex-nowrap items-center gap-3 overflow-x-auto scroll-smooth no-scrollbar py-0.5"
+        >
+          {/* Period Preset Dropdown & Buttons */}
+          <div className="flex items-center gap-2.5 shrink-0">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-stone-500 font-['Inter',sans-serif]">
+              <i className="fa-solid fa-filter text-stone-400"></i>
+              <span>Period:</span>
+            </div>
+
+            <div className="flex items-center bg-stone-100 p-1 rounded-xl gap-0.5 text-xs font-bold font-['Inter',sans-serif]">
+              {[
+                ['Today', 'today'],
+                ['Weekly', 'week'],
+                ['Monthly', 'month'],
+                ['Quarterly', 'quarter'],
+                ['Yearly', 'year'],
+                ['All Time', 'all'],
+              ].map(([lbl, val]) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => {
+                    setPeriod(val);
+                    setStartDate('');
+                    setEndDate('');
+                  }}
+                  className={`px-3 py-1 rounded-lg transition-all cursor-pointer whitespace-nowrap ${period === val && !startDate
+                    ? 'bg-white text-stone-900 shadow-2xs font-extrabold'
+                    : 'text-stone-600 hover:text-stone-900'
+                    }`}
+                >
+                  {lbl}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="flex items-center bg-stone-100 p-1 rounded-xl gap-1 text-xs font-bold font-['Inter',sans-serif]">
-            {[
-              ['Today', 'today'],
-              ['Weekly', 'week'],
-              ['Monthly', 'month'],
-              ['Quarterly', 'quarter'],
-              ['Yearly', 'year'],
-              ['All Time', 'all'],
-            ].map(([lbl, val]) => (
-              <button
-                key={val}
-                type="button"
-                onClick={() => {
-                  setPeriod(val);
-                  setStartDate('');
-                  setEndDate('');
-                }}
-                className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${period === val && !startDate
-                  ? 'bg-white text-stone-900 shadow-2xs font-extrabold'
-                  : 'text-stone-600 hover:text-stone-900'
-                  }`}
-              >
-                {lbl}
-              </button>
-            ))}
-          </div>
+          {/* Custom Date Range, Search Input & Apply Button in Same Row */}
+          <form onSubmit={handleSearchSubmit} className="flex items-center gap-2.5 shrink-0 flex-nowrap">
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => { setStartDate(e.target.value); setPeriod('custom'); }}
+                className="bg-stone-50 border border-stone-300 rounded-xl px-2.5 py-1 text-xs font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622]"
+              />
+              <span className="text-xs font-bold text-stone-400">to</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => { setEndDate(e.target.value); setPeriod('custom'); }}
+                className="bg-stone-50 border border-stone-300 rounded-xl px-2.5 py-1 text-xs font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622]"
+              />
+            </div>
+
+            <div className="relative">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search reports..."
+                className="bg-stone-50 border border-stone-300 rounded-xl pl-8 pr-3 py-1 text-xs font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622] w-36 sm:w-44"
+              />
+              <i className="fa-solid fa-magnifying-glass text-stone-400 text-xs absolute left-2.5 top-1/2 -translate-y-1/2"></i>
+            </div>
+
+            <button
+              type="submit"
+              className="px-4 py-1.5 bg-stone-900 text-white text-xs font-bold rounded-xl hover:bg-stone-800 transition-colors cursor-pointer font-['Inter',sans-serif] whitespace-nowrap"
+            >
+              Apply
+            </button>
+          </form>
         </div>
 
-        {/* Custom Date Range & Search Input */}
-        <form onSubmit={handleSearchSubmit} className="flex flex-wrap items-center gap-2.5">
-          <div className="flex items-center gap-2">
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => { setStartDate(e.target.value); setPeriod('custom'); }}
-              className="bg-stone-50 border border-stone-300 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622]"
-            />
-            <span className="text-xs font-bold text-stone-400">to</span>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => { setEndDate(e.target.value); setPeriod('custom'); }}
-              className="bg-stone-50 border border-stone-300 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622]"
-            />
-          </div>
-
-          <div className="relative">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search reports..."
-              className="bg-stone-50 border border-stone-300 rounded-xl pl-8 pr-3 py-1.5 text-xs font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622] w-40 sm:w-52"
-            />
-            <i className="fa-solid fa-magnifying-glass text-stone-400 text-xs absolute left-2.5 top-1/2 -translate-y-1/2"></i>
-          </div>
-
-          <button
-            type="submit"
-            className="px-3.5 py-1.5 bg-stone-900 text-white text-xs font-bold rounded-xl hover:bg-stone-800 transition-colors cursor-pointer font-['Inter',sans-serif]"
-          >
-            Apply
-          </button>
-        </form>
-
+        {/* Right Slider Arrow Button */}
+        <button
+          type="button"
+          onClick={() => scrollFilterSlider('right')}
+          className="w-7 h-7 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-600 flex items-center justify-center shrink-0 cursor-pointer transition-colors shadow-2xs z-10"
+          title="Slide Right"
+        >
+          <i className="fa-solid fa-chevron-right text-[11px]"></i>
+        </button>
       </div>
 
       {/* 5. Report Table Container */}
@@ -874,22 +909,29 @@ export default function ReportModule() {
             className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl p-8 my-4 md:my-8 space-y-6 text-stone-800 font-['Inter',sans-serif] border border-stone-200 relative print:p-0 print:my-0 print:border-0 print:shadow-none print:max-w-full print:rounded-none cursor-default"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Sticky Header Bar for Screen View */}
-            <div className="sticky top-0 bg-white z-20 border-b-2 border-[#b01622] pt-2 pb-4 -mx-8 px-8 -mt-8 rounded-t-2xl shadow-2xs flex items-start justify-between">
-              <div>
-                <h2 className="text-2xl font-extrabold text-[#b01622] uppercase tracking-wider font-['Inter',sans-serif]">
-                  {companyInfo?.company_name || 'Rudhra Jewellers'}
-                </h2>
-                <p className="text-xs font-bold text-stone-700 mt-0.5">
-                  {companyInfo?.tagline || 'Certified Executive Business Audit & Tax Compliance Statement'}
-                </p>
-                <p className="text-[11px] font-semibold text-stone-500 mt-0.5">
-                  GSTIN: {companyInfo?.gstin || 'N/A'} | Reg No: {companyInfo?.reg_no || 'N/A'} | Period Filter: <span className="uppercase text-stone-800 font-bold">{period}</span>
-                </p>
+            {/* Header Bar for Screen & Print View (Scrollable & Non-Sticky) */}
+            <div className="relative bg-white border-b-2 border-[#b01622] pb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <img
+                  src="/logo.png"
+                  alt="Rudra Jewellers Logo"
+                  className="h-14 sm:h-16 w-auto object-contain shrink-0 drop-shadow-xs"
+                />
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-extrabold text-[#b01622] uppercase tracking-wider font-['Inter',sans-serif]">
+                    {companyInfo?.company_name || 'Rudhra Jewellers'}
+                  </h2>
+                  <p className="text-xs font-bold text-stone-700 mt-0.5">
+                    {companyInfo?.tagline || 'Certified Executive Business Audit & Tax Compliance Statement'}
+                  </p>
+                  <p className="text-[11px] font-semibold text-stone-500 mt-0.5">
+                    GSTIN: {companyInfo?.gstin || 'N/A'} | Reg No: {companyInfo?.reg_no || 'N/A'} | Period Filter: <span className="uppercase text-stone-800 font-bold">{period}</span>
+                  </p>
+                </div>
               </div>
 
               {/* Header Action Buttons (Strictly Hidden When Printing) */}
-              <div className="flex items-center gap-2 print:hidden">
+              <div className="flex items-center gap-2 print:hidden shrink-0">
                 <button
                   type="button"
                   onClick={(e) => {

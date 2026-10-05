@@ -74,8 +74,14 @@ export default function InventoryDashboard() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
-  // Fetch master categories once on mount
+  const [liveRate22k, setLiveRate22k] = useState(0);
+
+  // Fetch master categories & live metal rates once on mount
   useEffect(() => {
+    api.get('/metal-rates').then(res => {
+      if (res.data?.raw22k) setLiveRate22k(res.data.raw22k);
+    }).catch(() => {});
+
     api.get('/inventory/categories')
       .then((res) => {
         const catData = res.data || [];
@@ -227,48 +233,13 @@ export default function InventoryDashboard() {
         </div>
       </div>
 
-      {/* 1.5 Time Period Filter Pills Selector */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-        <span className="text-xs font-semibold text-stone-500 mr-1 flex items-center gap-1.5 shrink-0">
-          <i className="fa-regular fa-calendar-days text-stone-400"></i>
-          <span>Period:</span>
-        </span>
-        {[
-          { id: 'all', label: 'All Time' },
-          { id: 'today', label: 'Today' },
-          { id: 'yesterday', label: 'Yesterday' },
-          { id: 'this_week', label: 'This Week' },
-          { id: 'this_month', label: 'This Month' },
-          { id: 'this_year', label: 'This Year' },
-        ].map((p) => {
-          const isActive = periodFilter === p.id;
-          return (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => {
-                setPeriodFilter(p.id);
-                setCurrentPage(1);
-              }}
-              className={`px-3.5 py-1.5 text-xs font-semibold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
-                isActive
-                  ? 'bg-[#b01622] text-white shadow-xs'
-                  : 'bg-white text-stone-600 hover:bg-stone-100 hover:text-stone-900 border border-stone-200/80'
-              }`}
-            >
-              {p.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* 2. Raw Values Section (Red Pill + 5 Cards Grid) */}
+      {/* 2. Raw Values Section (Red Pill + 4 Cards Grid) */}
       <div>
         <div className="inline-block px-4 py-1.5 bg-[#b01622] text-white text-xs font-bold rounded-xl mb-3 shadow-2xs">
           Raw Values
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
           
           {/* Gold Value Card */}
           <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col justify-between hover:border-stone-300 transition-all">
@@ -327,7 +298,7 @@ export default function InventoryDashboard() {
             </div>
           </div>
 
-          {/* Silver Value Card 1 */}
+          {/* Silver Value Card */}
           <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col justify-between hover:border-stone-300 transition-all">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-7 h-7 rounded-full bg-red-50 text-red-700 flex items-center justify-center text-xs shrink-0 border border-red-100">
@@ -337,30 +308,11 @@ export default function InventoryDashboard() {
             </div>
             <div>
               <div className="text-lg font-bold text-gray-900 tracking-tight">
-                {rawValues.silver_1?.weight || '0.000 kg'}
+                {rawValues.silver_1?.weight || rawValues.silver?.weight || '0.000 kg'}
               </div>
               <div className="text-[11px] text-stone-500 font-medium flex items-center gap-1 mt-0.5">
-                <span>{rawValues.silver_1?.amount || '₹0'}</span>
-                {renderBadge(rawValues.silver_1)}
-              </div>
-            </div>
-          </div>
-
-          {/* Silver Value Card 2 */}
-          <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col justify-between hover:border-stone-300 transition-all">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-7 h-7 rounded-full bg-red-50 text-red-700 flex items-center justify-center text-xs shrink-0 border border-red-100">
-                <i className="fa-solid fa-ring"></i>
-              </div>
-              <span className="text-[11px] font-semibold text-stone-400">Silver Value</span>
-            </div>
-            <div>
-              <div className="text-lg font-bold text-gray-900 tracking-tight">
-                {rawValues.silver_2?.weight || '0.000 kg'}
-              </div>
-              <div className="text-[11px] text-stone-500 font-medium flex items-center gap-1 mt-0.5">
-                <span>{rawValues.silver_2?.amount || '₹0'}</span>
-                {renderBadge(rawValues.silver_2)}
+                <span>{rawValues.silver_1?.amount || rawValues.silver?.amount || '₹0'}</span>
+                {renderBadge(rawValues.silver_1 || rawValues.silver)}
               </div>
             </div>
           </div>
@@ -542,70 +494,55 @@ export default function InventoryDashboard() {
               {lowStockAlerts.length} {lowStockAlerts.length === 1 ? 'alert' : 'alerts'}
             </span>
           </div>
-          {lowStockAlerts.length > 0 && (
-            <button
-              type="button"
-              onClick={() => {
-                setStatusFilter('low_stock');
-                setCurrentPage(1);
-              }}
-              className="text-xs font-semibold text-amber-800 hover:text-amber-950 hover:underline cursor-pointer flex items-center gap-1 transition-colors"
-              title="Filter table by low stock"
-            >
-              <span>View in table</span>
-              <i className="fa-solid fa-arrow-right text-[10px]"></i>
-            </button>
-          )}
         </div>
 
         {lowStockAlerts.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-            {lowStockAlerts.map((item, idx) => (
-              <div
-                key={item.id || idx}
-                className="bg-white rounded-xl p-3.5 border border-amber-100 shadow-2xs flex items-center justify-between gap-3 hover:border-amber-300 transition-colors"
-              >
+            {lowStockAlerts.map((item, idx) => {
+              const qtyNum = typeof item.stock_qty === 'number' ? item.stock_qty : parseInt(item.stock_qty || 0);
+              const formattedQty = String(Math.max(0, qtyNum)).padStart(2, '0');
+              const isOut = item.is_out_of_stock || qtyNum <= 0;
+              const stockText = isOut
+                ? 'Out of Stock (00)'
+                : `Current Stock: ${formattedQty} ${item.is_raw_material ? (item.unit || 'units') : 'units'}`;
+
+              return (
                 <div
-                  className="min-w-0 flex-1 cursor-pointer"
-                  onClick={() => {
-                    if (!item.is_raw_material) {
-                      setSearchTerm(item.name);
-                      setCurrentPage(1);
-                    } else {
-                      navigate('/purchase/entry');
-                    }
-                  }}
-                  title={item.is_raw_material ? 'Click to open Purchase Entry for Raw Metal' : 'Click to filter by this product in table'}
+                  key={item.id || idx}
+                  className="bg-white rounded-xl p-3.5 border border-amber-100 shadow-2xs flex items-center justify-between gap-3 hover:border-amber-300 transition-colors"
                 >
-                  <div className="flex items-center gap-1.5">
+                  <div
+                    className="min-w-0 flex-1 cursor-pointer"
+                    onClick={() => {
+                      if (!item.is_raw_material) {
+                        setSearchTerm(item.name);
+                        setCurrentPage(1);
+                      } else {
+                        navigate('/purchase/entry');
+                      }
+                    }}
+                    title={item.is_raw_material ? 'Click to open Purchase Entry for Raw Metal' : 'Click to filter by this product in table'}
+                  >
                     <h4 className="font-bold text-gray-900 text-xs truncate hover:text-[#b01622] transition-colors">
                       {item.name}
                     </h4>
-                    {item.is_raw_material && (
-                      <span className="text-[9px] font-extrabold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded tracking-wide uppercase shrink-0">
-                        Raw Metal
+                    <div className="mt-0.5">
+                      <span className={`text-[11px] font-semibold ${isOut ? 'text-red-600 font-bold' : 'text-amber-700'}`}>
+                        {stockText}
                       </span>
-                    )}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    {item.product_code && (
-                      <span className="text-[10px] font-mono text-stone-400 font-semibold">{item.product_code}</span>
-                    )}
-                    <span className={`text-[11px] font-semibold ${item.is_out_of_stock ? 'text-red-600' : 'text-amber-700'}`}>
-                      {item.status_label}
-                    </span>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/purchase/entry', { state: { productId: item.id, productName: item.name } })}
+                    className="text-xs font-bold text-[#b01622] hover:text-[#8f1019] hover:underline cursor-pointer shrink-0 transition-colors"
+                    title="Restock this item"
+                  >
+                    ! Restock
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => navigate('/purchase/entry', { state: { productId: item.id, productName: item.name } })}
-                  className="text-xs font-bold text-[#b01622] hover:text-[#8f1019] hover:underline cursor-pointer shrink-0 transition-colors"
-                  title="Restock this item"
-                >
-                  ! Restock
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="bg-white rounded-xl p-3.5 border border-emerald-100 flex items-center gap-2.5 text-emerald-700 text-xs font-medium">
@@ -615,20 +552,20 @@ export default function InventoryDashboard() {
         )}
       </div>
 
-      {/* 6. Products Table (Updated with exact columns requested) */}
+      {/* 6. Products Table (Exact columns matching Reference Image 2) */}
       <div className="bg-white rounded-2xl border border-stone-200/80 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto no-scrollbar">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="border-b border-stone-200/80 bg-stone-50/80 text-stone-700 font-semibold text-xs">
-                <th className="py-3 px-3.5 whitespace-nowrap">Product Image and Name</th>
-                <th className="py-3 px-3 whitespace-nowrap">Category</th>
-                <th className="py-3 px-3 whitespace-nowrap">Stamp</th>
-                <th className="py-3 px-3 whitespace-nowrap">Unit</th>
-                <th className="py-3 px-3 whitespace-nowrap">Pieces</th>
-                <th className="py-3 px-3 whitespace-nowrap">Weight</th>
-                <th className="py-3 px-3 whitespace-nowrap">Rate</th>
-                <th className="py-3 px-3 text-center whitespace-nowrap">Actions</th>
+                <th className="py-3 pl-3 pr-2 whitespace-nowrap">Product Name &amp; SKU</th>
+                <th className="py-3 px-2 whitespace-nowrap">Category</th>
+                <th className="py-3 px-2 whitespace-nowrap">Purity/Quality</th>
+                <th className="py-3 px-2 whitespace-nowrap">Weight &amp; Price</th>
+                <th className="py-3 px-2 whitespace-nowrap">Stock QTY</th>
+                <th className="py-3 px-2 whitespace-nowrap">Location</th>
+                <th className="py-3 px-2 whitespace-nowrap">Status</th>
+                <th className="py-3 pl-2 pr-3 text-center whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
@@ -652,153 +589,162 @@ export default function InventoryDashboard() {
               ) : (
                 products.map((p) => {
                   const attrs = typeof p.attributes === 'string' ? JSON.parse(p.attributes || '{}') : (p.attributes || {});
-                  const grossWt = attrs.gross_wt || p.opening_stock_weight || '—';
-                  const netWt = attrs.net_wt || p.opening_fine_weight || null;
                   
-                  // Stamp derivation (e.g. 916, 750, 999, 925, etc.)
-                  const purityStr = attrs.purity || attrs.gold_type || '';
-                  const stamp = attrs.stamp || (
-                    purityStr.includes('22K') || purityStr.includes('91.6') ? '916 (22K)' :
-                    purityStr.includes('18K') || purityStr.includes('75.0') ? '750 (18K)' :
-                    purityStr.includes('24K') || purityStr.includes('99.9') ? '999 (24K)' :
-                    purityStr.includes('14K') ? '585 (14K)' :
-                    purityStr.includes('925') ? '925 Silver' :
-                    purityStr || '916 BIS'
-                  );
-
-                  // Unit derivation
-                  const isDiamond = p.category?.name?.toLowerCase().includes('diamond');
-                  const unit = attrs.unit || (isDiamond ? 'Carats' : 'Grams');
-
-                  // Pieces (Quantity)
-                  const pieces = p.current_stock_qty ?? attrs.pieces ?? 1;
-
-                  // Rate
-                  const rate = p.opening_stock_rate || attrs.rate || (isDiamond ? 65000 : 6850);
-
+                  // Product image
                   const imageSrc = p.thumbnail_url || p.image_url || p.image || (attrs.images && attrs.images[0]) || '/placeholder-jewelry.png';
+
+                  // Category
+                  const categoryName = p.category?.name || attrs.category_name || 'Gold';
+
+                  // Purity / Quality derivation strictly from product attributes / stamp / karat
+                  const rawPurity = attrs.purity || attrs.gold_type || attrs.karat || attrs.stamp || attrs.quality || '';
+                  let purityQuality = rawPurity;
+                  if (!purityQuality) {
+                    purityQuality = '22K Hallmark';
+                  } else if (!purityQuality.toLowerCase().includes('hallmark') && !purityQuality.toLowerCase().includes('color') && !purityQuality.toLowerCase().includes('silver')) {
+                    purityQuality = `${purityQuality} Hallmark`;
+                  }
+
+                  // Weight & Price stacked derivation strictly from product attributes
+                  const grossWt = attrs.gross_wt || p.opening_stock_weight || 0;
+                  const weightStr = grossWt > 0 ? `${grossWt}g` : '—';
+                  const saleVal = attrs.sale_value || attrs.price || attrs.rate || attrs.sale_rate || p.opening_stock_rate || 0;
+                  const priceStr = saleVal > 0 ? `₹${Number(saleVal).toLocaleString('en-IN')}` : '₹0';
+
+                  // Stock Quantity (Formatted as 2 digits e.g. 08, 02, 00)
+                  const pieces = p.current_stock_qty ?? attrs.pieces ?? 0;
+                  const qtyFormatted = String(Math.max(0, pieces)).padStart(2, '0');
+
+                  // Location from product attributes
+                  const location = attrs.vault_location || attrs.location || 'Central Vault';
+
+                  // Status badge matching reference image (Healthy, Low Stock, Out of Stock)
+                  let statusBadge = null;
+                  if (pieces > 5) {
+                    statusBadge = (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                        Healthy
+                      </span>
+                    );
+                  } else if (pieces > 0) {
+                    statusBadge = (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                        Low Stock
+                      </span>
+                    );
+                  } else {
+                    statusBadge = (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-100 text-rose-700">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                        Out of Stock
+                      </span>
+                    );
+                  }
 
                   return (
                     <tr key={p.id} className="hover:bg-stone-50/60 transition-colors">
-                      {/* 1. Product Image before Product Name */}
-                      <td className="py-3 px-3.5">
-                        <div className="flex items-center gap-3">
+                      {/* 1. Product Name & SKU */}
+                      <td className="py-2.5 pl-3 pr-2">
+                        <div className="flex items-center gap-2.5">
                           <img
                             src={imageSrc}
                             alt={p.name}
-                            className="w-11 h-11 rounded-xl object-cover border border-stone-200 bg-white shrink-0 shadow-2xs"
+                            className="w-9 h-9 rounded-lg object-cover border border-stone-200 bg-stone-100 shrink-0 shadow-2xs"
                             onError={(e) => {
                               e.target.onerror = null;
                               e.target.src = '/placeholder-jewelry.png';
                             }}
                           />
                           <div className="min-w-0">
-                            <div className="font-bold text-gray-900 text-xs leading-snug">{p.name}</div>
-                            <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                              <span className="font-mono text-[10.5px] font-semibold text-stone-400 tracking-tight">
-                                {p.product_code}
-                              </span>
-                              {(() => {
-                                const vList = attrs.variants
-                                  ? (typeof attrs.variants === 'string' ? JSON.parse(attrs.variants || '[]') : attrs.variants)
-                                  : [];
-                                if (Array.isArray(vList) && vList.length > 0) {
-                                  return (
-                                    <span className="px-1.5 py-0.2 bg-purple-50 text-purple-700 border border-purple-200/80 rounded text-[9.5px] font-extrabold inline-flex items-center gap-1" title={`${vList.length} model variants available`}>
-                                      <i className="fa-solid fa-layer-group text-[8px]"></i>
-                                      {vList.length} Variants
-                                    </span>
-                                  );
-                                }
-                                return null;
-                              })()}
-                            </div>
+                            {(() => {
+                              const cleanName = (p.name || '').replace(/\s*\(\d+\s*Parts\)/gi, '');
+                              const catCode = (p.category?.code || p.category?.name || 'PRD').replace(/[^A-Za-z0-9]/g, '').slice(0, 4).toUpperCase();
+                              const subCode = (p.subcategory?.code || p.subcategory?.name || 'GEN').replace(/[^A-Za-z0-9]/g, '').slice(0, 4).toUpperCase();
+                              const skuCode = p.sku || attrs.sku || `SKU-${catCode}-${subCode}-${String(p.id).padStart(4, '0')}`;
+                              const designCode = p.product_code || attrs.design_no;
+
+                              return (
+                                <>
+                                  <div className="font-bold text-gray-900 text-xs leading-snug truncate max-w-[170px]" title={cleanName}>
+                                    {cleanName}
+                                  </div>
+                                  <div className="text-[11px] font-mono text-stone-400 font-semibold mt-0.5 flex items-center gap-1">
+                                    <span>{skuCode}</span>
+                                    {designCode && designCode !== skuCode && (
+                                      <span className="text-[10px] font-sans text-stone-400/80" title={`Design Code: ${designCode}`}>
+                                        ({designCode})
+                                      </span>
+                                    )}
+                                  </div>
+                                </>
+                              );
+                            })()}
                           </div>
                         </div>
                       </td>
 
                       {/* 2. Category */}
-                      <td className="py-3 px-3 text-stone-700 font-semibold text-xs whitespace-nowrap">
-                        <div>{p.category?.name || 'Gold Jewellery'}</div>
-                        {p.subcategory?.name && (
-                          <span className="text-[10px] text-stone-400 font-normal block mt-0.5">
-                            {p.subcategory?.name}
-                          </span>
-                        )}
+                      <td className="py-2.5 px-2 text-stone-700 font-semibold text-xs whitespace-nowrap">
+                        {categoryName}
                       </td>
 
-                      {/* 3. Stamp */}
-                      <td className="py-3 px-3 whitespace-nowrap">
-                        <span className="px-2.5 py-1 bg-amber-50 text-amber-900 border border-amber-200/80 rounded-lg text-xs font-bold font-mono inline-flex items-center whitespace-nowrap">
-                          {stamp}
-                        </span>
+                      {/* 3. Purity/Quality */}
+                      <td className="py-2.5 px-2 text-stone-700 font-medium text-xs whitespace-nowrap">
+                        {purityQuality}
                       </td>
 
-                      {/* 4. Unit */}
-                      <td className="py-3 px-3 text-stone-600 font-medium text-xs">
-                        {unit}
+                      {/* 4. Weight & Price (Stacked) */}
+                      <td className="py-2.5 px-2 whitespace-nowrap">
+                        <div className="font-bold text-gray-900 text-xs">{weightStr}</div>
+                        <div className="text-[11px] text-stone-400 font-medium mt-0.5">{priceStr}</div>
                       </td>
 
-                      {/* 5. Pieces */}
-                      <td className="py-3 px-3 font-mono font-bold text-gray-900 text-xs whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
-                          <span>{pieces}</span>
-                          {pieces <= 0 ? (
-                            <span className="px-1.5 py-0.5 rounded-sm text-[9.5px] font-sans font-bold bg-red-50 text-red-700 border border-red-200/80">
-                              Out of Stock
-                            </span>
-                          ) : pieces <= 2 ? (
-                            <span className="px-1.5 py-0.5 rounded-sm text-[9.5px] font-sans font-bold bg-amber-50 text-amber-800 border border-amber-200/80">
-                              Low Stock
-                            </span>
-                          ) : null}
-                        </div>
+                      {/* 5. Stock QTY */}
+                      <td className="py-2.5 px-2 font-bold text-gray-900 text-xs whitespace-nowrap">
+                        {qtyFormatted}
                       </td>
 
-                      {/* 6. Weight */}
-                      <td className="py-3 px-3 font-mono whitespace-nowrap">
-                        <div className="font-bold text-gray-900 text-xs whitespace-nowrap">{grossWt} g</div>
-                        {netWt && netWt !== grossWt && (
-                          <div className="text-[10px] text-stone-400 font-normal whitespace-nowrap mt-0.5">
-                            Net: {netWt} g
-                          </div>
-                        )}
+                      {/* 6. Location */}
+                      <td className="py-2.5 px-2 text-stone-700 font-medium text-xs whitespace-nowrap">
+                        {location}
                       </td>
 
-                      {/* 7. Rate */}
-                      <td className="py-3 px-3 font-mono font-bold text-stone-900 text-xs">
-                        ₹{Number(rate).toLocaleString('en-IN')}
+                      {/* 7. Status */}
+                      <td className="py-2.5 px-2 whitespace-nowrap">
+                        {statusBadge}
                       </td>
 
-                      {/* Actions: View, Edit, Delete */}
-                      <td className="py-3 px-3 text-center">
-                        <div className="inline-flex items-center gap-1">
-                          {/* View Product Details */}
-                          <Link
-                            to={`/inventory/products/${p.id}`}
-                            className="w-8 h-8 rounded-lg hover:bg-stone-100 text-stone-500 hover:text-stone-900 flex items-center justify-center transition-colors cursor-pointer"
-                            title="View product details"
-                          >
-                            <i className="fa-regular fa-eye text-xs"></i>
-                          </Link>
-
+                      {/* 8. Actions (Edit, View, Delete) */}
+                      <td className="py-2.5 pl-2 pr-3 text-center whitespace-nowrap">
+                        <div className="inline-flex items-center justify-center gap-1">
                           {/* Edit Product */}
                           <Link
                             to={`/inventory/products/${p.id}/edit`}
-                            className="w-8 h-8 rounded-lg hover:bg-blue-50 text-stone-500 hover:text-blue-600 flex items-center justify-center transition-colors cursor-pointer"
+                            className="w-7 h-7 rounded-lg text-stone-500 hover:text-gray-900 hover:bg-stone-100 flex items-center justify-center transition-colors cursor-pointer"
                             title="Edit product"
                           >
-                            <i className="fa-regular fa-pen-to-square text-xs"></i>
+                            <i className="fa-solid fa-pen text-xs"></i>
+                          </Link>
+
+                          {/* View Product Details */}
+                          <Link
+                            to={`/inventory/products/${p.id}`}
+                            className="w-7 h-7 rounded-lg text-stone-500 hover:text-gray-900 hover:bg-stone-100 flex items-center justify-center transition-colors cursor-pointer"
+                            title="View product details"
+                          >
+                            <i className="fa-regular fa-eye text-xs"></i>
                           </Link>
 
                           {/* Delete Product */}
                           <button
                             type="button"
                             onClick={() => setDeleteTarget(p)}
-                            className="w-8 h-8 rounded-lg hover:bg-red-50 text-stone-500 hover:text-red-600 flex items-center justify-center transition-colors cursor-pointer"
+                            className="w-7 h-7 rounded-lg text-red-600 hover:text-white hover:bg-[#b01622] bg-red-50 flex items-center justify-center transition-colors cursor-pointer"
                             title="Delete product"
                           >
-                            <i className="fa-regular fa-trash-can text-xs"></i>
+                            <i className="fa-solid fa-trash-can text-xs"></i>
                           </button>
                         </div>
                       </td>

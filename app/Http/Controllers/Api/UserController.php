@@ -26,6 +26,7 @@ class UserController extends Controller
             'role' => 'required|string',
             'status' => 'nullable|in:active,inactive',
             'password' => 'required|string|min:6',
+            'avatar' => 'nullable|string',
             'karigar_id' => 'nullable|integer',
         ]);
 
@@ -35,6 +36,7 @@ class UserController extends Controller
             'mobile_number' => $validated['mobile_number'] ?? null,
             'role' => $validated['role'],
             'status' => $validated['status'] ?? 'active',
+            'avatar' => $validated['avatar'] ?? null,
             'password' => Hash::make($validated['password']),
         ]);
 
@@ -44,6 +46,19 @@ class UserController extends Controller
                 $karigar->user_id = $user->id;
                 $karigar->save();
             }
+        } elseif (strtolower($user->role) === 'karigar') {
+            $nextId = (Karigar::max('id') ?? 0) + 1;
+            $code = 'K-' . sprintf('%04d', $nextId);
+            Karigar::create([
+                'user_id' => $user->id,
+                'karigar_code' => $code,
+                'name' => $user->name,
+                'primary_phone' => $user->mobile_number ?? '+91 98765 00000',
+                'email' => $user->email,
+                'specialization' => 'Plain Gold & Jewellery',
+                'experience_years' => 1,
+                'status' => $user->status ?? 'active',
+            ]);
         }
 
         return response()->json([
@@ -73,6 +88,7 @@ class UserController extends Controller
             'role' => 'required|string',
             'status' => 'nullable|in:active,inactive',
             'password' => 'nullable|string|min:6',
+            'avatar' => 'nullable|string',
             'karigar_id' => 'nullable|integer',
         ]);
 
@@ -84,11 +100,18 @@ class UserController extends Controller
             'status' => $validated['status'] ?? $user->status ?? 'active',
         ];
 
+        if (array_key_exists('avatar', $validated)) {
+            $updateData['avatar'] = $validated['avatar'];
+        }
+
         if (!empty($validated['password'])) {
             $updateData['password'] = Hash::make($validated['password']);
         }
 
         $user->update($updateData);
+
+        // Keep Karigar directory name in sync with User account name
+        \App\Models\Karigar::where('user_id', $user->id)->update(['name' => $user->name]);
 
         if (isset($validated['karigar_id'])) {
             if ($validated['karigar_id']) {

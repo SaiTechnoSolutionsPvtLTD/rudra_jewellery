@@ -15,6 +15,7 @@ class AdminUserSeeder extends Seeder
             [
                 'name' => 'Arvind',
                 'role' => 'Super Admin',
+                'avatar' => '/images/samples/arvind_profile.jpg',
                 'password' => Hash::make('password123'),
             ]
         );

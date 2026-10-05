@@ -11,6 +11,7 @@ class GoldType extends Model
 
     protected $fillable = [
         'name',
+        'karat',
         'purity',
         'sort_order',
         'description',

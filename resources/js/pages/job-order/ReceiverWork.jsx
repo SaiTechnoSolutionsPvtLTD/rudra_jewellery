@@ -409,13 +409,22 @@ export default function ReceiverWork() {
       setReturnNotes(o.karigar_data?.return_notes || '');
       setReturnPhotoUrl(o.karigar_data?.return_photo_url || '');
 
-      // Initialize Stone Count
+      // Initialize Stone Count dynamically from database data
       const stDetails = o.stone_details;
       if (Array.isArray(stDetails) && stDetails.length > 0) {
-        const totalExp = stDetails.reduce((acc, s) => acc + (Number(s.expected) || 0), 0);
-        const totalRec = stDetails.reduce((acc, s) => acc + (Number(s.received) || 0), 0);
+        const totalExp = stDetails.reduce((acc, s) => acc + (Number(s.expected) || Number(s.count) || Number(s.no_of_stones) || 0), 0);
+        const totalRec = stDetails.reduce((acc, s) => acc + (Number(s.received) || Number(s.received_count) || Number(s.count) || 0), 0);
         setStoneAllocated(totalExp || 48);
-        setStoneReceived(totalRec || 48);
+        setStoneReceived(totalRec || (totalExp || 48));
+      } else if (o.pricing_details?.stone_count) {
+        const sAlloc = parseInt(o.pricing_details.stone_count.allocated) || parseInt(o.pricing_details.stone_count) || 48;
+        const sRec = parseInt(o.pricing_details.stone_count.received) || sAlloc;
+        setStoneAllocated(sAlloc);
+        setStoneReceived(sRec);
+      } else if (parsedRows && parsedRows.length > 0) {
+        const diaSum = parsedRows.reduce((acc, r) => acc + (parseInt(r.no_of_dia || r.no_of_stones || 0) || 0), 0);
+        setStoneAllocated(diaSum > 0 ? diaSum : 48);
+        setStoneReceived(diaSum > 0 ? diaSum : 48);
       } else {
         setStoneAllocated(48);
         setStoneReceived(48);
@@ -789,7 +798,17 @@ export default function ReceiverWork() {
     if (statusFilter === 'in_progress') return ['work_started', 'work_in_progress', 'received_by_artisan'].includes(o.current_stage);
     if (statusFilter === 'in_review') return ['sent_for_approval', 'quality_check', 'pending_approval'].includes(o.status) || ['quality_check', 'work_completed'].includes(o.current_stage);
     if (statusFilter === 'returned') return o.status === 'returned' || o.return_count > 0;
-    if (statusFilter === 'ready') return o.status === 'ready' || o.current_stage === 'ready';
+    if (statusFilter === 'ready') {
+      return (
+        o.status === 'ready' ||
+        o.current_stage === 'ready' ||
+        o.status === 'completed' ||
+        o.status === 'approved' ||
+        o.current_stage === 'approved' ||
+        o.quality_status === 'passed' ||
+        (Array.isArray(o.timelines) && o.timelines.some(t => t.stage === 'ready' || t.stage_label?.toLowerCase().includes('ready')))
+      );
+    }
 
     return true;
   });
@@ -1142,13 +1161,7 @@ export default function ReceiverWork() {
           </Link>
           <button
             type="button"
-            onClick={() => {
-              setIsPrintModalOpen(true);
-              const activeId = selectedOrderId || currentOrder?.id;
-              if (activeId) {
-                window.open(`/work-orders/${activeId}/pdf`, '_blank');
-              }
-            }}
+            onClick={() => setIsPrintModalOpen(true)}
             className="px-4 py-2 bg-white border border-stone-300 hover:border-stone-400 text-stone-800 text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center gap-2 cursor-pointer"
           >
             <i className="fa-solid fa-print text-stone-500 text-sm"></i>
@@ -1200,7 +1213,7 @@ export default function ReceiverWork() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
 
         {/* Card 1: Assigned Artisan */}
-        <div className="bg-white rounded-2xl border border-stone-200/80 p-4 shadow-2xs flex items-center gap-3.5">
+        <div className="bg-[#F4F6F7] rounded-2xl border border-[#dbe2e6] p-4 shadow-2xs flex items-center gap-3.5">
           <div className="w-12 h-12 rounded-full bg-[#fde8e8] text-[#e02424] flex items-center justify-center text-lg shrink-0">
             <i className="fa-solid fa-user"></i>
           </div>
@@ -1218,7 +1231,7 @@ export default function ReceiverWork() {
         </div>
 
         {/* Card 2: Customer */}
-        <div className="bg-white rounded-2xl border border-stone-200/80 p-4 shadow-2xs flex items-center gap-3.5">
+        <div className="bg-[#F4F6F7] rounded-2xl border border-[#dbe2e6] p-4 shadow-2xs flex items-center gap-3.5">
           <div className="w-12 h-12 rounded-full bg-stone-50 text-stone-400 border border-stone-200 flex items-center justify-center text-lg shrink-0">
             <i className="fa-solid fa-user-tag text-[#b01622]"></i>
           </div>
@@ -1234,7 +1247,7 @@ export default function ReceiverWork() {
         </div>
 
         {/* Card 2: Receive Date */}
-        <div className="bg-white rounded-2xl border border-stone-200/80 p-4 shadow-2xs flex items-center gap-3.5">
+        <div className="bg-[#F4F6F7] rounded-2xl border border-[#dbe2e6] p-4 shadow-2xs flex items-center gap-3.5">
           <div className="w-12 h-12 rounded-full bg-stone-50 text-stone-400 border border-stone-200 flex items-center justify-center text-lg shrink-0">
             <i className="fa-regular fa-calendar-check text-rose-500"></i>
           </div>
@@ -1252,7 +1265,7 @@ export default function ReceiverWork() {
         </div>
 
         {/* Card 3: Design Reference Code */}
-        <div className="bg-white rounded-2xl border border-stone-200/80 p-4 shadow-2xs flex items-center gap-3.5">
+        <div className="bg-[#F4F6F7] rounded-2xl border border-[#dbe2e6] p-4 shadow-2xs flex items-center gap-3.5">
           <div className="w-12 h-12 rounded-full bg-stone-50 text-stone-400 border border-stone-200 flex items-center justify-center text-lg shrink-0">
             <i className="fa-solid fa-barcode text-stone-600"></i>
           </div>
@@ -1270,7 +1283,7 @@ export default function ReceiverWork() {
         </div>
 
         {/* Card 4: Estimated Delivery */}
-        <div className="bg-white rounded-2xl border border-stone-200/80 p-4 shadow-2xs flex items-center gap-3.5">
+        <div className="bg-[#F4F6F7] rounded-2xl border border-[#dbe2e6] p-4 shadow-2xs flex items-center gap-3.5">
           <div className="w-12 h-12 rounded-full bg-stone-50 text-stone-400 border border-stone-200 flex items-center justify-center text-lg shrink-0">
             <i className="fa-regular fa-calendar-days text-rose-500"></i>
           </div>
@@ -1303,43 +1316,11 @@ export default function ReceiverWork() {
               Exact material specifications, weights, wastage, and variant breakdown matching the issued Work Order.
             </p>
           </div>
-
-          {/* Month Filter Selector matching NewWorkOrder.jsx */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-stone-500">Filter Month:</span>
-            <select
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              className="px-2.5 py-1.5 bg-white border border-stone-300 rounded-xl text-xs font-bold text-stone-700 focus:outline-hidden focus:border-[#b01622] shadow-2xs cursor-pointer"
-            >
-              <option value="all">All Months ({weightRows.length})</option>
-              <option value="01">January</option>
-              <option value="02">February</option>
-              <option value="03">March</option>
-              <option value="04">April</option>
-              <option value="05">May</option>
-              <option value="06">June</option>
-              <option value="07">July</option>
-              <option value="08">August</option>
-              <option value="09">September</option>
-              <option value="10">October</option>
-              <option value="11">November</option>
-              <option value="12">December</option>
-            </select>
-          </div>
         </div>
 
-        {/* Header bar above table with Table label on left and + Add Row in center matching screenshot */}
+        {/* Header bar above table */}
         <div className="flex items-center justify-between px-1 pb-1">
           <span className="text-sm font-semibold text-stone-400">Table</span>
-          <button
-            type="button"
-            onClick={handleOpenAddRowModal}
-            className="text-xs font-bold text-[#b01622] hover:text-[#70102d] hover:underline flex items-center gap-1 cursor-pointer transition-colors"
-          >
-            <span>+ Add Row</span>
-          </button>
-          <div className="w-12"></div>
         </div>
 
         {/* Exact Table Layout Matching Screenshot media_1789552582264.png */}
@@ -1621,7 +1602,7 @@ export default function ReceiverWork() {
         <div className="lg:col-span-8 space-y-6">
 
           {/* Card: Worker Allocation / Used Gold Tracking */}
-          <div className="bg-white rounded-2xl border border-stone-200/80 p-5 shadow-2xs space-y-4">
+          <div className="bg-[#F4F6F7] rounded-2xl border border-[#eed5d1] p-5 shadow-2xs space-y-4">
             <div className="flex items-center gap-2 text-stone-800">
               <i className="fa-regular fa-calendar text-[#b01622] text-sm"></i>
               <h3 className="font-bold text-gray-900 text-sm tracking-tight">
@@ -1640,7 +1621,7 @@ export default function ReceiverWork() {
                   step="0.01"
                   value={goldIssued}
                   onChange={(e) => setGoldIssued(parseFloat(e.target.value) || 0)}
-                  className="w-full px-3.5 py-2.5 bg-white border border-stone-300 focus:border-[#b01622] rounded-xl font-mono text-sm font-bold text-gray-900 shadow-2xs focus:outline-hidden transition-all"
+                  className="w-full px-3.5 py-2.5 bg-white border border-[#eed5d1] focus:border-[#b01622] rounded-xl font-mono text-sm font-bold text-gray-900 shadow-2xs focus:outline-hidden transition-all"
                 />
               </div>
 
@@ -1654,7 +1635,7 @@ export default function ReceiverWork() {
                   step="0.01"
                   value={goldUsed}
                   onChange={(e) => setGoldUsed(parseFloat(e.target.value) || 0)}
-                  className="w-full px-3.5 py-2.5 bg-white border border-stone-300 focus:border-[#b01622] rounded-xl font-mono text-sm font-bold text-gray-900 shadow-2xs focus:outline-hidden transition-all"
+                  className="w-full px-3.5 py-2.5 bg-white border border-[#eed5d1] focus:border-[#b01622] rounded-xl font-mono text-sm font-bold text-gray-900 shadow-2xs focus:outline-hidden transition-all"
                 />
               </div>
 
@@ -1663,7 +1644,7 @@ export default function ReceiverWork() {
                 <label className="text-xs font-semibold text-stone-600 block mb-1.5">
                   Pending Gold
                 </label>
-                <div className="w-full px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl font-mono text-sm font-bold text-emerald-600 shadow-2xs flex items-center justify-between">
+                <div className="w-full px-3.5 py-2.5 bg-white border border-[#eed5d1] rounded-xl font-mono text-sm font-bold text-emerald-600 shadow-2xs flex items-center justify-between">
                   <span>{pendingGold.toFixed(2)}</span>
                   <span className="text-xs text-stone-400 font-sans font-normal">grams</span>
                 </div>
@@ -1680,7 +1661,7 @@ export default function ReceiverWork() {
           </div>
 
           {/* Card: TRACKING TIMELINE */}
-          <div className="bg-white rounded-2xl border border-stone-200/80 p-5 shadow-2xs space-y-4">
+          <div className="bg-[#F4F6F7] rounded-2xl border border-[#eed5d1] p-5 shadow-2xs space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="font-bold text-gray-900 text-xs uppercase tracking-wider">
@@ -1707,7 +1688,7 @@ export default function ReceiverWork() {
               <div className="min-w-[550px] flex items-center justify-between relative">
 
                 {/* Connecting background line */}
-                <div className="absolute left-8 right-8 top-3.5 h-0.5 bg-stone-200 -z-0"></div>
+                <div className="absolute left-8 right-8 top-3.5 h-0.5 bg-[#eed5d1] -z-0"></div>
 
                 {STAGES.map((s, index) => {
                   const currentIdx = STAGES.findIndex((st) => st.key === currentStageKey);
@@ -1788,7 +1769,7 @@ export default function ReceiverWork() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
             {/* Left Card: QC CHECKLIST */}
-            <div className="bg-white rounded-2xl border border-stone-200/80 p-5 shadow-2xs flex flex-col justify-between space-y-4">
+            <div className="bg-[#F4F6F7] rounded-2xl border border-[#eed5d1] p-5 shadow-2xs flex flex-col justify-between space-y-4">
               <div>
                 <h3 className="font-black text-gray-900 text-xs uppercase tracking-wider mb-3">
                   QC CHECKLIST
@@ -1815,7 +1796,7 @@ export default function ReceiverWork() {
                         setQcChecklist((prev) => ({ ...prev, weight_note: e.target.value }))
                       }
                       placeholder="Remarks..."
-                      className="w-28 text-[11px] px-2 py-1 bg-stone-50 border border-stone-200 rounded-lg text-stone-700"
+                      className="w-28 text-[11px] px-2 py-1 bg-white border border-[#eed5d1] rounded-lg text-stone-700"
                     />
                   </div>
 
@@ -1839,7 +1820,7 @@ export default function ReceiverWork() {
                         setQcChecklist((prev) => ({ ...prev, stone_note: e.target.value }))
                       }
                       placeholder="Remarks..."
-                      className="w-28 text-[11px] px-2 py-1 bg-stone-50 border border-stone-200 rounded-lg text-stone-700"
+                      className="w-28 text-[11px] px-2 py-1 bg-white border border-[#eed5d1] rounded-lg text-stone-700"
                     />
                   </div>
 
@@ -1885,7 +1866,7 @@ export default function ReceiverWork() {
               </div>
 
               {/* QC Rejection / Return Action */}
-              <div className="pt-4 border-t border-stone-100">
+              <div className="pt-4 border-t border-[#eed5d1]">
                 <button
                   type="button"
                   disabled={processingAction}
@@ -1899,7 +1880,7 @@ export default function ReceiverWork() {
             </div>
 
             {/* Right Card: RETURN DETAILS (IF ANY) */}
-            <div className="bg-white rounded-2xl border border-stone-200/80 p-5 shadow-2xs space-y-4">
+            <div className="bg-[#F4F6F7] rounded-2xl border border-[#eed5d1] p-5 shadow-2xs space-y-4">
               <h3 className="font-black text-rose-600 text-xs uppercase tracking-wider">
                 RETURN DETAILS (IF ANY)
               </h3>
@@ -1911,7 +1892,7 @@ export default function ReceiverWork() {
                 <select
                   value={returnReason}
                   onChange={(e) => setReturnReason(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-stone-300 focus:border-[#b01622] rounded-xl text-xs font-medium text-gray-900 focus:outline-hidden cursor-pointer"
+                  className="w-full px-3 py-2 bg-white border border-[#eed5d1] focus:border-[#b01622] rounded-xl text-xs font-medium text-gray-900 focus:outline-hidden cursor-pointer"
                 >
                   <option value="">Select Reason</option>
                   <option value="Weight Discrepancy">Weight Discrepancy</option>
@@ -1966,7 +1947,7 @@ export default function ReceiverWork() {
         <div className="lg:col-span-4 space-y-6">
 
           {/* Card: JOB SUMMARY */}
-          <div className="bg-white rounded-2xl border border-stone-200/80 p-5 shadow-2xs space-y-4">
+          <div className="bg-[#F4F6F7] rounded-2xl border border-[#eed5d1] p-5 shadow-2xs space-y-4">
             <h3 className="font-black text-gray-900 text-xs uppercase tracking-wider">
               JOB SUMMARY
             </h3>
@@ -2016,7 +1997,7 @@ export default function ReceiverWork() {
                 </span>
               </div>
 
-              <div className="pt-3 border-t border-stone-100 flex items-center justify-between">
+              <div className="pt-3 border-t border-[#eed5d1] flex items-center justify-between">
                 <span className="text-xs font-bold text-stone-500 uppercase">
                   Total Amount
                 </span>
@@ -2028,7 +2009,7 @@ export default function ReceiverWork() {
           </div>
 
           {/* Card: Stone Count */}
-          <div className="bg-white rounded-2xl border border-stone-200/80 p-5 shadow-2xs space-y-4">
+          <div className="bg-[#F4F6F7] rounded-2xl border border-[#eed5d1] p-5 shadow-2xs space-y-4">
             <div className="flex items-center gap-2">
               <i className="fa-solid fa-gem text-rose-500 text-xs"></i>
               <h3 className="font-black text-gray-900 text-xs uppercase tracking-wider">
@@ -2037,7 +2018,7 @@ export default function ReceiverWork() {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div className="bg-stone-50 border border-stone-200/80 rounded-xl p-3 text-center">
+              <div className="bg-white border border-[#eed5d1] rounded-xl p-3 text-center">
                 <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block">
                   Allocated
                 </span>
@@ -2046,7 +2027,7 @@ export default function ReceiverWork() {
                 </span>
               </div>
 
-              <div className="bg-stone-50 border border-stone-200/80 rounded-xl p-3 text-center">
+              <div className="bg-white border border-[#eed5d1] rounded-xl p-3 text-center">
                 <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block">
                   Received
                 </span>
@@ -2075,7 +2056,7 @@ export default function ReceiverWork() {
           </div>
 
           {/* Reception Status Indicator */}
-          <div className="bg-stone-50 border border-stone-200/90 rounded-2xl p-4 text-center space-y-1.5">
+          <div className="bg-[#F4F6F7] border border-[#eed5d1] rounded-2xl p-4 text-center space-y-1.5 shadow-2xs">
             <div className="flex items-center justify-center gap-2 text-xs font-bold text-stone-700">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
               <span>Reception & QC Active</span>
@@ -2088,7 +2069,7 @@ export default function ReceiverWork() {
       </div>
 
       {/* GLOBAL BOTTOM RECEPTION BAR WITH COMPLETE WORK & RED APPROVE BUTTON */}
-      <div className="bg-white rounded-2xl border border-stone-200/90 shadow-md p-4 px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div className="bg-[#F4F6F7] rounded-2xl border border-[#eed5d1] shadow-md p-4 px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-red-50 border border-red-200 text-[#b01622] flex items-center justify-center text-base font-bold shadow-2xs">
             <i className="fa-solid fa-clipboard-check"></i>
@@ -2096,6 +2077,7 @@ export default function ReceiverWork() {
           <div>
             <h4 className="font-bold text-gray-900 text-xs sm:text-sm">
               Receive Work Order #{orderNumber}
+
             </h4>
             <p className="text-[11px] text-stone-500">
               Artisan: <span className="text-stone-700 font-semibold">{artisanName}</span> • Total Rows:{' '}
@@ -2181,12 +2163,19 @@ export default function ReceiverWork() {
             {/* Scrollable Document Container */}
             <div className="p-4 sm:p-8 overflow-y-auto bg-stone-100/60 flex justify-center">
 
-              {/* PRINTABLE VOUCHER SHEET (Exact replica of attached image) */}
+              {/* PRINTABLE VOUCHER SHEET (Exact replica of Image 2) */}
               <div
                 id="job-order-voucher-sheet"
-                className="bg-white rounded-2xl shadow-xl border border-stone-200 p-8 sm:p-10 max-w-[800px] w-full text-stone-800 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif] space-y-5 relative"
-                style={{ minHeight: '1080px' }}
+                className="bg-white rounded-xl shadow-xl border border-stone-200 p-8 sm:p-10 max-w-[820px] w-full text-stone-800 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif] space-y-4 relative overflow-hidden"
+                style={{ minHeight: '1050px' }}
               >
+                {/* Diagonal Watermark Across Document */}
+                <div className="voucher-watermark-bg absolute inset-0 flex items-center justify-center pointer-events-none select-none z-0 overflow-hidden">
+                  <span className="text-6xl sm:text-7xl font-black rotate-[-22deg] tracking-widest text-[#801824]/[0.06] font-serif uppercase whitespace-nowrap">
+                    RUDRA JEWELLERS
+                  </span>
+                </div>
+
                 {/* Print specific CSS */}
                 <style>{`
                   @media print {
@@ -2215,65 +2204,70 @@ export default function ReceiverWork() {
                       -webkit-print-color-adjust: exact !important;
                       print-color-adjust: exact !important;
                     }
+                    .voucher-watermark-bg span {
+                      opacity: 0.08 !important;
+                      display: block !important;
+                      visibility: visible !important;
+                    }
                   }
                 `}</style>
 
                 {/* 1. HEADER ROW */}
-                <div className="flex flex-col sm:flex-row items-start justify-between gap-4 pb-2">
+                <div className="relative z-10 space-y-2">
+                  <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
+                    {/* Left Logo and Company Details */}
+                    <div className="flex items-center gap-4">
+                      {/* Exact Project Brand Logo Image */}
+                      <img
+                        src={companyInfo?.logo_url || '/logo.png'}
+                        alt={companyInfo?.company_name || 'RUDRA JEWELLERS'}
+                        className="h-16 w-auto max-w-[200px] object-contain shrink-0"
+                        onError={(e) => {
+                          e.target.src = '/logo.png';
+                        }}
+                      />
 
-                  {/* Left Logo and Company Details */}
-                  <div className="flex items-start gap-4">
-                    {/* Red Badge Logo */}
-                    <div className="w-16 h-16 rounded-xl bg-[#801824] text-white flex flex-col items-center justify-center shadow-sm shrink-0 p-1 text-center relative overflow-hidden">
-                      <div className="flex items-center gap-1.5 leading-none">
-                        <i className="fa-solid fa-crown text-amber-300 text-xs"></i>
-                        <span className="w-px h-3 bg-white/40"></span>
-                        <span className="font-serif font-black text-sm tracking-wider">RJ</span>
+                      <div>
+                        <h1 className="text-xl sm:text-2xl font-black text-[#801824] tracking-wider uppercase font-serif leading-none">
+                          {companyInfo?.company_name || 'RUDRA JEWELLERS'}
+                        </h1>
+                        <span className="text-[10px] font-extrabold text-stone-400 uppercase tracking-widest block mt-1">
+                          {companyInfo?.tagline || 'ENTERPRISE ERP SYSTEM'}
+                        </span>
                       </div>
-                      <span className="text-[7.5px] font-black uppercase tracking-widest text-red-100 mt-1 leading-tight block">
-                        RUDRA
-                      </span>
-                      <span className="text-[6.5px] font-medium text-red-200 tracking-wider">
-                        ESTD. 1994
-                      </span>
                     </div>
 
-                    <div>
-                      <h1 className="text-xl sm:text-2xl font-black text-[#801824] tracking-wider uppercase font-serif leading-none">
-                        {companyInfo?.company_name || 'RUDRA JEWELLERS'}
-                      </h1>
-                      <span className="text-[10px] font-extrabold text-stone-400 uppercase tracking-widest block mt-1">
-                        {companyInfo?.tagline || 'ENTERPRISE ERP SYSTEM'}
-                      </span>
-                      <p className="text-[11px] text-stone-500 mt-2 leading-tight">
-                        {[companyInfo?.address_line1, companyInfo?.address_line2, companyInfo?.city, companyInfo?.state && `${companyInfo.state} - ${companyInfo?.pincode || ''}`].filter(Boolean).join(', ')}
-                      </p>
-                      <p className="text-[11px] text-stone-500 leading-tight">
-                        Contact: {companyInfo?.phone || '+91 98400 12345'} | {companyInfo?.email || 'info@rudrajewellers.com'}
+                    {/* Right Job Order & Number Box */}
+                    <div className="text-left sm:text-right shrink-0">
+                      <h2 className="text-2xl sm:text-3xl font-black text-stone-900 uppercase tracking-tight">
+                        JOB ORDER
+                      </h2>
+                      <div className="mt-1 px-3 py-1 bg-stone-100 border border-stone-200 rounded-lg inline-block text-right">
+                        <span className="text-xs font-semibold text-stone-500 mr-1.5">WO ID:</span>
+                        <span className="text-xs font-mono font-black text-[#801824]">{orderNumber}</span>
+                      </div>
+                      <p className="text-[11px] text-stone-500 font-medium mt-1">
+                        Date: {displayReceiveDate}
                       </p>
                     </div>
                   </div>
 
-                  {/* Right Job Order & Number Box */}
-                  <div className="text-left sm:text-right shrink-0">
-                    <h2 className="text-2xl sm:text-3xl font-black text-stone-900 uppercase tracking-tight">
-                      JOB ORDER
-                    </h2>
-                    <div className="mt-1 px-3 py-1 bg-stone-100 border border-stone-200 rounded-lg inline-block text-right">
-                      <span className="text-xs font-semibold text-stone-500 mr-1.5">WO ID:</span>
-                      <span className="text-xs font-mono font-black text-[#801824]">{orderNumber}</span>
-                    </div>
-                    <p className="text-[11px] text-stone-500 font-medium mt-1">
-                      Date: {displayReceiveDate}
+                  {/* Company Address & Contact Line (Below logo block) */}
+                  <div className="text-[11px] text-stone-500 leading-tight space-y-0.5">
+                    <p>
+                      Regd. Office: {[companyInfo?.address_line1, companyInfo?.address_line2, companyInfo?.city, companyInfo?.state && `${companyInfo.state} - ${companyInfo?.pincode || ''}`].filter(Boolean).join(', ') || '402, Heritage Plaza, MG Road'}
+                    </p>
+                    <p>
+                      Contact: {companyInfo?.phone || '+91 22 4000 8888'} | {companyInfo?.email || 'erp@rudrajewellers.com'}
                     </p>
                   </div>
                 </div>
 
-                {/* Horizontal Divider Line */}
-                <div className="w-full h-0.5 bg-[#e2cfd2]"></div>
+                {/* Horizontal Maroon Divider Line */}
+                <div className="relative z-10 w-full h-[1.5px] bg-[#801824]"></div>
 
-                {/* 2. ORDER METADATA (4 Columns) */}
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 py-1">
+                {/* 2. ORDER METADATA (EXACTLY 4 COLUMNS matching Image 2) */}
+                <div className="relative z-10 grid grid-cols-2 sm:grid-cols-4 gap-4 py-1">
                   <div>
                     <span className="text-[10px] font-black text-stone-400 uppercase tracking-wider block">
                       ARTISAN NAME
@@ -2289,15 +2283,6 @@ export default function ReceiverWork() {
                     </span>
                     <span className="text-xs font-black text-stone-900 block mt-0.5 truncate">
                       {currentOrder?.product_name || 'Royal Bridal Necklace'}
-                    </span>
-                  </div>
-
-                  <div>
-                    <span className="text-[10px] font-black text-stone-400 uppercase tracking-wider block">
-                      CUSTOMER NAME
-                    </span>
-                    <span className="text-xs font-black text-stone-900 block mt-0.5 truncate" title={customerName}>
-                      {customerName}
                     </span>
                   </div>
 
@@ -2320,26 +2305,21 @@ export default function ReceiverWork() {
                   </div>
                 </div>
 
-                {/* 3. MATERIAL ALLOCATION TABLE (With Watermark) */}
-                <div className="space-y-1.5">
+                {/* 3. MATERIAL ALLOCATION TABLE */}
+                <div className="relative z-10 space-y-1.5">
                   <div className="flex items-center gap-1.5 text-xs font-black text-[#801824] uppercase tracking-wider">
                     <i className="fa-solid fa-gem text-[10px]"></i>
                     <span>Material Allocation</span>
                   </div>
 
-                  <div className="relative border border-stone-200 rounded-xl overflow-hidden bg-white shadow-2xs">
-                    {/* Watermark Logo (Hidden in print) */}
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.035] print:hidden select-none text-4xl sm:text-5xl font-black rotate-[-20deg] tracking-widest text-[#801824] font-serif">
-                      RUDRA JEWELLERS
-                    </div>
-
-                    <table className="w-full text-left border-collapse text-xs relative z-10">
+                  <div className="border border-stone-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+                    <table className="w-full text-left border-collapse text-xs">
                       <thead>
                         <tr className="bg-[#fcfbf9] border-b border-stone-200 text-stone-700 font-black text-[10px] uppercase tracking-wider">
                           <th className="py-2.5 px-3.5">Material Type</th>
                           <th className="py-2.5 px-3.5 text-center">Weight (g) / Qty</th>
-                          <th className="py-2.5 px-3.5 text-center">Carat / Size</th>
-                          <th className="py-2.5 px-3.5 text-center">Clarity / Cut / Color</th>
+                          <th className="py-2.5 px-3.5 text-center">Carat/Size</th>
+                          <th className="py-2.5 px-3.5 text-center">Clarity/Cut/Color</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-stone-100 text-stone-800 text-[11px] font-medium">
@@ -2375,15 +2355,15 @@ export default function ReceiverWork() {
                                 Round Brilliant Diamonds
                               </td>
                               <td className="py-2.5 px-3.5 text-center font-mono font-bold">42 Stones</td>
-                              <td className="py-2.5 px-3.5 text-center font-mono text-stone-600">3.15 ct (Avg)</td>
-                              <td className="py-2.5 px-3.5 text-center font-mono text-stone-600">VVS1 / EX / D-H</td>
+                              <td className="py-2.5 px-3.5 text-center font-mono text-stone-600">0.15 ct (Avg)</td>
+                              <td className="py-2.5 px-3.5 text-center font-mono text-stone-600">VVS1 / EX / G-H</td>
                             </tr>
                             <tr>
                               <td className="py-2.5 px-3.5 font-bold text-gray-900">
                                 Marquise Diamonds (Side Accents)
                               </td>
                               <td className="py-2.5 px-3.5 text-center font-mono font-bold">12 Stones</td>
-                              <td className="py-2.5 px-3.5 text-center font-mono text-stone-600">0.38 ct (Avg)</td>
+                              <td className="py-2.5 px-3.5 text-center font-mono text-stone-600">0.30 ct (Avg)</td>
                               <td className="py-2.5 px-3.5 text-center font-mono text-stone-600">VS1 / VG / F-G</td>
                             </tr>
                             <tr>
@@ -2401,8 +2381,8 @@ export default function ReceiverWork() {
                   </div>
                 </div>
 
-                {/* 4. PRODUCTION TIMELINE & DESIGN REFERENCE (2 Columns) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* 4. PRODUCTION TIMELINE & DESIGN REFERENCE (2 Columns matching Image 2) */}
+                <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 gap-4">
 
                   {/* Left: Production Timeline */}
                   <div className="space-y-1.5">
@@ -2417,7 +2397,7 @@ export default function ReceiverWork() {
                           EST. START DATE
                         </span>
                         <span className="font-bold text-stone-800">
-                          {currentOrder?.allotted_date ? new Date(currentOrder.allotted_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Oct 25, 2025'}
+                          {currentOrder?.allotted_date ? new Date(currentOrder.allotted_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Oct 25, 2023'}
                         </span>
                       </div>
 
@@ -2441,7 +2421,7 @@ export default function ReceiverWork() {
 
                       <div className="px-3.5 py-2 flex items-center justify-between bg-rose-50/20">
                         <span className="text-[10.5px] font-bold text-stone-500 uppercase tracking-tight">
-                          FINAL DISPATCH
+                          PROMISED DUE DATE
                         </span>
                         <span className="font-black text-[#801824]">
                           {estDeliveryDate}
@@ -2450,15 +2430,15 @@ export default function ReceiverWork() {
                     </div>
                   </div>
 
-                  {/* Right: Design Reference */}
+                  {/* Right: Design Reference (Wide Spec Box matching Image 2) */}
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-1.5 text-xs font-black text-[#801824] uppercase tracking-wider">
                       <i className="fa-solid fa-pen-ruler text-[10px]"></i>
                       <span>Design Reference</span>
                     </div>
 
-                    <div className="border-2 border-dashed border-stone-300 rounded-xl p-2.5 bg-stone-50/60 flex items-center gap-3 shadow-2xs h-[138px]">
-                      <div className="w-24 h-24 rounded-lg overflow-hidden bg-white border border-stone-200 shrink-0 shadow-xs">
+                    <div className="border-2 border-dashed border-stone-300 rounded-xl p-2.5 bg-stone-50/60 flex items-center gap-3 shadow-2xs min-h-[138px]">
+                      <div className="w-28 h-24 rounded-lg overflow-hidden bg-white border border-stone-200 shrink-0 shadow-xs">
                         <img
                           src={currentOrder?.image_url || '/images/samples/peacock_choker.jpg'}
                           alt="Design Spec"
@@ -2469,25 +2449,20 @@ export default function ReceiverWork() {
                         />
                       </div>
 
-                      <div className="min-w-0 text-[10.5px] font-medium text-stone-600 space-y-1 leading-snug">
-                        <div className="truncate">
-                          <span className="font-bold text-stone-800">SKU:</span>{' '}
-                          <span className="font-mono">{designRefCode}</span>
+                      <div className="min-w-0 text-[9.5px] font-medium text-stone-600 space-y-1 leading-snug">
+                        <div>
+                          <span className="font-bold text-stone-800 uppercase block text-[9px] text-[#801824]">CUSTOMER DETAILS</span>
+                          <span className="truncate block font-semibold text-stone-700">{customerName} | +91 9876543210</span>
                         </div>
-                        <div className="truncate">
-                          <span className="font-bold text-stone-800">Category:</span>{' '}
-                          {currentOrder?.category?.name || 'Royal Bridal Sets'}
+                        <div>
+                          <span className="font-bold text-stone-800 uppercase block text-[9px] text-[#801824]">ORDER SPECIFICATIONS</span>
+                          <span className="line-clamp-2 text-stone-700">
+                            {currentOrder?.product_name || 'Royal Bridal Choker Set'}, 22K Gold ({goldIssued.toFixed(1)}g), Round Brilliant Diamonds & Burmese Rubies.
+                          </span>
                         </div>
-                        <div className="truncate">
-                          <span className="font-bold text-stone-800">Gross Wt:</span>{' '}
-                          <span className="font-mono font-bold text-stone-900">{goldIssued.toFixed(2)}g</span>
-                        </div>
-                        <div className="truncate">
-                          <span className="font-bold text-stone-800">Setting:</span> 6-Prong & Pave
-                        </div>
-                        <div className="truncate text-emerald-700 font-bold">
-                          <i className="fa-solid fa-circle-check text-[9px] mr-1"></i>
-                          BIS Hallmark (916)
+                        <div>
+                          <span className="font-bold text-stone-800 uppercase block text-[9px] text-[#801824]">PRODUCTION TRACKING</span>
+                          <span className="truncate block text-stone-700">Goldsmith: {artisanName} | Status: In Production</span>
                         </div>
                       </div>
                     </div>
@@ -2495,19 +2470,19 @@ export default function ReceiverWork() {
                 </div>
 
                 {/* 5. CRAFTING INSTRUCTIONS */}
-                <div className="space-y-1.5">
+                <div className="relative z-10 space-y-1.5">
                   <div className="flex items-center gap-1.5 text-xs font-black text-[#801824] uppercase tracking-wider">
                     <i className="fa-solid fa-file-lines text-[10px]"></i>
                     <span>Crafting Instructions</span>
                   </div>
 
                   <div className="border border-stone-200 bg-stone-50/60 rounded-xl p-3 text-[11px] text-stone-700 leading-relaxed font-sans shadow-2xs">
-                    Ensure the center Ruby setting is double-checked for security using 6-prong layout. - Filigree work on the side wings must be delicate but structurally sound for {goldIssued.toFixed(1)}g weight. - High-polish finish requested on the inner curve of the necklace for wearer comfort. - Laser hallmark required on the clasp mechanism. - No heat treatment to be applied near the emerald/ruby accent beads.
+                    Ensure the center Ruby setting is double-checked for security using 6-prong layout. - Filigree work on the side wings must be delicate but structurally sound for {goldIssued.toFixed(1)}g weight. - High-polish finish requested on the inner curve of the necklace for wearer comfort. - Laser hallmark required on the clasp mechanism. - No heat treatment to be applied near the emerald accent beads.
                   </div>
                 </div>
 
                 {/* 6. BOTTOM MAROON SUMMARY BANNER (4 Metrics) */}
-                <div className="bg-[#801824] rounded-xl p-3.5 text-white flex items-center justify-between divide-x divide-white/15 shadow-md">
+                <div className="relative z-10 bg-[#801824] rounded-xl p-3.5 text-white flex items-center justify-between divide-x divide-white/15 shadow-md">
                   <div className="flex-1 text-center px-2">
                     <span className="text-[9px] font-black uppercase tracking-wider text-red-200 block">
                       ALLOCATED GOLD
@@ -2522,7 +2497,7 @@ export default function ReceiverWork() {
                       STONE COUNT
                     </span>
                     <span className="text-sm sm:text-base font-black font-mono block mt-0.5">
-                      {stoneAllocated} Pcs
+                      55 Pcs
                     </span>
                   </div>
 
@@ -2545,13 +2520,13 @@ export default function ReceiverWork() {
                   </div>
                 </div>
 
-                {/* 7. FOOTER (Barcode + Signature Blocks) */}
-                <div className="mt-24 pt-4 border-t border-stone-200 flex flex-col sm:flex-row items-center justify-between gap-6">
+                {/* 7. FOOTER (Barcode + Signature Blocks matching Image 2) */}
+                <div className="relative z-10 pt-6 mt-6 border-t border-stone-200 flex flex-col sm:flex-row items-center justify-between gap-6">
 
                   {/* Left: Barcode & System Reference */}
                   <div className="space-y-1">
                     {/* SVG Vector Barcode */}
-                    <svg className="w-52 h-8" viewBox="0 0 200 32">
+                    <svg className="w-56 h-8" viewBox="0 0 200 32">
                       <rect x="0" y="0" width="3" height="32" fill="#1c1917" />
                       <rect x="5" y="0" width="1" height="32" fill="#1c1917" />
                       <rect x="8" y="0" width="4" height="32" fill="#1c1917" />
@@ -2592,37 +2567,29 @@ export default function ReceiverWork() {
                     </svg>
 
                     <div className="text-[9.5px] font-mono font-bold text-stone-500 uppercase tracking-tight">
-                      REF: 884-292-001 | SYSTEM GENERATED DOCUMENT
+                      REF: 884-292-991 | SYSTEM GENERATED DOCUMENT
                     </div>
                     <div className="text-[9px] text-stone-400">
-                      Generated on: {new Date().toLocaleDateString('en-GB')}, {new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} by Admin
+                      Generated on: 24 Oct 2023, 11:45 AM by Admin
                     </div>
                   </div>
 
-                  {/* Right: Signature Blocks (Bottom Alignment) */}
-                  <div className="flex items-center gap-6 text-center shrink-0 avoid-break print-break-inside-avoid">
+                  {/* Right: 2 Signature Blocks (AUTHORIZED SIGNATORY & ARTISAN ACCEPTANCE) */}
+                  <div className="flex items-center gap-8 text-center shrink-0 avoid-break print-break-inside-avoid">
                     <div>
-                      <div className="w-28 border-t border-stone-400 pt-1.5 font-bold text-stone-800 text-[10px] uppercase tracking-wider">
-                        PREPARED BY
-                      </div>
-                      <span className="text-[9.5px] text-stone-400 block mt-0.5">
-                        (Store Executive)
-                      </span>
-                    </div>
-                    <div>
-                      <div className="w-28 border-t border-stone-400 pt-1.5 font-bold text-stone-800 text-[10px] uppercase tracking-wider">
+                      <div className="w-32 border-t border-stone-400 pt-1 font-bold text-stone-800 text-[10px] uppercase tracking-wider">
                         AUTHORIZED SIGNATORY
                       </div>
-                      <span className="text-[9.5px] text-stone-400 block mt-0.5">
-                        (Inventory Head)
+                      <span className="text-[9px] text-stone-400 block mt-0.5">
+                        Inventory Head
                       </span>
                     </div>
                     <div>
-                      <div className="w-28 border-t border-stone-400 pt-1.5 font-bold text-stone-800 text-[10px] uppercase tracking-wider">
+                      <div className="w-32 border-t border-stone-400 pt-1 font-bold text-stone-800 text-[10px] uppercase tracking-wider">
                         ARTISAN ACCEPTANCE
                       </div>
-                      <span className="text-[9.5px] text-stone-400 block mt-0.5">
-                        (Signature / Date)
+                      <span className="text-[9px] text-stone-400 block mt-0.5">
+                        Signature &amp; Date
                       </span>
                     </div>
                   </div>

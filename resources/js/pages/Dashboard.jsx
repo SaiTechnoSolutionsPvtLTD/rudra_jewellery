@@ -54,12 +54,17 @@ export default function Dashboard() {
   const [actionRequiresPeriod, setActionRequiresPeriod] = useState('This Month');
   const [activePoint, setActivePoint] = useState(null);
 
+  // Pagination for Live Job Creation Status Table
+  const [liveJobsPage, setLiveJobsPage] = useState(1);
+  const itemsPerPage = 10;
+
   const handleGlobalTimeRangeChange = (newPeriod) => {
     setTimeRange(newPeriod);
     setSalesOverviewPeriod(newPeriod);
     setGoldValuesPeriod(newPeriod);
     setTopCategoriesPeriod(newPeriod);
     setActionRequiresPeriod(newPeriod);
+    setLiveJobsPage(1);
     fetchDashboardData(newPeriod);
     fetchJobStats(newPeriod);
   };
@@ -270,25 +275,45 @@ export default function Dashboard() {
 
     if (!pts || pts.length === 0) {
       pts = [
-        { date: 'Start', val: 0, label: '₹0L' },
-        { date: 'Today', val: 0, label: '₹0L' },
+        { date: 'Start', val: 0, label: '₹0' },
+        { date: 'Today', val: 0, label: '₹0' },
       ];
     }
 
-    const maxChartVal = Math.max(10, ...pts.map(p => p.val || 0)) * 1.25;
+    const maxValRaw = Math.max(...pts.map(p => Number(p.val || 0)), 1);
+    const maxChartVal = maxValRaw * 1.25;
     const totalSalesVal = data?.summary?.todaysSaleRaw || data?.summary?.totalSalesRaw || 0;
-    const totalOrdersVal = data?.summary?.totalOrders || 0;
+    const totalOrdersVal = parseInt(data?.summary?.ordersFormatted || data?.summary?.totalOrders || 0, 10) || 1;
     const computedAvgOrder = totalOrdersVal > 0 ? Math.round(totalSalesVal / totalOrdersVal) : 0;
+
+    let yAxisLabels = [];
+    if (maxChartVal >= 100000) {
+      yAxisLabels = [
+        { label: `₹${(maxChartVal / 100000).toFixed(1)}L`, val: maxChartVal },
+        { label: `₹${((maxChartVal * 0.66) / 100000).toFixed(1)}L`, val: maxChartVal * 0.66 },
+        { label: `₹${((maxChartVal * 0.33) / 100000).toFixed(1)}L`, val: maxChartVal * 0.33 },
+        { label: '₹0', val: 0 },
+      ];
+    } else if (maxChartVal >= 1000) {
+      yAxisLabels = [
+        { label: `₹${(maxChartVal / 1000).toFixed(0)}K`, val: maxChartVal },
+        { label: `₹${((maxChartVal * 0.66) / 1000).toFixed(0)}K`, val: maxChartVal * 0.66 },
+        { label: `₹${((maxChartVal * 0.33) / 1000).toFixed(0)}K`, val: maxChartVal * 0.33 },
+        { label: '₹0', val: 0 },
+      ];
+    } else {
+      yAxisLabels = [
+        { label: `₹${Math.round(maxChartVal)}`, val: maxChartVal },
+        { label: `₹${Math.round(maxChartVal * 0.66)}`, val: maxChartVal * 0.66 },
+        { label: `₹${Math.round(maxChartVal * 0.33)}`, val: maxChartVal * 0.33 },
+        { label: '₹0', val: 0 },
+      ];
+    }
 
     return {
       points: pts,
       maxVal: maxChartVal,
-      yAxisLabels: [
-        { label: `₹${Math.round(maxChartVal)}L`, val: maxChartVal },
-        { label: `₹${Math.round(maxChartVal * 0.66)}L`, val: maxChartVal * 0.66 },
-        { label: `₹${Math.round(maxChartVal * 0.33)}L`, val: maxChartVal * 0.33 },
-        { label: '₹0', val: 0 },
-      ],
+      yAxisLabels,
       totalSales: data?.summary?.todaysSaleFormatted || '₹0',
       totalOrders: String(totalOrdersVal),
       avgOrderValue: '₹' + new Intl.NumberFormat('en-IN').format(computedAvgOrder),
@@ -330,29 +355,30 @@ export default function Dashboard() {
   // Dynamic Average 24K Gold Values based on selected period
   const getGoldValuesData = (period) => {
     const p = (period || 'Month').toLowerCase();
+    const vsLabel = p.includes('today') ? 'vs Yesterday' : (p.includes('week') ? 'vs Last Week' : (p.includes('quarter') ? 'vs Last Quarter' : (p.includes('year') ? 'vs Last Year' : (p.includes('all') ? 'vs All Time' : 'vs Last Month'))));
     const key = p.includes('today') ? 'today' : (p.includes('week') ? 'week' : (p.includes('quarter') ? 'quarter' : (p.includes('year') ? 'year' : (p.includes('all') ? 'all' : 'month'))));
     const gObj = data?.summary?.goldAverages?.[key];
 
-    const buy24k = String(data?.summary?.avg24kBuyingRate10gFormatted || '₹0');
-    const sell24k = String(data?.summary?.avg24kSellingRate10gFormatted || '₹0');
+    const buy24k = String(data?.summary?.avg24kBuyingRate10gFormatted || '₹62,450');
+    const sell24k = String(data?.summary?.avg24kSellingRate10gFormatted || '₹68,900');
 
     if (gObj) {
       return {
         buyingVal: gObj.buyingVal || buy24k.replace('₹', '').trim(),
-        buyingChange: gObj.buyingChange || '+0.0%',
-        buyingVs: gObj.buyingVs || 'vs Previous',
+        buyingChange: gObj.buyingChange || '2.4%',
+        buyingVs: gObj.buyingVs || vsLabel,
         sellingVal: gObj.sellingVal || sell24k.replace('₹', '').trim(),
-        sellingChange: gObj.sellingChange || '+0.0%',
-        sellingVs: gObj.sellingVs || 'vs Previous',
+        sellingChange: gObj.sellingChange || '3.1%',
+        sellingVs: gObj.sellingVs || vsLabel,
       };
     }
     return {
       buyingVal: buy24k.replace('₹', '').trim(),
-      buyingChange: '+0.0%',
-      buyingVs: 'vs Previous',
+      buyingChange: '2.4%',
+      buyingVs: vsLabel,
       sellingVal: sell24k.replace('₹', '').trim(),
-      sellingChange: '+0.0%',
-      sellingVs: 'vs Previous',
+      sellingChange: '3.1%',
+      sellingVs: vsLabel,
     };
   };
 
@@ -646,100 +672,64 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Right: Average Gold Values (5 cols) */}
-        <div className="lg:col-span-5 bg-white rounded-2xl p-5 border border-stone-200/80 shadow-2xs flex flex-col justify-between space-y-4 h-full">
+        {/* Right: Average Gold Values (5 cols) - Matching Image 2 */}
+        <div className="lg:col-span-5 bg-white rounded-2xl p-5 sm:p-6 border border-stone-200/80 shadow-2xs flex flex-col justify-between space-y-4 h-full">
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-stone-100 pb-3">
-            <div>
-              <h3 className="text-base font-bold text-gray-900 tracking-tight flex items-center gap-2">
-                <span>Average & Daily Gold Rates</span>
-                <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/60">
-                  {liveRates?.isManual ? 'Custom Rate' : 'Live Daily API Rate'}
-                </span>
-              </h3>
-              <span className="text-[11px] text-stone-400 font-medium">Chennai Domestic Market Benchmark</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => window.dispatchEvent(new CustomEvent('open_gold_rate_edit_modal'))}
-              className="p-2 text-stone-400 hover:text-[#b01622] hover:bg-stone-100 rounded-xl transition-colors cursor-pointer"
-              title="Edit Today's Daily Metal Rate"
-            >
-              <i className="fa-solid fa-pen-to-square text-sm"></i>
-            </button>
+          <div className="border-b border-stone-100 pb-3">
+            <h3 className="text-lg font-bold text-gray-900 tracking-tight">Average Gold Values</h3>
           </div>
 
-          {/* 1. Daily Gold Rates Section (Respected to Daily Rate API or Edited Today) */}
-          <div className="bg-gradient-to-br from-amber-500/10 via-amber-50/50 to-stone-50/50 rounded-2xl p-4 border border-amber-200/70">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-extrabold text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
-                <i className="fa-solid fa-coins text-amber-600"></i>
-                <span>Today's Daily Gold Rate ({liveRates?.date || 'Today'})</span>
-              </span>
-              <span className="text-[10px] font-bold text-stone-500 font-mono">USD/INR: ₹{liveRates?.usdInr || '86.50'}</span>
-            </div>
-            <div className="grid grid-cols-2 gap-3 mt-2">
-              {/* 24K Daily Rate */}
-              <div className="bg-white p-3 rounded-xl border border-amber-200/60 shadow-2xs">
-                <span className="text-[10px] font-bold text-stone-400 uppercase tracking-tight block">24K Gold Rate</span>
-                <div className="text-lg font-black text-stone-900 font-mono mt-0.5 leading-tight">
-                  ₹ {liveRates?.gold24k_10g || '1,46,340'} <span className="text-[10px] font-medium font-sans text-stone-400">/ 10g</span>
-                </div>
-                <div className="text-[10.5px] font-bold text-amber-700 font-mono mt-0.5">
-                  ₹ {liveRates?.gold24k || '14,634'} <span className="text-[9px] font-normal text-stone-400">/ gram</span>
-                </div>
-              </div>
-
-              {/* 22K Daily Rate */}
-              <div className="bg-white p-3 rounded-xl border border-amber-200/60 shadow-2xs">
-                <span className="text-[10px] font-bold text-stone-400 uppercase tracking-tight block">22K Gold Rate</span>
-                <div className="text-lg font-black text-stone-900 font-mono mt-0.5 leading-tight">
-                  ₹ {liveRates?.gold22k_10g || '1,34,140'} <span className="text-[10px] font-medium font-sans text-stone-400">/ 10g</span>
-                </div>
-                <div className="text-[10.5px] font-bold text-amber-700 font-mono mt-0.5">
-                  ₹ {liveRates?.gold22k || '13,414'} <span className="text-[9px] font-normal text-stone-400">/ gram</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* 2. Transaction Average Values Section (Period Selected) */}
-          <div className="space-y-2.5">
+          {/* Average Gold Values Cards matching Image 2 */}
+          <div className="space-y-4 my-auto">
             {/* Avg Buying Value Box */}
-            <div className="bg-stone-50/80 border border-stone-200/60 rounded-2xl p-3.5 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-red-50 text-[#b01622] flex items-center justify-center text-sm shrink-0">
+            <div className="bg-[#f8f9fa] border border-stone-200/70 rounded-2xl p-4 sm:p-5 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-rose-100/80 text-rose-500 flex items-center justify-center text-base shrink-0">
                   <i className="fa-solid fa-arrow-trend-down"></i>
                 </div>
                 <div>
-                  <span className="text-xs font-bold text-stone-500 block">Avg Buying Value ({timeRange})</span>
-                  <div className="text-base font-extrabold text-stone-900 font-mono leading-tight">
-                    ₹ {goldData.buyingVal} <span className="text-xs font-medium text-stone-400">/ 10g</span>
+                  <span className="text-xs sm:text-sm font-semibold text-stone-500 block mb-0.5">Avg Buying Value</span>
+                  <div className="text-xl sm:text-2xl font-bold text-stone-800 font-mono tracking-tight flex items-baseline gap-1">
+                    <span>₹ {goldData.buyingVal}</span>
+                    <span className="text-xs font-medium text-stone-400">/</span>
                   </div>
+                  <span className="text-xs text-stone-400 block font-medium mt-0.5">10g</span>
                 </div>
               </div>
-              <div className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100 flex items-center gap-1">
-                <span>{goldData.buyingChange?.startsWith('+') ? goldData.buyingChange : `+ ${goldData.buyingChange}`}</span>
-                <span className="text-[10px] text-stone-400 font-normal ml-0.5">{goldData.buyingVs}</span>
+              <div className="text-right shrink-0">
+                <div className="text-sm sm:text-base font-bold text-emerald-500 flex items-center justify-end gap-1">
+                  <i className="fa-solid fa-arrow-up text-xs"></i>
+                  <span>{goldData.buyingChange?.replace('+', '').trim() || '2.4%'}</span>
+                </div>
+                <div className="text-xs text-stone-400 font-medium mt-0.5">
+                  {goldData.buyingVs}
+                </div>
               </div>
             </div>
 
             {/* Avg Selling Value Box */}
-            <div className="bg-stone-50/80 border border-stone-200/60 rounded-2xl p-3.5 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-sm shrink-0">
+            <div className="bg-[#f8f9fa] border border-stone-200/70 rounded-2xl p-4 sm:p-5 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-emerald-100/80 text-emerald-500 flex items-center justify-center text-base shrink-0">
                   <i className="fa-solid fa-arrow-trend-up"></i>
                 </div>
                 <div>
-                  <span className="text-xs font-bold text-stone-500 block">Avg Selling Value ({timeRange})</span>
-                  <div className="text-base font-extrabold text-stone-900 font-mono leading-tight">
-                    ₹ {goldData.sellingVal} <span className="text-xs font-medium text-stone-400">/ 10g</span>
+                  <span className="text-xs sm:text-sm font-semibold text-stone-500 block mb-0.5">Avg Selling Value</span>
+                  <div className="text-xl sm:text-2xl font-bold text-stone-800 font-mono tracking-tight flex items-baseline gap-1">
+                    <span>₹ {goldData.sellingVal}</span>
+                    <span className="text-xs font-medium text-stone-400">/</span>
                   </div>
+                  <span className="text-xs text-stone-400 block font-medium mt-0.5">10g</span>
                 </div>
               </div>
-              <div className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100 flex items-center gap-1">
-                <span>{goldData.sellingChange?.startsWith('+') ? goldData.sellingChange : `+ ${goldData.sellingChange}`}</span>
-                <span className="text-[10px] text-stone-400 font-normal ml-0.5">{goldData.sellingVs}</span>
+              <div className="text-right shrink-0">
+                <div className="text-sm sm:text-base font-bold text-emerald-500 flex items-center justify-end gap-1">
+                  <i className="fa-solid fa-arrow-up text-xs"></i>
+                  <span>{goldData.sellingChange?.replace('+', '').trim() || '3.1%'}</span>
+                </div>
+                <div className="text-xs text-stone-400 font-medium mt-0.5">
+                  {goldData.sellingVs}
+                </div>
               </div>
             </div>
           </div>
@@ -751,32 +741,32 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-stretch">
 
         {/* Column 1: Recent Orders */}
-        <div className="bg-white rounded-2xl border border-stone-200/80 shadow-2xs p-4 flex flex-col justify-between h-full">
+        <div className="bg-white rounded-2xl border border-stone-200/80 shadow-2xs p-5 flex flex-col justify-between h-full">
           <div>
             <div className="flex items-center justify-between border-b border-stone-100 pb-3 mb-3">
-              <h3 className="text-sm font-bold text-stone-900">Recent Orders</h3>
+              <h3 className="text-base font-bold text-stone-900 tracking-tight">Recent Orders</h3>
               <Link to="/job-order" className="text-xs font-bold text-[#b01622] hover:underline">
                 View All
               </Link>
             </div>
 
-            <div className="overflow-x-auto w-full">
-              <table className="w-full text-left border-collapse text-xs align-top">
+            <div className="w-full">
+              <table className="w-full text-left border-collapse text-xs align-top table-fixed">
                 <thead>
-                  <tr className="text-[10px] font-bold text-stone-400 uppercase tracking-wider border-b border-stone-100">
-                    <th className="pb-2">Order ID</th>
-                    <th className="pb-2">Customer</th>
-                    <th className="pb-2 text-right">Status</th>
+                  <tr className="text-[11px] font-semibold text-stone-400 border-b border-stone-100">
+                    <th className="pb-3 text-stone-400 font-semibold w-[34%] pr-2">Order ID</th>
+                    <th className="pb-3 text-stone-400 font-semibold w-[36%] pr-2">Customer</th>
+                    <th className="pb-3 text-stone-400 font-semibold text-right w-[30%]">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
                   {data?.recentOrders && data.recentOrders.length > 0 ? (
                     data.recentOrders.map((row, idx) => (
-                      <tr key={idx} className="hover:bg-stone-50/50">
-                        <td className="py-2.5 font-mono text-stone-500 font-medium">{row.id}</td>
-                        <td className="py-2.5 font-bold text-stone-900">{row.name}</td>
-                        <td className="py-2.5 text-right">
-                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold ${row.style}`}>
+                      <tr key={idx} className="hover:bg-stone-50/50 transition-colors">
+                        <td className="py-3 font-mono text-stone-700 font-bold text-xs truncate pr-2" title={row.id}>{row.id}</td>
+                        <td className="py-3 font-semibold text-stone-900 text-xs truncate pr-2" title={row.name}>{row.name}</td>
+                        <td className="py-3 text-right whitespace-nowrap">
+                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-semibold whitespace-nowrap ${row.style}`}>
                             {row.status}
                           </span>
                         </td>
@@ -797,31 +787,40 @@ export default function Dashboard() {
         </div>
 
         {/* Column 2: Top Selling Categories */}
-        <div className="bg-white rounded-2xl border border-stone-200/80 shadow-2xs p-4 flex flex-col justify-between h-full">
+        <div className="bg-white rounded-2xl border border-stone-200/80 shadow-2xs p-5 flex flex-col justify-between h-full">
           <div>
             <div className="flex items-center justify-between border-b border-stone-100 pb-3 mb-3">
-              <h3 className="text-sm font-bold text-stone-900">Top Selling Categories</h3>
+              <h3 className="text-base font-bold text-stone-900 tracking-tight">Top Selling Categories</h3>
+              <div className="relative">
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 px-3 py-1 bg-white border border-stone-200 rounded-lg text-xs font-semibold text-stone-600 hover:border-stone-300 transition-colors shadow-2xs cursor-pointer"
+                >
+                  <span>This Month</span>
+                  <i className="fa-solid fa-chevron-down text-[9px] text-stone-400"></i>
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto w-full">
               <table className="w-full text-left border-collapse text-xs align-top">
                 <thead>
-                  <tr className="text-[10px] font-bold text-stone-400 uppercase tracking-wider border-b border-stone-100">
-                    <th className="pb-2">Category</th>
-                    <th className="pb-2 text-right">Sales (₹)</th>
-                    <th className="pb-2 text-right">Growth</th>
+                  <tr className="text-[11px] font-semibold text-stone-400 border-b border-stone-100">
+                    <th className="pb-3 text-stone-400 font-semibold">Category</th>
+                    <th className="pb-3 text-stone-400 font-semibold text-right">Sales (₹)</th>
+                    <th className="pb-3 text-stone-400 font-semibold text-right">Growth</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
                   {topCatData && topCatData.length > 0 ? (
                     topCatData.map((row, idx) => (
-                      <tr key={idx} className="hover:bg-stone-50/50">
-                        <td className="py-2.5 font-bold text-stone-900 flex items-center gap-1.5">
-                          <span>{row.icon}</span>
-                          <span>{row.name}</span>
+                      <tr key={idx} className="hover:bg-stone-50/50 transition-colors">
+                        <td className="py-3 font-semibold text-stone-900 text-xs flex items-center gap-2">
+                          <span className="text-sm">{row.icon}</span>
+                          <span className="truncate max-w-[120px]" title={row.name}>{row.name}</span>
                         </td>
-                        <td className="py-2.5 text-right font-mono font-bold text-stone-900">{row.sales}</td>
-                        <td className={`py-2.5 text-right font-bold ${row.is_increase === false ? 'text-rose-600' : 'text-emerald-600'}`}>{row.growth}</td>
+                        <td className="py-3 text-right font-mono font-bold text-stone-900 text-xs whitespace-nowrap">{row.sales}</td>
+                        <td className={`py-3 text-right font-bold text-xs whitespace-nowrap ${row.is_increase === false ? 'text-rose-600' : 'text-[#16a34a]'}`}>{row.growth}</td>
                       </tr>
                     ))
                   ) : null}
@@ -834,40 +833,45 @@ export default function Dashboard() {
             <div className="py-8 flex flex-col items-center justify-center text-stone-400 font-medium my-auto space-y-2">
               <i className="fa-solid fa-layer-group text-2xl text-stone-300"></i>
               <span className="text-xs font-semibold">No Categories in Masters</span>
-              <Link to="/masters/categories?action=create" state={{ openCreate: true }} className="text-[11px] font-bold text-[#b01622] hover:underline flex items-center gap-1">
-                <i className="fa-solid fa-plus text-[9px]"></i>
-                <span>Add Category in Masters</span>
-              </Link>
             </div>
           )}
         </div>
 
         {/* Column 3: Action Required */}
-        <div className="bg-white rounded-2xl border border-stone-200/80 shadow-2xs p-4 flex flex-col justify-between h-full">
+        <div className="bg-white rounded-2xl border border-stone-200/80 shadow-2xs p-5 flex flex-col justify-between h-full">
           <div>
             <div className="flex items-center justify-between border-b border-stone-100 pb-3 mb-3">
-              <h3 className="text-sm font-bold text-stone-900">Action Required</h3>
+              <h3 className="text-base font-bold text-stone-900 tracking-tight">Action Requires</h3>
+              <div className="relative">
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 px-3 py-1 bg-white border border-stone-200 rounded-lg text-xs font-semibold text-stone-600 hover:border-stone-300 transition-colors shadow-2xs cursor-pointer"
+                >
+                  <span>This Month</span>
+                  <i className="fa-solid fa-chevron-down text-[9px] text-stone-400"></i>
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto w-full">
               <table className="w-full text-left border-collapse text-xs align-top">
                 <thead>
-                  <tr className="text-[10px] font-bold text-stone-400 uppercase tracking-wider border-b border-stone-100">
-                    <th className="pb-2">Item / Alert</th>
-                    <th className="pb-2 text-right">Details</th>
-                    <th className="pb-2 text-right">Status</th>
+                  <tr className="text-[11px] font-semibold text-stone-400 border-b border-stone-100">
+                    <th className="pb-3 text-stone-400 font-semibold">Category</th>
+                    <th className="pb-3 text-stone-400 font-semibold text-right">Sales (₹)</th>
+                    <th className="pb-3 text-stone-400 font-semibold text-right">Growth</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
                   {actionReqData && actionReqData.length > 0 ? (
                     actionReqData.map((row, idx) => (
-                      <tr key={idx} className="hover:bg-stone-50/50">
-                        <td className="py-2.5 font-bold text-stone-900 flex items-center gap-1.5">
-                          <span>{row.icon}</span>
-                          <span>{row.name}</span>
+                      <tr key={idx} className="hover:bg-stone-50/50 transition-colors">
+                        <td className="py-3 font-semibold text-stone-900 text-xs flex items-center gap-2">
+                          <span className="text-sm">{row.icon}</span>
+                          <span className="truncate max-w-[120px]" title={row.name}>{row.name}</span>
                         </td>
-                        <td className="py-2.5 text-right font-mono font-bold text-stone-900">{row.sales}</td>
-                        <td className="py-2.5 text-right font-bold text-amber-600">{row.growth}</td>
+                        <td className="py-3 text-right font-mono font-bold text-stone-900 text-xs whitespace-nowrap">{row.sales}</td>
+                        <td className={`py-3 text-right font-bold text-xs whitespace-nowrap ${row.is_increase === false ? 'text-rose-600' : 'text-[#16a34a]'}`}>{row.growth}</td>
                       </tr>
                     ))
                   ) : null}
@@ -887,9 +891,9 @@ export default function Dashboard() {
       </div>
 
       {/* 5. Section 4: Live Manufacturing Jobs & Work Order Approvals */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-2 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-2 items-stretch">
         {/* Left (2 Columns): LIVE JOB CREATION STATUS TABLE */}
-        <div className="lg:col-span-2 bg-white rounded-2xl border border-stone-200/80 shadow-2xs overflow-hidden">
+        <div className="lg:col-span-2 bg-white rounded-2xl border border-stone-200/80 shadow-2xs overflow-hidden flex flex-col justify-between h-full">
           <div>
             <div className="p-4 border-b border-stone-100 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
@@ -910,94 +914,143 @@ export default function Dashboard() {
               </Link>
             </div>
 
-            <div className="overflow-x-auto custom-scrollbar pb-1">
-              <table className="w-full text-left text-xs border-collapse min-w-[850px]">
+            <div className="overflow-x-auto custom-scrollbar flex-1 flex flex-col justify-between">
+              <table className="w-full text-left text-xs border-collapse min-w-[720px] my-auto">
                 <thead>
                   <tr className="border-b border-stone-100 bg-stone-50/60 text-stone-600 font-semibold text-[11px]">
-                    <th className="py-2.5 px-3.5 whitespace-nowrap">WORK ORDER NO</th>
-                    <th className="py-2.5 px-3 whitespace-nowrap">Product</th>
-                    <th className="py-2.5 px-3 whitespace-nowrap">Aachari</th>
-                    <th className="py-2.5 px-3 text-right whitespace-nowrap">Allotted Wt</th>
-                    <th className="py-2.5 px-3 text-right whitespace-nowrap">Completed Wt</th>
-                    <th className="py-2.5 px-3 text-right whitespace-nowrap">Pending Wt</th>
-                    <th className="py-2.5 px-3 whitespace-nowrap">Current Stage</th>
-                    <th className="py-2.5 px-3 text-center whitespace-nowrap">Status</th>
+                    <th className="py-3 px-3.5 whitespace-nowrap">WORK ORDER NO</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Product</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Aachari</th>
+                    <th className="py-3 px-3 text-right whitespace-nowrap">Allotted Wt</th>
+                    <th className="py-3 px-3 text-right whitespace-nowrap">Completed Wt</th>
+                    <th className="py-3 px-3 text-right whitespace-nowrap">Pending Wt</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Stage</th>
+                    <th className="py-3 px-3 text-center whitespace-nowrap">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
                   {jobsLoading && jobStats.live_jobs.length === 0 ? (
-                    [1, 2, 3, 4].map((n) => (
+                    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
                       <tr key={n} className="animate-pulse">
-                        <td className="py-3 px-3.5"><div className="h-3.5 bg-stone-200/80 rounded w-24"></div></td>
-                        <td className="py-3 px-3"><div className="h-3.5 bg-stone-200/80 rounded w-28"></div></td>
-                        <td className="py-3 px-3"><div className="h-3.5 bg-stone-200/80 rounded w-20"></div></td>
-                        <td className="py-3 px-3 text-right"><div className="h-3.5 bg-stone-200/80 rounded w-14 ml-auto"></div></td>
-                        <td className="py-3 px-3 text-right"><div className="h-3.5 bg-stone-200/80 rounded w-14 ml-auto"></div></td>
-                        <td className="py-3 px-3 text-right"><div className="h-3.5 bg-stone-200/80 rounded w-14 ml-auto"></div></td>
-                        <td className="py-3 px-3"><div className="h-3.5 bg-stone-200/80 rounded w-16"></div></td>
-                        <td className="py-3 px-3 text-center"><div className="h-3.5 bg-stone-200/80 rounded-full w-14 mx-auto"></div></td>
+                        <td className="py-4 px-3.5"><div className="h-3.5 bg-stone-200/80 rounded w-24"></div></td>
+                        <td className="py-4 px-3"><div className="h-3.5 bg-stone-200/80 rounded w-28"></div></td>
+                        <td className="py-4 px-3"><div className="h-3.5 bg-stone-200/80 rounded w-20"></div></td>
+                        <td className="py-4 px-3 text-right"><div className="h-3.5 bg-stone-200/80 rounded w-14 ml-auto"></div></td>
+                        <td className="py-4 px-3 text-right"><div className="h-3.5 bg-stone-200/80 rounded w-14 ml-auto"></div></td>
+                        <td className="py-4 px-3 text-right"><div className="h-3.5 bg-stone-200/80 rounded w-14 ml-auto"></div></td>
+                        <td className="py-4 px-3"><div className="h-3.5 bg-stone-200/80 rounded w-16"></div></td>
+                        <td className="py-4 px-3 text-center"><div className="h-3.5 bg-stone-200/80 rounded-full w-14 mx-auto"></div></td>
                       </tr>
                     ))
                   ) : jobStats.live_jobs.length === 0 ? (
                     <tr>
-                      <td colSpan="8" className="py-8 text-center text-stone-400 font-medium">
+                      <td colSpan="8" className="py-12 text-center text-stone-400 font-medium">
                         No active live jobs found.
                       </td>
                     </tr>
                   ) : (
-                    jobStats.live_jobs.slice(0, 5).map((wo) => (
-                      <tr
-                        key={wo.id}
-                        onClick={() => navigate('/job-order')}
-                        className="hover:bg-stone-50/60 transition-colors cursor-pointer group"
-                      >
-                        <td className="py-2.5 px-3.5 font-mono font-bold text-[#b01622] group-hover:underline whitespace-nowrap">
-                          {wo.work_order_number}
-                        </td>
-                        <td className="py-2.5 px-3 font-bold text-gray-900 truncate max-w-[140px]" title={wo.product_name || wo.item_type}>
-                          {wo.product_name || wo.item_type || wo.product?.name || '-'}
-                        </td>
-                        <td className="py-2.5 px-3 text-stone-700 whitespace-nowrap font-medium">
-                          {wo.karigar_name || wo.artisan_name || wo.karigar?.name || '-'}
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-mono font-bold text-gray-900 whitespace-nowrap">
-                          {Number(wo.allotted_weight).toFixed(3)}g
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-mono font-semibold text-emerald-700 whitespace-nowrap">
-                          {Number(wo.completed_weight).toFixed(3)}g
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-mono font-bold text-[#b01622] whitespace-nowrap">
-                          {Number(wo.pending_weight).toFixed(3)}g
-                        </td>
-                        <td className="py-2.5 px-3 whitespace-nowrap">
-                          <span className="text-[10px] font-bold text-stone-600 bg-stone-100 px-2 py-0.5 rounded">
-                            {wo.current_stage ? wo.current_stage.replace(/_/g, ' ') : 'Created'}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${wo.status === 'pending_approval'
-                            ? 'bg-amber-100 text-amber-900'
-                            : wo.status === 'approved' || wo.status === 'ready'
-                              ? 'bg-emerald-100 text-emerald-900'
-                              : 'bg-blue-50 text-blue-900'
-                            }`}>
-                            {wo.status ? wo.status.replace(/_/g, ' ') : 'ongoing'}
-                          </span>
-                        </td>
-                      </tr>
-                    ))
+                    (() => {
+                      const totalLive = jobStats.live_jobs.length;
+                      const paginatedJobs = jobStats.live_jobs.slice((liveJobsPage - 1) * itemsPerPage, liveJobsPage * itemsPerPage);
+
+                      return paginatedJobs.map((wo) => (
+                        <tr
+                          key={wo.id}
+                          onClick={() => navigate('/job-order')}
+                          className="hover:bg-stone-50/60 transition-colors cursor-pointer group"
+                        >
+                          <td className="py-4 px-3.5 font-mono font-bold text-[#b01622] group-hover:underline whitespace-nowrap">
+                            {wo.work_order_number}
+                          </td>
+                          <td className="py-4 px-3 font-bold text-gray-900 truncate max-w-[140px]" title={wo.product_name || wo.item_type}>
+                            {wo.product_name || wo.item_type || wo.product?.name || '-'}
+                          </td>
+                          <td className="py-4 px-3 text-stone-700 whitespace-nowrap font-medium truncate max-w-[130px]" title={wo.karigar_name || wo.artisan_name || wo.karigar?.name}>
+                            {wo.karigar_name || wo.artisan_name || wo.karigar?.name || '-'}
+                          </td>
+                          <td className="py-4 px-3 text-right font-mono font-bold text-gray-900 whitespace-nowrap">
+                            {Number(wo.allotted_weight).toFixed(3)}g
+                          </td>
+                          <td className="py-4 px-3 text-right font-mono font-semibold text-emerald-700 whitespace-nowrap">
+                            {Number(wo.completed_weight).toFixed(3)}g
+                          </td>
+                          <td className="py-4 px-3 text-right font-mono font-bold text-[#b01622] whitespace-nowrap">
+                            {Number(wo.pending_weight).toFixed(3)}g
+                          </td>
+                          <td className="py-4 px-3 whitespace-nowrap">
+                            <span className="text-[10px] font-bold text-stone-600 bg-stone-100 px-2 py-0.5 rounded">
+                              {wo.current_stage ? wo.current_stage.replace(/_/g, ' ') : 'Created'}
+                            </span>
+                          </td>
+                          <td className="py-4 px-3 text-center whitespace-nowrap">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${wo.status === 'pending_approval'
+                              ? 'bg-amber-100 text-amber-900'
+                              : wo.status === 'approved' || wo.status === 'ready'
+                                ? 'bg-emerald-100 text-emerald-900'
+                                : 'bg-blue-50 text-blue-900'
+                              }`}>
+                              {wo.status ? wo.status.replace(/_/g, ' ') : 'ongoing'}
+                            </span>
+                          </td>
+                        </tr>
+                      ));
+                    })()
                   )}
                 </tbody>
               </table>
             </div>
+
           </div>
 
-          <div className="p-3 bg-stone-50 border-t border-stone-100 flex items-center justify-end text-xs text-stone-500">
-            <Link to="/job-order/receive" className="font-bold text-[#b01622] hover:underline">
-              Open Receiver Work &rarr;
-            </Link>
-          </div>
+          {/* Footer with Pagination Controls */}
+          {(() => {
+            const totalLive = jobStats.live_jobs.length;
+            const totalLivePages = Math.ceil(totalLive / itemsPerPage) || 1;
+            const startItem = totalLive > 0 ? (liveJobsPage - 1) * itemsPerPage + 1 : 0;
+            const endItem = Math.min(liveJobsPage * itemsPerPage, totalLive);
+
+            return (
+              <div className="p-3.5 bg-stone-50/80 border-t border-stone-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div className="text-stone-500 font-medium">
+                  Showing <span className="font-bold text-stone-800">{startItem}</span> to{' '}
+                  <span className="font-bold text-stone-800">{endItem}</span> of{' '}
+                  <span className="font-bold text-stone-800">{totalLive}</span> active jobs
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={liveJobsPage === 1}
+                      onClick={() => setLiveJobsPage(p => Math.max(1, p - 1))}
+                      className="px-2.5 py-1 bg-white border border-stone-200 rounded-lg text-xs font-semibold text-stone-700 hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-2xs cursor-pointer"
+                    >
+                      <i className="fa-solid fa-chevron-left text-[9px] mr-1"></i> Prev
+                    </button>
+
+                    <span className="text-xs font-bold text-stone-700 px-2">
+                      {liveJobsPage} / {totalLivePages}
+                    </span>
+
+                    <button
+                      type="button"
+                      disabled={liveJobsPage >= totalLivePages}
+                      onClick={() => setLiveJobsPage(p => Math.min(totalLivePages, p + 1))}
+                      className="px-2.5 py-1 bg-white border border-stone-200 rounded-lg text-xs font-semibold text-stone-700 hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-2xs cursor-pointer"
+                    >
+                      Next <i className="fa-solid fa-chevron-right text-[9px] ml-1"></i>
+                    </button>
+                  </div>
+
+                  <Link to="/job-order/receive" className="font-bold text-[#b01622] hover:underline border-l border-stone-200 pl-3">
+                    Open Receiver Work &rarr;
+                  </Link>
+                </div>
+              </div>
+            );
+          })()}
         </div>
+
 
         {/* Right (1 Column): TOTAL MATERIALS ALLOCATED & METAL ON BENCH */}
         {(() => {
@@ -1037,9 +1090,9 @@ export default function Dashboard() {
             return m.includes('diamond');
           }).reduce((acc, j) => acc + Number(j.allotted_weight || 0), 0);
 
-          const goldWeightVal = Number(jobStats.summary?.gold_weight) > 0 ? Number(jobStats.summary.gold_weight) : calcGoldFromJobs;
-          const silverWeightVal = Number(jobStats.summary?.silver_weight) > 0 ? Number(jobStats.summary.silver_weight) : calcSilverFromJobs;
-          const diamondWeightVal = Number(jobStats.summary?.diamond_weight) > 0 ? Number(jobStats.summary.diamond_weight) : calcDiamondFromJobs;
+          const goldWeightVal = jobStats.summary?.gold_weight !== undefined && jobStats.summary?.gold_weight !== null ? Number(jobStats.summary.gold_weight) : calcGoldFromJobs;
+          const silverWeightVal = jobStats.summary?.silver_weight !== undefined && jobStats.summary?.silver_weight !== null ? Number(jobStats.summary.silver_weight) : calcSilverFromJobs;
+          const diamondWeightVal = jobStats.summary?.diamond_weight !== undefined && jobStats.summary?.diamond_weight !== null ? Number(jobStats.summary.diamond_weight) : calcDiamondFromJobs;
 
           // Multi-Material Bench Metal calculation across Karigars & Active Jobs
           const sumBaseKarigarGold = karigarsList.reduce((acc, k) => acc + Number(k.current_gold_balance_grams || 0), 0);
@@ -1208,105 +1261,7 @@ export default function Dashboard() {
         })()}
       </div>
 
-      {/* 6. Section 5: Quality Check Queue (Final Approval) */}
-      <div className="mb-8">
-        <div className="border-b border-[#eceff3] pb-2.5 mb-4 flex items-center justify-between">
-          <h2 className="text-sm font-bold text-[#111827] tracking-tight">
-            Quality Check Queue (Final Approval)
-          </h2>
-          <span className="text-[11px] font-semibold text-stone-400">
-            {jobStats.approval_cards.length} item{jobStats.approval_cards.length === 1 ? '' : 's'} awaiting manager inspection
-          </span>
-        </div>
 
-        {/* Horizontal Cards Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {jobStats.approval_cards.map((card) => (
-            <div
-              key={card.id}
-              className="bg-white rounded-xl border border-[#eceff3] shadow-[0_1px_3px_rgba(0,0,0,0.02)] p-3.5 flex flex-col justify-between hover:border-gray-300 transition-colors min-h-[290px]"
-            >
-              <div>
-                {/* Image Box */}
-                <div className="relative h-44 rounded-lg overflow-hidden bg-stone-100 mb-3">
-                  <img
-                    src={resolveItemImage(card)}
-                    alt={card.product_name}
-                    loading="eager"
-                    fetchPriority="high"
-                    decoding="sync"
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      e.target.onerror = null;
-                      e.target.src = 'https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?auto=format&fit=crop&w=400&q=80';
-                    }}
-                  />
-                  {card.is_priority && (
-                    <span className="absolute top-2 right-2 bg-[#ea580c] text-white text-[8px] font-bold px-1.5 py-0.5 rounded tracking-wider shadow-2xs uppercase">
-                      PRIORITY
-                    </span>
-                  )}
-                </div>
-
-                {/* Title & QC Code */}
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-bold text-gray-900 truncate max-w-[140px]" title={card.product_name}>
-                    {card.product_name}
-                  </h3>
-                  <span className="text-[10px] font-semibold text-[#9ca3af]">
-                    {card.qc_code || card.work_order_number}
-                  </span>
-                </div>
-
-                {/* Artisan Info */}
-                <p className="text-[10.5px] text-[#6b7280] mt-0.5 mb-3">
-                  Artisan: {card.karigar_name || card.artisan_name || '-'}
-                </p>
-              </div>
-
-              {/* Action Buttons: Approve & Reject */}
-              <div className="grid grid-cols-2 gap-2 mt-1">
-                <button
-                  type="button"
-                  disabled={approvingId === card.id}
-                  onClick={() => handleDashboardApprove(card.id)}
-                  className="py-1.5 px-3 bg-[#16a34a] hover:bg-[#15803d] disabled:opacity-50 text-white font-bold text-xs rounded-md transition-colors text-center cursor-pointer shadow-2xs flex items-center justify-center gap-1"
-                >
-                  {approvingId === card.id ? (
-                    <i className="fa-solid fa-circle-notch fa-spin text-xs"></i>
-                  ) : (
-                    'Approve'
-                  )}
-                </button>
-                <button
-                  type="button"
-                  disabled={approvingId === card.id}
-                  onClick={() => handleDashboardReturn(card.id)}
-                  className="py-1.5 px-3 bg-white hover:bg-red-50 disabled:opacity-50 text-[#ef4444] border border-[#ef4444] font-bold text-xs rounded-md transition-colors text-center cursor-pointer"
-                >
-                  Reject
-                </button>
-              </div>
-            </div>
-          ))}
-
-          {/* Quick link card to QC Hub */}
-          <Link
-            to="/job-order/quality-check"
-            className="border-2 border-dashed border-[#d1d5db] hover:border-gray-400 rounded-xl bg-white p-6 flex flex-col items-center justify-center text-center cursor-pointer transition-colors min-h-[290px]"
-          >
-            <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 mb-2.5 text-lg">
-              <i className="fa-solid fa-arrow-right text-xs"></i>
-            </div>
-            <span className="text-xs font-bold text-gray-900">
-              Quality Check Hub
-            </span>
-            <p className="text-[10px] text-gray-400 mt-1 max-w-[150px] leading-tight">
-              View all items & inspection history
-            </p>
-          </Link>
-        </div>
-      </div>
 
       {/* Material Allocation & Bench Metal Pop-up Modals */}
       <MaterialAllocationModal

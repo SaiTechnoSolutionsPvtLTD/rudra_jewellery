@@ -7,23 +7,24 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => {
     try {
       const savedUser = localStorage.getItem('auth_user');
-      return savedUser ? JSON.parse(savedUser) : null;
+      return savedUser && savedUser !== 'undefined' && savedUser !== 'null' ? JSON.parse(savedUser) : null;
     } catch (e) {
       return null;
     }
   });
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return !!localStorage.getItem('auth_token');
+    const token = localStorage.getItem('auth_token');
+    return !!token && token !== 'undefined' && token !== 'null';
   });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const verifyAuth = async () => {
       const token = localStorage.getItem('auth_token');
-      if (token) {
+      if (token && token !== 'undefined' && token !== 'null') {
         try {
           const response = await api.get('/me');
-          if (response.data && response.data.status) {
+          if (response.data && (response.data.status === true || response.data.status === 'success') && response.data.user) {
             setUser(response.data.user);
             localStorage.setItem('auth_user', JSON.stringify(response.data.user));
             setIsAuthenticated(true);
@@ -31,9 +32,7 @@ export const AuthProvider = ({ children }) => {
             clearAuth();
           }
         } catch (error) {
-          if (error.response && error.response.status === 401) {
-            clearAuth();
-          }
+          clearAuth();
         }
       } else {
         clearAuth();
@@ -67,7 +66,7 @@ export const AuthProvider = ({ children }) => {
 
         setUser(userData);
         setIsAuthenticated(true);
-        return { success: true };
+        return { success: true, user: userData };
       }
       return { success: false, message: response.data?.message || 'Invalid credentials' };
     } catch (error) {
@@ -110,6 +109,37 @@ export const AuthProvider = ({ children }) => {
     return permKeys.some(key => hasPermission(key));
   };
 
+  const updateUser = (newUserData) => {
+    setUser((prev) => {
+      if (!prev) return newUserData;
+      const updated = { ...prev, ...newUserData };
+      try {
+        localStorage.setItem('auth_user', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+    window.dispatchEvent(new CustomEvent('rudhra_user_updated', { detail: newUserData }));
+  };
+
+  useEffect(() => {
+    const handleUserUpdate = (e) => {
+      if (e?.detail) {
+        setUser((prev) => {
+          if (prev && (prev.id === e.detail.id || prev.email === e.detail.email)) {
+            const updated = { ...prev, ...e.detail };
+            try {
+              localStorage.setItem('auth_user', JSON.stringify(updated));
+            } catch (err) {}
+            return updated;
+          }
+          return prev;
+        });
+      }
+    };
+    window.addEventListener('rudhra_user_updated', handleUserUpdate);
+    return () => window.removeEventListener('rudhra_user_updated', handleUserUpdate);
+  }, []);
+
   return (
     <AuthContext.Provider value={{
       user,
@@ -117,6 +147,7 @@ export const AuthProvider = ({ children }) => {
       loading,
       login,
       logout,
+      updateUser,
       role,
       userPermissions,
       isSuperAdmin,

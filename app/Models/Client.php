@@ -29,6 +29,7 @@ class Client extends Model
         'gst_percentage',
         'designation',
         'membership_tier',
+        'preferred_communication',
         'total_purchases',
         'last_visit',
         'quick_notes',

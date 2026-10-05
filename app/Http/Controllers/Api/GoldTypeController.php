@@ -24,6 +24,7 @@ class GoldTypeController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255|unique:gold_types,name',
+            'karat' => 'nullable|string|max:100',
             'purity' => 'nullable|string|max:100',
             'sort_order' => 'nullable|integer',
             'description' => 'nullable|string',
@@ -57,6 +58,7 @@ class GoldTypeController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255|unique:gold_types,name,' . $goldType->id,
+            'karat' => 'nullable|string|max:100',
             'purity' => 'nullable|string|max:100',
             'sort_order' => 'nullable|integer',
             'description' => 'nullable|string',

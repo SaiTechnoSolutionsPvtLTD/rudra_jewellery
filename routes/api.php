@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\SubcategoryController;
+use App\Http\Controllers\Api\ItemController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\MembershipController;
 use App\Http\Controllers\Api\SupplierController;
@@ -24,6 +25,8 @@ use App\Http\Controllers\Api\SalesController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\BankAccountController;
 use App\Http\Controllers\Api\CompanyInfoController;
+use App\Http\Controllers\Api\DiamondColorController;
+use App\Http\Controllers\Api\DiamondClarityController;
 
 // Public authentication routes
 Route::post('/login', [AuthController::class, 'login']);
@@ -70,6 +73,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/clients/{id}/remove', [ClientController::class, 'removeClient']);
     Route::post('/clients/{id}/restore', [ClientController::class, 'restoreClient']);
     Route::get('/clients/{client}/price-list', [ClientPriceListController::class, 'show']);
+    Route::get('/clients/{client}/price-list/history', [ClientPriceListController::class, 'history']);
     Route::post('/clients/{client}/price-list', [ClientPriceListController::class, 'storeOrUpdate']);
     Route::apiResource('clients', ClientController::class);
 
@@ -97,6 +101,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('users', UserController::class);
     Route::apiResource('categories', CategoryController::class);
     Route::apiResource('subcategories', SubcategoryController::class);
+    Route::apiResource('items', ItemController::class);
     Route::get('/products/generate-sku', [ProductController::class, 'generateSku']);
     Route::post('/products/bulk-opening-stock', [ProductController::class, 'bulkUpdateOpeningStock']);
     Route::post('/products/{id}/opening-stock', [ProductController::class, 'updateOpeningStock']);
@@ -125,6 +130,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('styles', \App\Http\Controllers\Api\StyleController::class);
     Route::apiResource('gold-types', \App\Http\Controllers\Api\GoldTypeController::class);
     Route::apiResource('diamond-ranges', \App\Http\Controllers\Api\DiamondRangeController::class);
+    Route::apiResource('diamond-colors', DiamondColorController::class);
+    Route::apiResource('diamond-clarities', DiamondClarityController::class);
+    Route::apiResource('karats', \App\Http\Controllers\Api\KaratController::class);
+    Route::apiResource('stamps', \App\Http\Controllers\Api\StampController::class);
+    Route::apiResource('units', \App\Http\Controllers\Api\UnitController::class);
 
     // Karigar (Artisan) Management
     Route::get('/karigars/generate-code', [KarigarController::class, 'generateCode']);

@@ -16,6 +16,11 @@ class WorkSpecificationController extends Controller
      */
     public function index(Request $request)
     {
+        // Auto-seed initial work specifications if database table is empty
+        if (WorkSpecification::count() === 0) {
+            $this->seedInitialWorkSpecifications();
+        }
+
         $query = WorkSpecification::query()->withCount('karigars');
 
         // Status filter
@@ -161,5 +166,87 @@ class WorkSpecificationController extends Controller
         return response()->json([
             'message' => 'Work specification deleted successfully.',
         ]);
+    }
+
+    /**
+     * Helper to populate default work craft specifications.
+     */
+    public function seedInitialWorkSpecifications()
+    {
+        $initialSpecs = [
+            [
+                'code' => 'SPEC-001',
+                'name' => 'Antique & Temple Work',
+                'description' => 'Specialized in 22K Nagas, Nakshi, handcrafted temple jewellery, and antique heritage pieces.',
+                'default_wastage_percent' => 5.20,
+                'default_making_charge' => 680.00,
+                'icon' => 'fa-solid fa-vihara',
+                'color' => 'amber',
+                'status' => 'active',
+                'sort_order' => 1,
+            ],
+            [
+                'code' => 'SPEC-002',
+                'name' => 'Diamond & Prong Setting',
+                'description' => 'Micro-pave, claw, prong, bezel, and invisible diamond and gemstone setting.',
+                'default_wastage_percent' => 3.80,
+                'default_making_charge' => 850.00,
+                'icon' => 'fa-solid fa-gem',
+                'color' => 'blue',
+                'status' => 'active',
+                'sort_order' => 2,
+            ],
+            [
+                'code' => 'SPEC-003',
+                'name' => 'Plain Gold & Machine Casting',
+                'description' => 'Centrifugal vacuum casting, plain 22K/18K gold bangles, chains, and bullion casting.',
+                'default_wastage_percent' => 3.50,
+                'default_making_charge' => 450.00,
+                'icon' => 'fa-solid fa-cubes-stacked',
+                'color' => 'emerald',
+                'status' => 'active',
+                'sort_order' => 3,
+            ],
+            [
+                'code' => 'SPEC-004',
+                'name' => 'Kundan & Meenakari',
+                'description' => 'Traditional Jaipur reverse enamel work, Jadau foil setting, and intricate color meena.',
+                'default_wastage_percent' => 6.00,
+                'default_making_charge' => 920.00,
+                'icon' => 'fa-solid fa-palette',
+                'color' => 'purple',
+                'status' => 'active',
+                'sort_order' => 4,
+            ],
+            [
+                'code' => 'SPEC-005',
+                'name' => 'Stone Setting & Polishing',
+                'description' => 'Navaratna setting, semi-precious stone insertion, high-luster polishing, and rhodium plating.',
+                'default_wastage_percent' => 4.20,
+                'default_making_charge' => 520.00,
+                'icon' => 'fa-solid fa-star',
+                'color' => 'red',
+                'status' => 'active',
+                'sort_order' => 5,
+            ],
+            [
+                'code' => 'SPEC-006',
+                'name' => 'Filigree & Die Work',
+                'description' => 'Delicate wire filigree, embossed die-cutting, stamp work, and decorative sheet motifs.',
+                'default_wastage_percent' => 4.80,
+                'default_making_charge' => 620.00,
+                'icon' => 'fa-solid fa-feather-pointed',
+                'color' => 'slate',
+                'status' => 'active',
+                'sort_order' => 6,
+            ],
+        ];
+
+        foreach ($initialSpecs as $specData) {
+            WorkSpecification::updateOrCreate(
+                ['code' => $specData['code']],
+                $specData
+            );
+        }
     }
 }

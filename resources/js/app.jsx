@@ -15,6 +15,7 @@ import Roles from './pages/authentication/Roles';
 import Permissions from './pages/authentication/Permissions';
 import Categories from './pages/masters/Categories';
 import Subcategories from './pages/masters/Subcategories';
+import ItemsMaster from './pages/masters/ItemsMaster';
 import Products from './pages/masters/Products';
 import CreateProduct from './pages/masters/CreateProduct';
 import Memberships from './pages/masters/Memberships';
@@ -30,6 +31,11 @@ import Step4Download from './pages/product-upload/Step4Download';
 import SettingStyles from './pages/masters/SettingStyles';
 import GoldTypes from './pages/masters/GoldTypes';
 import DiamondRanges from './pages/masters/DiamondRanges';
+import DiamondColors from './pages/masters/DiamondColors';
+import DiamondClarities from './pages/masters/DiamondClarities';
+import Karats from './pages/masters/Karats';
+import Stamps from './pages/masters/Stamps';
+import Units from './pages/masters/Units';
 import WorkSpecifications from './pages/masters/WorkSpecifications';
 import BankAccounts from './pages/masters/BankAccounts';
 import CompanyInfoMaster from './pages/masters/CompanyInfoMaster';
@@ -275,6 +281,10 @@ function App() {
                 <Route path="/masters/categories" element={<Categories />} />
                 <Route path="/masters/category" element={<Navigate to="/masters/categories" replace />} />
                 <Route path="/masters/subcategories" element={<Subcategories />} />
+                <Route path="/masters/items" element={<ItemsMaster />} />
+                <Route path="/masters/karats" element={<Karats />} />
+                <Route path="/masters/stamps" element={<Stamps />} />
+                <Route path="/masters/units" element={<Units />} />
                 <Route path="/masters/products" element={<Navigate to="/inventory" replace />} />
                 <Route path="/masters/products/create" element={<Navigate to="/inventory/add-new/category" replace />} />
                 <Route path="/masters/products/:id/edit" element={<Navigate to="/inventory" replace />} />
@@ -290,13 +300,15 @@ function App() {
                 <Route path="/product-upload/upload" element={<Step1Upload />} />
                 <Route path="/product-upload/step2" element={<Step2Catalog />} />
                 <Route path="/product-upload/catalog" element={<Step2Catalog />} />
-                <Route path="/product-upload/step3" element={<Step3Selection />} />
-                <Route path="/product-upload/selection" element={<Step3Selection />} />
-                <Route path="/product-upload/step4" element={<Step4Download />} />
+                <Route path="/product-upload/selection" element={<Step2Catalog />} />
+                <Route path="/product-upload/step3" element={<Step4Download />} />
                 <Route path="/product-upload/download" element={<Step4Download />} />
+                <Route path="/product-upload/step4" element={<Step4Download />} />
                 <Route path="/masters/setting-styles" element={<SettingStyles />} />
                 <Route path="/masters/gold-types" element={<GoldTypes />} />
                 <Route path="/masters/diamond-ranges" element={<DiamondRanges />} />
+                <Route path="/masters/diamond-colors" element={<DiamondColors />} />
+                <Route path="/masters/diamond-clarities" element={<DiamondClarities />} />
                 <Route path="/masters/work-specifications" element={<WorkSpecifications />} />
                 <Route path="/masters/bank-accounts" element={<BankAccounts />} />
                 <Route path="/masters/info" element={<CompanyInfoMaster />} />

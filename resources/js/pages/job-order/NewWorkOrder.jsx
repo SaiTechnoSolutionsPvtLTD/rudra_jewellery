@@ -45,7 +45,12 @@ export default function NewWorkOrder({ initialMode }) {
     warning: (msg) => rawShowToast(msg, 'warning'),
     showToast: rawShowToast,
   };
-  const goldRate22k = 6850;
+  const [goldRate22k, setGoldRate22k] = useState(0);
+  useEffect(() => {
+    api.get('/metal-rates').then(res => {
+      if (res.data?.raw22k) setGoldRate22k(res.data.raw22k);
+    }).catch(() => {});
+  }, []);
   const navigate = useNavigate();
   const params = useParams();
   const [searchParams] = useSearchParams();
@@ -1177,33 +1182,7 @@ export default function NewWorkOrder({ initialMode }) {
                     <span>Print</span>
                   </button>
                 </div>
-              ) : (
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2 bg-white border border-stone-300 hover:border-[#881337] rounded-lg px-3 py-1.5 shadow-2xs transition-colors">
-                    <i className="fa-solid fa-filter text-xs text-[#881337]"></i>
-                    <select
-                      value={selectedMonth}
-                      onChange={(e) => setSelectedMonth(e.target.value)}
-                      className="text-xs font-semibold text-gray-700 bg-transparent outline-hidden cursor-pointer"
-                      title="Filter materials by month"
-                    >
-                      <option value="all">All Months</option>
-                      <option value="01">January</option>
-                      <option value="02">February</option>
-                      <option value="03">March</option>
-                      <option value="04">April</option>
-                      <option value="05">May</option>
-                      <option value="06">June</option>
-                      <option value="07">July</option>
-                      <option value="08">August</option>
-                      <option value="09">September</option>
-                      <option value="10">October</option>
-                      <option value="11">November</option>
-                      <option value="12">December</option>
-                    </select>
-                  </div>
-                </div>
-              )}
+              ) : null}
             </div>
           </div>
 

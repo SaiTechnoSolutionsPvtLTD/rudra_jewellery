@@ -28,9 +28,8 @@ export default function ProductUploadStepNav({ currentStep = 1, onSyncComplete }
 
   const steps = [
     { number: 1, title: 'Upload Designs', path: '/product-upload/step1', icon: 'fa-solid fa-cloud-arrow-up' },
-    { number: 2, title: 'Design Catalog', path: '/product-upload/step2', icon: 'fa-solid fa-border-all' },
-    { number: 3, title: 'Product Selection', path: '/product-upload/step3', icon: 'fa-solid fa-square-check', badge: selectedCount },
-    { number: 4, title: 'Download & Share', path: '/product-upload/step4', icon: 'fa-solid fa-share-nodes' },
+    { number: 2, title: 'Design Catalog & Selection', path: '/product-upload/step2', icon: 'fa-solid fa-border-all', badge: selectedCount },
+    { number: 3, title: 'Download & Share', path: '/product-upload/step3', icon: 'fa-solid fa-share-nodes' },
   ];
 
   return (
@@ -59,7 +58,7 @@ export default function ProductUploadStepNav({ currentStep = 1, onSyncComplete }
         </button>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         {steps.map((step) => {
           const isActive = currentStep === step.number;
           const isCompleted = currentStep > step.number;

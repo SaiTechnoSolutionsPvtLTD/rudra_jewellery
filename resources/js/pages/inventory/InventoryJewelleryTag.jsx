@@ -122,7 +122,24 @@ ${reportEl.outerHTML}
   const purity = attributes.purity || attributes.gold_type || '22K (91.6% BIS 916 Hallmark)';
   const stamp = attributes.stamp || '916 BIS';
   const settingStyle = attributes.setting_style || 'Antique Cast / Temple Work';
-  const openCloseType = attributes.open_close_type || attributes.open_close_details || 'Hinged Clasp with Safety Screw Lock';
+  const detectOpenCloseStatus = () => {
+    const text = [
+      product?.name || '',
+      attributes.item_name || '',
+      attributes.open_close_type || '',
+      attributes.open_close_details || '',
+      product?.subcategory?.name || '',
+      product?.category?.name || '',
+      product?.description || ''
+    ].join(' ').toLowerCase();
+
+    if (text.includes('openable') || text.includes('open')) {
+      return 'Open';
+    }
+    return 'Closed';
+  };
+
+  const openCloseType = detectOpenCloseStatus();
   const rate = Number(attributes.sale_rate || attributes.rate || product?.opening_stock_rate || 6850);
   const makingCharge = attributes.making_charge ? `₹${attributes.making_charge}/g` : '₹750/g';
   const wastage = attributes.wastage_percent ? `${attributes.wastage_percent}%` : '3.50%';
@@ -271,7 +288,6 @@ ${reportEl.outerHTML}
               OFFICIAL JEWELLERY TAG
             </span>
             <div className="font-mono text-sm font-bold text-stone-900">{code}</div>
-            <div className="text-[9.5px] text-stone-500 font-mono mt-0.5">HUID: <strong className="text-stone-800">{huid}</strong></div>
             <div className="text-[9px] text-stone-400 mt-1">Issued: {printDate}</div>
           </div>
         </header>
@@ -312,7 +328,7 @@ ${reportEl.outerHTML}
               <div className="min-w-0 flex-1 text-[9px] leading-tight">
                 <div className="font-bold text-stone-800">Scan for Verification</div>
                 <p className="text-stone-500 mt-0.5 truncate">BIS Portal & ERP Audit</p>
-                <span className="font-mono text-[#b01622] font-semibold mt-1 block">ID: {huid}</span>
+                <span className="font-mono text-[#b01622] font-semibold mt-1 block">SKU: {code}</span>
               </div>
             </div>
           </div>
@@ -354,9 +370,7 @@ ${reportEl.outerHTML}
                   </tr>
                   <tr className="border-b border-stone-200/80">
                     <td className="py-2 px-3 font-semibold text-stone-500 bg-stone-100/60">Wastage / Making</td>
-                    <td className="py-2 px-3 text-stone-800">{wastage} • {makingCharge}</td>
-                    <td className="py-2 px-3 font-semibold text-stone-500 bg-stone-100/60">Laser HUID</td>
-                    <td className="py-2 px-3 font-bold font-mono text-stone-900">{huid}</td>
+                    <td colSpan="3" className="py-2 px-3 text-stone-800">{wastage} • {makingCharge}</td>
                   </tr>
                   <tr>
                     <td className="py-2 px-3 font-semibold text-stone-500 bg-stone-100/60">Crafted By</td>
@@ -468,7 +482,7 @@ ${reportEl.outerHTML}
               <div className="text-xs font-bold text-stone-900 leading-snug line-clamp-1">{name}</div>
               <div className="grid grid-cols-2 gap-2 mt-2 text-[10px]">
                 <div><span className="text-stone-400">SKU:</span> <strong className="font-mono text-stone-800">{code}</strong></div>
-                <div><span className="text-stone-400">HUID:</span> <strong className="font-mono text-stone-800">{huid}</strong></div>
+                <div><span className="text-stone-400">Lock:</span> <strong className="font-semibold text-stone-800">{openCloseType}</strong></div>
                 <div><span className="text-stone-400">Gross:</span> <strong className="font-mono text-stone-800">{Number(grossWt).toFixed(3)}g</strong></div>
                 <div><span className="text-stone-400">Net Wt:</span> <strong className="font-mono text-stone-800">{Number(netWt).toFixed(3)}g</strong></div>
               </div>

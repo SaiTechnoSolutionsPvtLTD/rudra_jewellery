@@ -2,57 +2,55 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
-import { printElement } from '../../utils/printHelper';
+import ConfirmModal from '../../components/ConfirmModal';
 
-// DIAMOND CHART AND SIEVE SIZE DATASET (Reference from User Chart)
-const DIAMOND_CHART_SIZES = [
-  { mm: '0.80 mm', sieve: '+0000', weight_ct: '0.0035 ct', num_mm: 0.80 },
-  { mm: '0.90 mm', sieve: '+000', weight_ct: '0.0040 ct', num_mm: 0.90 },
-  { mm: '1.00 mm', sieve: '+95', weight_ct: '0.0045 ct', num_mm: 1.00 },
-  { mm: '1.05 mm', sieve: '+00', weight_ct: '0.0050 ct', num_mm: 1.05 },
-  { mm: '1.08 mm', sieve: '+105', weight_ct: '0.0055 ct', num_mm: 1.08 },
-  { mm: '1.10 mm', sieve: '+0', weight_ct: '0.0063 ct', num_mm: 1.10 },
-  { mm: '1.12 mm', sieve: '+112.5', weight_ct: '0.0069 ct', num_mm: 1.12 },
-  { mm: '1.15 mm', sieve: '+1.0', weight_ct: '0.0074 ct', num_mm: 1.15 },
-  { mm: '1.18 mm', sieve: '+1.25', weight_ct: '0.0078 ct', num_mm: 1.18 },
-  { mm: '1.20 mm', sieve: '+1.50', weight_ct: '0.0083 ct', num_mm: 1.20 },
-  { mm: '1.22 mm', sieve: '+1.75', weight_ct: '0.0087 ct', num_mm: 1.22 },
-  { mm: '1.25 mm', sieve: '+2.0', weight_ct: '0.0091 ct', num_mm: 1.25 },
-  { mm: '1.28 mm', sieve: '+2.25', weight_ct: '0.0096 ct', num_mm: 1.28 },
-  { mm: '1.30 mm', sieve: '+2.50', weight_ct: '0.0103 ct', num_mm: 1.30 },
-  { mm: '1.32 mm', sieve: '+2.75', weight_ct: '0.0108 ct', num_mm: 1.32 },
-  { mm: '1.35 mm', sieve: '+3.0', weight_ct: '0.0115 ct', num_mm: 1.35 },
-  { mm: '1.38 mm', sieve: '+3.25', weight_ct: '0.0125 ct', num_mm: 1.38 },
-  { mm: '1.40 mm', sieve: '+3.50', weight_ct: '0.0135 ct', num_mm: 1.40 },
-  { mm: '1.42 mm', sieve: '+3.75', weight_ct: '0.0140 ct', num_mm: 1.42 },
-  { mm: '1.45 mm', sieve: '+4.0', weight_ct: '0.0145 ct', num_mm: 1.45 },
-  { mm: '1.48 mm', sieve: '+4.25', weight_ct: '0.0154 ct', num_mm: 1.48 },
-  { mm: '1.50 mm', sieve: '+4.50', weight_ct: '0.0159 ct', num_mm: 1.50 },
-  { mm: '1.52 mm', sieve: '+4.75', weight_ct: '0.0165 ct', num_mm: 1.52 },
-  { mm: '2.20 mm', sieve: '+8.50', weight_ct: '0.0464 ct', num_mm: 2.20 },
-  { mm: '2.25 mm', sieve: '+8.75', weight_ct: '0.0480 ct', num_mm: 2.25 },
-  { mm: '2.30 mm', sieve: '+9.0', weight_ct: '0.0540 ct', num_mm: 2.30 },
-  { mm: '2.35 mm', sieve: '+9.25', weight_ct: '0.0550 ct', num_mm: 2.35 },
-  { mm: '2.40 mm', sieve: '+9.50', weight_ct: '0.0618 ct', num_mm: 2.40 },
-  { mm: '2.45 mm', sieve: '+9.75', weight_ct: '0.0630 ct', num_mm: 2.45 },
-  { mm: '2.50 mm', sieve: '+10.0', weight_ct: '0.0655 ct', num_mm: 2.50 },
-  { mm: '2.55 mm', sieve: '+10.25', weight_ct: '0.0690 ct', num_mm: 2.55 },
-  { mm: '2.60 mm', sieve: '+10.50', weight_ct: '0.0726 ct', num_mm: 2.60 },
-  { mm: '2.65 mm', sieve: '+10.75', weight_ct: '0.0745 ct', num_mm: 2.65 },
-  { mm: '2.70 mm', sieve: '+11.0', weight_ct: '0.0800 ct', num_mm: 2.70 },
-  { mm: '2.75 mm', sieve: '+11.25', weight_ct: '0.0850 ct', num_mm: 2.75 },
-  { mm: '2.80 mm', sieve: '+11.50', weight_ct: '0.0910 ct', num_mm: 2.80 },
-  { mm: '2.85 mm', sieve: '+11.75', weight_ct: '0.0950 ct', num_mm: 2.85 },
-  { mm: '2.90 mm', sieve: '+12.0', weight_ct: '0.1020 ct', num_mm: 2.90 },
-  { mm: '2.95 mm', sieve: '+12.25', weight_ct: '0.1083 ct', num_mm: 2.95 },
-  { mm: '3.00 mm', sieve: '+12.50', weight_ct: '0.1110 ct', num_mm: 3.00 },
-  { mm: '3.05 mm', sieve: '+12.75', weight_ct: '0.1150 ct', num_mm: 3.05 },
-  { mm: '3.10 mm', sieve: '+13.0', weight_ct: '0.1200 ct', num_mm: 3.10 },
-  { mm: '3.15 mm', sieve: '+13.25', weight_ct: '0.1290 ct', num_mm: 3.15 },
-  { mm: '3.20 mm', sieve: '+13.50', weight_ct: '0.1340 ct', num_mm: 3.20 },
-  { mm: '3.25 mm', sieve: '+13.75', weight_ct: '0.1417 ct', num_mm: 3.25 },
-  { mm: '3.30 mm', sieve: '+14.0', weight_ct: '0.1470 ct', num_mm: 3.30 },
-];
+// Baseline Default Template Data
+const DEFAULT_PRICE_LIST_DATA = {
+  version: '01',
+  effective_from: new Date().toISOString().split('T')[0],
+  effective_to: 'Open / Till Updated',
+  diamond_stone_rates: [
+    { id: 1, shape: 'Round Diamond', quality: 'EF-VVS', sieve: '-2', stone_cents: '0.000-0.01', rate_per_ct: 60000 },
+    { id: 2, shape: 'Round Diamond', quality: 'EF-VVS', sieve: '(+2 - 6)', stone_cents: '0.011-0.019', rate_per_ct: 60000 },
+    { id: 3, shape: 'Round Diamond', quality: 'EF-VVS', sieve: '(+6 - 9)', stone_cents: '0.02-0.05', rate_per_ct: 56000 },
+    { id: 4, shape: 'Round Diamond', quality: 'EF-VVS', sieve: '(+9 - 10.5)', stone_cents: '0.06-0.07', rate_per_ct: 58000 },
+  ],
+  color_stone_charges: [
+    { id: 1, stone: 'Navaratna Stones', rate_per_ct: 1800 },
+    { id: 2, stone: 'Emerald', rate_per_ct: 2000 },
+    { id: 3, stone: 'Onyx', rate_per_ct: 550 },
+  ],
+  additional_charges: {
+    minimum_labour: 1500,
+    minimum_labour_desc: 'Per Piece for below 1.00 gms items',
+    single_nose_pin: 850,
+    single_nose_pin_desc: 'Per Piece',
+    multi_stones: 1000,
+    multi_stones_desc: 'Per Piece',
+    step_nose_pin: 0,
+    tongai: 0,
+  },
+  making_charges: [
+    { id: 1, type_design: '22KT: Close Setting', wastage_percent: '6%', labour_charge: 'Rs. 500/- per gms wt', gold_purity: '916', on_wt: '92%' },
+    { id: 2, type_design: '18KT: Open Setting', wastage_percent: '6%', labour_charge: 'Rs. 450/- per gms wt', gold_purity: '916', on_wt: '92%' },
+    { id: 3, type_design: '18KT: Open / Close', wastage_percent: '6%', labour_charge: 'Rs. 500/- per gms wt', gold_purity: '750', on_wt: '76%' },
+  ],
+  stamping_instructions: {
+    stamping_detail: 'DIA WT.NO OF DIA/ RJ Seal',
+    certification: '-',
+    hallmark_huid: 'NO',
+    metal_colour: '-',
+    client_qc_before_billing: 'NO',
+    necklace_back_chain: '-',
+  },
+  payment_terms: [
+    { id: 1, type: 'Gold', terms: 'COD' },
+    { id: 2, type: 'Diamond', terms: 'COD' },
+    { id: 3, type: 'MC', terms: 'COD' },
+    { id: 4, type: 'MC', terms: 'COD' },
+    { id: 5, type: 'Diamond', terms: 'COD' },
+  ],
+};
 
 export default function ClientPriceList() {
   const { id } = useParams();
@@ -64,2289 +62,2316 @@ export default function ClientPriceList() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [priceListLoading, setPriceListLoading] = useState(false);
-  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
 
-  // Master Diamond Products from Category DIAMOND
-  const [masterDiamondProducts, setMasterDiamondProducts] = useState([]);
-
-  // Select2 State for Diamond Product Dropdown
-  const [isSelect2Open, setIsSelect2Open] = useState(false);
-  const [select2SearchTerm, setSelect2SearchTerm] = useState('');
-  const select2Ref = useRef(null);
-
-  // Price List State Sections
+  // Price List Data States
   const [version, setVersion] = useState('01');
-  const [effectiveFrom, setEffectiveFrom] = useState('');
+  const [status, setStatus] = useState('Active');
+  const [effectiveFrom, setEffectiveFrom] = useState(new Date().toISOString().split('T')[0]);
   const [effectiveTo, setEffectiveTo] = useState('Open / Till Updated');
   const [updatedAtStr, setUpdatedAtStr] = useState('');
 
-  const [goldRates, setGoldRates] = useState([
-    { id: 1, purity: '22K (916)', touch: '91.6%', gold_rate: 13299, wastage_percent: 5, making_charge: 650, effective_rate: 14614 },
-    { id: 2, purity: '24K (999)', touch: '99.9%', gold_rate: 14508, wastage_percent: 0, making_charge: 250, effective_rate: 14758 },
-    { id: 3, purity: '18K (750)', touch: '75.0%', gold_rate: 10881, wastage_percent: 4, making_charge: 850, effective_rate: 12166 },
-    { id: 4, purity: '14K (585)', touch: '58.5%', gold_rate: 8485, wastage_percent: 4, making_charge: 900, effective_rate: 9724 },
-  ]);
-  const [diamondRates, setDiamondRates] = useState([]);
-  const [colorStoneRates, setColorStoneRates] = useState([]);
-  const [additionalCharges, setAdditionalCharges] = useState({
-    minimum_labour: 1500,
-    minimum_labour_desc: 'Per Piece for Below 1.00 gms items',
-    single_nose_pin: 850,
-    single_nose_pin_desc: 'Per Piece',
-    multi_stones: 1000,
-    multi_stones_desc: 'Per Piece',
-    step_nose_pin: 0,
-    tongai: 0,
-  });
-  const [makingCharges, setMakingCharges] = useState([]);
-  const [stampingInstructions, setStampingInstructions] = useState({
-    stamping_detail: 'DIA WT/NO OF DIA/ RJ Seal',
-    certification: '-',
-    hallmark_huid: 'NO',
-    metal_colour: '-',
-    client_qc_before_billing: 'NO',
-    necklace_back_chain: '-',
-  });
-  const [paymentTerms, setPaymentTerms] = useState([]);
+  const [diamondRates, setDiamondRates] = useState(DEFAULT_PRICE_LIST_DATA.diamond_stone_rates);
+  const [colorStoneRates, setColorStoneRates] = useState(DEFAULT_PRICE_LIST_DATA.color_stone_charges);
+  const [additionalCharges, setAdditionalCharges] = useState(DEFAULT_PRICE_LIST_DATA.additional_charges);
+  const [makingCharges, setMakingCharges] = useState(DEFAULT_PRICE_LIST_DATA.making_charges);
+  const [stampingInstructions, setStampingInstructions] = useState(DEFAULT_PRICE_LIST_DATA.stamping_instructions);
+  const [paymentTerms, setPaymentTerms] = useState(DEFAULT_PRICE_LIST_DATA.payment_terms);
 
-  // Modal State
-  const [activeModalType, setActiveModalType] = useState(null); // 'gold' | 'diamond' | 'color_stone' | 'additional' | 'making' | 'stamping' | 'payment_term'
-  const [editingItemIndex, setEditingItemIndex] = useState(null);
+  // History & Modals
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [historyData, setHistoryData] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
+  const [activeModalType, setActiveModalType] = useState(null); // 'diamond' | 'color_stone' | 'additional' | 'making' | 'stamping' | 'payment_term'
+  const [editingIndex, setEditingIndex] = useState(null);
 
-  // Confirmation Modal State (Edit / Delete Confirmation)
-  const [confirmDialog, setConfirmDialog] = useState({
-    isOpen: false,
-    title: '',
-    message: '',
-    onConfirm: null,
-    type: 'danger' // 'danger' | 'warning' | 'info'
-  });
+  // Bulk Import Modal States
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef(null);
 
-  // Form State for Modals
-  const [goldForm, setGoldForm] = useState({
-    purity: '22K (916)',
-    touch: '91.6%',
-    gold_rate: 13299,
-    wastage_percent: 5,
-    making_charge: 650,
-    effective_rate: 14614,
-  });
-
-  const [diamondForm, setDiamondForm] = useState({
-    product_id: '',
-    product_code: '',
-    shape: 'Round Diamond',
-    quality: 'EF-VVS',
-    from_size_index: 0,
-    to_size_index: 5,
-    size_range_mm: '0.80 mm - 1.10 mm',
-    sieve: '+0000 to +0',
-    stone_cents: '0.0035 ct - 0.0063 ct',
-    rate_per_ct: ''
-  });
-
+  // Modal Form States
+  const [diamondForm, setDiamondForm] = useState({ shape: 'Round Diamond', quality: 'EF-VVS', sieve: '', stone_cents: '', rate_per_ct: '' });
   const [colorStoneForm, setColorStoneForm] = useState({ stone: '', rate_per_ct: '' });
-  const [additionalForm, setAdditionalForm] = useState({ minimum_labour: 1500, single_nose_pin: 850, multi_stones: 1000, step_nose_pin: 0, tongai: 0 });
+  const [additionalForm, setAdditionalForm] = useState({ ...DEFAULT_PRICE_LIST_DATA.additional_charges });
   const [makingForm, setMakingForm] = useState({ type_design: '', wastage_percent: '', labour_charge: '', gold_purity: '', on_wt: '' });
-  const [stampingForm, setStampingForm] = useState({ stamping_detail: '', certification: '', hallmark_huid: '', metal_colour: '', client_qc_before_billing: '', necklace_back_chain: '' });
+  const [stampingForm, setStampingForm] = useState({ ...DEFAULT_PRICE_LIST_DATA.stamping_instructions });
   const [paymentTermForm, setPaymentTermForm] = useState({ type: 'Gold', terms: 'COD' });
 
-  // Close Select2 when clicking outside
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (select2Ref.current && !select2Ref.current.contains(event.target)) {
-        setIsSelect2Open(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  // Printable ref for PDF export
+  const printRef = useRef(null);
 
-  // Load clients list & Master Diamond Products
+  // Load Client List
   useEffect(() => {
-    Promise.all([
-      api.get('/clients'),
-      api.get('/products')
-    ]).then(([clientRes, prodRes]) => {
-      const clientList = clientRes.data.clients || [];
-      setClients(clientList);
-      if (id) {
-        const match = clientList.find(c => String(c.id) === String(id));
-        if (match) setSelectedClient(match);
-        else if (clientList.length > 0) setSelectedClient(clientList[0]);
-      } else if (clientList.length > 0) {
-        setSelectedClient(clientList[0]);
-      }
-
-      // Filter products under Category DIAMOND
-      const allProds = Array.isArray(prodRes.data) ? prodRes.data : (prodRes.data?.data || []);
-      const diamondProds = allProds.filter(p => {
-        const catCode = p.category?.code?.toUpperCase() || '';
-        const catName = p.category?.name?.toLowerCase() || '';
-        return catCode === 'DIAMOND' || catName.includes('diamond');
+    api.get('/clients')
+      .then((res) => {
+        const list = res.data.clients || [];
+        setClients(list);
+        if (id) {
+          const match = list.find((c) => String(c.id) === String(id));
+          if (match) setSelectedClient(match);
+          else if (list.length > 0) setSelectedClient(list[0]);
+        } else if (list.length > 0) {
+          setSelectedClient(list[0]);
+        }
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error('Error loading clients:', err);
+        setLoading(false);
       });
-      setMasterDiamondProducts(diamondProds);
-      setLoading(false);
-    }).catch(err => {
-      console.error('Error loading initial data:', err);
-      setLoading(false);
-    });
   }, [id]);
 
-  // Keep selectedClient in sync if id param changes
-  useEffect(() => {
-    if (id && clients.length > 0) {
-      const match = clients.find(c => String(c.id) === String(id));
-      if (match && match.id !== selectedClient?.id) {
-        setSelectedClient(match);
-      }
-    }
-  }, [id, clients]);
-
-  // Load Client Price List whenever selectedClient changes
+  // Load Price List when selectedClient changes
   useEffect(() => {
     if (!selectedClient) return;
 
     setPriceListLoading(true);
     api.get(`/clients/${selectedClient.id}/price-list`)
-      .then(res => {
+      .then((res) => {
         if (res.data && res.data.price_list) {
           const pl = res.data.price_list;
           setVersion(pl.version || '01');
-          setEffectiveFrom(pl.effective_from ? pl.effective_from.split('T')[0] : new Date().toISOString().split('T')[0]);
+          setStatus(pl.status ? (pl.status.charAt(0).toUpperCase() + pl.status.slice(1)) : 'Active');
+          setEffectiveFrom(pl.effective_from ? String(pl.effective_from).split('T')[0] : new Date().toISOString().split('T')[0]);
           setEffectiveTo(pl.effective_to || 'Open / Till Updated');
-          setGoldRates(pl.gold_rates || [
-            { id: 1, purity: '22K (916)', touch: '91.6%', gold_rate: 13299, wastage_percent: 5, making_charge: 650, effective_rate: 14614 },
-            { id: 2, purity: '24K (999)', touch: '99.9%', gold_rate: 14508, wastage_percent: 0, making_charge: 250, effective_rate: 14758 },
-            { id: 3, purity: '18K (750)', touch: '75.0%', gold_rate: 10881, wastage_percent: 4, making_charge: 850, effective_rate: 12166 },
-            { id: 4, purity: '14K (585)', touch: '58.5%', gold_rate: 8485, wastage_percent: 4, making_charge: 900, effective_rate: 9724 },
-          ]);
-          setDiamondRates(pl.diamond_stone_rates || []);
-          setColorStoneRates(pl.color_stone_charges || []);
-          if (pl.additional_charges) setAdditionalCharges(pl.additional_charges);
-          setMakingCharges(pl.making_charges || []);
-          if (pl.stamping_instructions) setStampingInstructions(pl.stamping_instructions);
-          setPaymentTerms(pl.payment_terms || []);
+          setDiamondRates(pl.diamond_stone_rates?.length ? pl.diamond_stone_rates : DEFAULT_PRICE_LIST_DATA.diamond_stone_rates);
+          setColorStoneRates(pl.color_stone_charges?.length ? pl.color_stone_charges : DEFAULT_PRICE_LIST_DATA.color_stone_charges);
+          if (pl.additional_charges && Object.keys(pl.additional_charges).length) setAdditionalCharges(pl.additional_charges);
+          setMakingCharges(pl.making_charges?.length ? pl.making_charges : DEFAULT_PRICE_LIST_DATA.making_charges);
+          if (pl.stamping_instructions && Object.keys(pl.stamping_instructions).length) setStampingInstructions(pl.stamping_instructions);
+          setPaymentTerms(pl.payment_terms?.length ? pl.payment_terms : DEFAULT_PRICE_LIST_DATA.payment_terms);
 
           if (pl.updated_at) {
             const date = new Date(pl.updated_at);
             setUpdatedAtStr(date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) + ' • ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
           } else {
-            setUpdatedAtStr(new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }));
+            setUpdatedAtStr(new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) + ' • 10:30 AM');
           }
         }
         setPriceListLoading(false);
       })
-      .catch(err => {
-        console.error('Error fetching price list:', err);
+      .catch((err) => {
+        console.error('Error loading price list:', err);
         setPriceListLoading(false);
       });
   }, [selectedClient]);
 
-  // Save current price list state to Backend
-  const savePriceList = async (customVersion = null, overridePayload = {}) => {
+  // Save current price list to DB
+  const handleSavePriceList = async (targetVer = null, overrideData = {}) => {
     if (!selectedClient) return;
 
     try {
       setSaving(true);
-      const targetVersion = customVersion || version;
+      const versionToUse = targetVer || version;
       const payload = {
-        version: targetVersion,
-        effective_from: effectiveFrom || new Date().toISOString().split('T')[0],
+        version: versionToUse,
+        status: status.toLowerCase(),
+        effective_from: effectiveFrom,
         effective_to: effectiveTo,
-        gold_rates: overridePayload.gold_rates !== undefined ? overridePayload.gold_rates : goldRates,
-        diamond_stone_rates: overridePayload.diamond_stone_rates !== undefined ? overridePayload.diamond_stone_rates : diamondRates,
-        color_stone_charges: overridePayload.color_stone_charges !== undefined ? overridePayload.color_stone_charges : colorStoneRates,
-        additional_charges: overridePayload.additional_charges !== undefined ? overridePayload.additional_charges : additionalCharges,
-        making_charges: overridePayload.making_charges !== undefined ? overridePayload.making_charges : makingCharges,
-        stamping_instructions: overridePayload.stamping_instructions !== undefined ? overridePayload.stamping_instructions : stampingInstructions,
-        payment_terms: overridePayload.payment_terms !== undefined ? overridePayload.payment_terms : paymentTerms,
+        diamond_stone_rates: overrideData.diamond_stone_rates !== undefined ? overrideData.diamond_stone_rates : diamondRates,
+        color_stone_charges: overrideData.color_stone_charges !== undefined ? overrideData.color_stone_charges : colorStoneRates,
+        additional_charges: overrideData.additional_charges !== undefined ? overrideData.additional_charges : additionalCharges,
+        making_charges: overrideData.making_charges !== undefined ? overrideData.making_charges : makingCharges,
+        stamping_instructions: overrideData.stamping_instructions !== undefined ? overrideData.stamping_instructions : stampingInstructions,
+        payment_terms: overrideData.payment_terms !== undefined ? overrideData.payment_terms : paymentTerms,
       };
 
       const res = await api.post(`/clients/${selectedClient.id}/price-list`, payload);
       if (res.data && res.data.price_list) {
         const pl = res.data.price_list;
-        setVersion(pl.version || targetVersion);
-        if (pl.updated_at) {
-          const date = new Date(pl.updated_at);
-          setUpdatedAtStr(date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) + ' • ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-        }
-        showToast(`Price List saved successfully for ${selectedClient.full_name || selectedClient.name}!`, 'success', 'Saved');
+        setVersion(pl.version || versionToUse);
+        const date = pl.updated_at ? new Date(pl.updated_at) : new Date();
+        setUpdatedAtStr(date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) + ' • ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+        showToast(`Price list version ${versionToUse} saved successfully!`, 'success', 'Saved');
       }
     } catch (err) {
-      console.error('Failed to save Price List:', err);
-      showToast('Failed to save Price List', 'error');
+      console.error(err);
+      showToast('Failed to save price list', 'error');
     } finally {
       setSaving(false);
     }
   };
 
-  // Handlers for Gold Rates
-  const handleSaveGoldRate = () => {
-    if (!goldForm.purity) {
-      showToast('Please select Gold Purity', 'error');
+  // Create New Version Handler (resets to defaults and increments version)
+  const handleCreateNewVersion = () => {
+    if (!selectedClient) return;
+    const currentNum = parseInt(version, 10) || 1;
+    const nextVer = String(currentNum + 1).padStart(2, '0');
+
+    setVersion(nextVer);
+    setEffectiveFrom(new Date().toISOString().split('T')[0]);
+    setEffectiveTo('Open / Till Updated');
+    setDiamondRates(DEFAULT_PRICE_LIST_DATA.diamond_stone_rates);
+    setColorStoneRates(DEFAULT_PRICE_LIST_DATA.color_stone_charges);
+    setAdditionalCharges(DEFAULT_PRICE_LIST_DATA.additional_charges);
+    setMakingCharges(DEFAULT_PRICE_LIST_DATA.making_charges);
+    setStampingInstructions(DEFAULT_PRICE_LIST_DATA.stamping_instructions);
+    setPaymentTerms(DEFAULT_PRICE_LIST_DATA.payment_terms);
+
+    handleSavePriceList(nextVer, {
+      diamond_stone_rates: DEFAULT_PRICE_LIST_DATA.diamond_stone_rates,
+      color_stone_charges: DEFAULT_PRICE_LIST_DATA.color_stone_charges,
+      additional_charges: DEFAULT_PRICE_LIST_DATA.additional_charges,
+      making_charges: DEFAULT_PRICE_LIST_DATA.making_charges,
+      stamping_instructions: DEFAULT_PRICE_LIST_DATA.stamping_instructions,
+      payment_terms: DEFAULT_PRICE_LIST_DATA.payment_terms,
+    });
+  };
+
+  // View Version History Modal
+  const fetchPriceListHistory = async () => {
+    if (!selectedClient) return;
+    try {
+      setLoadingHistory(true);
+      setHistoryModalOpen(true);
+      const res = await api.get(`/clients/${selectedClient.id}/price-list/history`);
+      if (res.data && res.data.history) {
+        setHistoryData(res.data.history);
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to load version history', 'error');
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  // Restore/View Version from History
+  const handleLoadHistoryVersion = (record) => {
+    setVersion(record.version || '01');
+    setStatus(record.status ? (record.status.charAt(0).toUpperCase() + record.status.slice(1)) : 'Active');
+    setEffectiveFrom(record.effective_from ? String(record.effective_from).split('T')[0] : new Date().toISOString().split('T')[0]);
+    setEffectiveTo(record.effective_to || 'Open / Till Updated');
+    setDiamondRates(record.diamond_stone_rates || DEFAULT_PRICE_LIST_DATA.diamond_stone_rates);
+    setColorStoneRates(record.color_stone_charges || DEFAULT_PRICE_LIST_DATA.color_stone_charges);
+    if (record.additional_charges) setAdditionalCharges(record.additional_charges);
+    setMakingCharges(record.making_charges || DEFAULT_PRICE_LIST_DATA.making_charges);
+    if (record.stamping_instructions) setStampingInstructions(record.stamping_instructions);
+    setPaymentTerms(record.payment_terms || DEFAULT_PRICE_LIST_DATA.payment_terms);
+    setHistoryModalOpen(false);
+    showToast(`Loaded Price List version ${record.version}`, 'info', 'Version Loaded');
+  };
+
+  // Export to Excel / CSV
+  const handleExportExcel = () => {
+    if (!selectedClient) return;
+    const clientCode = selectedClient.client_code || 'CLIENT';
+
+    let csvContent = `PRICE LIST - ${selectedClient.full_name} (${clientCode})\n`;
+    csvContent += `Version: ${version}, Effective From: ${effectiveFrom}, Effective To: ${effectiveTo}\n\n`;
+
+    // 1. Diamond Rates
+    csvContent += `1. DIAMOND STONE RATE (PER CARAT)\n`;
+    csvContent += `Shape,Quality,Sieve,Stone Cents,Rate / Ct (INR)\n`;
+    diamondRates.forEach((r) => {
+      csvContent += `"${r.shape}","${r.quality}","${r.sieve}","${r.stone_cents}","${r.rate_per_ct}"\n`;
+    });
+    csvContent += `\n`;
+
+    // 2. Color Stone Charges
+    csvContent += `2. COLOR STONE CHARGES (PER CARAT)\n`;
+    csvContent += `Stone,Rate / Ct (INR)\n`;
+    colorStoneRates.forEach((cs) => {
+      csvContent += `"${cs.stone}","${cs.rate_per_ct}"\n`;
+    });
+    csvContent += `\n`;
+
+    // 3. Additional Charges
+    csvContent += `3. ADDITIONAL CHARGES\n`;
+    csvContent += `Charge Name,Amount (INR),Description\n`;
+    csvContent += `"Minimum Labour","${additionalCharges.minimum_labour}","${additionalCharges.minimum_labour_desc || ''}"\n`;
+    csvContent += `"Single Nose Pin","${additionalCharges.single_nose_pin}","${additionalCharges.single_nose_pin_desc || ''}"\n`;
+    csvContent += `"Multi Stones","${additionalCharges.multi_stones}","${additionalCharges.multi_stones_desc || ''}"\n`;
+    csvContent += `"Step Nose Pin","${additionalCharges.step_nose_pin}",""\n`;
+    csvContent += `"Tongai","${additionalCharges.tongai}",""\n\n`;
+
+    // 4. Making Charges
+    csvContent += `4. MAKING CHARGES\n`;
+    csvContent += `Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt\n`;
+    makingCharges.forEach((mc) => {
+      csvContent += `"${mc.type_design}","${mc.wastage_percent}","${mc.labour_charge}","${mc.gold_purity}","${mc.on_wt}"\n`;
+    });
+    csvContent += `\n`;
+
+    // 5. Stamping Instructions
+    csvContent += `5. STAMPING INSTRUCTIONS\n`;
+    csvContent += `Stamping Detail,${stampingInstructions.stamping_detail || '-'}\n`;
+    csvContent += `Certification,${stampingInstructions.certification || '-'}\n`;
+    csvContent += `Hallmark / HUID,${stampingInstructions.hallmark_huid || '-'}\n`;
+    csvContent += `Metal Colour,${stampingInstructions.metal_colour || '-'}\n`;
+    csvContent += `Client QC Before Bill,${stampingInstructions.client_qc_before_billing || '-'}\n`;
+    csvContent += `Necklace Back Chain,${stampingInstructions.necklace_back_chain || '-'}\n\n`;
+
+    // 6. Payment Terms
+    csvContent += `6. PAYMENT TERMS\n`;
+    csvContent += `Type,Terms\n`;
+    paymentTerms.forEach((pt) => {
+      csvContent += `"${pt.type}","${pt.terms}"\n`;
+    });
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Price_List_${clientCode}_v${version}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('Price List exported to Excel/CSV successfully!', 'success', 'Exported');
+  };
+
+  // Export PDF / Print
+  const handleExportPDF = () => {
+    setIsPdfModalOpen(true);
+  };
+
+  // Modals Save Handlers
+  const saveDiamondRateItem = () => {
+    if (!diamondForm.shape || !diamondForm.rate_per_ct) {
+      showToast('Please fill in required diamond rate fields', 'error');
       return;
     }
-    if (!goldForm.gold_rate || parseFloat(goldForm.gold_rate) <= 0) {
-      showToast('Please enter a valid Gold Rate per gm (₹)', 'error');
-      return;
-    }
-
-    const gRate = parseFloat(goldForm.gold_rate) || 0;
-    const wst = parseFloat(goldForm.wastage_percent) || 0;
-    const mCharge = parseFloat(goldForm.making_charge) || 0;
-    const effRate = Math.round(gRate * (1 + wst / 100) + mCharge);
-
-    const itemToSave = {
-      ...goldForm,
-      gold_rate: gRate,
-      wastage_percent: wst,
-      making_charge: mCharge,
-      effective_rate: effRate,
-    };
-
     let updated;
-    if (editingItemIndex !== null) {
-      updated = [...goldRates];
-      updated[editingItemIndex] = { ...itemToSave, id: updated[editingItemIndex].id || Date.now() };
-    } else {
-      updated = [...goldRates, { ...itemToSave, id: Date.now() }];
-    }
-    setGoldRates(updated);
-    setActiveModalType(null);
-    savePriceList(null, { gold_rates: updated });
-  };
-
-  const handleDeleteGoldRate = (index) => {
-    const updated = goldRates.filter((_, i) => i !== index);
-    setGoldRates(updated);
-    savePriceList(null, { gold_rates: updated });
-  };
-
-  // Dynamic Client Banner Details
-  const clientName = selectedClient ? (selectedClient.full_name || selectedClient.name) : 'Select Client';
-  const clientTier = selectedClient ? (selectedClient.membership_tier || selectedClient.tier || 'ELITE').toUpperCase() : 'ELITE';
-  const clientCode = selectedClient ? (selectedClient.client_code || selectedClient.code || 'RJ-CL-1001') : 'RJ-CL-1001';
-  const clientEmail = selectedClient ? selectedClient.email || 'N/A' : 'N/A';
-  const clientPhone = selectedClient ? selectedClient.primary_phone || selectedClient.phone || 'N/A' : 'N/A';
-  const clientGst = selectedClient
-    ? (selectedClient.gst_percentage
-        ? (String(selectedClient.gst_percentage).includes('%') ? selectedClient.gst_percentage : `${selectedClient.gst_percentage}%`)
-        : (selectedClient.gst_number ? `3% (${selectedClient.gst_number})` : '3% (Default)')
-      )
-    : '3% (Default)';
-
-  // Select2 Filtered Products List
-  const filteredSelect2Products = masterDiamondProducts.filter(p => {
-    if (!select2SearchTerm.trim()) return true;
-    const term = select2SearchTerm.toLowerCase();
-    const nameMatch = (p.name || '').toLowerCase().includes(term);
-    const codeMatch = (p.product_code || '').toLowerCase().includes(term);
-    const subMatch = (p.subcategory?.name || '').toLowerCase().includes(term);
-    return nameMatch || codeMatch || subMatch;
-  });
-
-  // Handle Diamond Range Chart Selection change
-  const handleRangeChartChange = (fromIdx, toIdx) => {
-    const fromItem = DIAMOND_CHART_SIZES[fromIdx] || DIAMOND_CHART_SIZES[0];
-    const toItem = DIAMOND_CHART_SIZES[toIdx] || DIAMOND_CHART_SIZES[DIAMOND_CHART_SIZES.length - 1];
-
-    setDiamondForm(prev => ({
-      ...prev,
-      from_size_index: fromIdx,
-      to_size_index: toIdx,
-      size_range_mm: `${fromItem.mm} - ${toItem.mm}`,
-      sieve: `${fromItem.sieve} to ${toItem.sieve}`,
-      stone_cents: `${fromItem.weight_ct} - ${toItem.weight_ct}`
-    }));
-  };
-
-  // Handlers for Diamond Rates
-  const handleSaveDiamondRate = () => {
-    if (!diamondForm.shape && !diamondForm.product_id) {
-      showToast('Please select a Diamond Product from Master or enter Diamond Shape', 'error');
-      return;
-    }
-    if (!diamondForm.rate_per_ct || parseFloat(diamondForm.rate_per_ct) <= 0) {
-      showToast('Please enter a valid Rate / CT (₹)', 'error');
-      return;
-    }
-
-    let updated;
-    if (editingItemIndex !== null) {
+    if (editingIndex !== null) {
       updated = [...diamondRates];
-      updated[editingItemIndex] = { ...diamondForm, id: updated[editingItemIndex].id || Date.now() };
+      updated[editingIndex] = { ...diamondForm, id: updated[editingIndex].id || Date.now() };
     } else {
       updated = [...diamondRates, { ...diamondForm, id: Date.now() }];
     }
     setDiamondRates(updated);
     setActiveModalType(null);
-    savePriceList(null, { diamond_stone_rates: updated });
+    handleSavePriceList(null, { diamond_stone_rates: updated });
   };
 
-  const handleDeleteDiamondRate = (index) => {
-    const updated = diamondRates.filter((_, i) => i !== index);
-    setDiamondRates(updated);
-    savePriceList(null, { diamond_stone_rates: updated });
-  };
-
-  // Handlers for Color Stone Charges
-  const handleSaveColorStone = () => {
-    if (!colorStoneForm.stone || !colorStoneForm.stone.trim()) {
-      showToast('Please enter or select a Stone name', 'error');
+  const saveColorStoneItem = () => {
+    if (!colorStoneForm.stone || !colorStoneForm.rate_per_ct) {
+      showToast('Please fill in stone name and rate', 'error');
       return;
     }
-
     let updated;
-    if (editingItemIndex !== null) {
+    if (editingIndex !== null) {
       updated = [...colorStoneRates];
-      updated[editingItemIndex] = { ...colorStoneForm, id: updated[editingItemIndex].id || Date.now() };
+      updated[editingIndex] = { ...colorStoneForm, id: updated[editingIndex].id || Date.now() };
     } else {
       updated = [...colorStoneRates, { ...colorStoneForm, id: Date.now() }];
     }
     setColorStoneRates(updated);
     setActiveModalType(null);
-    savePriceList(null, { color_stone_charges: updated });
+    handleSavePriceList(null, { color_stone_charges: updated });
   };
 
-  const handleDeleteColorStone = (index) => {
-    const updated = colorStoneRates.filter((_, i) => i !== index);
-    setColorStoneRates(updated);
-    savePriceList(null, { color_stone_charges: updated });
-  };
-
-  // Handlers for Additional Charges
-  const handleSaveAdditionalCharges = () => {
-    const updated = {
-      ...additionalCharges,
-      minimum_labour: parseFloat(additionalForm.minimum_labour || 0),
-      single_nose_pin: parseFloat(additionalForm.single_nose_pin || 0),
-      multi_stones: parseFloat(additionalForm.multi_stones || 0),
-      step_nose_pin: parseFloat(additionalForm.step_nose_pin || 0),
-      tongai: parseFloat(additionalForm.tongai || 0),
-    };
-    setAdditionalCharges(updated);
-    setActiveModalType(null);
-    savePriceList(null, { additional_charges: updated });
-  };
-
-  // Handlers for Making Charges
-  const handleSaveMakingCharge = () => {
-    if (!makingForm.type_design || !makingForm.type_design.trim()) {
-      showToast('Please enter Type / Design', 'error');
+  const saveMakingChargeItem = () => {
+    if (!makingForm.type_design) {
+      showToast('Please enter type / design name', 'error');
       return;
     }
-
     let updated;
-    if (editingItemIndex !== null) {
+    if (editingIndex !== null) {
       updated = [...makingCharges];
-      updated[editingItemIndex] = { ...makingForm, id: updated[editingItemIndex].id || Date.now() };
+      updated[editingIndex] = { ...makingForm, id: updated[editingIndex].id || Date.now() };
     } else {
       updated = [...makingCharges, { ...makingForm, id: Date.now() }];
     }
     setMakingCharges(updated);
     setActiveModalType(null);
-    savePriceList(null, { making_charges: updated });
+    handleSavePriceList(null, { making_charges: updated });
   };
 
-  const handleDeleteMakingCharge = (index) => {
-    const updated = makingCharges.filter((_, i) => i !== index);
-    setMakingCharges(updated);
-    savePriceList(null, { making_charges: updated });
+  const saveAdditionalChargesForm = () => {
+    setAdditionalCharges(additionalForm);
+    setActiveModalType(null);
+    handleSavePriceList(null, { additional_charges: additionalForm });
   };
 
-  // Handlers for Stamping Instructions
-  const handleSaveStamping = () => {
+  const saveStampingForm = () => {
     setStampingInstructions(stampingForm);
     setActiveModalType(null);
-    savePriceList(null, { stamping_instructions: stampingForm });
+    handleSavePriceList(null, { stamping_instructions: stampingForm });
   };
 
-  // Handlers for Payment Terms
-  const handleSavePaymentTerm = () => {
-    if (!paymentTermForm.type || !paymentTermForm.type.trim()) {
-      showToast('Please enter Payment Term Type', 'error');
+  // Bulk Import Handlers
+  const handleDownloadSampleTemplate = () => {
+    const csvContent = `1. DIAMOND STONE RATE (PER CARAT)
+Shape,Quality,Sieve,Stone Cents,Rate / Ct (INR)
+Round Diamond,EF-VVS,-2,0.000-0.01,60000
+Round Diamond,EF-VVS,(+2 - 6),0.011-0.019,60000
+Round Diamond,EF-VVS,(+6 - 9),0.02-0.05,56000
+Round Diamond,EF-VVS,(+9 - 10.5),0.06-0.07,58000
+
+2. COLOR STONE CHARGES (PER CARAT)
+Stone,Rate / Ct (INR)
+Navaratna Stones,1800
+Emerald,2000
+Onyx,550
+
+3. MAKING CHARGES
+Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
+22KT: Close Setting,6%,Rs. 500/- per gms wt,916,92%
+18KT: Open Setting,6%,Rs. 450/- per gms wt,916,92%
+18KT: Open / Close,6%,Rs. 500/- per gms wt,750,76%`;
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Price_List_Import_Template_${selectedClient?.client_code || 'CLIENT'}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('Sample CSV template downloaded successfully!', 'info');
+  };
+
+  const handleDrag = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActive(true);
+    } else if (e.type === 'dragleave') {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      setImportFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleProcessImport = () => {
+    if (!importFile) {
+      showToast('Please select a file to upload first.', 'error');
       return;
     }
 
-    let updated;
-    if (editingItemIndex !== null) {
-      updated = [...paymentTerms];
-      updated[editingItemIndex] = { ...paymentTermForm, id: updated[editingItemIndex].id || Date.now() };
-    } else {
-      updated = [...paymentTerms, { ...paymentTermForm, id: Date.now() }];
-    }
-    setPaymentTerms(updated);
-    setActiveModalType(null);
-    savePriceList(null, { payment_terms: updated });
-  };
+    setIsImporting(true);
+    const reader = new FileReader();
 
-  const handleDeletePaymentTerm = (index) => {
-    const updated = paymentTerms.filter((_, i) => i !== index);
-    setPaymentTerms(updated);
-    savePriceList(null, { payment_terms: updated });
+    reader.onload = (e) => {
+      try {
+        const text = e.target.result;
+        let importedCount = 0;
+
+        if (importFile.name.endsWith('.json')) {
+          const parsed = JSON.parse(text);
+          if (parsed.diamond_stone_rates) setDiamondRates(parsed.diamond_stone_rates);
+          if (parsed.color_stone_charges) setColorStoneRates(parsed.color_stone_charges);
+          if (parsed.additional_charges) setAdditionalCharges(parsed.additional_charges);
+          if (parsed.making_charges) setMakingCharges(parsed.making_charges);
+          if (parsed.stamping_instructions) setStampingInstructions(parsed.stamping_instructions);
+          if (parsed.payment_terms) setPaymentTerms(parsed.payment_terms);
+
+          importedCount = (parsed.diamond_stone_rates?.length || 0) + (parsed.color_stone_charges?.length || 0);
+
+          handleSavePriceList(null, {
+            diamond_stone_rates: parsed.diamond_stone_rates || diamondRates,
+            color_stone_charges: parsed.color_stone_charges || colorStoneRates,
+            additional_charges: parsed.additional_charges || additionalCharges,
+            making_charges: parsed.making_charges || makingCharges,
+            stamping_instructions: parsed.stamping_instructions || stampingInstructions,
+            payment_terms: parsed.payment_terms || paymentTerms,
+          });
+        } else {
+          // Process CSV / Excel formatted text
+          const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+          const newDiamondRates = [];
+          const newColorRates = [];
+          let currentSection = null;
+
+          lines.forEach((line) => {
+            if (line.includes('1. DIAMOND STONE RATE')) {
+              currentSection = 'diamond';
+              return;
+            } else if (line.includes('2. COLOR STONE CHARGES')) {
+              currentSection = 'color';
+              return;
+            } else if (line.includes('3. MAKING CHARGES') || line.includes('4. ADDITIONAL CHARGES')) {
+              currentSection = 'other';
+              return;
+            }
+
+            if (currentSection === 'diamond' && line.includes(',')) {
+              const parts = line.split(',').map((p) => p.replace(/^"|"$/g, '').trim());
+              if (parts[0] && parts[0] !== 'Shape' && parts.length >= 5) {
+                newDiamondRates.push({
+                  id: Date.now() + Math.random(),
+                  shape: parts[0],
+                  quality: parts[1] || 'EF-VVS',
+                  sieve: parts[2] || '-',
+                  stone_cents: parts[3] || '0.00',
+                  rate_per_ct: parseFloat(parts[4]) || 60000,
+                });
+              }
+            } else if (currentSection === 'color' && line.includes(',')) {
+              const parts = line.split(',').map((p) => p.replace(/^"|"$/g, '').trim());
+              if (parts[0] && parts[0] !== 'Stone' && parts.length >= 2) {
+                newColorRates.push({
+                  id: Date.now() + Math.random(),
+                  stone: parts[0],
+                  rate_per_ct: parseFloat(parts[1]) || 1000,
+                });
+              }
+            }
+          });
+
+          const finalDiamond = newDiamondRates.length > 0 ? newDiamondRates : diamondRates;
+          const finalColor = newColorRates.length > 0 ? newColorRates : colorStoneRates;
+
+          if (newDiamondRates.length > 0) setDiamondRates(newDiamondRates);
+          if (newColorRates.length > 0) setColorStoneRates(newColorRates);
+
+          importedCount = newDiamondRates.length + newColorRates.length;
+
+          handleSavePriceList(null, {
+            diamond_stone_rates: finalDiamond,
+            color_stone_charges: finalColor,
+          });
+        }
+
+        setIsImporting(false);
+        setIsImportModalOpen(false);
+        setImportFile(null);
+        showToast(`Bulk Price List import successful! ${importedCount > 0 ? `${importedCount} items imported.` : 'Price list updated.'}`, 'success', 'Import Completed');
+      } catch (err) {
+        console.error('Import parse error:', err);
+        setIsImporting(false);
+        showToast('Failed to parse price list file. Please check file format.', 'error');
+      }
+    };
+
+    reader.onerror = () => {
+      setIsImporting(false);
+      showToast('Error reading uploaded file.', 'error');
+    };
+
+    reader.readAsText(importFile);
   };
 
   if (loading) {
     return (
-      <div className="w-full py-16 text-center text-gray-500">
-        <i className="fa-solid fa-circle-notch fa-spin text-2xl text-[#b01622] mb-3"></i>
-        <p className="text-sm font-semibold">Loading Client Price List System...</p>
+      <div className="w-full py-16 text-center text-gray-400 text-xs">
+        <i className="fa-solid fa-circle-notch fa-spin text-xl text-[#b01622] mb-2 block"></i>
+        Loading client price list...
       </div>
     );
   }
 
+  const clientName = selectedClient ? (selectedClient.full_name || selectedClient.name) : 'Select Client';
+  const clientCode = selectedClient ? (selectedClient.client_code || selectedClient.code || 'RJ-EL-1024') : 'RJ-EL-1024';
+  const clientTier = selectedClient ? (selectedClient.membership_tier || 'ELITE').toUpperCase() : 'ELITE';
+  const clientEmail = selectedClient ? (selectedClient.email || 'meera.s@gmail.com') : 'meera.s@gmail.com';
+  const clientPhone = selectedClient ? (selectedClient.primary_phone || '+91 98765 43210') : '+91 98765 43210';
+  const clientGst = selectedClient?.gst_percentage ? `${selectedClient.gst_percentage}%` : '3% (Default)';
+
   return (
-    <div className="w-full pb-24 space-y-5 font-sans text-gray-800">
-      
-      {/* 1. Top Header Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="w-full pb-12 font-sans">
+      {/* Top Header Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 print:hidden">
         <div>
-          <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
-            <Link to="/clients" className="hover:text-gray-600 transition-colors">Client Management</Link>
-            <span className="text-gray-300">›</span>
+          <div className="text-xs text-gray-400 font-medium mb-1 flex items-center gap-1.5">
+            <span>Client Management</span>
+            <i className="fa-solid fa-chevron-right text-[9px] text-gray-300"></i>
             <span className="text-[#b01622] font-bold">Price List</span>
           </div>
-          <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">Live Rates & Price List</h1>
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Live Rates &amp; Price List</h1>
         </div>
 
-        <div className="flex items-center gap-2.5">
-          <Link
-            to={`/clients/billing?create=true&client_id=${selectedClient ? selectedClient.id : (id || '')}`}
-            className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-md shadow-sm flex items-center gap-2 transition-colors cursor-pointer uppercase tracking-wider"
-            title="Generate Invoice for this Client"
-          >
-            <i className="fa-solid fa-file-invoice-dollar text-xs"></i>
-            GENERATE INVOICE
-          </Link>
+        <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => setIsPrintModalOpen(true)}
-            className="px-4 py-2 bg-white hover:bg-red-50 border border-red-200 text-[#b01622] text-xs font-bold rounded-md shadow-xs flex items-center gap-2 transition-colors cursor-pointer uppercase tracking-wider"
+            onClick={() => setIsImportModalOpen(true)}
+            className="px-4 py-2.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-bold rounded-lg shadow-2xs transition-colors flex items-center gap-2 cursor-pointer"
           >
-            <i className="fa-solid fa-print text-xs"></i>
-            PRINT SHEET
+            <i className="fa-solid fa-upload text-gray-500"></i>
+            IMPORT PRICE LIST
           </button>
+
           <button
             type="button"
-            onClick={() => savePriceList()}
+            onClick={handleCreateNewVersion}
             disabled={saving}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md shadow-sm flex items-center gap-2 transition-colors cursor-pointer"
+            className="px-4 py-2.5 bg-[#b01622] hover:bg-[#90121b] text-white text-xs font-bold rounded-lg shadow-sm transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-50"
           >
-            {saving ? <i className="fa-solid fa-circle-notch fa-spin"></i> : <i className="fa-regular fa-floppy-disk text-xs"></i>}
-            SAVE PRICE LIST
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const nextVer = sprintf('%02d', parseInt(version || '01') + 1);
-              savePriceList(nextVer);
-            }}
-            disabled={saving}
-            className="px-4 py-2 bg-[#b01622] hover:bg-[#8e111a] text-white text-xs font-bold rounded-md shadow-sm flex items-center gap-2 transition-colors cursor-pointer uppercase tracking-wider"
-          >
-            <i className="fa-solid fa-plus text-[11px]"></i>
-            CREATE NEW VERSION
+            <i className="fa-solid fa-plus text-xs"></i>
+            CREATE NEW PRICE LIST
           </button>
         </div>
       </div>
 
-      {/* 2. Select Client Banner Box */}
-      <div className="bg-[#f3f4f6] rounded-xl p-4 border border-gray-200 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
-        <div className="flex-1 max-w-md">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">
-            SELECT CLIENT
-          </div>
-          <div className="relative bg-white rounded-lg border border-gray-300 p-2.5 flex items-center justify-between shadow-2xs">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-red-100 text-[#b01622] flex items-center justify-center font-bold text-sm shrink-0">
-                <i className="fa-regular fa-user"></i>
-              </div>
-              <div>
-                <div className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
-                  {clientName} <span className="text-gray-500 font-normal">({clientTier})</span>
-                </div>
-                <div className="text-[11px] text-gray-500">
-                  {clientEmail} • {clientPhone}
-                </div>
-              </div>
-            </div>
-            {clients.length > 0 ? (
+      {/* Select Client Banner Card */}
+      <div className="bg-[#f9f7f4] rounded-2xl border border-gray-200/80 p-5 mb-6 shadow-2xs print:hidden">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-6 items-center">
+          {/* Client Select Box */}
+          <div className="md:col-span-2">
+            <label className="block text-[10px] font-extrabold text-gray-400 uppercase tracking-wider mb-1.5">
+              SELECT CLIENT
+            </label>
+            <div className="relative">
               <select
-                value={selectedClient ? selectedClient.id : ''}
+                value={selectedClient?.id || ''}
                 onChange={(e) => {
-                  const found = clients.find(c => String(c.id) === e.target.value);
-                  if (found) {
-                    setSelectedClient(found);
-                    navigate(`/clients/${found.id}/price-list`);
-                  }
+                  const match = clients.find((c) => String(c.id) === String(e.target.value));
+                  if (match) setSelectedClient(match);
                 }}
-                className="opacity-0 absolute inset-0 cursor-pointer w-full h-full"
+                className="w-full pl-10 pr-8 py-2.5 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-900 shadow-2xs focus:outline-none focus:border-[#b01622] cursor-pointer appearance-none"
               >
-                {clients.map(c => (
+                {clients.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.full_name || c.name} ({c.client_code || c.code})
+                    {c.full_name || c.name} ({c.membership_tier || 'ELITE'})
                   </option>
                 ))}
               </select>
-            ) : null}
-            <i className="fa-solid fa-chevron-up-down text-gray-400 text-xs pointer-events-none mr-1"></i>
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-red-50 text-[#b01622] flex items-center justify-center text-xs font-bold pointer-events-none">
+                <i className="fa-solid fa-user"></i>
+              </div>
+              <i className="fa-solid fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none"></i>
+            </div>
+            <p className="text-[11px] text-gray-500 mt-1 pl-1">
+              {clientEmail} • {clientPhone}
+            </p>
           </div>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-6 lg:gap-10 text-xs shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-gray-200">
+          {/* Client Code */}
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-0.5">CLIENT CODE</div>
-            <div className="font-mono font-bold text-gray-900 text-xs">{clientCode}</div>
+            <div className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider mb-1">CLIENT CODE</div>
+            <div className="text-xs font-bold font-mono text-gray-800">{clientCode}</div>
           </div>
+
+          {/* Client Tier Badge */}
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-0.5">CLIENT TIER</div>
-            <span className="bg-[#ffe0b2] text-[#e65100] text-[10px] font-bold px-2.5 py-0.5 rounded uppercase tracking-wider">
+            <div className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider mb-1">CLIENT TIER</div>
+            <span className="inline-block px-3 py-1 rounded-md bg-amber-100 text-amber-900 font-extrabold text-xs tracking-wide">
               {clientTier}
             </span>
           </div>
+
+          {/* Last Updated */}
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-0.5">DEFAULT GST</div>
-            <div className="font-bold text-gray-900 text-xs">{clientGst}</div>
-          </div>
-          <div>
-            <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-0.5">LAST UPDATED</div>
-            <div className="font-semibold text-gray-800 text-xs">{updatedAtStr || 'Today'}</div>
+            <div className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider mb-1">DEFAULT GST</div>
+            <div className="text-xs font-bold text-gray-800 mb-1">{clientGst}</div>
+            <div className="text-[10px] text-gray-400 font-medium">{updatedAtStr || '23 Jul 2026 • 10:30 AM'}</div>
           </div>
         </div>
       </div>
 
-      {priceListLoading && (
-        <div className="w-full py-6 text-center text-xs font-semibold text-gray-500">
-          <i className="fa-solid fa-spinner fa-spin mr-2 text-[#b01622]"></i> Loading client price list details...
-        </div>
-      )}
+      {/* Main Grid Container (Left 2/3 Content, Right 1/3 Sidebar) */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" ref={printRef}>
+        {/* Left Column Content */}
+        <div className="lg:col-span-2 space-y-6">
 
-      {/* 3. Main Master Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
-        
-        {/* Main Left Column (Span 2) */}
-        <div className="lg:col-span-2 space-y-5">
-          
-          {/* 1. Gold Rates & Charges (Per GM / Purity) */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-2xs overflow-hidden">
-            <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white">
-              <div>
-                <div className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
-                  <span>1. Gold Rates & Charges</span>
-                  <span className="text-xs text-gray-400 font-normal">(Per GM / Purity)</span>
-                </div>
-                <div className="text-[11px] text-amber-800 font-semibold mt-0.5 flex items-center gap-1">
-                  <i className="fa-solid fa-coins text-amber-600"></i> Selected Gold Rates ({goldRates.length} Purity Rates Configured)
-                </div>
-              </div>
-
+          {/* 1. Diamond Stone Rate (Per Carat) */}
+          <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xs overflow-hidden">
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between gap-4">
               <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-gray-900">1. Diamond Stone Rate</h3>
+                <span className="text-[10px] text-gray-400 font-normal">[Per Carat]</span>
+              </div>
+              <div className="flex items-center gap-2 print:hidden">
                 <button
                   type="button"
-                  onClick={() => {
-                    setEditingItemIndex(null);
-                    setGoldForm({
-                      purity: '22K (916)',
-                      touch: '91.6%',
-                      gold_rate: 13299,
-                      wastage_percent: 5,
-                      making_charge: 650,
-                      effective_rate: 14614,
-                    });
-                    setActiveModalType('gold');
-                  }}
-                  className="px-4 py-2 bg-[#b01622] hover:bg-[#8e111a] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                  onClick={() => setIsImportModalOpen(true)}
+                  className="px-3 py-1.5 bg-gray-50 border border-gray-200 hover:bg-gray-100 text-gray-700 text-[11px] font-semibold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
                 >
-                  <i className="fa-solid fa-plus text-[10px]"></i> Add Gold Rate
+                  <i className="fa-solid fa-download text-[10px]"></i>
+                  Import from Excel
                 </button>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#f8f9fa] text-[10px] font-bold uppercase tracking-wider text-gray-500 border-b border-gray-200">
-                    <th className="px-4 py-3">PURITY / METAL</th>
-                    <th className="px-4 py-3">TOUCH %</th>
-                    <th className="px-4 py-3">WASTAGE (%)</th>
-                    <th className="px-4 py-3">MAKING CHARGE</th>
-                    <th className="px-4 py-3">ESTIMATED RATE / GM</th>
-                    <th className="px-4 py-3 text-center">ACTION</th>
-                  </tr>
-                </thead>
-                <tbody className="text-xs divide-y divide-gray-100">
-                  {goldRates.length === 0 ? (
-                    <tr>
-                      <td colSpan="6" className="py-10 text-center text-gray-400">
-                        <i className="fa-solid fa-coins text-3xl text-gray-200 mb-2 block"></i>
-                        <p className="font-semibold text-gray-600">No gold rates added yet</p>
-                        <p className="text-xs text-gray-400 mt-1">Click the <strong className="text-[#b01622]">+ Add Gold Rate</strong> button above to configure gold rates.</p>
-                      </td>
-                    </tr>
-                  ) : (
-                    goldRates.map((item, idx) => (
-                      <tr key={idx} className="hover:bg-gray-50/60 transition-colors">
-                        <td className="px-4 py-3 font-bold text-gray-900">{item.purity}</td>
-                        <td className="px-4 py-3">
-                          <span className="font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200/80">
-                            {item.touch || '-'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 font-mono text-gray-700">{item.wastage_percent}%</td>
-                        <td className="px-4 py-3 font-mono text-gray-700">₹{Number(item.making_charge || 0).toLocaleString('en-IN')} / gm</td>
-                        <td className="px-4 py-3 font-bold text-[#b01622]">₹{Number(item.effective_rate || (item.gold_rate * (1 + (item.wastage_percent || 0)/100) + (item.making_charge || 0))).toLocaleString('en-IN')} / gm</td>
-                        <td className="px-4 py-3 text-center text-gray-400 space-x-2">
-                          <button
-                            onClick={() => {
-                              setEditingItemIndex(idx);
-                              setGoldForm(item);
-                              setActiveModalType('gold');
-                            }}
-                            className="hover:text-[#b01622] cursor-pointer"
-                            title="Edit Gold Rate"
-                          >
-                            <i className="fa-regular fa-pen-to-square"></i>
-                          </button>
-                          <button onClick={() => handleDeleteGoldRate(idx)} className="hover:text-red-600 cursor-pointer" title="Delete">
-                            <i className="fa-regular fa-trash-can"></i>
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-            <div className="p-3 bg-white text-[11px] text-gray-500 font-medium border-t border-gray-100 flex items-center justify-between">
-              <span>Showing <strong>{goldRates.length}</strong> Gold Purity Rates for this client</span>
-              <span className="text-gray-400">Based on Live Market Rates & Wastage Standard</span>
-            </div>
-          </div>
-
-          {/* 2. Diamond Stone Rate (Per Carat) - Add Stone Rate Workflow */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-2xs overflow-hidden">
-            <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white">
-              <div>
-                <div className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
-                  <span>2. Diamond Stone Rate</span>
-                  <span className="text-xs text-gray-400 font-normal">(Per Carat)</span>
-                </div>
-                <div className="text-[11px] text-blue-700 font-semibold mt-0.5 flex items-center gap-1">
-                  <i className="fa-solid fa-gem text-blue-500"></i> Selected Diamond Rates ({diamondRates.length} Items Configured)
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => {
-                    setEditingItemIndex(null);
-                    setSelect2SearchTerm('');
-                    setIsSelect2Open(false);
-                    const defaultMaster = masterDiamondProducts[0];
-                    setDiamondForm({
-                      product_id: defaultMaster ? defaultMaster.id : '',
-                      product_code: defaultMaster ? defaultMaster.product_code : '',
-                      shape: defaultMaster ? defaultMaster.name : 'Round Diamond',
-                      quality: 'EF-VVS',
-                      from_size_index: 0,
-                      to_size_index: 5,
-                      size_range_mm: '0.80 mm - 1.10 mm',
-                      sieve: '+0000 to +0',
-                      stone_cents: '0.0035 ct - 0.0063 ct',
-                      rate_per_ct: defaultMaster ? (defaultMaster.opening_stock_rate || 60000) : 60000
-                    });
+                    setEditingIndex(null);
+                    setDiamondForm({ shape: 'Round Diamond', quality: 'EF-VVS', sieve: '', stone_cents: '', rate_per_ct: '' });
                     setActiveModalType('diamond');
                   }}
-                  className="px-4 py-2 bg-[#b01622] hover:bg-[#8e111a] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                  className="px-3 py-1.5 bg-[#b01622] hover:bg-[#90121b] text-white text-[11px] font-bold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
                 >
-                  <i className="fa-solid fa-plus text-[10px]"></i> Add Stone Rate
+                  <i className="fa-solid fa-plus text-[10px]"></i>
+                  Add Stone Rate
                 </button>
               </div>
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse text-xs">
                 <thead>
-                  <tr className="bg-[#f8f9fa] text-[10px] font-bold uppercase tracking-wider text-gray-500 border-b border-gray-200">
-                    <th className="px-4 py-3">DIAMOND PRODUCT</th>
-                    <th className="px-4 py-3">SIZE RANGE (MM)</th>
-                    <th className="px-4 py-3">SIEVE RANGE</th>
-                    <th className="px-4 py-3">CARAT WEIGHT</th>
+                  <tr className="bg-gray-50/80 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                    <th className="px-4 py-3">SHAPE</th>
                     <th className="px-4 py-3">QUALITY</th>
-                    <th className="px-4 py-3">CLIENT RATE / CT (₹)</th>
-                    <th className="px-4 py-3 text-center">ACTION</th>
+                    <th className="px-4 py-3">SIEVE</th>
+                    <th className="px-4 py-3">STONE CENTS</th>
+                    <th className="px-4 py-3 font-bold text-gray-900">RATE / CT (₹)</th>
+                    <th className="px-4 py-3 text-right print:hidden">ACTION</th>
                   </tr>
                 </thead>
-                <tbody className="text-xs divide-y divide-gray-100">
-                  {diamondRates.length === 0 ? (
-                    <tr>
-                      <td colSpan="7" className="py-10 text-center text-gray-400">
-                        <i className="fa-solid fa-gem text-3xl text-gray-200 mb-2 block"></i>
-                        <p className="font-semibold text-gray-600">No diamond stone rates added yet</p>
-                        <p className="text-xs text-gray-400 mt-1">Click the <strong className="text-[#b01622]">+ Add Stone Rate</strong> button above to configure diamond size ranges and client rates.</p>
+                <tbody className="divide-y divide-gray-100">
+                  {diamondRates.map((row, idx) => (
+                    <tr key={idx} className="hover:bg-gray-50/50 transition-colors">
+                      <td className="px-4 py-3.5 text-gray-700 font-medium">{row.shape}</td>
+                      <td className="px-4 py-3.5 text-gray-700 font-medium">{row.quality}</td>
+                      <td className="px-4 py-3.5 text-gray-700 font-medium">{row.sieve}</td>
+                      <td className="px-4 py-3.5 text-gray-700 font-medium">{row.stone_cents}</td>
+                      <td className="px-4 py-3.5 font-bold text-gray-900 font-mono">
+                        {Number(row.rate_per_ct).toLocaleString('en-IN')}
                       </td>
-                    </tr>
-                  ) : (
-                    diamondRates.map((item, idx) => (
-                      <tr key={idx} className="hover:bg-gray-50/60 transition-colors">
-                        <td className="px-4 py-3">
-                          <div className="font-bold text-gray-900">{item.shape}</div>
-                          {item.product_code && (
-                            <span className="font-mono text-[10px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200">
-                              {item.product_code}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="font-semibold text-gray-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200/80">
-                            {item.size_range_mm || '-'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-gray-700 font-semibold">{item.sieve}</td>
-                        <td className="px-4 py-3 font-mono text-gray-600">{item.stone_cents}</td>
-                        <td className="px-4 py-3 text-gray-700 font-normal">{item.quality}</td>
-                        <td className="px-4 py-3 font-bold text-gray-900">
-                          ₹{Number(item.rate_per_ct || 0).toLocaleString('en-IN')} <span className="text-[10px] text-gray-400 font-normal">/ ct</span>
-                        </td>
-                        <td className="px-4 py-3 text-center text-gray-400 space-x-2">
+                      <td className="px-4 py-3.5 text-right print:hidden">
+                        <div className="inline-flex items-center gap-2">
                           <button
+                            type="button"
                             onClick={() => {
-                              setEditingItemIndex(idx);
-                              setDiamondForm(item);
-                              setIsSelect2Open(false);
-                              setSelect2SearchTerm('');
+                              setEditingIndex(idx);
+                              setDiamondForm({ ...row });
                               setActiveModalType('diamond');
                             }}
-                            className="hover:text-[#b01622] cursor-pointer"
-                            title="Edit Rate & Size Range"
+                            className="text-gray-400 hover:text-gray-700 text-xs cursor-pointer"
                           >
-                            <i className="fa-regular fa-pen-to-square"></i>
+                            <i className="fa-solid fa-pen"></i>
                           </button>
-                          <button onClick={() => handleDeleteDiamondRate(idx)} className="hover:text-red-600 cursor-pointer" title="Delete">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = diamondRates.filter((_, i) => i !== idx);
+                              setDiamondRates(updated);
+                              handleSavePriceList(null, { diamond_stone_rates: updated });
+                            }}
+                            className="text-gray-400 hover:text-[#b01622] text-xs cursor-pointer"
+                          >
                             <i className="fa-regular fa-trash-can"></i>
                           </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
-            <div className="p-3 bg-white text-[11px] text-gray-500 font-medium border-t border-gray-100 flex items-center justify-between">
-              <span>Showing <strong>{diamondRates.length}</strong> Diamond Size Ranges for this client</span>
-              <span className="text-gray-400">Based on Diamond Chart & Sieve Sizes</span>
+            <div className="px-4 py-2.5 bg-gray-50/60 border-t border-gray-100 text-[10px] text-gray-400">
+              Showing 1 to {diamondRates.length} of {diamondRates.length} entries
             </div>
           </div>
 
-          {/* 3. Color Stone Charges & 4. Additional Charges */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
-            
-            {/* 3. Color Stone Charges */}
-            <div className="bg-white rounded-xl border border-gray-200 shadow-2xs overflow-hidden">
-              <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-white">
+          {/* Color Stone Charges & 4. Additional Charges (2 Grid) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+
+            {/* Color Stone Charges */}
+            <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xs overflow-hidden">
+              <div className="p-4 border-b border-gray-100 flex items-center justify-between">
                 <div>
-                  <div className="text-sm font-bold text-gray-900">3. Color Stone Charges</div>
-                  <div className="text-[11px] text-gray-400 font-normal">(Per Carat)</div>
+                  <h3 className="text-xs font-bold text-gray-900">Color Stone Charges</h3>
+                  <span className="text-[10px] text-gray-400">[Per Carat]</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => {
-                    setEditingItemIndex(null);
+                    setEditingIndex(null);
                     setColorStoneForm({ stone: '', rate_per_ct: '' });
                     setActiveModalType('color_stone');
                   }}
-                  className="px-3 py-1 bg-white border border-red-200 hover:bg-red-50 text-[#b01622] text-xs font-bold rounded flex items-center gap-1 transition-colors cursor-pointer"
+                  className="px-2.5 py-1 border border-rose-200 text-[#b01622] hover:bg-red-50 text-[10px] font-bold rounded-lg transition-colors cursor-pointer print:hidden"
                 >
-                  <i className="fa-solid fa-plus text-[10px]"></i> Add Stone
+                  + Add Stone
                 </button>
               </div>
 
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse text-xs">
                 <thead>
-                  <tr className="bg-[#f8f9fa] text-[10px] font-bold uppercase tracking-wider text-gray-500 border-b border-gray-200">
+                  <tr className="bg-gray-50/80 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
                     <th className="px-4 py-2.5">STONE</th>
-                    <th className="px-4 py-2.5">RATE / CT (₹)</th>
-                    <th className="px-4 py-2.5 text-center">ACTION</th>
+                    <th className="px-4 py-2.5 font-bold text-gray-900">RATE / CT (₹)</th>
+                    <th className="px-4 py-2.5 text-right print:hidden">ACTION</th>
                   </tr>
                 </thead>
-                <tbody className="text-xs divide-y divide-gray-100">
-                  {colorStoneRates.length === 0 ? (
-                    <tr>
-                      <td colSpan="3" className="py-6 text-center text-gray-400">
-                        No color stone rates added.
+                <tbody className="divide-y divide-gray-100">
+                  {colorStoneRates.map((cs, idx) => (
+                    <tr key={idx} className="hover:bg-gray-50/50">
+                      <td className="px-4 py-3 text-gray-700 font-medium">{cs.stone}</td>
+                      <td className="px-4 py-3 font-bold text-gray-900 font-mono">
+                        {Number(cs.rate_per_ct).toLocaleString('en-IN')} / CT
                       </td>
-                    </tr>
-                  ) : (
-                    colorStoneRates.map((item, idx) => (
-                      <tr key={idx} className="hover:bg-gray-50/60">
-                        <td className="px-4 py-3 text-gray-700 font-normal">{item.stone}</td>
-                        <td className="px-4 py-3 font-semibold text-gray-900 whitespace-nowrap">₹{Number(item.rate_per_ct).toLocaleString('en-IN')}&nbsp;/&nbsp;CT</td>
-                        <td className="px-4 py-3 text-center text-gray-400 space-x-2">
+                      <td className="px-4 py-3 text-right print:hidden">
+                        <div className="inline-flex items-center gap-2">
                           <button
+                            type="button"
                             onClick={() => {
-                              setEditingItemIndex(idx);
-                              setColorStoneForm(item);
+                              setEditingIndex(idx);
+                              setColorStoneForm({ ...cs });
                               setActiveModalType('color_stone');
                             }}
-                            className="hover:text-[#b01622] cursor-pointer"
+                            className="text-gray-400 hover:text-gray-700 text-xs cursor-pointer"
                           >
-                            <i className="fa-regular fa-pen-to-square"></i>
+                            <i className="fa-solid fa-pen"></i>
                           </button>
-                          <button onClick={() => handleDeleteColorStone(idx)} className="hover:text-red-600 cursor-pointer">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = colorStoneRates.filter((_, i) => i !== idx);
+                              setColorStoneRates(updated);
+                              handleSavePriceList(null, { color_stone_charges: updated });
+                            }}
+                            className="text-gray-400 hover:text-[#b01622] text-xs cursor-pointer"
+                          >
                             <i className="fa-regular fa-trash-can"></i>
                           </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
 
             {/* 4. Additional Charges */}
-            <div className="bg-white rounded-xl border border-gray-200 shadow-2xs p-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-bold text-gray-900">4. Additional Charges</div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAdditionalForm({
-                      minimum_labour: additionalCharges.minimum_labour ?? 1500,
-                      single_nose_pin: additionalCharges.single_nose_pin ?? 850,
-                      multi_stones: additionalCharges.multi_stones ?? 1000,
-                      step_nose_pin: additionalCharges.step_nose_pin ?? 0,
-                      tongai: additionalCharges.tongai ?? 0,
-                    });
-                    setActiveModalType('additional');
-                  }}
-                  className="text-xs text-[#b01622] font-semibold hover:underline cursor-pointer flex items-center gap-1"
-                >
-                  <i className="fa-regular fa-pen-to-square"></i> Edit
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="bg-[#f8f9fa] p-3 rounded-lg border border-gray-100">
-                  <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">MINIMUM LABOUR</div>
-                  <div className="text-sm font-bold text-gray-900">₹ {Number(additionalCharges.minimum_labour ?? 1500).toLocaleString('en-IN')}</div>
-                  <div className="text-[10px] text-gray-400 mt-1">Per Piece for Below 1.00 gms items</div>
+            <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xs p-4 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-3 border-b border-gray-100 pb-2">
+                  <h3 className="text-xs font-bold text-gray-900">4. Additional Charges</h3>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdditionalForm({ ...additionalCharges });
+                      setActiveModalType('additional');
+                    }}
+                    className="text-[10px] text-[#b01622] font-bold hover:underline cursor-pointer print:hidden"
+                  >
+                    Edit Charges
+                  </button>
                 </div>
 
-                <div className="bg-[#f8f9fa] p-3 rounded-lg border border-gray-100">
-                  <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">SINGLE NOSE PIN</div>
-                  <div className="text-sm font-bold text-gray-900">₹ {Number(additionalCharges.single_nose_pin ?? 850).toLocaleString('en-IN')}</div>
-                  <div className="text-[10px] text-gray-400 mt-1">Per Piece</div>
+                <div className="grid grid-cols-3 gap-2 text-xs mb-3">
+                  <div className="col-span-1">
+                    <label className="block text-[9px] font-bold text-gray-400 uppercase">MINIMUM LABOUR</label>
+                    <div className="p-2 bg-gray-50 border border-gray-200/70 rounded-lg font-bold text-gray-900 mt-1 font-mono">
+                      ₹ {Number(additionalCharges.minimum_labour || 1500).toLocaleString('en-IN')}
+                    </div>
+                    <span className="text-[8px] text-gray-400 leading-tight block mt-0.5">{additionalCharges.minimum_labour_desc || 'Per Piece for below 1.00 gms items'}</span>
+                  </div>
+
+                  <div className="col-span-1">
+                    <label className="block text-[9px] font-bold text-gray-400 uppercase">SINGLE NOSE PIN</label>
+                    <div className="p-2 bg-gray-50 border border-gray-200/70 rounded-lg font-bold text-gray-900 mt-1 font-mono">
+                      ₹ {Number(additionalCharges.single_nose_pin || 850).toLocaleString('en-IN')}
+                    </div>
+                    <span className="text-[8px] text-gray-400 leading-tight block mt-0.5">{additionalCharges.single_nose_pin_desc || 'Per Piece'}</span>
+                  </div>
+
+                  <div className="col-span-1">
+                    <label className="block text-[9px] font-bold text-gray-400 uppercase">MULTI STONES</label>
+                    <div className="p-2 bg-gray-50 border border-gray-200/70 rounded-lg font-bold text-gray-900 mt-1 font-mono">
+                      ₹ {Number(additionalCharges.multi_stones || 1000).toLocaleString('en-IN')}
+                    </div>
+                    <span className="text-[8px] text-gray-400 leading-tight block mt-0.5">{additionalCharges.multi_stones_desc || 'Per Piece'}</span>
+                  </div>
                 </div>
 
-                <div className="bg-[#f8f9fa] p-3 rounded-lg border border-gray-100">
-                  <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">MULTI STONES</div>
-                  <div className="text-sm font-bold text-gray-900">₹ {Number(additionalCharges.multi_stones ?? 1000).toLocaleString('en-IN')}</div>
-                  <div className="text-[10px] text-gray-400 mt-1">Per Piece</div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                <div>
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">STEP NOSE PIN</label>
-                  <input
-                    type="text"
-                    value={additionalCharges.step_nose_pin ? `₹ ${Number(additionalCharges.step_nose_pin).toLocaleString('en-IN')}` : '₹ -'}
-                    readOnly
-                    className="w-full px-3 py-2 bg-[#f8f9fa] border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 cursor-not-allowed"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">TONGAI</label>
-                  <input
-                    type="text"
-                    value={additionalCharges.tongai ? `₹ ${Number(additionalCharges.tongai).toLocaleString('en-IN')}` : '₹ -'}
-                    readOnly
-                    className="w-full px-3 py-2 bg-[#f8f9fa] border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 cursor-not-allowed"
-                  />
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <label className="block text-[9px] font-bold text-gray-400 uppercase">STEP NOSE PIN</label>
+                    <div className="p-2 bg-gray-50 border border-gray-200/70 rounded-lg font-bold text-gray-900 mt-1 font-mono">
+                      ₹ {additionalCharges.step_nose_pin ? Number(additionalCharges.step_nose_pin).toLocaleString('en-IN') : '-'}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-bold text-gray-400 uppercase">TONGAI</label>
+                    <div className="p-2 bg-gray-50 border border-gray-200/70 rounded-lg font-bold text-gray-900 mt-1 font-mono">
+                      ₹ {additionalCharges.tongai ? Number(additionalCharges.tongai).toLocaleString('en-IN') : '-'}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
 
           </div>
 
+          {/* 3. Making Charges Table */}
+          <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xs overflow-hidden">
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-xs font-bold text-gray-900">Making Charges</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingIndex(null);
+                  setMakingForm({ type_design: '', wastage_percent: '', labour_charge: '', gold_purity: '', on_wt: '' });
+                  setActiveModalType('making');
+                }}
+                className="px-2.5 py-1 border border-rose-200 text-[#b01622] hover:bg-red-50 text-[10px] font-bold rounded-lg transition-colors cursor-pointer print:hidden"
+              >
+                + Add Making Charge
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-gray-50/80 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                    <th className="px-4 py-3">TYPE / DESIGN</th>
+                    <th className="px-4 py-3">WASTAGE (%)</th>
+                    <th className="px-4 py-3">LABOUR CHARGE</th>
+                    <th className="px-4 py-3">GOLD PURITY</th>
+                    <th className="px-4 py-3">ON WT</th>
+                    <th className="px-4 py-3 text-right print:hidden">ACTION</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {makingCharges.map((mc, idx) => (
+                    <tr key={idx} className="hover:bg-gray-50/50">
+                      <td className="px-4 py-3.5 text-gray-900 font-bold">{mc.type_design}</td>
+                      <td className="px-4 py-3.5 text-gray-700 font-medium">{mc.wastage_percent}</td>
+                      <td className="px-4 py-3.5 text-gray-700 font-medium">{mc.labour_charge}</td>
+                      <td className="px-4 py-3.5 text-gray-700 font-medium">{mc.gold_purity}</td>
+                      <td className="px-4 py-3.5 text-gray-700 font-medium">{mc.on_wt}</td>
+                      <td className="px-4 py-3.5 text-right print:hidden">
+                        <div className="inline-flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingIndex(idx);
+                              setMakingForm({ ...mc });
+                              setActiveModalType('making');
+                            }}
+                            className="text-gray-400 hover:text-gray-700 text-xs cursor-pointer"
+                          >
+                            <i className="fa-solid fa-pen"></i>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = makingCharges.filter((_, i) => i !== idx);
+                              setMakingCharges(updated);
+                              handleSavePriceList(null, { making_charges: updated });
+                            }}
+                            className="text-gray-400 hover:text-[#b01622] text-xs cursor-pointer"
+                          >
+                            <i className="fa-regular fa-trash-can"></i>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Stamping Instructions & Payment Terms (2 Grid) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+
+            {/* Instruction for Inscription on Product (Stamping) */}
+            <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xs p-4">
+              <div className="flex items-center justify-between border-b border-gray-100 pb-2 mb-3">
+                <h3 className="text-xs font-bold text-gray-900">
+                  Instruction for Inscription on Product (Stamping)
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStampingForm({ ...stampingInstructions });
+                    setActiveModalType('stamping');
+                  }}
+                  className="text-[10px] text-[#b01622] font-bold hover:underline cursor-pointer print:hidden"
+                >
+                  Edit
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <label className="block text-[9px] font-bold text-gray-400 uppercase">STAMPING DETAIL</label>
+                  <div className="p-2 bg-gray-50 border border-gray-200/70 rounded-lg text-gray-800 font-medium text-[11px] truncate mt-1">
+                    {stampingInstructions.stamping_detail || 'DIA WT/NO OF DIA/ RJ Seal'}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[9px] font-bold text-gray-400 uppercase">CERTIFICATION</label>
+                  <div className="p-2 bg-gray-50 border border-gray-200/70 rounded-lg text-gray-800 font-medium text-[11px] truncate mt-1">
+                    {stampingInstructions.certification || '-'}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-bold text-gray-400 uppercase">HALLMARK / HUID</label>
+                  <div className="p-2 bg-gray-50 border border-gray-200/70 rounded-lg text-gray-800 font-medium text-[11px] truncate mt-1">
+                    {stampingInstructions.hallmark_huid || 'NO'}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[9px] font-bold text-gray-400 uppercase">METAL COLOUR</label>
+                  <div className="p-2 bg-gray-50 border border-gray-200/70 rounded-lg text-gray-800 font-medium text-[11px] truncate mt-1">
+                    {stampingInstructions.metal_colour || '-'}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-bold text-gray-400 uppercase">CLIENT QC BEFORE BILL</label>
+                  <div className="p-2 bg-gray-50 border border-gray-200/70 rounded-lg text-gray-800 font-medium text-[11px] truncate mt-1">
+                    {stampingInstructions.client_qc_before_billing || 'NO'}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[9px] font-bold text-gray-400 uppercase">NECKLACE BACK CHAIN</label>
+                  <div className="p-2 bg-gray-50 border border-gray-200/70 rounded-lg text-gray-800 font-medium text-[11px] truncate mt-1">
+                    {stampingInstructions.necklace_back_chain || '-'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Payment Terms */}
+            <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xs overflow-hidden">
+              <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+                <h3 className="text-xs font-bold text-gray-900">Payment Terms</h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingIndex(null);
+                    setPaymentTermForm({ type: 'Gold', terms: 'COD' });
+                    setActiveModalType('payment_term');
+                  }}
+                  className="text-[10px] text-[#b01622] font-bold hover:underline cursor-pointer print:hidden"
+                >
+                  + Add Term
+                </button>
+              </div>
+
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-[#f8f9fa] border-b border-gray-200 text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
+                    <th className="px-4 py-2.5">TYPE</th>
+                    <th className="px-4 py-2.5">TERMS</th>
+                    <th className="px-4 py-2.5 text-right print:hidden">ACTION</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {paymentTerms.map((pt, idx) => (
+                    <tr key={idx} className="hover:bg-gray-50/50">
+                      <td className="px-4 py-3 text-gray-700 font-medium">{pt.type}</td>
+                      <td className="px-4 py-3 font-bold text-gray-900">{pt.terms}</td>
+                      <td className="px-4 py-3 text-right print:hidden">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = paymentTerms.filter((_, i) => i !== idx);
+                            setPaymentTerms(updated);
+                            handleSavePriceList(null, { payment_terms: updated });
+                          }}
+                          className="text-gray-400 hover:text-[#b01622] text-xs cursor-pointer"
+                        >
+                          <i className="fa-regular fa-trash-can"></i>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+          </div>
+
         </div>
 
-        {/* Right Column Sidebar (Span 1) */}
-        <div className="space-y-5">
-          
+        {/* Right Column Sidebar */}
+        <div className="space-y-6 print:hidden">
+
           {/* Current Active Version Card */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-2xs space-y-4">
-            <div className="flex items-center gap-2 text-xs font-bold text-gray-900">
+          <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xs p-5 space-y-4">
+            <div className="flex items-center gap-2 text-xs font-bold text-gray-900 border-b border-gray-100 pb-3">
               <i className="fa-regular fa-bookmark text-[#b01622]"></i>
               <span>Current Active Version</span>
             </div>
 
-            <div className="space-y-3 pt-1 text-xs">
+            <div>
+              <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">CLIENT</div>
+              <div className="text-xs font-bold text-gray-900 mt-0.5">{clientName}</div>
+              <div className="text-[10px] text-gray-400 font-mono">Code: {clientCode}</div>
+            </div>
+
+            <div className="flex items-center justify-between border-t border-b border-gray-100 py-3">
               <div>
-                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">CLIENT</div>
-                <div className="font-bold text-gray-900">{clientName}</div>
-                <div className="text-[11px] font-mono text-gray-400">Code: {clientCode}</div>
+                <div className="text-[10px] text-gray-400 font-bold uppercase">VERSION</div>
+                <div className="text-base font-black text-gray-900">{version}</div>
               </div>
-
-              <div className="flex items-center justify-between border-t border-gray-100 pt-3">
-                <div>
-                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">VERSION</div>
-                  <div className="font-bold text-gray-900 text-sm">{version}</div>
-                </div>
-                <div>
-                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">STATUS</div>
-                  <span className="bg-emerald-50 text-emerald-700 text-[11px] font-bold px-2.5 py-0.5 rounded-full border border-emerald-200">
-                    Active
-                  </span>
-                </div>
+              <div className="text-right">
+                <div className="text-[10px] text-gray-400 font-bold uppercase">STATUS</div>
+                <span className="inline-block px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold text-[11px] border border-emerald-200">
+                  {status}
+                </span>
               </div>
+            </div>
 
-              <div className="grid grid-cols-2 gap-2 border-t border-gray-100 pt-3 text-xs">
-                <div>
-                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">EFFECTIVE FROM</div>
-                  <div className="font-semibold text-gray-800">{effectiveFrom || 'Today'}</div>
-                </div>
-                <div>
-                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">EFFECTIVE TO</div>
-                  <div className="font-semibold text-gray-800">{effectiveTo}</div>
-                </div>
+            <div className="grid grid-cols-2 gap-2 text-[11px]">
+              <div>
+                <span className="text-[10px] text-gray-400 font-bold uppercase block">EFFECTIVE FROM</span>
+                <span className="font-bold text-gray-800">{effectiveFrom || '01 Aug 2026'}</span>
               </div>
+              <div>
+                <span className="text-[10px] text-gray-400 font-bold uppercase block">EFFECTIVE TO</span>
+                <span className="font-bold text-gray-800">{effectiveTo}</span>
+              </div>
+            </div>
 
-              <div className="border-t border-gray-100 pt-3 text-[11px] text-gray-500 flex items-center justify-between">
-                <span>LAST UPDATED: <strong className="text-gray-700 font-semibold">{updatedAtStr || 'Just Now'}</strong></span>
+            <div className="pt-2 border-t border-gray-100 text-[10px] text-gray-400 flex items-center justify-between">
+              <div>
+                <span className="block font-bold uppercase">LAST UPDATED</span>
+                <span className="text-gray-600 font-medium">{updatedAtStr || '23 Jul 2026 • 10:30 AM'}</span>
+              </div>
+              <div className="text-right">
+                <span className="block font-bold uppercase">BY</span>
+                <span className="text-gray-600 font-medium">Arvind (Admin)</span>
               </div>
             </div>
           </div>
 
-          {/* Quick Actions Card */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-2xs space-y-2.5">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">
+          {/* Quick Actions Panel */}
+          <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xs p-5 space-y-3">
+            <div className="text-[10px] font-extrabold text-[#b01622] uppercase tracking-wider mb-2">
               QUICK ACTIONS
             </div>
 
+            {/* Action 1: Create New Version */}
             <button
               type="button"
-              onClick={() => setIsPrintModalOpen(true)}
-              className="w-full p-2.5 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg text-xs font-bold text-[#b01622] flex items-center gap-2.5 transition-colors cursor-pointer shadow-2xs"
-            >
-              <i className="fa-solid fa-print text-[#b01622]"></i>
-              Print / Export PDF Sheet
-            </button>
-            <button
-              type="button"
-              onClick={() => savePriceList()}
+              onClick={handleCreateNewVersion}
               disabled={saving}
-              className="w-full p-2.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs font-semibold text-emerald-800 flex items-center gap-2.5 transition-colors cursor-pointer shadow-2xs"
+              className="w-full py-2.5 px-4 bg-white border border-rose-200 hover:border-[#b01622] hover:bg-rose-50/50 rounded-xl text-xs font-bold text-[#b01622] flex items-center gap-2.5 transition-all shadow-2xs cursor-pointer"
             >
-              <i className="fa-regular fa-floppy-disk text-emerald-700"></i>
-              Save Client Price List
+              <i className="fa-solid fa-copy text-xs"></i>
+              <span>Duplicate / Create New Version</span>
             </button>
+
+            {/* Action 2: Export Price List PDF */}
             <button
               type="button"
-              onClick={() => {
-                const nextVer = sprintf('%02d', parseInt(version || '01') + 1);
-                savePriceList(nextVer);
-              }}
-              disabled={saving}
-              className="w-full p-2.5 bg-white hover:bg-gray-50 border border-red-100 rounded-lg text-xs font-semibold text-[#b01622] flex items-center gap-2.5 transition-colors cursor-pointer shadow-2xs"
+              onClick={handleExportPDF}
+              className="w-full py-2.5 px-4 bg-white border border-rose-200 hover:border-[#b01622] hover:bg-rose-50/50 rounded-xl text-xs font-bold text-[#b01622] flex items-center gap-2.5 transition-all shadow-2xs cursor-pointer"
             >
-              <i className="fa-regular fa-copy text-gray-500"></i>
-              Create New Version ({sprintf('%02d', parseInt(version || '01') + 1)})
+              <i className="fa-solid fa-file-pdf text-xs"></i>
+              <span>Export Price List (PDF)</span>
+            </button>
+
+            {/* Action 3: Export to Excel */}
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              className="w-full py-2.5 px-4 bg-white border border-rose-200 hover:border-[#b01622] hover:bg-rose-50/50 rounded-xl text-xs font-bold text-[#b01622] flex items-center gap-2.5 transition-all shadow-2xs cursor-pointer"
+            >
+              <i className="fa-solid fa-file-excel text-xs"></i>
+              <span>Export to Excel</span>
+            </button>
+
+            {/* Action 4: View Price List History */}
+            <button
+              type="button"
+              onClick={fetchPriceListHistory}
+              className="w-full py-2.5 px-4 bg-white border border-rose-200 hover:border-[#b01622] hover:bg-rose-50/50 rounded-xl text-xs font-bold text-[#b01622] flex items-center gap-2.5 transition-all shadow-2xs cursor-pointer"
+            >
+              <i className="fa-solid fa-clock-rotate-left text-xs"></i>
+              <span>View Price List History</span>
             </button>
           </div>
 
-        </div>
-
-      </div>
-
-      {/* 5. Section 5: Making Charges */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-2xs overflow-hidden">
-        <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-white">
-          <div className="text-sm font-bold text-gray-900">5. Making Charges</div>
-          <button
-            type="button"
-            onClick={() => {
-              setEditingItemIndex(null);
-              setMakingForm({ type_design: '', wastage_percent: '', labour_charge: '', gold_purity: '', on_wt: '' });
-              setActiveModalType('making');
-            }}
-            className="px-3 py-1 bg-white border border-red-200 hover:bg-red-50 text-[#b01622] text-xs font-bold rounded flex items-center gap-1 transition-colors cursor-pointer"
-          >
-            <i className="fa-solid fa-plus text-[10px]"></i> Add Making Charge
-          </button>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-[#f8f9fa] text-[10px] font-bold uppercase tracking-wider text-gray-500 border-b border-gray-200">
-                <th className="px-4 py-3">TYPE / DESIGN</th>
-                <th className="px-4 py-3">WASTAGE (%)</th>
-                <th className="px-4 py-3">LABOUR CHARGE</th>
-                <th className="px-4 py-3">GOLD PURITY</th>
-                <th className="px-4 py-3">ON WT</th>
-                <th className="px-4 py-3 text-center">ACTION</th>
-              </tr>
-            </thead>
-            <tbody className="text-xs divide-y divide-gray-100">
-              {makingCharges.length === 0 ? (
-                <tr>
-                  <td colSpan="6" className="py-6 text-center text-gray-400">
-                    No making charges configured for this client.
-                  </td>
-                </tr>
-              ) : (
-                makingCharges.map((item, idx) => (
-                  <tr key={idx} className="hover:bg-gray-50/60">
-                    <td className="px-4 py-3.5 text-gray-700 font-normal">{item.type_design}</td>
-                    <td className="px-4 py-3.5 font-normal text-gray-700">{item.wastage_percent}</td>
-                    <td className="px-4 py-3.5 text-gray-700 font-normal">{item.labour_charge}</td>
-                    <td className="px-4 py-3.5 font-mono text-gray-600">{item.gold_purity}</td>
-                    <td className="px-4 py-3.5 text-gray-700 font-normal">{item.on_wt}</td>
-                    <td className="px-4 py-3.5 text-center text-gray-400 space-x-2">
-                      <button
-                        onClick={() => {
-                          setEditingItemIndex(idx);
-                          setMakingForm(item);
-                          setActiveModalType('making');
-                        }}
-                        className="hover:text-[#b01622] cursor-pointer"
-                      >
-                        <i className="fa-regular fa-pen-to-square"></i>
-                      </button>
-                      <button onClick={() => handleDeleteMakingCharge(idx)} className="hover:text-red-600 cursor-pointer">
-                        <i className="fa-regular fa-trash-can"></i>
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
         </div>
       </div>
 
-      {/* 6. Bottom Grid: Inscription (Stamping) & Payment Terms */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        
-        {/* 6. Instruction for Inscription on Product (Stamping) */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-2xs space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="text-sm font-bold text-gray-900">
-              6. Instruction for Inscription on Product (Stamping)
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setStampingForm({ ...stampingInstructions });
-                setActiveModalType('stamping');
-              }}
-              className="text-xs text-[#b01622] font-semibold hover:underline cursor-pointer flex items-center gap-1"
-            >
-              <i className="fa-regular fa-pen-to-square"></i> Edit
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-            <div>
-              <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">STAMPING DETAIL</label>
-              <input
-                type="text"
-                value={stampingInstructions.stamping_detail || '-'}
-                readOnly
-                className="w-full px-3 py-2 bg-[#f8f9fa] border border-gray-200 rounded-lg font-semibold text-gray-700 cursor-not-allowed"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">CERTIFICATION</label>
-              <input
-                type="text"
-                value={stampingInstructions.certification || '-'}
-                readOnly
-                className="w-full px-3 py-2 bg-[#f8f9fa] border border-gray-200 rounded-lg font-semibold text-gray-500 cursor-not-allowed"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">HALLMARK / HUID</label>
-              <input
-                type="text"
-                value={stampingInstructions.hallmark_huid || 'NO'}
-                readOnly
-                className="w-full px-3 py-2 bg-[#f8f9fa] border border-gray-200 rounded-lg font-semibold text-gray-700 cursor-not-allowed"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">METAL COLOUR</label>
-              <input
-                type="text"
-                value={stampingInstructions.metal_colour || '-'}
-                readOnly
-                className="w-full px-3 py-2 bg-[#f8f9fa] border border-gray-200 rounded-lg font-semibold text-gray-500 cursor-not-allowed"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">CLIENT QC BEFORE BILLING</label>
-              <input
-                type="text"
-                value={stampingInstructions.client_qc_before_billing || 'NO'}
-                readOnly
-                className="w-full px-3 py-2 bg-[#f8f9fa] border border-gray-200 rounded-lg font-semibold text-gray-700 cursor-not-allowed"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">NECKLACE BACK CHAIN</label>
-              <input
-                type="text"
-                value={stampingInstructions.necklace_back_chain || '-'}
-                readOnly
-                className="w-full px-3 py-2 bg-[#f8f9fa] border border-gray-200 rounded-lg font-semibold text-gray-500 cursor-not-allowed"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* 7. Payment Terms */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-2xs overflow-hidden">
-          <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-white">
-            <div className="text-sm font-bold text-gray-900">7. Payment Terms</div>
-            <button
-              type="button"
-              onClick={() => {
-                setEditingItemIndex(null);
-                setPaymentTermForm({ type: 'Gold', terms: 'COD' });
-                setActiveModalType('payment_term');
-              }}
-              className="px-3 py-1 bg-white border border-red-200 hover:bg-red-50 text-[#b01622] text-xs font-bold rounded flex items-center gap-1 transition-colors cursor-pointer"
-            >
-              <i className="fa-solid fa-plus text-[10px]"></i> Add Term
-            </button>
-          </div>
-
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-[#f8f9fa] text-[10px] font-bold uppercase tracking-wider text-gray-500 border-b border-gray-200">
-                <th className="px-6 py-3">TYPE</th>
-                <th className="px-6 py-3">TERMS</th>
-                <th className="px-6 py-3 text-center">ACTION</th>
-              </tr>
-            </thead>
-            <tbody className="text-xs divide-y divide-gray-100">
-              {paymentTerms.length === 0 ? (
-                <tr>
-                  <td colSpan="3" className="py-6 text-center text-gray-400">
-                    No payment terms added.
-                  </td>
-                </tr>
-              ) : (
-                paymentTerms.map((item, idx) => (
-                  <tr key={idx} className="hover:bg-gray-50/60">
-                    <td className="px-6 py-3 text-gray-700 font-normal">{item.type}</td>
-                    <td className="px-6 py-3 font-bold text-gray-900">{item.terms}</td>
-                    <td className="px-6 py-3 text-center text-gray-400 space-x-2">
-                      <button
-                        onClick={() => {
-                          setEditingItemIndex(idx);
-                          setPaymentTermForm(item);
-                          setActiveModalType('payment_term');
-                        }}
-                        className="hover:text-[#b01622] cursor-pointer"
-                      >
-                        <i className="fa-regular fa-pen-to-square"></i>
-                      </button>
-                      <button onClick={() => handleDeletePaymentTerm(idx)} className="hover:text-red-600 cursor-pointer">
-                        <i className="fa-regular fa-trash-can"></i>
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-      </div>
-
-      {/* GLOBAL CONFIRMATION MODAL FOR EDIT & DELETE ACTIONS */}
-      {confirmDialog.isOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-[60] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in duration-150">
-            <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg shrink-0 ${
-                confirmDialog.type === 'danger' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-700'
-              }`}>
-                <i className={`fa-solid ${confirmDialog.type === 'danger' ? 'fa-triangle-exclamation' : 'fa-circle-question'}`}></i>
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-gray-900">{confirmDialog.title}</h3>
-                <p className="text-xs text-gray-500 mt-0.5">{confirmDialog.message}</p>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
+      {/* Version History Modal */}
+      {historyModalOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in print:hidden">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-100">
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100 mb-4">
+              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                <i className="fa-solid fa-clock-rotate-left text-[#b01622]"></i>
+                Price List Version History ({clientName})
+              </h3>
               <button
                 type="button"
-                onClick={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
-                className="px-4 py-2 border border-gray-200 hover:bg-gray-50 rounded-xl text-xs font-semibold text-gray-600 transition-colors cursor-pointer"
+                onClick={() => setHistoryModalOpen(false)}
+                className="w-8 h-8 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex items-center justify-center cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark text-sm"></i>
+              </button>
+            </div>
+
+            {loadingHistory ? (
+              <div className="py-8 text-center text-xs text-gray-400">
+                <i className="fa-solid fa-circle-notch fa-spin text-lg text-[#b01622] mb-2 block"></i>
+                Loading version history...
+              </div>
+            ) : historyData.length === 0 ? (
+              <div className="py-8 text-center text-xs text-gray-400">
+                No past saved versions found.
+              </div>
+            ) : (
+              <div className="space-y-3 max-h-80 overflow-y-auto pr-1 text-xs">
+                {historyData.map((rec) => (
+                  <div
+                    key={rec.id}
+                    className="p-3.5 bg-gray-50 border border-gray-200/80 rounded-xl flex items-center justify-between hover:bg-rose-50/30 transition-colors"
+                  >
+                    <div>
+                      <div className="font-bold text-gray-900 flex items-center gap-2">
+                        <span>Version {rec.version}</span>
+                        {rec.version === version && (
+                          <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-extrabold text-[9px]">ACTIVE</span>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-gray-400 mt-0.5">
+                        Effective: {rec.effective_from ? String(rec.effective_from).split('T')[0] : 'N/A'} • {rec.effective_to || 'Open'}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleLoadHistoryVersion(rec)}
+                      className="px-3 py-1.5 bg-[#b01622] hover:bg-[#90121b] text-white text-[11px] font-bold rounded-lg cursor-pointer transition-colors"
+                    >
+                      Load Version
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Export PDF Sheet Preview Modal matching Image 2 UI */}
+      {isPdfModalOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 flex items-start justify-center p-3 sm:p-6 overflow-y-auto animate-fade-in print:p-0 print:bg-white print:static">
+          {/* Print Style Injector */}
+          <style>{`
+            @media print {
+              @page {
+                size: A4 portrait;
+                margin: 3mm;
+              }
+              html, body {
+                height: 100% !important;
+                overflow: hidden !important;
+              }
+              body * {
+                visibility: hidden !important;
+              }
+              #printable-price-list-sheet, #printable-price-list-sheet * {
+                visibility: visible !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                color-adjust: exact !important;
+              }
+              #printable-price-list-sheet {
+                position: absolute !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 100% !important;
+                max-height: 288mm !important;
+                margin: 0 !important;
+                padding: 4px 10px !important;
+                background: white !important;
+                z-index: 999999 !important;
+                box-shadow: none !important;
+                border: none !important;
+                overflow: hidden !important;
+                page-break-after: avoid !important;
+                page-break-inside: avoid !important;
+              }
+              .no-print {
+                display: none !important;
+              }
+
+              /* Force exact grid and flex alignments in print renderer */
+              .print-grid-top {
+                display: grid !important;
+                grid-template-columns: 1fr 1fr !important;
+                gap: 0.5rem !important;
+              }
+              .print-grid-main {
+                display: grid !important;
+                grid-template-columns: 2.1fr 1fr !important;
+                gap: 0.75rem !important;
+                align-items: start !important;
+              }
+              .print-col-2 {
+                grid-column: span 1 / span 1 !important;
+              }
+              .print-col-1 {
+                grid-column: span 1 / span 1 !important;
+              }
+              .print-grid-sub {
+                display: grid !important;
+                grid-template-columns: 1fr 1fr !important;
+                gap: 0.5rem !important;
+              }
+              .print-flex-row {
+                display: flex !important;
+                flex-direction: row !important;
+                align-items: center !important;
+                justify-content: space-between !important;
+              }
+              #printable-price-list-sheet .sheet-watermark-overlay {
+                display: flex !important;
+                visibility: visible !important;
+                opacity: 0.05 !important;
+              }
+              #printable-price-list-sheet .sheet-watermark-overlay * {
+                display: block !important;
+                visibility: visible !important;
+                color: #6b7280 !important;
+              }
+            }
+          `}</style>
+
+          <div className="bg-white rounded-2xl max-w-5xl w-full shadow-2xl border border-gray-200 overflow-hidden flex flex-col my-auto max-h-[92vh] print:max-h-none print:border-none print:shadow-none print:w-full">
+            {/* Non-printable modal header */}
+            <div className="no-print p-4 bg-gray-900 text-white flex items-center justify-between border-b border-gray-800 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-[#b01622] text-white flex items-center justify-center font-bold text-xs">
+                  <i className="fa-solid fa-file-pdf"></i>
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Price List Sheet Preview</h3>
+                  <p className="text-[11px] text-gray-400">Version {String(version).padStart(2, '0')} • {clientName}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-4 py-2 bg-[#b01622] hover:bg-[#90121b] text-white text-xs font-bold rounded-xl shadow-md transition-colors flex items-center gap-2 cursor-pointer"
+                >
+                  <i className="fa-solid fa-print"></i>
+                  <span>PRINT SHEET</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsPdfModalOpen(false)}
+                  className="w-8 h-8 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 flex items-center justify-center cursor-pointer transition-colors"
+                >
+                  <i className="fa-solid fa-xmark text-sm"></i>
+                </button>
+              </div>
+            </div>
+            <div className="relative p-5 sm:p-7 overflow-y-auto bg-white font-sans text-gray-900 print:p-0 print:overflow-visible" id="printable-price-list-sheet">
+              
+              {/* Single Large Subtle Background Watermark Overlay with Name in Grey Colour */}
+              <div className="sheet-watermark-overlay absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden select-none z-0 opacity-[0.045] print:opacity-[0.05]">
+                <div className="text-[110px] sm:text-[140px] font-black tracking-[0.25em] text-gray-500 uppercase -rotate-[38deg] whitespace-nowrap leading-none">
+                  RUDRA JEWELLERS
+                </div>
+              </div>
+
+              {/* Relative Content Container z-10 */}
+              <div className="relative z-10 space-y-3">
+
+                {/* Header section matching Image 2 */}
+                <div className="flex flex-row items-center justify-between gap-4 pb-3 border-b border-gray-200 print-flex-row">
+                  
+                  {/* Left: Rudra Jewellers Website Logo (Only Logo in Bigger Size) */}
+                  <div className="flex items-center justify-start shrink-0 min-w-[190px]">
+                    <img src="/logo.png" alt="Rudra Jewellers" className="w-auto h-16 max-h-20 sm:h-20 object-contain drop-shadow-xs" />
+                  </div>
+
+                  {/* Center: PRICE LIST Header & Version Subtitle */}
+                  <div className="text-center flex-1">
+                    <h1 className="text-xl sm:text-2xl font-black tracking-widest text-[#70111a] uppercase font-serif">PRICE LIST</h1>
+                    <p className="text-[11px] font-medium text-gray-600 mt-0.5">Price List - {String(version).padStart(2, '0')}</p>
+                    <div className="flex items-center justify-center gap-2 text-[#70111a] opacity-50 text-[9px] mt-0.5">
+                      <span>───────</span>
+                      <span>◆</span>
+                      <span>───────</span>
+                    </div>
+                  </div>
+
+                  {/* Right: Print Sheet button indicator & Date/Time */}
+                  <div className="flex flex-col items-end justify-center shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => window.print()}
+                      className="no-print border border-[#70111a] hover:bg-[#70111a]/5 text-[#70111a] font-extrabold text-[11px] px-3 py-1 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <i className="fa-solid fa-print text-[10px]"></i>
+                      PRINT SHEET
+                    </button>
+                    <div className="text-[9px] font-mono text-gray-500 tracking-tight mt-1 uppercase text-right">
+                      <span>DATE : {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                      <span className="mx-1 font-sans text-gray-300">|</span>
+                      <span>TIME : {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cards Grid: Client Details & Dates / Status */}
+                <div className="grid grid-cols-2 gap-3 mt-3 print-grid-top">
+                  
+                  {/* Client Details Card */}
+                  <div className="bg-[#faf9f8] p-2.5 rounded-xl border border-gray-200/80 text-xs space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-[#70111a] font-extrabold text-[10px] uppercase tracking-wider mb-1">
+                      <i className="fa-solid fa-user text-[9px]"></i>
+                      <span>CLIENT DETAILS</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-x-2 gap-y-1 text-[11px]">
+                      <span className="text-gray-500 font-medium">Client Name</span>
+                      <span className="col-span-2 font-bold text-gray-900">: {clientName} ({clientTier})</span>
+
+                      <span className="text-gray-500 font-medium">Client Code</span>
+                      <span className="col-span-2 font-bold text-gray-900 font-mono">: {clientCode}</span>
+
+                      <span className="text-gray-500 font-medium">Membership Tier</span>
+                      <span className="col-span-2 font-bold text-gray-900">: {clientTier} Member</span>
+
+                      <span className="text-gray-500 font-medium">Email</span>
+                      <span className="col-span-2 font-medium text-gray-800 break-all">: {clientEmail}</span>
+
+                      <span className="text-gray-500 font-medium">Phone</span>
+                      <span className="col-span-2 font-medium text-gray-800">: {clientPhone}</span>
+                    </div>
+                  </div>
+
+                  {/* Dates & Status Card */}
+                  <div className="bg-[#faf9f8] p-2.5 rounded-xl border border-gray-200/80 text-xs space-y-1.5">
+                    <div className="grid grid-cols-3 gap-x-2 gap-y-1 text-[11px] pt-0.5">
+                      <span className="text-gray-500 font-medium flex items-center gap-1">
+                        <i className="fa-regular fa-calendar text-[9px] text-gray-400"></i> STARTING FROM
+                      </span>
+                      <span className="col-span-2 font-bold text-gray-900">: {effectiveFrom || '01 Aug 2026'}</span>
+
+                      <span className="text-gray-500 font-medium flex items-center gap-1">
+                        <i className="fa-regular fa-calendar text-[9px] text-gray-400"></i> ENDING TO
+                      </span>
+                      <span className="col-span-2 font-bold text-gray-900">: {effectiveTo || '—'}</span>
+
+                      <span className="text-gray-500 font-medium flex items-center gap-1">
+                        <i className="fa-solid fa-user-gear text-[9px] text-gray-400"></i> CREATED BY
+                      </span>
+                      <span className="col-span-2 font-bold text-gray-900 uppercase">: ARVIND SHARMA (SUPER ADMIN)</span>
+
+                      <span className="text-gray-500 font-medium flex items-center gap-1">
+                        <i className="fa-solid fa-clock-rotate-left text-[9px] text-gray-400"></i> LAST UPDATED
+                      </span>
+                      <span className="col-span-2 font-bold text-gray-900">: {updatedAtStr || '30 Jul 2026 10:30 AM'}</span>
+
+                      <span className="text-gray-500 font-medium flex items-center gap-1">
+                        <i className="fa-solid fa-rotate text-[9px] text-gray-400"></i> STATUS
+                      </span>
+                      <span className="col-span-2 font-bold text-emerald-600">: 
+                        <span className="ml-1.5 px-2 py-0.5 rounded text-[9px] font-extrabold text-emerald-700 bg-emerald-100/70 inline-block uppercase">
+                          {status || 'ACTIVE'}
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* 2-Column Main Section matching Image 2 */}
+                <div className="grid grid-cols-3 gap-3.5 mt-3 items-start print-grid-main">
+                  
+                  {/* Left Column (2/3 Wide) */}
+                  <div className="col-span-2 space-y-3 print-col-2">
+                    
+                    {/* 1. DIAMOND RATES (per carat) */}
+                    <div className="space-y-1">
+                      <h3 className="text-xs font-black uppercase tracking-wide text-[#70111a] flex items-center gap-1.5">
+                        <i className="fa-solid fa-globe text-[10px] text-[#70111a]"></i>
+                        <span>1. DIAMOND RATES <span className="text-[9px] font-normal text-gray-500 uppercase">(per carat)</span></span>
+                      </h3>
+
+                      <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-[#f7f5f2] border-b border-gray-200 text-[9px] font-extrabold text-gray-600 uppercase tracking-wider">
+                              <th className="py-1.5 px-2.5">SHAPE</th>
+                              <th className="py-1.5 px-2.5">QUALITY</th>
+                              <th className="py-1.5 px-2.5">SIZE (CT)</th>
+                              <th className="py-1.5 px-2.5 text-right">RATE / CT (₹)</th>
+                              <th className="py-1.5 px-2.5 text-center">ACTION</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100 font-medium text-gray-800">
+                            {diamondRates.map((r, idx) => (
+                              <tr key={idx} className="hover:bg-gray-50/50">
+                                <td className="py-1.5 px-2.5 font-semibold text-gray-900">{r.shape || 'Round Diamond'}</td>
+                                <td className="py-1.5 px-2.5">{r.quality || 'IF - VVS'}</td>
+                                <td className="py-1.5 px-2.5">{r.stone_cents || r.sieve || '0.00 - 0.10'}</td>
+                                <td className="py-1.5 px-2.5 text-right font-bold text-gray-900 font-mono">
+                                  {Number(r.rate_per_ct || 0).toLocaleString()}
+                                </td>
+                                <td className="py-1.5 px-2.5 text-center text-gray-400">—</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="text-[9px] text-gray-400 italic pl-1">* Rates are exclusive of GST and other charges.</p>
+                    </div>
+
+                    {/* 2. COLOR STONE & 3. ADDITIONAL CHARGES Grid */}
+                    <div className="grid grid-cols-2 gap-3 print-grid-sub">
+                      
+                      {/* 2. COLOR STONE CHARGES */}
+                      <div className="space-y-1">
+                        <h3 className="text-xs font-black uppercase tracking-wide text-[#70111a] flex items-center gap-1.5">
+                          <i className="fa-solid fa-file-lines text-[10px] text-[#70111a]"></i>
+                          <span>2. COLOR STONE CHARGES</span>
+                        </h3>
+                        <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead>
+                              <tr className="bg-[#fcecee] border-b border-rose-200/80 text-[9px] font-extrabold text-[#70111a] uppercase tracking-wider">
+                                <th className="py-1 px-2.5">TYPE</th>
+                                <th className="py-1 px-1.5 text-center">OVERRIDE</th>
+                                <th className="py-1 px-2.5 text-right">RATE</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100 font-medium text-gray-800">
+                              {colorStoneRates.map((cs, idx) => (
+                                <tr key={idx}>
+                                  <td className="py-1 px-2.5 font-semibold text-gray-900">{cs.stone}</td>
+                                  <td className="py-1 px-1.5 text-center text-gray-400 font-bold">+</td>
+                                  <td className="py-1 px-2.5 text-right font-bold text-gray-900 font-mono">
+                                    {Number(cs.rate_per_ct || 0).toLocaleString()} / CT
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          <div className="py-1 px-2.5 bg-gray-50 border-t border-gray-100 text-[9px] font-bold text-gray-500">
+                            View All
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 3. ADDITIONAL CHARGES */}
+                      <div className="space-y-1">
+                        <h3 className="text-xs font-black uppercase tracking-wide text-[#70111a] flex items-center gap-1.5">
+                          <i className="fa-solid fa-rotate-right text-[10px] text-[#70111a]"></i>
+                          <span>3. ADDITIONAL CHARGES</span>
+                        </h3>
+                        <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead>
+                              <tr className="bg-[#fcecee] border-b border-rose-200/80 text-[9px] font-extrabold text-[#70111a] uppercase tracking-wider">
+                                <th className="py-1 px-2.5">CHARGE TYPE</th>
+                                <th className="py-1 px-1.5 text-center">TYPE</th>
+                                <th className="py-1 px-2.5 text-right">RATE (₹)</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100 font-medium text-gray-800">
+                              <tr>
+                                <td className="py-1 px-2.5 font-semibold text-gray-900">Tag Charges</td>
+                                <td className="py-1 px-1.5 text-center text-gray-600">Fixed</td>
+                                <td className="py-1 px-2.5 text-right font-bold text-gray-900 font-mono">₹ 500</td>
+                              </tr>
+                              <tr>
+                                <td className="py-1 px-2.5 font-semibold text-gray-900">Certificate</td>
+                                <td className="py-1 px-1.5 text-center text-gray-600">Fixed</td>
+                                <td className="py-1 px-2.5 text-right font-bold text-gray-900 font-mono">₹ 300</td>
+                              </tr>
+                              <tr>
+                                <td className="py-1 px-2.5 font-semibold text-gray-900">Hallmark</td>
+                                <td className="py-1 px-1.5 text-center text-gray-600">Fixed</td>
+                                <td className="py-1 px-2.5 text-right font-bold text-gray-900 font-mono">₹ 250</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                          <div className="py-1 px-2.5 bg-gray-50 border-t border-gray-100 text-[9px] font-bold text-gray-500">
+                            View All
+                          </div>
+                        </div>
+                      </div>
+
+                    </div>
+
+                    {/* 4. MAKING CHARGES */}
+                    <div className="space-y-1">
+                      <h3 className="text-xs font-black uppercase tracking-wide text-[#70111a] flex items-center gap-1.5">
+                        <i className="fa-solid fa-rotate-right text-[10px] text-[#70111a]"></i>
+                        <span>4. MAKING CHARGES</span>
+                      </h3>
+                      <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-[#f7f5f2] border-b border-gray-200 text-[9px] font-extrabold text-gray-600 uppercase tracking-wider">
+                              <th className="py-1.5 px-2.5">TYPE (CATEGORY)</th>
+                              <th className="py-1.5 px-2.5">WASTAGE (%)</th>
+                              <th className="py-1.5 px-2.5">LABOUR CHARGE</th>
+                              <th className="py-1.5 px-2.5">GOLD PURITY</th>
+                              <th className="py-1.5 px-2.5">GST (%)</th>
+                              <th className="py-1.5 px-2.5 text-center">ACTION</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100 font-medium text-gray-800">
+                            {makingCharges.map((mc, idx) => (
+                              <tr key={idx} className="hover:bg-gray-50/50">
+                                <td className="py-1.5 px-2.5 font-semibold text-gray-900">{mc.type_design}</td>
+                                <td className="py-1.5 px-2.5 font-bold">{mc.wastage_percent}</td>
+                                <td className="py-1.5 px-2.5 font-medium text-gray-800">{mc.labour_charge} *</td>
+                                <td className="py-1.5 px-2.5">{mc.gold_purity}</td>
+                                <td className="py-1.5 px-2.5 font-bold">18%</td>
+                                <td className="py-1.5 px-2.5 text-center text-gray-400">—</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="text-[9px] text-gray-400 italic pl-1">* Making charges are subject to change without prior notice.</p>
+                    </div>
+
+                  </div>
+
+                  {/* Right Column (1/3 Sidebar) */}
+                  <div className="col-span-1 space-y-3 print-col-1">
+                    
+                    {/* PRICE LIST SUMMARY Card */}
+                    <div className="bg-white rounded-xl border border-rose-200/90 p-2.5 space-y-2 shadow-2xs relative overflow-hidden">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] font-extrabold text-[#70111a] uppercase tracking-wider flex items-center gap-1">
+                          <i className="fa-solid fa-file-lines text-[10px] text-[#70111a]"></i> PRICE LIST SUMMARY
+                        </span>
+                      </div>
+                      <div>
+                        <div className="text-[8px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">CURRENT ACTIVE VERSION</div>
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-black text-gray-900">Price List - {String(version).padStart(2, '0')}</h4>
+                          <span className="px-1.5 py-0.5 rounded text-[8px] font-extrabold text-emerald-700 bg-emerald-100 uppercase">
+                            ACTIVE
+                          </span>
+                        </div>
+                      </div>
+                      <div className="pt-1.5 border-t border-gray-100 text-[10px] space-y-1">
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Effective From</span>
+                          <span className="font-bold text-gray-900">{effectiveFrom || '01 Aug 2026'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Last Updated</span>
+                          <span className="font-bold text-gray-900">{updatedAtStr || '30 Jul 2026 10:30 AM'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Updated By</span>
+                          <span className="font-bold text-gray-900">Arvind Sharma</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 5. INSTRUCTIONS FOR PRICE SETTING ON PRODUCT (STAMPER) */}
+                    <div className="bg-[#f8f9fa] rounded-xl border border-gray-200/80 p-2.5 space-y-1.5 shadow-2xs">
+                      <h3 className="text-[11px] font-black uppercase tracking-wide text-[#70111a] flex items-center gap-1">
+                        <i className="fa-solid fa-file-lines text-[10px] text-[#70111a]"></i>
+                        <span>5. INSTRUCTIONS FOR PRICE SETTING</span>
+                      </h3>
+                      <div className="text-[11px] space-y-1 divide-y divide-gray-200/60 font-medium">
+                        <div className="flex justify-between pt-0.5">
+                          <span className="text-gray-500 uppercase text-[9px] font-bold">DIAMOND LOSS (%)</span>
+                          <span className="font-bold text-gray-900">1.50</span>
+                        </div>
+                        <div className="flex justify-between pt-0.5">
+                          <span className="text-gray-500 uppercase text-[9px] font-bold">STONE LOSS (%)</span>
+                          <span className="font-bold text-gray-900">2.00</span>
+                        </div>
+                        <div className="flex justify-between pt-0.5">
+                          <span className="text-gray-500 uppercase text-[9px] font-bold">METAL LOSS (%)</span>
+                          <span className="font-bold text-gray-900">1.00</span>
+                        </div>
+                        <div className="flex justify-between pt-0.5">
+                          <span className="text-gray-500 uppercase text-[9px] font-bold">WASTAGE (%)</span>
+                          <span className="font-bold text-gray-900">0.00</span>
+                        </div>
+                        <div className="flex justify-between pt-0.5">
+                          <span className="text-gray-500 uppercase text-[9px] font-bold">MIN. CHARGES (₹)</span>
+                          <span className="font-bold text-gray-900">500</span>
+                        </div>
+                        <div className="flex justify-between pt-0.5">
+                          <span className="text-gray-500 uppercase text-[9px] font-bold">ROUND OFF (₹)</span>
+                          <span className="font-bold text-gray-900">10</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Payment Terms */}
+                    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-2xs">
+                      <div className="p-2 font-bold text-[11px] text-gray-900 border-b border-gray-100 bg-[#f8f9fa]">
+                        Payment Terms
+                      </div>
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-[#f8f9fa] border-b border-gray-200 text-[9px] font-extrabold text-gray-500 uppercase tracking-wider">
+                            <th className="py-1.5 px-2.5">TYPE</th>
+                            <th className="py-1.5 px-2.5 text-right">TERMS</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 font-bold text-gray-900">
+                          {paymentTerms.map((pt, idx) => (
+                            <tr key={idx}>
+                              <td className="py-1.5 px-2.5 font-medium text-gray-700">{pt.type}</td>
+                              <td className="py-1.5 px-2.5 text-right font-black text-gray-900">{pt.terms}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                  </div>
+
+                </div>
+
+                {/* Bottom Footer Section */}
+                <div className="mt-3 pt-2.5 border-t border-gray-200 flex flex-row items-center justify-between gap-4 print-flex-row">
+                  
+                  {/* Rudra Seal Badge */}
+                  <div className="w-13 h-13 rounded-full border-2 border-[#70111a] flex flex-col items-center justify-center text-center p-1 text-[#70111a] shrink-0">
+                    <span className="text-[6px] font-extrabold uppercase tracking-tighter">RUDRA JEWELLERS</span>
+                    <span className="font-serif font-black text-[11px] leading-tight">RJ</span>
+                    <span className="text-[5px] font-extrabold uppercase tracking-tighter">CHENNAI</span>
+                  </div>
+
+                  {/* Center text */}
+                  <div className="text-center text-[11px] text-gray-500">
+                    <p className="font-semibold text-gray-700">Thank you for your trust and continued partnership.</p>
+                    <p className="text-[9px] text-gray-400 mt-0.5">This is a system generated price list.</p>
+                  </div>
+
+                  {/* Authorized Signature */}
+                  <div className="text-center sm:text-right min-w-[160px] shrink-0">
+                    <div className="font-serif italic text-lg font-bold text-gray-800 tracking-wider mb-0.5">
+                      Rudhra
+                    </div>
+                    <div className="border-t border-gray-400 pt-0.5">
+                      <div className="text-[9px] font-black uppercase text-gray-800 tracking-wider">AUTHORIZED SIGNATURE</div>
+                      <div className="text-[8px] text-gray-400">Rudra Jewellers, Chennai</div>
+                    </div>
+                  </div>
+
+                </div>
+
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+      {/* 1. Diamond Modal */}
+      {activeModalType === 'diamond' && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in print:hidden">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <h3 className="text-base font-bold text-gray-900">
+                {editingIndex !== null ? 'Edit Diamond Rate' : 'Add Diamond Rate'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setActiveModalType(null)}
+                className="w-8 h-8 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex items-center justify-center cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark text-sm"></i>
+              </button>
+            </div>
+            <div className="space-y-3.5 text-xs">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Shape</label>
+                <input
+                  type="text"
+                  value={diamondForm.shape}
+                  onChange={(e) => setDiamondForm({ ...diamondForm, shape: e.target.value })}
+                  placeholder="Round Diamond"
+                  className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-medium text-gray-900 focus:outline-none focus:border-[#b01622]"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">Quality</label>
+                  <input
+                    type="text"
+                    value={diamondForm.quality}
+                    onChange={(e) => setDiamondForm({ ...diamondForm, quality: e.target.value })}
+                    placeholder="EF-VVS"
+                    className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-medium text-gray-900 focus:outline-none focus:border-[#b01622]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">Sieve</label>
+                  <input
+                    type="text"
+                    value={diamondForm.sieve}
+                    onChange={(e) => setDiamondForm({ ...diamondForm, sieve: e.target.value })}
+                    placeholder="-2 or (+2 - 6)"
+                    className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-medium text-gray-900 focus:outline-none focus:border-[#b01622]"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Stone Cents</label>
+                <input
+                  type="text"
+                  value={diamondForm.stone_cents}
+                  onChange={(e) => setDiamondForm({ ...diamondForm, stone_cents: e.target.value })}
+                  placeholder="0.000-0.01"
+                  className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-medium text-gray-900 focus:outline-none focus:border-[#b01622]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Rate / Ct (₹)</label>
+                <input
+                  type="number"
+                  value={diamondForm.rate_per_ct}
+                  onChange={(e) => setDiamondForm({ ...diamondForm, rate_per_ct: e.target.value })}
+                  placeholder="60000"
+                  className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-bold text-gray-900 font-mono focus:outline-none focus:border-[#b01622]"
+                />
+              </div>
+              <div className="flex justify-end gap-3 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setActiveModalType(null)}
+                  className="px-4 py-2 border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveDiamondRateItem}
+                  className="px-5 py-2 bg-[#b01622] hover:bg-[#90121b] text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
+                >
+                  Save Rate
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Color Stone Modal */}
+      {activeModalType === 'color_stone' && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in print:hidden">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <h3 className="text-base font-bold text-gray-900">
+                {editingIndex !== null ? 'Edit Color Stone' : 'Add Color Stone'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setActiveModalType(null)}
+                className="w-8 h-8 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex items-center justify-center cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark text-sm"></i>
+              </button>
+            </div>
+            <div className="space-y-3.5 text-xs">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Stone Name</label>
+                <input
+                  type="text"
+                  value={colorStoneForm.stone}
+                  onChange={(e) => setColorStoneForm({ ...colorStoneForm, stone: e.target.value })}
+                  placeholder="e.g. Ruby / Emerald"
+                  className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-medium text-gray-900 focus:outline-none focus:border-[#b01622]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Rate / Ct (₹)</label>
+                <input
+                  type="number"
+                  value={colorStoneForm.rate_per_ct}
+                  onChange={(e) => setColorStoneForm({ ...colorStoneForm, rate_per_ct: e.target.value })}
+                  placeholder="1800"
+                  className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-bold text-gray-900 font-mono focus:outline-none focus:border-[#b01622]"
+                />
+              </div>
+              <div className="flex justify-end gap-3 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setActiveModalType(null)}
+                  className="px-4 py-2 border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveColorStoneItem}
+                  className="px-5 py-2 bg-[#b01622] hover:bg-[#90121b] text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
+                >
+                  Save Stone
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Additional Charges Modal */}
+      {activeModalType === 'additional' && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in print:hidden">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <h3 className="text-base font-bold text-gray-900">Edit Additional Charges</h3>
+              <button
+                type="button"
+                onClick={() => setActiveModalType(null)}
+                className="w-8 h-8 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex items-center justify-center cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark text-sm"></i>
+              </button>
+            </div>
+            <div className="space-y-3.5 text-xs">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Minimum Labour (₹)</label>
+                <input
+                  type="number"
+                  value={additionalForm.minimum_labour}
+                  onChange={(e) => setAdditionalForm({ ...additionalForm, minimum_labour: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-bold text-gray-900 font-mono focus:outline-none focus:border-[#b01622]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Single Nose Pin (₹)</label>
+                <input
+                  type="number"
+                  value={additionalForm.single_nose_pin}
+                  onChange={(e) => setAdditionalForm({ ...additionalForm, single_nose_pin: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-bold text-gray-900 font-mono focus:outline-none focus:border-[#b01622]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Multi Stones (₹)</label>
+                <input
+                  type="number"
+                  value={additionalForm.multi_stones}
+                  onChange={(e) => setAdditionalForm({ ...additionalForm, multi_stones: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-bold text-gray-900 font-mono focus:outline-none focus:border-[#b01622]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Step Nose Pin (₹)</label>
+                <input
+                  type="number"
+                  value={additionalForm.step_nose_pin}
+                  onChange={(e) => setAdditionalForm({ ...additionalForm, step_nose_pin: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-bold text-gray-900 font-mono focus:outline-none focus:border-[#b01622]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Tongai (₹)</label>
+                <input
+                  type="number"
+                  value={additionalForm.tongai}
+                  onChange={(e) => setAdditionalForm({ ...additionalForm, tongai: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-bold text-gray-900 font-mono focus:outline-none focus:border-[#b01622]"
+                />
+              </div>
+              <div className="flex justify-end gap-3 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setActiveModalType(null)}
+                  className="px-4 py-2 border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveAdditionalChargesForm}
+                  className="px-5 py-2 bg-[#b01622] hover:bg-[#90121b] text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
+                >
+                  Update Charges
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Making Charges Modal */}
+      {activeModalType === 'making' && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in print:hidden">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <h3 className="text-base font-bold text-gray-900">
+                {editingIndex !== null ? 'Edit Making Charge' : 'Add Making Charge'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setActiveModalType(null)}
+                className="w-8 h-8 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex items-center justify-center cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark text-sm"></i>
+              </button>
+            </div>
+            <div className="space-y-3.5 text-xs">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Type / Design</label>
+                <input
+                  type="text"
+                  value={makingForm.type_design}
+                  onChange={(e) => setMakingForm({ ...makingForm, type_design: e.target.value })}
+                  placeholder="22KT: Close Setting"
+                  className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-medium text-gray-900 focus:outline-none focus:border-[#b01622]"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">Wastage (%)</label>
+                  <input
+                    type="text"
+                    value={makingForm.wastage_percent}
+                    onChange={(e) => setMakingForm({ ...makingForm, wastage_percent: e.target.value })}
+                    placeholder="6%"
+                    className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-medium text-gray-900 focus:outline-none focus:border-[#b01622]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">Labour Charge</label>
+                  <input
+                    type="text"
+                    value={makingForm.labour_charge}
+                    onChange={(e) => setMakingForm({ ...makingForm, labour_charge: e.target.value })}
+                    placeholder="Rs. 500/- per gms wt"
+                    className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-medium text-gray-900 focus:outline-none focus:border-[#b01622]"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">Gold Purity</label>
+                  <input
+                    type="text"
+                    value={makingForm.gold_purity}
+                    onChange={(e) => setMakingForm({ ...makingForm, gold_purity: e.target.value })}
+                    placeholder="916"
+                    className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-medium text-gray-900 focus:outline-none focus:border-[#b01622]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">On Wt</label>
+                  <input
+                    type="text"
+                    value={makingForm.on_wt}
+                    onChange={(e) => setMakingForm({ ...makingForm, on_wt: e.target.value })}
+                    placeholder="92%"
+                    className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-medium text-gray-900 focus:outline-none focus:border-[#b01622]"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setActiveModalType(null)}
+                  className="px-4 py-2 border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveMakingChargeItem}
+                  className="px-5 py-2 bg-[#b01622] hover:bg-[#90121b] text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
+                >
+                  Save Charge
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Stamping Instructions Modal */}
+      {activeModalType === 'stamping' && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in print:hidden">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <h3 className="text-base font-bold text-gray-900">Edit Stamping Instructions</h3>
+              <button
+                type="button"
+                onClick={() => setActiveModalType(null)}
+                className="w-8 h-8 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex items-center justify-center cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark text-sm"></i>
+              </button>
+            </div>
+            <div className="space-y-3.5 text-xs">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Stamping Detail</label>
+                <input
+                  type="text"
+                  value={stampingForm.stamping_detail}
+                  onChange={(e) => setStampingForm({ ...stampingForm, stamping_detail: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-medium text-gray-900 focus:outline-none focus:border-[#b01622]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Certification</label>
+                <input
+                  type="text"
+                  value={stampingForm.certification}
+                  onChange={(e) => setStampingForm({ ...stampingForm, certification: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-medium text-gray-900 focus:outline-none focus:border-[#b01622]"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">Hallmark / HUID</label>
+                  <input
+                    type="text"
+                    value={stampingForm.hallmark_huid}
+                    onChange={(e) => setStampingForm({ ...stampingForm, hallmark_huid: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-medium text-gray-900 focus:outline-none focus:border-[#b01622]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">Metal Colour</label>
+                  <input
+                    type="text"
+                    value={stampingForm.metal_colour}
+                    onChange={(e) => setStampingForm({ ...stampingForm, metal_colour: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-medium text-gray-900 focus:outline-none focus:border-[#b01622]"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">Client QC Before Billing</label>
+                  <input
+                    type="text"
+                    value={stampingForm.client_qc_before_billing}
+                    onChange={(e) => setStampingForm({ ...stampingForm, client_qc_before_billing: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-medium text-gray-900 focus:outline-none focus:border-[#b01622]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">Necklace Back Chain</label>
+                  <input
+                    type="text"
+                    value={stampingForm.necklace_back_chain}
+                    onChange={(e) => setStampingForm({ ...stampingForm, necklace_back_chain: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-medium text-gray-900 focus:outline-none focus:border-[#b01622]"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setActiveModalType(null)}
+                  className="px-4 py-2 border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveStampingForm}
+                  className="px-5 py-2 bg-[#b01622] hover:bg-[#90121b] text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
+                >
+                  Update Instructions
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. Payment Term Modal */}
+      {activeModalType === 'payment_term' && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in print:hidden">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <h3 className="text-base font-bold text-gray-900">Add Payment Term</h3>
+              <button
+                type="button"
+                onClick={() => setActiveModalType(null)}
+                className="w-8 h-8 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex items-center justify-center cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark text-sm"></i>
+              </button>
+            </div>
+            <div className="space-y-3.5 text-xs">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Type</label>
+                <input
+                  type="text"
+                  value={paymentTermForm.type}
+                  onChange={(e) => setPaymentTermForm({ ...paymentTermForm, type: e.target.value })}
+                  placeholder="Gold / Diamond / MC"
+                  className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-medium text-gray-900 focus:outline-none focus:border-[#b01622]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Terms</label>
+                <input
+                  type="text"
+                  value={paymentTermForm.terms}
+                  onChange={(e) => setPaymentTermForm({ ...paymentTermForm, terms: e.target.value })}
+                  placeholder="COD / 15 Days"
+                  className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-bold text-gray-900 focus:outline-none focus:border-[#b01622]"
+                />
+              </div>
+              <div className="flex justify-end gap-3 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setActiveModalType(null)}
+                  className="px-4 py-2 border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const updated = [...paymentTerms, { ...paymentTermForm, id: Date.now() }];
+                    setPaymentTerms(updated);
+                    setActiveModalType(null);
+                    handleSavePriceList(null, { payment_terms: updated });
+                  }}
+                  className="px-5 py-2 bg-[#b01622] hover:bg-[#90121b] text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
+                >
+                  Save Term
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Upload Price List Modal */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in print:hidden">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-5">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-50 text-[#b01622] flex items-center justify-center text-lg font-bold">
+                  <i className="fa-solid fa-file-import"></i>
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Bulk Import Price List</h3>
+                  <p className="text-xs text-gray-500">
+                    Upload Excel (.xlsx, .csv) or JSON price rates for {selectedClient?.full_name || 'Client'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsImportModalOpen(false);
+                  setImportFile(null);
+                }}
+                className="w-8 h-8 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex items-center justify-center cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark text-base"></i>
+              </button>
+            </div>
+
+            {/* Template Download Alert */}
+            <div className="bg-amber-50/80 border border-amber-200/80 rounded-xl p-3.5 flex items-center justify-between gap-3 text-xs text-amber-900">
+              <div className="flex items-center gap-2">
+                <i className="fa-solid fa-lightbulb text-amber-600 text-sm"></i>
+                <span>Need format help? Download our pre-formatted sample template.</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleDownloadSampleTemplate}
+                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-[11px] whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <i className="fa-solid fa-download text-[10px]"></i>
+                Sample Template
+              </button>
+            </div>
+
+            {/* Drag & Drop File Box */}
+            <div
+              onDragEnter={handleDrag}
+              onDragLeave={handleDrag}
+              onDragOver={handleDrag}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all ${
+                dragActive
+                  ? 'border-[#b01622] bg-red-50/40 scale-[0.99]'
+                  : importFile
+                  ? 'border-emerald-500 bg-emerald-50/30'
+                  : 'border-gray-300 hover:border-[#b01622] bg-gray-50/50 hover:bg-red-50/20'
+              }`}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,.xlsx,.xls,.json"
+                onChange={(e) => {
+                  if (e.target.files && e.target.files[0]) {
+                    setImportFile(e.target.files[0]);
+                  }
+                }}
+                className="hidden"
+              />
+
+              {importFile ? (
+                <div className="flex items-center justify-between bg-white p-3.5 rounded-xl border border-emerald-200 shadow-2xs">
+                  <div className="flex items-center gap-3 overflow-hidden text-left">
+                    <div className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-lg shrink-0">
+                      <i className="fa-solid fa-file-csv"></i>
+                    </div>
+                    <div className="truncate">
+                      <p className="text-xs font-bold text-gray-900 truncate">{importFile.name}</p>
+                      <p className="text-[10px] text-gray-500 font-medium">
+                        {(importFile.size / 1024).toFixed(1)} KB • {importFile.type || 'Document'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setImportFile(null);
+                    }}
+                    className="w-8 h-8 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center cursor-pointer shrink-0"
+                  >
+                    <i className="fa-solid fa-trash-can text-sm"></i>
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="w-12 h-12 rounded-full bg-red-50 text-[#b01622] mx-auto flex items-center justify-center text-xl font-bold">
+                    <i className="fa-solid fa-cloud-arrow-up"></i>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-gray-800">
+                      Click to browse or drag and drop your file here
+                    </p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">
+                      Supports Excel (.xlsx, .xls), CSV (.csv), or JSON (.json) up to 10MB
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsImportModalOpen(false);
+                  setImportFile(null);
+                }}
+                className="px-4 py-2.5 border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  if (confirmDialog.onConfirm) confirmDialog.onConfirm();
-                  setConfirmDialog(prev => ({ ...prev, isOpen: false }));
-                }}
-                className={`px-5 py-2 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer ${
-                  confirmDialog.type === 'danger'
-                    ? 'bg-red-600 hover:bg-red-700'
-                    : 'bg-[#b01622] hover:bg-[#8e111a]'
-                }`}
+                disabled={!importFile || isImporting}
+                onClick={handleProcessImport}
+                className="px-5 py-2.5 bg-[#b01622] hover:bg-[#90121b] disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-2"
               >
-                Confirm
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODALS FOR EDITING/ADDING DATA IN SECTIONS */}
-      {activeModalType === 'gold' && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4 my-8">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <h3 className="text-base font-bold text-gray-900">
-                {editingItemIndex !== null ? 'Edit Gold Rate Entry' : 'Add Gold Rate Entry'}
-              </h3>
-              <button type="button" onClick={() => setActiveModalType(null)} className="text-gray-400 hover:text-gray-600 text-lg cursor-pointer">
-                <i className="fa-solid fa-xmark"></i>
-              </button>
-            </div>
-
-            <div className="space-y-4 text-xs">
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">Select Gold Purity <span className="text-red-500">*</span></label>
-                <select
-                  value={goldForm.purity}
-                  onChange={(e) => {
-                    const p = e.target.value;
-                    let t = '91.6%';
-                    if (p === '24K (999)') t = '99.9%';
-                    if (p === '18K (750)') t = '75.0%';
-                    if (p === '14K (585)') t = '58.5%';
-                    setGoldForm({ ...goldForm, purity: p, touch: t });
-                  }}
-                  className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-semibold text-gray-900"
-                >
-                  <option value="22K (916)">22K (916 Hallmark)</option>
-                  <option value="24K (999)">24K (999 Fine Gold)</option>
-                  <option value="18K (750)">18K (750 Hallmark)</option>
-                  <option value="14K (585)">14K (585 Hallmark)</option>
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-gray-700 mb-1">Gold Rate / GM (₹) <span className="text-red-500">*</span></label>
-                  <input
-                    type="number"
-                    value={goldForm.gold_rate}
-                    onChange={(e) => setGoldForm({ ...goldForm, gold_rate: parseFloat(e.target.value || 0) })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg font-bold text-gray-900"
-                    placeholder="13299"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-gray-700 mb-1">Wastage (%)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={goldForm.wastage_percent}
-                    onChange={(e) => setGoldForm({ ...goldForm, wastage_percent: parseFloat(e.target.value || 0) })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg font-semibold text-gray-900"
-                    placeholder="5"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-gray-700 mb-1">Making Charge / GM (₹)</label>
-                  <input
-                    type="number"
-                    value={goldForm.making_charge}
-                    onChange={(e) => setGoldForm({ ...goldForm, making_charge: parseFloat(e.target.value || 0) })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg font-semibold text-gray-900"
-                    placeholder="650"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-gray-700 mb-1">Touch %</label>
-                  <input
-                    type="text"
-                    value={goldForm.touch}
-                    onChange={(e) => setGoldForm({ ...goldForm, touch: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-amber-900 font-bold"
-                    placeholder="91.6%"
-                  />
-                </div>
-              </div>
-
-              <div className="bg-amber-50 p-3 rounded-xl border border-amber-200 text-xs text-amber-950 font-semibold flex items-center justify-between">
-                <span>Estimated Rate per GM:</span>
-                <strong className="text-sm font-bold text-[#b01622]">
-                  ₹{Number(Math.round((parseFloat(goldForm.gold_rate || 0) * (1 + (parseFloat(goldForm.wastage_percent || 0) / 100))) + parseFloat(goldForm.making_charge || 0))).toLocaleString('en-IN')}
-                </strong>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
-              <button type="button" onClick={() => setActiveModalType(null)} className="px-4 py-2 border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-50 cursor-pointer">Cancel</button>
-              <button type="button" onClick={handleSaveGoldRate} className="px-5 py-2 bg-[#b01622] hover:bg-[#8e111a] text-white text-xs font-bold rounded-lg shadow-xs cursor-pointer">Save Gold Rate</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {activeModalType === 'diamond' && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4 my-8">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <h3 className="text-base font-bold text-gray-900">
-                {editingItemIndex !== null ? 'Edit Diamond Stone Rate' : 'Add Diamond Stone Rate'}
-              </h3>
-              <button type="button" onClick={() => setActiveModalType(null)} className="text-gray-400 hover:text-gray-600 text-lg cursor-pointer"><i className="fa-solid fa-xmark"></i></button>
-            </div>
-            
-            <div className="space-y-4 text-xs">
-
-              {/* Select2 Searchable Dropdown */}
-              <div className="relative" ref={select2Ref}>
-                <label className="block font-bold text-blue-900 mb-1">
-                  Select Product from Master Category: DIAMOND ({masterDiamondProducts.length} Items Available)
-                </label>
-                
-                {/* Select2 Trigger Box */}
-                <button
-                  type="button"
-                  onClick={() => setIsSelect2Open(!isSelect2Open)}
-                  className="w-full px-3.5 py-2.5 bg-blue-50/60 border border-blue-300 rounded-xl font-bold text-blue-950 flex items-center justify-between text-xs focus:outline-none focus:ring-2 focus:ring-[#b01622] cursor-pointer shadow-2xs"
-                >
-                  {diamondForm.shape ? (
-                    <span className="flex items-center gap-2 truncate">
-                      <i className="fa-solid fa-gem text-blue-600"></i>
-                      <span>{diamondForm.shape}</span>
-                      {diamondForm.product_code && (
-                        <span className="font-mono text-[10px] bg-blue-200/80 text-blue-900 px-1.5 py-0.5 rounded">
-                          {diamondForm.product_code}
-                        </span>
-                      )}
-                    </span>
-                  ) : (
-                    <span className="text-gray-400 font-normal">-- Select Diamond Product (Searchable Select2) --</span>
-                  )}
-                  <i className={`fa-solid fa-chevron-down text-blue-400 text-xs transition-transform ${isSelect2Open ? 'rotate-180' : ''}`}></i>
-                </button>
-
-                {/* Select2 Dropdown Popup List with Live Search */}
-                {isSelect2Open && (
-                  <div className="absolute top-full left-0 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden text-xs animate-in fade-in zoom-in-95 duration-100">
-                    
-                    {/* Search Input Box */}
-                    <div className="p-2 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
-                      <i className="fa-solid fa-magnifying-glass text-gray-400 text-xs pl-2"></i>
-                      <input
-                        type="text"
-                        autoFocus
-                        placeholder="Search diamond product name, SKU..."
-                        value={select2SearchTerm}
-                        onChange={e => setSelect2SearchTerm(e.target.value)}
-                        className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-800 focus:outline-none focus:border-[#b01622]"
-                      />
-                      {select2SearchTerm && (
-                        <button
-                          type="button"
-                          onClick={() => setSelect2SearchTerm('')}
-                          className="text-gray-400 hover:text-gray-600 pr-1 cursor-pointer"
-                        >
-                          <i className="fa-solid fa-xmark"></i>
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Options List */}
-                    <div className="max-h-56 overflow-y-auto divide-y divide-gray-50">
-                      {filteredSelect2Products.length === 0 ? (
-                        <div className="py-6 text-center text-gray-400">
-                          <i className="fa-solid fa-ghost text-xl mb-1 text-gray-300 block"></i>
-                          No matching diamond products found
-                        </div>
-                      ) : (
-                        filteredSelect2Products.map(p => {
-                          const isSelected = String(diamondForm.product_id) === String(p.id);
-                          return (
-                            <div
-                              key={p.id}
-                              onClick={() => {
-                                setDiamondForm({
-                                  ...diamondForm,
-                                  product_id: p.id,
-                                  product_code: p.product_code,
-                                  shape: p.name,
-                                  rate_per_ct: p.opening_stock_rate || 60000
-                                });
-                                setIsSelect2Open(false);
-                                setSelect2SearchTerm('');
-                              }}
-                              className={`p-2.5 flex items-center justify-between hover:bg-blue-50 cursor-pointer transition-colors ${
-                                isSelected ? 'bg-blue-50/90 font-bold text-blue-900' : 'text-gray-700'
-                              }`}
-                            >
-                              <div className="flex items-center gap-2.5">
-                                <i className="fa-solid fa-gem text-blue-500 text-xs"></i>
-                                <div>
-                                  <div className="font-bold text-gray-900">{p.name}</div>
-                                  <div className="text-[10px] text-gray-500 font-mono">
-                                    SKU: {p.product_code} • Base Rate: ₹{Number(p.opening_stock_rate || 0).toLocaleString('en-IN')}/ct
-                                  </div>
-                                </div>
-                              </div>
-                              {isSelected && <i className="fa-solid fa-check text-blue-600 text-xs"></i>}
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-
-                  </div>
+                {isImporting ? (
+                  <>
+                    <i className="fa-solid fa-spinner animate-spin text-xs"></i>
+                    Importing...
+                  </>
+                ) : (
+                  <>
+                    <i className="fa-solid fa-check text-xs"></i>
+                    Import &amp; Save Price List
+                  </>
                 )}
-              </div>
-
-              {/* DIAMOND SIZE & SIEVE RANGE SELECTOR (From User Chart) */}
-              <div className="bg-gradient-to-br from-amber-50/80 to-amber-100/50 p-4 rounded-xl border border-amber-200/80 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
-                    <i className="fa-solid fa-ruler-combined text-amber-700"></i>
-                    Diamond Size Range Picker (From Reference Chart)
-                  </div>
-                  <span className="text-[10px] bg-amber-200 text-amber-900 font-bold px-2 py-0.5 rounded">
-                    Chart Reference
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-amber-900 mb-1">From Size (mm)</label>
-                    <select
-                      value={diamondForm.from_size_index ?? 0}
-                      onChange={(e) => handleRangeChartChange(parseInt(e.target.value), diamondForm.to_size_index ?? 5)}
-                      className="w-full px-2.5 py-2 bg-white border border-amber-300 rounded-lg text-xs font-semibold text-gray-900"
-                    >
-                      {DIAMOND_CHART_SIZES.map((item, idx) => (
-                        <option key={idx} value={idx}>
-                          {item.mm} ({item.sieve}) - {item.weight_ct}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-amber-900 mb-1">To Size (mm)</label>
-                    <select
-                      value={diamondForm.to_size_index ?? 5}
-                      onChange={(e) => handleRangeChartChange(diamondForm.from_size_index ?? 0, parseInt(e.target.value))}
-                      className="w-full px-2.5 py-2 bg-white border border-amber-300 rounded-lg text-xs font-semibold text-gray-900"
-                    >
-                      {DIAMOND_CHART_SIZES.map((item, idx) => (
-                        <option key={idx} value={idx}>
-                          {item.mm} ({item.sieve}) - {item.weight_ct}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Auto-Calculated Range Preview Box */}
-                <div className="bg-white/90 p-2.5 rounded-lg border border-amber-200 grid grid-cols-3 gap-2 text-center text-xs">
-                  <div>
-                    <div className="text-[10px] font-bold text-amber-800 uppercase">Size (mm) Range</div>
-                    <div className="font-bold text-gray-900 mt-0.5">{diamondForm.size_range_mm || '-'}</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold text-amber-800 uppercase">Sieve # Range</div>
-                    <div className="font-bold text-gray-900 mt-0.5">{diamondForm.sieve || '-'}</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold text-amber-800 uppercase">Weight Range</div>
-                    <div className="font-mono font-bold text-gray-900 mt-0.5">{diamondForm.stone_cents || '-'}</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Diamond Form Manual Details */}
-              <div className="grid grid-cols-2 gap-3 pt-1">
-                <div>
-                  <label className="block font-semibold text-gray-700 mb-1">Diamond Shape / Name</label>
-                  <input type="text" value={diamondForm.shape} onChange={e => setDiamondForm({ ...diamondForm, shape: e.target.value })} className="w-full px-3 py-2 border rounded-lg" placeholder="Round Diamond" />
-                </div>
-                <div>
-                  <label className="block font-semibold text-gray-700 mb-1">Quality</label>
-                  <input type="text" value={diamondForm.quality} onChange={e => setDiamondForm({ ...diamondForm, quality: e.target.value })} className="w-full px-3 py-2 border rounded-lg" placeholder="EF-VVS" />
-                </div>
-                <div>
-                  <label className="block font-semibold text-gray-700 mb-1">Size Range (mm)</label>
-                  <input type="text" value={diamondForm.size_range_mm} onChange={e => setDiamondForm({ ...diamondForm, size_range_mm: e.target.value })} className="w-full px-3 py-2 border rounded-lg" placeholder="0.80 mm - 1.10 mm" />
-                </div>
-                <div>
-                  <label className="block font-semibold text-gray-700 mb-1">Sieve # Range</label>
-                  <input type="text" value={diamondForm.sieve} onChange={e => setDiamondForm({ ...diamondForm, sieve: e.target.value })} className="w-full px-3 py-2 border rounded-lg" placeholder="+0000 to +0" />
-                </div>
-              </div>
-
-              <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200">
-                <label className="block text-xs font-bold text-emerald-950 mb-1">
-                  Enter Client Rate / CT (₹) for this Size Range <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="number"
-                  step="any"
-                  value={diamondForm.rate_per_ct}
-                  onChange={e => setDiamondForm({ ...diamondForm, rate_per_ct: parseFloat(e.target.value || 0) })}
-                  className="w-full px-3.5 py-2.5 bg-white border border-emerald-300 rounded-lg text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                  placeholder="e.g. 60000"
-                />
-              </div>
-
-            </div>
-
-            <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
-              <button type="button" onClick={() => setActiveModalType(null)} className="px-4 py-2 border rounded-lg text-xs font-semibold text-gray-600">Cancel</button>
-              <button type="button" onClick={handleSaveDiamondRate} className="px-5 py-2 bg-[#b01622] text-white text-xs font-bold rounded-lg shadow-sm">Save Stone Rate</button>
+              </button>
             </div>
           </div>
         </div>
       )}
-
-      {activeModalType === 'color_stone' && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <h3 className="text-base font-bold text-gray-900">{editingItemIndex !== null ? 'Edit Color Stone Rate' : 'Add Color Stone Rate'}</h3>
-              <button type="button" onClick={() => setActiveModalType(null)} className="text-gray-400 hover:text-gray-600 text-lg cursor-pointer"><i className="fa-solid fa-xmark"></i></button>
-            </div>
-            
-            <div className="space-y-4 text-xs">
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">Select Stone Name <span className="text-red-500">*</span></label>
-                <select
-                  value={colorStoneForm.stone || ''}
-                  onChange={(e) => setColorStoneForm({ ...colorStoneForm, stone: e.target.value })}
-                  className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
-                >
-                  <option value="">-- Select Stone Name --</option>
-                  <option value="Navaratna Stones">Navaratna Stones</option>
-                  <option value="Emerald">Emerald</option>
-                  <option value="Onyx">Onyx</option>
-                  <option value="Ruby (Manikkam)">Ruby (Manikkam)</option>
-                  <option value="Blue Sapphire (Neelam)">Blue Sapphire (Neelam)</option>
-                  <option value="Yellow Sapphire (Pushparagam)">Yellow Sapphire (Pushparagam)</option>
-                  <option value="Pearl (Muthu)">Pearl (Muthu)</option>
-                  <option value="Cat's Eye (Vaidooryam)">Cat's Eye (Vaidooryam)</option>
-                  <option value="Coral (Pavalam)">Coral (Pavalam)</option>
-                  <option value="Garnet">Garnet</option>
-                  <option value="CZ / Cubic Zirconia">CZ / Cubic Zirconia</option>
-                  <option value="Synthetic Stone">Synthetic Stone</option>
-                </select>
-              </div>
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">Rate / CT (₹) <span className="text-red-500">*</span></label>
-                <input
-                  type="number"
-                  step="any"
-                  value={colorStoneForm.rate_per_ct}
-                  onChange={e => setColorStoneForm({ ...colorStoneForm, rate_per_ct: parseFloat(e.target.value || 0) })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
-                  placeholder="e.g. 2000"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button type="button" onClick={() => setActiveModalType(null)} className="px-4 py-2 border rounded-lg text-xs font-semibold text-gray-600">Cancel</button>
-              <button type="button" onClick={handleSaveColorStone} className="px-5 py-2 bg-[#b01622] text-white text-xs font-bold rounded-lg shadow-sm">Save Color Stone</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {activeModalType === 'additional' && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <h3 className="text-base font-bold text-gray-900">Edit Additional Charges</h3>
-              <button type="button" onClick={() => setActiveModalType(null)} className="text-gray-400 hover:text-gray-600 text-lg cursor-pointer"><i className="fa-solid fa-xmark"></i></button>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4 text-xs">
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">Minimum Labour (₹)</label>
-                <input type="number" step="any" value={additionalForm.minimum_labour} onChange={e => setAdditionalForm({ ...additionalForm, minimum_labour: e.target.value })} className="w-full px-3 py-2 border rounded-lg font-bold" />
-              </div>
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">Single Nose Pin (₹)</label>
-                <input type="number" step="any" value={additionalForm.single_nose_pin} onChange={e => setAdditionalForm({ ...additionalForm, single_nose_pin: e.target.value })} className="w-full px-3 py-2 border rounded-lg font-bold" />
-              </div>
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">Multi Stones (₹)</label>
-                <input type="number" step="any" value={additionalForm.multi_stones} onChange={e => setAdditionalForm({ ...additionalForm, multi_stones: e.target.value })} className="w-full px-3 py-2 border rounded-lg font-bold" />
-              </div>
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">Step Nose Pin (₹)</label>
-                <input type="number" step="any" value={additionalForm.step_nose_pin} onChange={e => setAdditionalForm({ ...additionalForm, step_nose_pin: e.target.value })} className="w-full px-3 py-2 border rounded-lg font-bold" placeholder="0" />
-              </div>
-              <div className="col-span-2">
-                <label className="block font-semibold text-gray-700 mb-1">Tongai (₹)</label>
-                <input type="number" step="any" value={additionalForm.tongai} onChange={e => setAdditionalForm({ ...additionalForm, tongai: e.target.value })} className="w-full px-3 py-2 border rounded-lg font-bold" placeholder="0" />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button type="button" onClick={() => setActiveModalType(null)} className="px-4 py-2 border rounded-lg text-xs font-semibold text-gray-600">Cancel</button>
-              <button type="button" onClick={handleSaveAdditionalCharges} className="px-5 py-2 bg-[#b01622] text-white text-xs font-bold rounded-lg shadow-sm">Save Additional Charges</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {activeModalType === 'making' && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <h3 className="text-base font-bold text-gray-900">{editingItemIndex !== null ? 'Edit Making Charge' : 'Add Making Charge'}</h3>
-              <button type="button" onClick={() => setActiveModalType(null)} className="text-gray-400 hover:text-gray-600 text-lg cursor-pointer"><i className="fa-solid fa-xmark"></i></button>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4 text-xs">
-              <div className="col-span-2">
-                <label className="block font-semibold text-gray-700 mb-1">Type / Design Settings <span className="text-red-500">*</span></label>
-                <select
-                  value={makingForm.type_design || ''}
-                  onChange={(e) => {
-                    const selected = e.target.value;
-                    let purity = makingForm.gold_purity;
-                    let onWt = makingForm.on_wt;
-                    if (selected.startsWith('22KT')) {
-                      purity = '916';
-                      onWt = '92%';
-                    } else if (selected.startsWith('18KT')) {
-                      purity = '750';
-                      onWt = '76%';
-                    }
-                    setMakingForm({
-                      ...makingForm,
-                      type_design: selected,
-                      gold_purity: purity,
-                      on_wt: onWt
-                    });
-                  }}
-                  className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
-                >
-                  <option value="">-- Select 18KT / 22KT Type / Design --</option>
-                  <optgroup label="22KT Gold Options">
-                    <option value="22KT: Close Setting">22KT: Close Setting</option>
-                    <option value="22KT: Open Setting">22KT: Open Setting</option>
-                    <option value="22KT: Open / Close">22KT: Open / Close</option>
-                  </optgroup>
-                  <optgroup label="18KT Gold Options">
-                    <option value="18KT: Close Setting">18KT: Close Setting</option>
-                    <option value="18KT: Open Setting">18KT: Open Setting</option>
-                    <option value="18KT: Open / Close">18KT: Open / Close</option>
-                  </optgroup>
-                </select>
-              </div>
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">Wastage (%)</label>
-                <input type="text" value={makingForm.wastage_percent} onChange={e => setMakingForm({ ...makingForm, wastage_percent: e.target.value })} className="w-full px-3 py-2 border rounded-lg" placeholder="6%" />
-              </div>
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">Labour Charge</label>
-                <input type="text" value={makingForm.labour_charge} onChange={e => setMakingForm({ ...makingForm, labour_charge: e.target.value })} className="w-full px-3 py-2 border rounded-lg" placeholder="Rs. 500/- per gms wt" />
-              </div>
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">Gold Purity</label>
-                <input type="text" value={makingForm.gold_purity} onChange={e => setMakingForm({ ...makingForm, gold_purity: e.target.value })} className="w-full px-3 py-2 border rounded-lg font-mono" placeholder="916" />
-              </div>
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">On Wt (%)</label>
-                <input type="text" value={makingForm.on_wt} onChange={e => setMakingForm({ ...makingForm, on_wt: e.target.value })} className="w-full px-3 py-2 border rounded-lg" placeholder="92%" />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button type="button" onClick={() => setActiveModalType(null)} className="px-4 py-2 border rounded-lg text-xs font-semibold text-gray-600">Cancel</button>
-              <button type="button" onClick={handleSaveMakingCharge} className="px-5 py-2 bg-[#b01622] text-white text-xs font-bold rounded-lg shadow-sm">Save Making Charge</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {activeModalType === 'stamping' && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <h3 className="text-base font-bold text-gray-900">Edit Stamping Instructions</h3>
-              <button type="button" onClick={() => setActiveModalType(null)} className="text-gray-400 hover:text-gray-600 text-lg cursor-pointer"><i className="fa-solid fa-xmark"></i></button>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4 text-xs">
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">Stamping Detail</label>
-                <input type="text" value={stampingForm.stamping_detail} onChange={e => setStampingForm({ ...stampingForm, stamping_detail: e.target.value })} className="w-full px-3 py-2 border rounded-lg" />
-              </div>
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">Certification</label>
-                <input type="text" value={stampingForm.certification} onChange={e => setStampingForm({ ...stampingForm, certification: e.target.value })} className="w-full px-3 py-2 border rounded-lg" placeholder="SGL / IGI" />
-              </div>
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">Hallmark / HUID</label>
-                <input type="text" value={stampingForm.hallmark_huid} onChange={e => setStampingForm({ ...stampingForm, hallmark_huid: e.target.value })} className="w-full px-3 py-2 border rounded-lg" placeholder="YES / NO" />
-              </div>
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">Metal Colour</label>
-                <input type="text" value={stampingForm.metal_colour} onChange={e => setStampingForm({ ...stampingForm, metal_colour: e.target.value })} className="w-full px-3 py-2 border rounded-lg" placeholder="Yellow Gold" />
-              </div>
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">Client QC Before Billing</label>
-                <input type="text" value={stampingForm.client_qc_before_billing} onChange={e => setStampingForm({ ...stampingForm, client_qc_before_billing: e.target.value })} className="w-full px-3 py-2 border rounded-lg" placeholder="YES / NO" />
-              </div>
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">Necklace Back Chain</label>
-                <input type="text" value={stampingForm.necklace_back_chain || ''} onChange={e => setStampingForm({ ...stampingForm, necklace_back_chain: e.target.value })} className="w-full px-3 py-2 border rounded-lg" placeholder="Dori / Chain" />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button type="button" onClick={() => setActiveModalType(null)} className="px-4 py-2 border rounded-lg text-xs font-semibold text-gray-600">Cancel</button>
-              <button type="button" onClick={handleSaveStamping} className="px-5 py-2 bg-[#b01622] text-white text-xs font-bold rounded-lg shadow-sm">Save Instructions</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {activeModalType === 'payment_term' && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <h3 className="text-base font-bold text-gray-900">{editingItemIndex !== null ? 'Edit Payment Term' : 'Add Payment Term'}</h3>
-              <button type="button" onClick={() => setActiveModalType(null)} className="text-gray-400 hover:text-gray-600 text-lg cursor-pointer"><i className="fa-solid fa-xmark"></i></button>
-            </div>
-            
-            <div className="space-y-4 text-xs">
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">Type (Gold / Diamond / MC)</label>
-                <input type="text" value={paymentTermForm.type} onChange={e => setPaymentTermForm({ ...paymentTermForm, type: e.target.value })} className="w-full px-3 py-2 border rounded-lg" placeholder="Gold / Diamond / MC" />
-              </div>
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">Terms</label>
-                <input type="text" value={paymentTermForm.terms} onChange={e => setPaymentTermForm({ ...paymentTermForm, terms: e.target.value })} className="w-full px-3 py-2 border rounded-lg font-bold" placeholder="COD, Net 30" />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button type="button" onClick={() => setActiveModalType(null)} className="px-4 py-2 border rounded-lg text-xs font-semibold text-gray-600">Cancel</button>
-              <button type="button" onClick={handleSavePaymentTerm} className="px-5 py-2 bg-[#b01622] text-white text-xs font-bold rounded-lg shadow-sm">Save Payment Term</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 7. PRINT SHEET MODAL & PDF PREVIEW */}
-      {isPrintModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[70] flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-          <style>{`
-            @media print {
-              body {
-                background: white !important;
-                margin: 0 !important;
-                padding: 0 !important;
-              }
-              .print\\:hidden, .no-print, header, nav, sidebar, button {
-                display: none !important;
-              }
-              #printable-price-list-sheet {
-                position: fixed !important;
-                left: 0 !important;
-                top: 0 !important;
-                width: 100% !important;
-                height: auto !important;
-                margin: 0 !important;
-                padding: 10mm !important;
-                background: white !important;
-                border: none !important;
-                box-shadow: none !important;
-                visibility: visible !important;
-                opacity: 1 !important;
-                z-index: 999999 !important;
-                -webkit-print-color-adjust: exact !important;
-                print-color-adjust: exact !important;
-              }
-              #printable-price-list-sheet * {
-                visibility: visible !important;
-                opacity: 1 !important;
-              }
-              #printable-price-list-sheet th,
-              #printable-price-list-sheet td {
-                font-feature-settings: "tnum";
-              }
-              #printable-price-list-sheet .whitespace-nowrap,
-              #printable-price-list-sheet td.whitespace-nowrap,
-              #printable-price-list-sheet th.whitespace-nowrap {
-                white-space: nowrap !important;
-                word-break: keep-all !important;
-              }
-            }
-          `}</style>
-          <div className="bg-white rounded-2xl max-w-4xl w-full p-4 sm:p-6 shadow-2xl border border-gray-100 space-y-4 max-h-[92vh] flex flex-col">
-            
-            {/* Modal Header Bar */}
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3 shrink-0 print:hidden">
-              <div className="flex items-center gap-2">
-                <i className="fa-solid fa-file-pdf text-[#b01622] text-lg"></i>
-                <h3 className="text-base font-bold text-gray-900">Price List PDF Print Sheet</h3>
-                <span className="text-xs bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded border border-emerald-200">A4 Printable Format</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => printElement('printable-price-list-sheet', 'Client Price List')}
-                  className="px-4 py-2 bg-[#b01622] hover:bg-[#8e111a] text-white text-xs font-bold rounded-lg flex items-center gap-2 transition-colors cursor-pointer shadow-xs"
-                >
-                  <i className="fa-solid fa-print"></i> PRINT / SAVE PDF
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsPrintModalOpen(false)}
-                  className="text-gray-400 hover:text-gray-600 text-lg cursor-pointer"
-                >
-                  <i className="fa-solid fa-xmark"></i>
-                </button>
-              </div>
-            </div>
-
-            {/* Printable Container (Exact Image Layout) */}
-            <div id="printable-price-list-sheet" className="relative overflow-y-auto flex-1 p-5 bg-white rounded-xl border border-gray-200/80 space-y-5 text-xs text-gray-800 font-sans print:p-0 print:border-0 print:overflow-visible">
-              
-              {/* Background Logo Watermark (Hidden in print) */}
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.04] print:hidden select-none z-0 overflow-hidden">
-                <div className="text-center font-black text-[#b01622] transform -rotate-12 space-y-2">
-                  <div className="text-[140px] font-black tracking-widest leading-none">RJ</div>
-                  <div className="text-4xl uppercase tracking-[0.3em] font-black">RUDRA JEWELLERS</div>
-                  <div className="text-2xl uppercase tracking-[0.4em] font-bold text-gray-700">CHENNAI</div>
-                </div>
-              </div>
-              
-              {/* Top Header Section */}
-              <div className="flex items-start justify-between gap-4 border-b border-gray-200 pb-4">
-                {/* Logo Box */}
-                <div className="w-40 h-20 bg-[#b01622] rounded-lg text-white flex flex-col items-center justify-center p-2 text-center shrink-0">
-                  <div className="font-extrabold tracking-widest text-lg leading-tight flex items-center gap-1">
-                    <span className="text-[#ffe0b2]">RJ</span>
-                  </div>
-                  <div className="text-[9px] uppercase tracking-widest font-semibold mt-0.5 text-red-100">
-                    RUDRA JEWELLERS
-                  </div>
-                  <div className="text-[7px] tracking-wider text-red-200">chennai</div>
-                </div>
-
-                {/* Title Box */}
-                <div className="text-center flex-1">
-                  <h1 className="text-2xl font-black text-[#b01622] tracking-wider uppercase">PRICE LIST</h1>
-                  <div className="text-xs font-bold text-gray-600 mt-0.5">Price List - {version}</div>
-                  <div className="w-12 h-0.5 bg-[#b01622] mx-auto mt-2 mb-1"></div>
-                </div>
-
-                {/* Print Sheet Header Meta */}
-                <div className="text-right shrink-0">
-                  <div className="text-[10px] font-mono text-gray-500">
-                    DATE : {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} | TIME : {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </div>
-                </div>
-              </div>
-
-              {/* Info Cards Grid */}
-              <div className="grid grid-cols-2 gap-4">
-                {/* Client Details Card */}
-                <div className="bg-gray-50/80 p-3.5 rounded-xl border border-gray-200 space-y-1.5 text-xs">
-                  <div className="text-[10px] font-bold text-[#b01622] uppercase tracking-wider flex items-center gap-1 mb-2">
-                    <i className="fa-regular fa-user"></i> CLIENT DETAILS
-                  </div>
-                  <div className="grid grid-cols-3 gap-1">
-                    <span className="text-gray-500 font-medium">Client Name</span>
-                    <span className="col-span-2 font-bold text-gray-900">: {clientName} ({clientTier})</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1">
-                    <span className="text-gray-500 font-medium">Client Code</span>
-                    <span className="col-span-2 font-mono font-bold text-gray-900">: {clientCode}</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1">
-                    <span className="text-gray-500 font-medium">Membership Tier</span>
-                    <span className="col-span-2 font-bold text-gray-800">: {clientTier} Member</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1">
-                    <span className="text-gray-500 font-medium">Email</span>
-                    <span className="col-span-2 font-medium text-gray-800">: {clientEmail}</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1">
-                    <span className="text-gray-500 font-medium">Phone</span>
-                    <span className="col-span-2 font-medium text-gray-800">: {clientPhone}</span>
-                  </div>
-                </div>
-
-                {/* Version & Status Card */}
-                <div className="bg-gray-50/80 p-3.5 rounded-xl border border-gray-200 space-y-1.5 text-xs">
-                  <div className="text-[10px] font-bold text-[#b01622] uppercase tracking-wider flex items-center gap-1 mb-2">
-                    <i className="fa-regular fa-calendar-check"></i> VERSION & TIMELINE
-                  </div>
-                  <div className="grid grid-cols-3 gap-1">
-                    <span className="text-gray-500 font-medium">STARTING FROM</span>
-                    <span className="col-span-2 font-bold text-gray-900">: {effectiveFrom || 'Today'}</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1">
-                    <span className="text-gray-500 font-medium">ENDING TO</span>
-                    <span className="col-span-2 font-medium text-gray-800">: {effectiveTo}</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1">
-                    <span className="text-gray-500 font-medium">CREATED BY</span>
-                    <span className="col-span-2 font-bold text-gray-800">: SUPER ADMIN</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1">
-                    <span className="text-gray-500 font-medium">LAST UPDATED</span>
-                    <span className="col-span-2 font-medium text-gray-800">: {updatedAtStr || 'Today'}</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1">
-                    <span className="text-gray-500 font-medium">STATUS</span>
-                    <span className="col-span-2 font-bold text-emerald-700 uppercase">: ACTIVE</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Main Content Layout Grid */}
-              <div className="grid grid-cols-12 gap-4 items-start">
-                
-                {/* Left Column (8 cols) */}
-                <div className="col-span-8 space-y-4">
-                  
-                  {/* 1. GOLD RATES & CHARGES */}
-                  <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
-                    <div className="px-3.5 py-2 bg-gray-50 border-b border-gray-200 font-bold text-[#b01622] text-xs flex items-center justify-between">
-                      <span>1. GOLD RATES & CHARGES <span className="font-normal text-[10px] text-gray-500">(per gm / purity)</span></span>
-                    </div>
-                    <table className="w-full text-left border-collapse text-[11px]">
-                      <thead>
-                        <tr className="bg-gray-50/70 text-[9px] font-bold uppercase tracking-wider text-gray-500 border-b border-gray-200">
-                          <th className="px-3 py-2">PURITY / METAL</th>
-                          <th className="px-3 py-2">TOUCH %</th>
-                          <th className="px-3 py-2 text-center">WASTAGE (%)</th>
-                          <th className="px-3 py-2 text-right">ESTIMATED RATE / GM (₹)</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100 font-medium">
-                        {goldRates.length === 0 ? (
-                          <tr><td colSpan="4" className="px-3 py-4 text-center text-gray-400">No gold rates added</td></tr>
-                        ) : (
-                          goldRates.map((g, i) => (
-                            <tr key={i}>
-                              <td className="px-3 py-2 font-bold text-gray-900">{g.purity}</td>
-                              <td className="px-3 py-2 text-gray-700">{g.touch || '-'}</td>
-                              <td className="px-3 py-2 text-center font-mono text-gray-700">{g.wastage_percent}%</td>
-                              <td className="px-3 py-2 text-right font-bold text-[#b01622]">₹{Number(g.effective_rate || (g.gold_rate * (1 + (g.wastage_percent || 0)/100) + (g.making_charge || 0))).toLocaleString('en-IN')}</td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                    <div className="px-3 py-1.5 text-[9px] text-gray-400 border-t border-gray-100 italic">
-                      * Gold rates are recalculated dynamically based on live market rates and wastage standard.
-                    </div>
-                  </div>
-
-                  {/* 2. DIAMOND RATES */}
-                  <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
-                    <div className="px-3.5 py-2 bg-gray-50 border-b border-gray-200 font-bold text-[#b01622] text-xs flex items-center justify-between">
-                      <span>2. DIAMOND RATES <span className="font-normal text-[10px] text-gray-500">(per carat)</span></span>
-                    </div>
-                    <table className="w-full text-left border-collapse text-[11px]">
-                      <thead>
-                        <tr className="bg-gray-50/70 text-[9px] font-bold uppercase tracking-wider text-gray-500 border-b border-gray-200">
-                          <th className="px-3 py-2">SHAPE</th>
-                          <th className="px-3 py-2">QUALITY</th>
-                          <th className="px-3 py-2">SIZE (MM/CT)</th>
-                          <th className="px-3 py-2 text-right">RATE / CT (₹)</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100 font-medium">
-                        {diamondRates.length === 0 ? (
-                          <tr><td colSpan="4" className="px-3 py-4 text-center text-gray-400">No diamond rates added</td></tr>
-                        ) : (
-                          diamondRates.map((d, i) => (
-                            <tr key={i}>
-                              <td className="px-3 py-2 font-bold text-gray-900">{d.shape}</td>
-                              <td className="px-3 py-2 text-gray-700">{d.quality}</td>
-                              <td className="px-3 py-2 text-gray-600">{d.size_range_mm || d.sieve || '-'}</td>
-                              <td className="px-3 py-2 text-right font-bold text-gray-900">₹{Number(d.rate_per_ct || 0).toLocaleString('en-IN')}</td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                    <div className="px-3 py-1.5 text-[9px] text-gray-400 border-t border-gray-100 italic">
-                      * Rates are exclusive of GST and other charges.
-                    </div>
-                  </div>
-
-                  {/* 3 & 4 Column Grid */}
-                  <div className="grid grid-cols-2 gap-3">
-                    {/* 3. COLOR STONE CHARGES */}
-                    <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
-                      <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-200 font-bold text-[#b01622] text-xs">
-                        3. COLOR STONE CHARGES
-                      </div>
-                      <table className="w-full text-left border-collapse text-[10px]">
-                        <thead>
-                          <tr className="bg-gray-50/70 text-[9px] font-bold uppercase text-gray-500 border-b border-gray-200">
-                            <th className="px-3 py-1.5">TYPE</th>
-                            <th className="px-3 py-1.5 text-right whitespace-nowrap w-32">RATE</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100 font-medium">
-                          {colorStoneRates.length === 0 ? (
-                            <tr><td colSpan="2" className="px-3 py-3 text-center text-gray-400">No stone charges</td></tr>
-                          ) : (
-                            colorStoneRates.map((c, i) => (
-                              <tr key={i}>
-                                <td className="px-3 py-1.5 text-gray-800">{c.stone}</td>
-                                <td className="px-3 py-1.5 text-right font-bold text-gray-900 whitespace-nowrap">
-                                  ₹{Number(c.rate_per_ct || 0).toLocaleString('en-IN')}&nbsp;/&nbsp;CT
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* 4. ADDITIONAL CHARGES */}
-                    <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
-                      <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-200 font-bold text-[#b01622] text-xs">
-                        4. ADDITIONAL CHARGES
-                      </div>
-                      <table className="w-full text-left border-collapse text-[10px]">
-                        <thead>
-                          <tr className="bg-gray-50/70 text-[9px] font-bold uppercase text-gray-500 border-b border-gray-200">
-                            <th className="px-3 py-1.5">CHARGE TYPE</th>
-                            <th className="px-3 py-1.5 text-right whitespace-nowrap w-28">RATE (₹)</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100 font-medium">
-                          <tr>
-                            <td className="px-3 py-1.5 text-gray-800">Minimum Labour</td>
-                            <td className="px-3 py-1.5 text-right font-bold text-gray-900 whitespace-nowrap">₹{Number(additionalCharges.minimum_labour || 1500).toLocaleString('en-IN')}</td>
-                          </tr>
-                          <tr>
-                            <td className="px-3 py-1.5 text-gray-800">Single Nose Pin</td>
-                            <td className="px-3 py-1.5 text-right font-bold text-gray-900 whitespace-nowrap">₹{Number(additionalCharges.single_nose_pin || 850).toLocaleString('en-IN')}</td>
-                          </tr>
-                          <tr>
-                            <td className="px-3 py-1.5 text-gray-800">Multi Stones</td>
-                            <td className="px-3 py-1.5 text-right font-bold text-gray-900 whitespace-nowrap">₹{Number(additionalCharges.multi_stones || 1000).toLocaleString('en-IN')}</td>
-                          </tr>
-                          {additionalCharges.step_nose_pin ? (
-                            <tr>
-                              <td className="px-3 py-1.5 text-gray-800">Step Nose Pin</td>
-                              <td className="px-3 py-1.5 text-right font-bold text-gray-900 whitespace-nowrap">₹{Number(additionalCharges.step_nose_pin).toLocaleString('en-IN')}</td>
-                            </tr>
-                          ) : null}
-                          {additionalCharges.tongai ? (
-                            <tr>
-                              <td className="px-3 py-1.5 text-gray-800">Tongai</td>
-                              <td className="px-3 py-1.5 text-right font-bold text-gray-900 whitespace-nowrap">₹{Number(additionalCharges.tongai).toLocaleString('en-IN')}</td>
-                            </tr>
-                          ) : null}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  {/* 5. MAKING CHARGES */}
-                  <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
-                    <div className="px-3.5 py-2 bg-gray-50 border-b border-gray-200 font-bold text-[#b01622] text-xs">
-                      5. MAKING CHARGES
-                    </div>
-                    <table className="w-full text-left border-collapse text-[10px]">
-                      <thead>
-                        <tr className="bg-gray-50/70 text-[9px] font-bold uppercase tracking-wider text-gray-500 border-b border-gray-200">
-                          <th className="px-3 py-2">TYPE / DESIGN</th>
-                          <th className="px-3 py-2">WASTAGE (%)</th>
-                          <th className="px-3 py-2">LABOUR CHARGE</th>
-                          <th className="px-3 py-2 font-mono">PURITY</th>
-                          <th className="px-3 py-2">ON WT</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100 font-medium">
-                        {makingCharges.length === 0 ? (
-                          <tr><td colSpan="5" className="px-3 py-4 text-center text-gray-400">No making charges configured</td></tr>
-                        ) : (
-                          makingCharges.map((m, i) => (
-                            <tr key={i}>
-                              <td className="px-3 py-2 font-bold text-gray-900">{m.type_design}</td>
-                              <td className="px-3 py-2 text-gray-700">{m.wastage_percent}</td>
-                              <td className="px-3 py-2 text-gray-800">{m.labour_charge}</td>
-                              <td className="px-3 py-2 font-mono text-gray-700">{m.gold_purity}</td>
-                              <td className="px-3 py-2 text-gray-700">{m.on_wt}</td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                    <div className="px-3 py-1.5 text-[9px] text-gray-400 border-t border-gray-100 italic">
-                      * Making charges are subject to change without prior notice.
-                    </div>
-                  </div>
-
-                </div>
-
-                {/* Right Column (4 cols) */}
-                <div className="col-span-4 space-y-4">
-                  
-                  {/* PRICE LIST SUMMARY CARD */}
-                  <div className="border-2 border-red-200 rounded-xl p-3.5 bg-red-50/20 space-y-2">
-                    <div className="flex items-center justify-between text-xs font-bold text-[#b01622]">
-                      <span>PRICE LIST SUMMARY</span>
-                      <span className="text-[9px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold uppercase">ACTIVE</span>
-                    </div>
-                    <div className="text-base font-black text-gray-900">Price List - {version}</div>
-                    <div className="border-t border-red-100 pt-2 text-[10px] space-y-1 text-gray-600">
-                      <div className="flex justify-between"><span>Effective From:</span><span className="font-bold text-gray-800">{effectiveFrom || 'Today'}</span></div>
-                      <div className="flex justify-between"><span>Last Updated:</span><span className="font-bold text-gray-800">{updatedAtStr || 'Today'}</span></div>
-                      <div className="flex justify-between"><span>Updated By:</span><span className="font-bold text-gray-800">Super Admin</span></div>
-                    </div>
-                  </div>
-
-                  {/* 6. INSTRUCTIONS FOR PRICE SETTING ON PRODUCT */}
-                  <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
-                    <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 font-bold text-[#b01622] text-xs">
-                      6. INSTRUCTIONS FOR STAMPING & QC
-                    </div>
-                    <div className="p-3 text-[10px] space-y-1.5 text-gray-700 font-medium">
-                      <div className="flex justify-between border-b border-gray-100 pb-1">
-                        <span className="text-gray-500">Stamping Detail</span>
-                        <span className="font-bold text-gray-900">{stampingInstructions.stamping_detail || '-'}</span>
-                      </div>
-                      <div className="flex justify-between border-b border-gray-100 pb-1">
-                        <span className="text-gray-500">Certification</span>
-                        <span className="font-bold text-gray-900">{stampingInstructions.certification || '-'}</span>
-                      </div>
-                      <div className="flex justify-between border-b border-gray-100 pb-1">
-                        <span className="text-gray-500">Hallmark / HUID</span>
-                        <span className="font-bold text-gray-900">{stampingInstructions.hallmark_huid || 'NO'}</span>
-                      </div>
-                      <div className="flex justify-between border-b border-gray-100 pb-1">
-                        <span className="text-gray-500">Metal Colour</span>
-                        <span className="font-bold text-gray-900">{stampingInstructions.metal_colour || '-'}</span>
-                      </div>
-                      <div className="flex justify-between border-b border-gray-100 pb-1">
-                        <span className="text-gray-500">Client QC</span>
-                        <span className="font-bold text-gray-900">{stampingInstructions.client_qc_before_billing || 'NO'}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">Necklace Back Chain</span>
-                        <span className="font-bold text-gray-900">{stampingInstructions.necklace_back_chain || '-'}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 7. PAYMENT TERMS */}
-                  <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
-                    <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 font-bold text-[#b01622] text-xs">
-                      7. PAYMENT TERMS
-                    </div>
-                    <table className="w-full text-left border-collapse text-[10px]">
-                      <thead>
-                        <tr className="bg-gray-50/70 text-[9px] font-bold uppercase text-gray-500 border-b border-gray-200">
-                          <th className="px-3 py-1.5">TYPE</th>
-                          <th className="px-3 py-1.5 text-right">TERMS</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100 font-medium">
-                        {paymentTerms.length === 0 ? (
-                          <tr><td colSpan="2" className="px-3 py-3 text-center text-gray-400">No payment terms</td></tr>
-                        ) : (
-                          paymentTerms.map((p, i) => (
-                            <tr key={i}>
-                              <td className="px-3 py-1.5 text-gray-800">{p.type}</td>
-                              <td className="px-3 py-1.5 text-right font-bold text-gray-900">{p.terms}</td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-
-                </div>
-
-              </div>
-
-              {/* Footer Stamp & Signature Section (Bottom Alignment) */}
-              <div className="border-t-2 border-gray-200 pt-4 flex items-center justify-between gap-4 text-xs mt-auto relative z-10 avoid-break print-break-inside-avoid">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full border-2 border-[#b01622] flex flex-col items-center justify-center text-[8px] font-bold text-[#b01622] p-1 text-center shrink-0">
-                    <div>RUDRA</div>
-                    <div className="font-extrabold text-[10px]">RJ</div>
-                    <div>CHENNAI</div>
-                  </div>
-                  <div className="text-[10px] text-gray-500 leading-tight">
-                    <div>Thank you for your trust and continued partnership.</div>
-                    <div className="italic text-gray-400">This is a system generated price list document.</div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-8 text-center shrink-0">
-                  <div>
-                    <div className="w-28 border-b border-gray-300 mb-1"></div>
-                    <span className="text-[10px] font-bold text-gray-700 uppercase block">PREPARED BY</span>
-                  </div>
-                  <div className="text-right space-y-1 shrink-0">
-                    <div className="font-serif italic font-bold text-[#b01622] text-lg leading-none">Rudhra</div>
-                    <div className="w-36 h-0.5 bg-gray-300 ml-auto"></div>
-                    <div className="text-[10px] font-bold text-gray-800 uppercase tracking-wider">AUTHORIZED SIGNATURE</div>
-                    <div className="text-[8px] text-gray-400">Rudra Jewellers, Chennai</div>
-                  </div>
-                </div>
-              </div>
-
-            </div>
-
-          </div>
-        </div>
-      )}
-
     </div>
   );
-}
-
-// Helper sprintf for version formatting
-function sprintf(format, ...args) {
-  let i = 0;
-  return format.replace(/%0?(\d+)?d/g, (match, p1) => {
-    let str = String(args[i++]);
-    if (p1) {
-      while (str.length < parseInt(p1)) {
-        str = '0' + str;
-      }
-    }
-    return str;
-  });
 }

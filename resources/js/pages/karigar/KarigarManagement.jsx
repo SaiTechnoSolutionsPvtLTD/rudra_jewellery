@@ -15,6 +15,8 @@ const INITIAL_FORM_STATE = {
   primary_phone: '',
   secondary_phone: '',
   email: '',
+  password: '',
+  confirm_password: '',
   specialization: '',
   experience_years: 5,
   workshop_name: '',
@@ -73,6 +75,7 @@ export default function KarigarManagement() {
   const [formErrors, setFormErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [generatingCode, setGeneratingCode] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   // Profile View Drawer state
   const [isBenchModalOpen, setIsBenchModalOpen] = useState(false);
@@ -277,6 +280,8 @@ export default function KarigarManagement() {
       primary_phone: karigar.primary_phone || '',
       secondary_phone: karigar.secondary_phone || '',
       email: karigar.email || '',
+      password: '',
+      confirm_password: '',
       specialization: karigar.specialization || (specifications[0]?.name || ''),
       experience_years: karigar.experience_years ?? 5,
       workshop_name: karigar.workshop_name || '',
@@ -343,6 +348,14 @@ export default function KarigarManagement() {
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
       errors.email = 'Enter a valid email address';
     }
+    if (formData.password) {
+      if (formData.password.length < 6) {
+        errors.password = 'Password must be at least 6 characters';
+      }
+      if (formData.password !== formData.confirm_password) {
+        errors.confirm_password = 'Passwords do not match';
+      }
+    }
     if (formData.experience_years === '' || formData.experience_years === null || isNaN(Number(formData.experience_years))) {
       errors.experience_years = 'Years of experience is required';
     } else if (Number(formData.experience_years) < 0) {
@@ -383,7 +396,7 @@ export default function KarigarManagement() {
 
     const errorCount = Object.keys(errors).length;
     if (errorCount > 0) {
-      const tab1Keys = ['karigar_code', 'name', 'primary_phone', 'email', 'experience_years', 'workshop_name', 'workshop_address', 'city', 'state', 'zip_code'];
+      const tab1Keys = ['karigar_code', 'name', 'primary_phone', 'email', 'password', 'confirm_password', 'experience_years', 'workshop_name', 'workshop_address', 'city', 'state', 'zip_code'];
       const tab2Keys = ['specialization', 'standard_wastage_percent', 'making_charge_per_gram', 'current_gold_balance_grams'];
       const tab3Keys = ['pan_number', 'aadhar_number', 'bank_name', 'account_number', 'ifsc_code'];
 
@@ -1323,7 +1336,7 @@ export default function KarigarManagement() {
 
             {/* Modal Tabs with Error Indicators */}
             {(() => {
-              const tab1HasError = ['karigar_code', 'name', 'primary_phone', 'email', 'experience_years', 'workshop_name', 'workshop_address', 'city', 'state', 'zip_code'].some(k => !!formErrors[k]);
+              const tab1HasError = ['karigar_code', 'name', 'primary_phone', 'email', 'password', 'confirm_password', 'experience_years', 'workshop_name', 'workshop_address', 'city', 'state', 'zip_code'].some(k => !!formErrors[k]);
               const tab2HasError = ['specialization', 'standard_wastage_percent', 'making_charge_per_gram', 'current_gold_balance_grams'].some(k => !!formErrors[k]);
               const tab3HasError = ['pan_number', 'aadhar_number', 'bank_name', 'account_number', 'ifsc_code'].some(k => !!formErrors[k]);
 
@@ -1501,6 +1514,52 @@ export default function KarigarManagement() {
                           }`}
                       />
                       {formErrors.experience_years && <p className="text-[11px] text-red-500 mt-1">{formErrors.experience_years}</p>}
+                    </div>
+
+                    {/* Password & Confirm Password (User Login Account) */}
+                    <div>
+                      <label className="block text-xs font-bold text-stone-700 mb-1">
+                        User Login Password {editingKarigar ? <span className="text-stone-400 font-normal">(Leave blank to keep current)</span> : <span className="text-stone-400 font-normal">(Default: admin123)</span>}
+                      </label>
+                      <div className="relative">
+                        <i className="fa-solid fa-lock absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs"></i>
+                        <input
+                          type={showPassword ? 'text' : 'password'}
+                          name="password"
+                          value={formData.password}
+                          onChange={handleInputChange}
+                          placeholder={editingKarigar ? '••••••••' : 'Set custom password or leave blank'}
+                          className={`w-full pl-8 pr-8 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.password ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
+                            }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 text-xs"
+                        >
+                          <i className={`fa-solid ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                        </button>
+                      </div>
+                      {formErrors.password && <p className="text-[11px] text-red-500 mt-1">{formErrors.password}</p>}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-stone-700 mb-1">
+                        Confirm Password
+                      </label>
+                      <div className="relative">
+                        <i className="fa-solid fa-lock absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs"></i>
+                        <input
+                          type={showPassword ? 'text' : 'password'}
+                          name="confirm_password"
+                          value={formData.confirm_password}
+                          onChange={handleInputChange}
+                          placeholder="••••••••"
+                          className={`w-full pl-8 pr-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.confirm_password ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
+                            }`}
+                        />
+                      </div>
+                      {formErrors.confirm_password && <p className="text-[11px] text-red-500 mt-1">{formErrors.confirm_password}</p>}
                     </div>
                   </div>
 

@@ -7,29 +7,39 @@ export default function InventoryAddNewSubcategory() {
   const navigate = useNavigate();
   const { showToast } = useToast();
 
-
-  // 5 Top Categories matching reference design
+  // 5 Top Categories matching Figma reference design & order: Ornaments, Diamond, Gold, Stone, Silver
   const categoryDefinitions = [
     {
       key: 'ornaments',
       title: 'Ornaments',
-      icon: 'fa-solid fa-award',
+      icon: 'fa-solid fa-gem',
       description: 'Luxury ornaments for every occasion',
       matchTerms: ['ornament', 'ornaments', 'jewellery'],
+      badgeBg: 'bg-[#fce8e8]',
+      iconColor: 'text-[#b01622]',
     },
     {
       key: 'diamond',
       title: 'Diamond',
-      icon: 'fa-regular fa-gem',
+      icon: 'fa-solid fa-certificate',
       description: 'Elegant designs crafted to perfection',
       matchTerms: ['diamond'],
+      badgeBg: 'bg-[#fce8e8]',
+      iconColor: 'text-[#b01622]',
     },
     {
       key: 'gold',
       title: 'Gold',
-      icon: 'fa-solid fa-coins',
+      icon: 'fa-solid fa-[#d4af37]',
+      customSvg: (
+        <svg className="w-5 h-5 text-[#b8860b]" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M4 6h16v3H4zM2 11h20v3H2zM4 16h16v3H4z" />
+        </svg>
+      ),
       description: 'Premium gold for fine craftsmanship',
       matchTerms: ['gold', 'raw gold'],
+      badgeBg: 'bg-[#fef3c7]',
+      iconColor: 'text-[#d4af37]',
     },
     {
       key: 'stone',
@@ -37,34 +47,92 @@ export default function InventoryAddNewSubcategory() {
       icon: 'fa-solid fa-cube',
       description: 'Rare gemstones with lasting brilliance',
       matchTerms: ['stone', 'gem', 'gemstone'],
+      badgeBg: 'bg-[#fce8e8]',
+      iconColor: 'text-[#b01622]',
     },
     {
       key: 'silver',
       title: 'Silver',
-      icon: 'fa-solid fa-ring',
+      icon: 'fa-solid fa-circle-notch',
+      customSvg: (
+        <svg className="w-5 h-5 text-[#c5a059]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <ellipse cx="12" cy="12" rx="8" ry="4" />
+        </svg>
+      ),
       description: 'Quality silver for timeless creations',
       matchTerms: ['silver'],
+      badgeBg: 'bg-[#fef3c7]',
+      iconColor: 'text-[#c5a059]',
     },
   ];
 
-  // Dynamic icon mapper based on subcategory name
+  // Dynamic golden jewelry icon mapper based on subcategory name (Matching Figma Image 2)
   const getSubcategoryIcon = (name = '') => {
     const n = name.toLowerCase();
-    if (n.includes('ring') || n.includes('solitaire')) return { icon: 'fa-solid fa-ring', color: 'text-amber-600' };
-    if (n.includes('neck') || n.includes('choker') || n.includes('haram')) return { icon: 'fa-solid fa-gem', color: 'text-amber-700' };
-    if (n.includes('chain') || n.includes('mangalsutra')) return { icon: 'fa-solid fa-link', color: 'text-amber-500' };
-    if (n.includes('bangle') || n.includes('kada')) return { icon: 'fa-solid fa-circle-notch', color: 'text-amber-600' };
-    if (n.includes('bracelet')) return { icon: 'fa-regular fa-circle', color: 'text-amber-600' };
-    if (n.includes('ear') || n.includes('stud') || n.includes('jhumka')) return { icon: 'fa-solid fa-certificate', color: 'text-amber-700' };
-    if (n.includes('pendant') || n.includes('locket')) return { icon: 'fa-solid fa-award', color: 'text-amber-500' };
-    if (n.includes('nose')) return { icon: 'fa-solid fa-diamond', color: 'text-amber-600' };
-    if (n.includes('coin') || n.includes('bar')) return { icon: 'fa-solid fa-coins', color: 'text-amber-600' };
-    if (n.includes('anklet') || n.includes('payal')) return { icon: 'fa-solid fa-circle-nodes', color: 'text-slate-600' };
-    if (n.includes('puja') || n.includes('utensil')) return { icon: 'fa-solid fa-bowl-food', color: 'text-slate-600' };
-    return { icon: 'fa-solid fa-tag', color: 'text-amber-600' };
+    if (n.includes('ring') || n.includes('solitaire')) {
+      return (
+        <div className="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-[#c5a059] shrink-0 border border-amber-100">
+          <i className="fa-solid fa-ring text-sm"></i>
+        </div>
+      );
+    }
+    if (n.includes('neck') || n.includes('choker') || n.includes('haram')) {
+      return (
+        <div className="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-[#c5a059] shrink-0 border border-amber-100">
+          <i className="fa-solid fa-gem text-xs"></i>
+        </div>
+      );
+    }
+    if (n.includes('chain') || n.includes('mangalsutra')) {
+      return (
+        <div className="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-[#c5a059] shrink-0 border border-amber-100">
+          <i className="fa-solid fa-link text-xs"></i>
+        </div>
+      );
+    }
+    if (n.includes('bangle') || n.includes('kada')) {
+      return (
+        <div className="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-[#c5a059] shrink-0 border border-amber-100">
+          <i className="fa-solid fa-circle-notch text-sm"></i>
+        </div>
+      );
+    }
+    if (n.includes('bracelet')) {
+      return (
+        <div className="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-[#c5a059] shrink-0 border border-amber-100">
+          <i className="fa-solid fa-circle-nodes text-xs"></i>
+        </div>
+      );
+    }
+    if (n.includes('ear') || n.includes('stud') || n.includes('jhumka')) {
+      return (
+        <div className="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-[#c5a059] shrink-0 border border-amber-100">
+          <i className="fa-solid fa-award text-xs"></i>
+        </div>
+      );
+    }
+    if (n.includes('pendant') || n.includes('locket')) {
+      return (
+        <div className="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-[#c5a059] shrink-0 border border-amber-100">
+          <i className="fa-solid fa-shield-halved text-xs"></i>
+        </div>
+      );
+    }
+    if (n.includes('nose')) {
+      return (
+        <div className="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-[#c5a059] shrink-0 border border-amber-100">
+          <i className="fa-solid fa-sparkles text-xs"></i>
+        </div>
+      );
+    }
+    return (
+      <div className="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-[#c5a059] shrink-0 border border-amber-100">
+        <i className="fa-solid fa-award text-xs"></i>
+      </div>
+    );
   };
 
-  // ── Read session immediately (synchronous) so category cards show with no delay ──
+  // Read session immediately so category cards render synchronously
   const getInitialCategoryKey = () => {
     try {
       const saved = sessionStorage.getItem('inventory_selected_category');
@@ -92,7 +160,6 @@ export default function InventoryAddNewSubcategory() {
 
   const [categories, setCategories] = useState([]);
   const [allMasterSubcategories, setAllMasterSubcategories] = useState([]);
-  // Initialize from session immediately — no waiting for API
   const [selectedCategoryKey, setSelectedCategoryKey] = useState(() => getInitialCategoryKey());
   const [selectedCategoryObj, setSelectedCategoryObj] = useState(() => {
     try {
@@ -114,7 +181,6 @@ export default function InventoryAddNewSubcategory() {
   const fetchMasterData = async () => {
     try {
       setLoading(true);
-      // Fetch subcategories only (category is already known from session)
       const [catRes, subRes] = await Promise.all([
         api.get('/inventory/categories'),
         api.get('/subcategories'),
@@ -125,7 +191,6 @@ export default function InventoryAddNewSubcategory() {
       setCategories(cats);
       setAllMasterSubcategories(masterSubs);
 
-      // Determine category key (already set, but re-confirm from DB data)
       const savedCat = sessionStorage.getItem('inventory_selected_category');
       let initialKey = selectedCategoryKey || 'diamond';
       let activeCatObj = selectedCategoryObj;
@@ -162,7 +227,6 @@ export default function InventoryAddNewSubcategory() {
     setSelectedCategoryObj(catObj);
     sessionStorage.setItem('inventory_selected_category', JSON.stringify(catObj));
 
-    // Filter master subcategories belonging to this category in database
     const directSubs = catObj.subcategories || [];
     const masterMatchingSubs = masterSubs.filter((s) => {
       if (catObj.id && s.category_id === catObj.id) return true;
@@ -171,7 +235,6 @@ export default function InventoryAddNewSubcategory() {
       return false;
     });
 
-    // Merge without duplicates by ID
     const mergedMap = new Map();
     [...directSubs, ...masterMatchingSubs].forEach((sub) => {
       if (sub && sub.id) {
@@ -182,7 +245,6 @@ export default function InventoryAddNewSubcategory() {
     const filtered = Array.from(mergedMap.values());
     setSubcategories(filtered);
 
-    // Retain previous selection if valid for this category, otherwise default to first
     const savedSub = sessionStorage.getItem('inventory_selected_subcategory');
     if (savedSub) {
       try {
@@ -203,7 +265,7 @@ export default function InventoryAddNewSubcategory() {
   };
 
   const handleSelectCategory = (catDef) => {
-    if (isCategoryLocked) return; // prevent changing if locked
+    if (isCategoryLocked) return;
     setSelectedCategoryKey(catDef.key);
     filterSubcategoriesForCategory(catDef.key);
   };
@@ -228,33 +290,33 @@ export default function InventoryAddNewSubcategory() {
   return (
     <div className="w-full pb-16 space-y-6 font-['Inter',-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif] max-w-5xl mx-auto">
       
-      {/* 1. Stepper Header (Exact match to Reference Image) */}
-      <div className="flex items-center justify-center pt-2 pb-3">
-        <div className="flex items-center gap-2 sm:gap-4">
+      {/* 1. Stepper Header (Matching Figma Image 2) */}
+      <div className="flex items-center justify-center pt-2 pb-2">
+        <div className="flex items-center gap-2 sm:gap-6">
           
-          {/* Step 1: Upload File (Active) */}
+          {/* Step 1: Upload File */}
           <div className="flex flex-col items-center">
-            <div className="w-8 h-8 rounded-full bg-[#b01622] text-white flex items-center justify-center text-xs font-bold shadow-2xs">
+            <div className="w-9 h-9 rounded-full bg-[#b01622] text-white flex items-center justify-center text-xs font-bold shadow-xs">
               1
             </div>
             <span className="text-xs font-semibold text-[#b01622] mt-1.5 whitespace-nowrap">Upload File</span>
           </div>
 
-          <div className="w-16 sm:w-28 h-0.5 bg-stone-300 -mt-5"></div>
+          <div className="w-16 sm:w-28 h-[1.5px] bg-stone-200 -mt-5"></div>
 
           {/* Step 2: Valid Data */}
           <div className="flex flex-col items-center">
-            <div className="w-8 h-8 rounded-full bg-white border border-stone-300 text-stone-600 flex items-center justify-center text-xs font-bold">
+            <div className="w-9 h-9 rounded-full bg-stone-100 text-stone-600 flex items-center justify-center text-xs font-bold border border-stone-200/80">
               2
             </div>
             <span className="text-xs font-semibold text-stone-600 mt-1.5 whitespace-nowrap">Valid Data</span>
           </div>
 
-          <div className="w-16 sm:w-28 h-0.5 bg-stone-300 -mt-5"></div>
+          <div className="w-16 sm:w-28 h-[1.5px] bg-stone-200 -mt-5"></div>
 
           {/* Step 3: Complete */}
           <div className="flex flex-col items-center">
-            <div className="w-8 h-8 rounded-full bg-white border border-stone-300 text-stone-600 flex items-center justify-center text-xs font-bold">
+            <div className="w-9 h-9 rounded-full bg-stone-100 text-stone-600 flex items-center justify-center text-xs font-bold border border-stone-200/80">
               3
             </div>
             <span className="text-xs font-semibold text-stone-600 mt-1.5 whitespace-nowrap">Complete</span>
@@ -263,7 +325,7 @@ export default function InventoryAddNewSubcategory() {
         </div>
       </div>
 
-      {/* 2. Card 1: Select Inventory Category */}
+      {/* 2. Card 1: Select Inventory Category (Matching Figma Image 2) */}
       <div className="bg-white rounded-2xl p-6 sm:p-8 border border-stone-200/80 shadow-2xs space-y-6">
         
         {/* Header with Red Box Icon */}
@@ -284,7 +346,7 @@ export default function InventoryAddNewSubcategory() {
           {isCategoryLocked && (
             <Link
               to="/inventory/add-new/category"
-              className="text-xs font-bold text-stone-500 hover:text-[#b01622] flex items-center gap-1.5 transition-colors border border-stone-200 px-3 py-1.5 rounded-lg"
+              className="text-xs font-bold text-stone-500 hover:text-[#b01622] flex items-center gap-1.5 transition-colors border border-stone-200/80 px-3 py-1.5 rounded-lg bg-white shadow-2xs"
             >
               <i className="fa-solid fa-arrow-left text-[10px]"></i>
               <span>Change Category</span>
@@ -292,47 +354,53 @@ export default function InventoryAddNewSubcategory() {
           )}
         </div>
 
-        {/* 5 Category Cards (Light pink default, hover pink when selected) */}
-        <div className={`grid grid-cols-2 sm:grid-cols-5 gap-4 pt-1 ${isCategoryLocked ? 'opacity-80' : ''}`}>
+        {/* 5 Category Cards Grid (Exact match to Image 1) */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3.5 pt-1">
           {categoryDefinitions.map((catDef) => {
             const isSelected = selectedCategoryKey === catDef.key;
             return (
               <div
                 key={catDef.key}
                 onClick={() => handleSelectCategory(catDef)}
-                className={`p-4 rounded-2xl border transition-all text-center flex flex-col items-center justify-between min-h-[155px] relative ${
+                className={`p-4 rounded-2xl border transition-all text-center flex flex-col items-center justify-between min-h-[170px] relative ${
                   isCategoryLocked
                     ? isSelected
-                      ? 'bg-[#ffe4e6] border-[#b01622] ring-2 ring-red-100 shadow-sm cursor-not-allowed'
-                      : 'bg-[#fff5f5] border-rose-200/60 shadow-2xs cursor-not-allowed opacity-50'
+                      ? 'bg-[#fff0f2] border-[#b01622] ring-2 ring-red-100/80 shadow-xs cursor-not-allowed'
+                      : 'bg-[#fff7f8]/70 border-stone-200/60 opacity-60 cursor-not-allowed'
                     : isSelected
-                    ? 'bg-[#ffe4e6] border-[#b01622] ring-2 ring-red-100 shadow-sm scale-[1.02] cursor-pointer'
-                    : 'bg-[#fff5f5] border-rose-200/60 hover:bg-[#ffe4e6]/60 hover:border-rose-300 shadow-2xs cursor-pointer'
+                    ? 'bg-[#fff0f2] border-[#b01622] ring-2 ring-red-100/80 shadow-xs scale-[1.02] cursor-pointer'
+                    : 'bg-[#fff7f8] hover:bg-[#fff0f2] border-stone-200/60 hover:border-rose-200 shadow-2xs cursor-pointer'
                 }`}
               >
-                {/* Lock badge for selected card when locked */}
+                {/* Lock indicator badge */}
                 {isCategoryLocked && isSelected && (
-                  <span className="absolute top-2 right-2 w-5 h-5 rounded-full bg-[#b01622] text-white flex items-center justify-center text-[9px]">
+                  <span className="absolute top-2.5 right-2.5 w-5 h-5 rounded-full bg-[#b01622] text-white flex items-center justify-center text-[9px] shadow-2xs">
                     <i className="fa-solid fa-lock"></i>
                   </span>
                 )}
-                <div className={`w-9 h-9 rounded-full flex items-center justify-center text-base mb-2 transition-transform ${
-                  isSelected ? 'scale-110 text-[#b01622]' :
-                  catDef.key === 'gold' ? 'text-amber-600' :
-                  catDef.key === 'silver' ? 'text-slate-600' : 'text-[#b01622]'
+
+                {/* Circular Icon Badge */}
+                <div className={`w-12 h-12 rounded-full ${catDef.badgeBg} flex items-center justify-center text-base mb-2 shrink-0 shadow-2xs transition-transform ${
+                  isSelected ? 'scale-105' : ''
                 }`}>
-                  <i className={catDef.icon}></i>
+                  {catDef.customSvg ? (
+                    catDef.customSvg
+                  ) : (
+                    <i className={`${catDef.icon} ${catDef.iconColor}`}></i>
+                  )}
                 </div>
 
-                <div>
-                  <div className={`font-bold text-xs ${
-                    isSelected ? 'text-[#b01622]' : 'text-stone-800'
-                  }`}>
+                <div className="flex flex-col items-center w-full">
+                  {/* Category Title (Crimson Red Text matching Image 1) */}
+                  <div className="font-bold text-xs sm:text-sm text-[#8b131b]">
                     {catDef.title}
                   </div>
-                  <p className={`text-[10px] leading-snug mt-1.5 px-1 ${
-                    isSelected ? 'text-stone-600 font-medium' : 'text-stone-500'
-                  }`}>
+
+                  {/* Gold/Bronze Underline Accent Bar (Matching Image 1) */}
+                  <div className="w-8 h-[2.5px] bg-[#c5a059] my-2 rounded-full opacity-90"></div>
+
+                  {/* Description (Dark grey text matching Image 1) */}
+                  <p className="text-[11px] text-stone-700 font-medium leading-tight px-1 text-center">
                     {catDef.description}
                   </p>
                 </div>
@@ -342,21 +410,21 @@ export default function InventoryAddNewSubcategory() {
         </div>
       </div>
 
-      {/* 3. Card 2: Subcategory Selection Card (Directly from Masters database) */}
-      <div className="bg-white rounded-2xl p-6 sm:p-8 border border-stone-200/80 shadow-2xs space-y-6">
+      {/* 3. Card 2: Subcategory Selection Card Container (Exact soft blush bg-[#faf3f4] matching Image 2) */}
+      <div className="bg-[#faf3f4] rounded-2xl p-6 sm:p-8 border border-stone-200/60 shadow-2xs space-y-6">
         
         {/* Header with Red Outline Icon */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl border-2 border-[#b01622] text-[#b01622] bg-red-50/50 flex items-center justify-center text-base shadow-2xs shrink-0">
+            <div className="w-10 h-10 rounded-full border-2 border-[#b01622] text-[#b01622] bg-white flex items-center justify-center text-base shadow-2xs shrink-0">
               <i className="fa-solid fa-gem"></i>
             </div>
             <div>
               <h2 className="text-sm font-bold text-gray-900 tracking-tight">
                 {currentCategoryTitle}
               </h2>
-              <p className="text-xs text-stone-400 mt-0.5">
-                Select a {currentCategoryTitle.toLowerCase()} type from Masters to manage inventory
+              <p className="text-xs text-stone-500 mt-0.5 font-medium">
+                Select a {currentCategoryTitle.toLowerCase()} type to manage inventory
               </p>
             </div>
           </div>
@@ -370,14 +438,14 @@ export default function InventoryAddNewSubcategory() {
           </Link>
         </div>
 
-        {/* Dynamic Subcategories Grid from Masters */}
+        {/* Dynamic Subcategories Grid (Matching Image 2 pure white cards) */}
         {loading ? (
           <div className="py-12 text-center text-stone-400 text-xs">
             <i className="fa-solid fa-circle-notch fa-spin text-xl text-[#b01622] mr-2"></i>
-            Loading subcategories from Masters...
+            Loading subcategories...
           </div>
         ) : subcategories.length === 0 ? (
-          <div className="py-10 text-center border-2 border-dashed border-stone-200 rounded-2xl p-6 space-y-3">
+          <div className="py-10 text-center border-2 border-dashed border-stone-200 rounded-2xl p-6 space-y-3 bg-white">
             <div className="w-12 h-12 rounded-full bg-stone-100 text-stone-400 flex items-center justify-center text-xl mx-auto">
               <i className="fa-solid fa-folder-open"></i>
             </div>
@@ -399,33 +467,26 @@ export default function InventoryAddNewSubcategory() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5 pt-1">
             {subcategories.map((sub) => {
               const isSelected = selectedSubcategory?.id === sub.id;
-              const iconInfo = getSubcategoryIcon(sub.name);
 
               return (
                 <div
                   key={sub.id}
                   onClick={() => handleSelectSubcategory(sub)}
-                  className={`p-3.5 px-4 rounded-xl border transition-all cursor-pointer flex items-center gap-3 shadow-2xs ${
+                  className={`p-3.5 px-4 rounded-xl border transition-all cursor-pointer flex items-center gap-3.5 shadow-2xs ${
                     isSelected
-                      ? 'bg-[#ffe4e6] border-[#b01622] ring-2 ring-red-100 scale-[1.02]'
-                      : 'bg-white border-stone-200/80 hover:bg-[#ffe4e6]/50 hover:border-rose-300'
+                      ? 'bg-white border-[#b01622] ring-2 ring-red-100/80 scale-[1.02]'
+                      : 'bg-white border-stone-100 hover:border-stone-300'
                   }`}
                 >
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-base shrink-0 ${iconInfo.color}`}>
-                    <i className={iconInfo.icon}></i>
-                  </div>
+                  {/* Left Golden Jewelry Icon */}
+                  {getSubcategoryIcon(sub.name)}
 
                   <div className="min-w-0 flex-1">
                     <span className={`text-xs font-bold block truncate ${
-                      isSelected ? 'text-[#b01622]' : 'text-gray-800'
+                      isSelected ? 'text-[#b01622]' : 'text-gray-900'
                     }`}>
                       {sub.name}
                     </span>
-                    {sub.code && (
-                      <span className="text-[10px] font-mono text-stone-400 block truncate">
-                        {sub.code}
-                      </span>
-                    )}
                   </div>
                 </div>
               );
@@ -435,8 +496,17 @@ export default function InventoryAddNewSubcategory() {
 
       </div>
 
-      {/* 4. Action Buttons (Exact match to Reference Image) */}
+      {/* 4. Action Buttons */}
       <div className="flex items-center justify-center gap-4 pt-3">
+        <button
+          type="button"
+          onClick={() => navigate('/inventory/add-new/category')}
+          className="px-6 py-2.5 bg-white border border-stone-300 hover:border-stone-400 text-stone-700 text-xs font-bold rounded-xl shadow-2xs transition-colors cursor-pointer flex items-center gap-2"
+        >
+          <i className="fa-solid fa-arrow-left text-xs"></i>
+          <span>Back</span>
+        </button>
+
         <button
           type="button"
           onClick={() => navigate('/inventory')}

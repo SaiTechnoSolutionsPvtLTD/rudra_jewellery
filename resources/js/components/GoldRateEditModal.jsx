@@ -27,9 +27,9 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
       const gram22 = num22 > 30000 ? Math.round(num22 / 10) : Math.round(num22);
       const gramSil = numSil > 2000 ? (numSil / 1000).toFixed(1) : numSil;
 
-      setRate24kGram(String(gram24 || '14634'));
-      setRate22kGram(String(gram22 || '13414'));
-      setSilverGram(String(gramSil || '110.0'));
+      setRate24kGram(gram24 ? String(gram24) : '');
+      setRate22kGram(gram22 ? String(gram22) : '');
+      setSilverGram(gramSil ? String(gramSil) : '');
     }
   }, [isOpen, currentRates]);
 
@@ -108,9 +108,9 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
       const res = await api.post('/metal-rates/reset');
       const liveRates = res.data?.rates || res.data;
 
-      const raw24Num = liveRates.raw24k || parseFloat(String(liveRates.gold24k).replace(/,/g, '')) || 14634;
-      const raw22Num = liveRates.raw22k || parseFloat(String(liveRates.gold22k).replace(/,/g, '')) || 13414;
-      const rawSilGramNum = liveRates.rawSilverGram || parseFloat(String(liveRates.silverGram).replace(/,/g, '')) || 110;
+      const raw24Num = liveRates.raw24k || parseFloat(String(liveRates.gold24k).replace(/,/g, '')) || 0;
+      const raw22Num = liveRates.raw22k || parseFloat(String(liveRates.gold22k).replace(/,/g, '')) || 0;
+      const rawSilGramNum = liveRates.rawSilverGram || parseFloat(String(liveRates.silverGram).replace(/,/g, '')) || 0;
 
       try {
         const stored = {

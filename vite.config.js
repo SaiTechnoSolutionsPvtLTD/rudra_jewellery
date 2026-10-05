@@ -15,8 +15,16 @@ export default defineConfig({
     server: {
         host: '127.0.0.1',
         cors: true,
+        headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Private-Network': 'true',
+        },
         watch: {
-            ignored: ['**/storage/framework/views/**'],
+            ignored: [
+                '**/storage/framework/views/**',
+                '**/public/*.zip',
+                '**/*.zip'
+            ],
         },
     },
 });

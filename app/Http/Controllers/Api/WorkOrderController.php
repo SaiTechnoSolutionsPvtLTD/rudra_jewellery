@@ -135,9 +135,16 @@ class WorkOrderController extends Controller
                 })->whereNotIn('status', ['completed', 'cancelled']);
                 break;
 
+            case 'ready':
             case 'final_receive':
-                $query->whereIn('status', ['approved', 'ready'])
-                      ->orWhereIn('current_stage', ['approved', 'ready']);
+                $query->where(function($q) {
+                    $q->whereIn('status', ['approved', 'ready', 'completed', 'final_received'])
+                      ->orWhereIn('current_stage', ['approved', 'ready', 'final_received'])
+                      ->orWhere('quality_status', 'passed')
+                      ->orWhereHas('timelines', function($t) {
+                          $t->whereIn('stage', ['ready', 'approved', 'final_received']);
+                      });
+                });
                 break;
 
             case 'history':
@@ -635,7 +642,17 @@ class WorkOrderController extends Controller
     {
         $order = WorkOrder::findOrFail($id);
 
-        if (in_array($order->status, ['completed', 'final_received']) && $order->quality_status === 'passed') {
+        $alreadyApproved = $order->quality_status === 'passed'
+            || in_array($order->status, ['completed', 'approved', 'final_received'])
+            || $order->timelines()->where('stage', 'approved')->exists();
+
+        if ($alreadyApproved) {
+            $order->status = 'completed';
+            $order->quality_status = 'passed';
+            if ($order->isDirty()) {
+                $order->save();
+            }
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Work order is already approved and completed.',
@@ -1207,22 +1224,32 @@ class WorkOrderController extends Controller
     {
         $order = WorkOrder::findOrFail($id);
 
+        if ($order->quality_status === 'passed' || in_array($order->status, ['completed', 'approved', 'final_received'])) {
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Work order is already completed and approved.',
+                'data' => $order->load(['karigar', 'product', 'timelines'])
+            ]);
+        }
+
         $order->status = 'ready';
         $order->current_stage = 'ready';
         $order->save();
 
-        WorkOrderTimeline::create([
-            'work_order_id' => $order->id,
-            'stage' => 'ready',
-            'stage_label' => 'Item Marked Ready',
-            'completed_weight_at_step' => $order->completed_weight,
-            'pending_weight_at_step' => $order->pending_weight,
-            'status' => 'completed',
-            'notes' => $request->input('notes', 'Finished item ready for delivery / final receiving.'),
-            'user_id' => Auth::id() ?? 1,
-            'action_by_name' => Auth::user()?->name ?? 'Admin',
-            'created_at' => now(),
-        ]);
+        if (!$order->timelines()->where('stage', 'ready')->exists()) {
+            WorkOrderTimeline::create([
+                'work_order_id' => $order->id,
+                'stage' => 'ready',
+                'stage_label' => 'Item Marked Ready',
+                'completed_weight_at_step' => $order->completed_weight,
+                'pending_weight_at_step' => $order->pending_weight,
+                'status' => 'completed',
+                'notes' => $request->input('notes', 'Finished item ready for delivery / final receiving.'),
+                'user_id' => Auth::id() ?? 1,
+                'action_by_name' => Auth::user()?->name ?? 'Admin',
+                'created_at' => now(),
+            ]);
+        }
 
         $this->syncKarigarGoldBalance($order->karigar_id);
 
@@ -1301,27 +1328,24 @@ class WorkOrderController extends Controller
         $activeArtisansCount = Karigar::where('status', 'active')->count() ?: Karigar::count();
         $activeArtisansNewThisMonth = Karigar::where('created_at', '>=', Carbon::now()->startOfMonth())->count();
 
-        $activeOrdersQuery = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received']);
-        $applyDateRange($activeOrdersQuery);
-        $totalActive = $activeOrdersQuery->count();
+        $activeOrdersQuery = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received', 'delivered']);
+        if ($range !== 'all') {
+            $applyDateRange($activeOrdersQuery);
+        }
+        $totalActive = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received', 'delivered'])->count();
 
-        $pendingOrdersQuery = WorkOrder::where(function($q) {
-            $q->whereIn('status', ['ongoing', 'pending_approval'])
-              ->orWhereNotIn('status', ['completed', 'cancelled', 'final_received']);
-        });
-        $applyDateRange($pendingOrdersQuery);
-        $pendingOrdersCount = $pendingOrdersQuery->count();
+        // Pending Orders (ALL active non-completed work orders in the system)
+        $pendingOrdersCount = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received', 'delivered'])->count();
 
         $overdueQuery = WorkOrder::where('delivery_date', '<', $today)
-            ->whereNotIn('status', ['completed', 'final_received', 'cancelled']);
-        $applyDateRange($overdueQuery);
+            ->whereNotIn('status', ['completed', 'final_received', 'delivered', 'cancelled']);
         $overdueCount = $overdueQuery->count();
 
+        // QC Pending / Orders for Approval (ALL pending approval orders in system)
         $qcPendingQuery = WorkOrder::where(function ($q) {
             $q->where('status', 'pending_approval')
               ->orWhereIn('current_stage', ['work_completed', 'sent_for_approval', 'quality_check']);
-        })->whereNotIn('status', ['completed', 'approved', 'cancelled']);
-        $applyDateRange($qcPendingQuery);
+        })->whereNotIn('status', ['completed', 'approved', 'delivered', 'final_received', 'cancelled']);
         $qcPendingCount = $qcPendingQuery->count();
 
         $trendLabel = match (true) {
@@ -1332,12 +1356,15 @@ class WorkOrderController extends Controller
             in_array($range, ['year', 'this year', '1y']) => 'this year',
             default => 'this period',
         };
-        $qcPendingTrend = "{$qcPendingCount} {$trendLabel}";
+        $qcPendingTrend = "{$qcPendingCount} pending";
 
-        $completedQuery = WorkOrder::whereIn('status', ['completed', 'ready', 'approved']);
-        $applyDateRange($completedQuery);
+        // Completed Jobs (ALL completed/ready/approved/delivered jobs in system)
+        $completedQuery = WorkOrder::where(function ($q) {
+            $q->whereIn('status', ['completed', 'ready', 'approved', 'delivered', 'final_received'])
+              ->orWhereIn('current_stage', ['completed', 'ready', 'approved', 'delivered', 'final_received']);
+        });
         $completedCount = $completedQuery->count();
-        $completedValue = $completedQuery->sum('total_price');
+        $completedValue = $completedQuery->sum('total_price') ?: ($completedQuery->sum('allotted_weight') * 7200);
 
         // 2. Real Material Weights
         $activeOrders = $activeOrdersQuery->get();
@@ -1345,31 +1372,20 @@ class WorkOrderController extends Controller
         $totalCompletedWeight = (float) $activeOrders->sum('completed_weight');
         $totalPendingWeight = (float) $activeOrders->sum('pending_weight');
 
-        $silverQuery = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received'])
-            ->where('material_type', 'like', '%silver%');
-        $applyDateRange($silverQuery);
-        $silverWeight = (float) $silverQuery->sum('allotted_weight');
+        $silverWeight = (float) $activeOrders->filter(function ($wo) {
+            $m = strtolower($wo->material_type ?? '');
+            return str_contains($m, 'silver');
+        })->sum('allotted_weight');
 
-        $diamondQuery = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received'])
-            ->where('material_type', 'like', '%diamond%');
-        $applyDateRange($diamondQuery);
-        $diamondWeight = (float) $diamondQuery->sum('allotted_weight');
+        $diamondWeight = (float) $activeOrders->filter(function ($wo) {
+            $m = strtolower($wo->material_type ?? '');
+            return str_contains($m, 'diamond');
+        })->sum('allotted_weight');
 
-        $goldQuery = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received'])
-            ->where(function ($q) {
-                $q->where('material_type', 'like', '%gold%')
-                  ->orWhere('material_type', 'like', '%22k%')
-                  ->orWhere('material_type', 'like', '%18k%')
-                  ->orWhere('material_type', 'like', '%24k%')
-                  ->orWhereNull('material_type')
-                  ->orWhere('material_type', '');
-            });
-        $applyDateRange($goldQuery);
-        $goldWeight = (float) $goldQuery->sum('allotted_weight');
-
-        if ($totalAllocatedWeight > 0 && ($goldWeight + $silverWeight + $diamondWeight) < $totalAllocatedWeight) {
-            $goldWeight += max(0, $totalAllocatedWeight - ($goldWeight + $silverWeight + $diamondWeight));
-        }
+        $goldWeight = (float) $activeOrders->filter(function ($wo) {
+            $m = strtolower($wo->material_type ?? '');
+            return !str_contains($m, 'silver') && !str_contains($m, 'diamond');
+        })->sum('allotted_weight');
 
         // 3. Real Material Allocations per active Artisan from filtered active work orders
         $materialAllocations = [];
@@ -1426,7 +1442,6 @@ class WorkOrderController extends Controller
                   ->orWhereIn('current_stage', ['work_completed', 'sent_for_approval', 'quality_check']);
             })
             ->whereNotIn('status', ['completed', 'approved', 'cancelled']);
-        $applyDateRange($dbApprovalCardsQuery);
         $dbApprovalCards = $dbApprovalCardsQuery
             ->latest()
             ->get()
@@ -1447,13 +1462,12 @@ class WorkOrderController extends Controller
                 ];
             });
 
-        // 5. Paginated Live Jobs from DB
+        // 5. Paginated Live Jobs from DB (All active work orders)
         $liveJobsQuery = WorkOrder::with(['karigar', 'product'])
-            ->whereNotIn('status', ['completed', 'cancelled']);
-        $applyDateRange($liveJobsQuery);
-        $liveJobsQuery->latest();
+            ->whereNotIn('status', ['completed', 'cancelled', 'delivered', 'final_received'])
+            ->latest();
 
-        $paginatedLiveJobs = $liveJobsQuery->paginate($perPage, ['*'], 'page', $page);
+        $paginatedLiveJobs = $liveJobsQuery->paginate(50, ['*'], 'page', $page);
 
         $transformedLiveJobs = collect($paginatedLiveJobs->items())->map(function ($j, $idx) use ($today) {
             $artisanName = $j->karigar_name ?? $j->karigar?->name ?? 'Artisan';
