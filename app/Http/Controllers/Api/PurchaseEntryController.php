@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\PurchaseEntry;
 use App\Models\Product;
+use App\Services\NotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -14,7 +15,7 @@ class PurchaseEntryController extends Controller
     public function index(Request $request)
     {
         try {
-            $query = PurchaseEntry::with(['supplier', 'category', 'product.category', 'product.subcategory']);
+            $query = PurchaseEntry::with(['supplier', 'category', 'product.category', 'product.subcategory', 'rawMaterial']);
 
             if ($request->has('supplier_id') && !empty($request->supplier_id)) {
                 $query->where('supplier_id', $request->supplier_id);
@@ -22,6 +23,10 @@ class PurchaseEntryController extends Controller
 
             if ($request->has('product_id') && !empty($request->product_id)) {
                 $query->where('product_id', $request->product_id);
+            }
+
+            if ($request->has('raw_material_id') && !empty($request->raw_material_id)) {
+                $query->where('raw_material_id', $request->raw_material_id);
             }
 
             if ($request->has('purchase_type') && !empty($request->purchase_type)) {
@@ -33,6 +38,12 @@ class PurchaseEntryController extends Controller
         } catch (\Exception $e) {
             return response()->json(['message' => 'Error fetching purchase entries: ' . $e->getMessage()], 500);
         }
+    }
+
+    public function rawMaterials()
+    {
+        $materials = \App\Models\RawMaterial::orderBy('id', 'asc')->get();
+        return response()->json($materials);
     }
 
     public function generateNo()
@@ -55,6 +66,7 @@ class PurchaseEntryController extends Controller
             'purchase_no' => 'nullable|string|max:50',
             'supplier_id' => 'required|exists:suppliers,id',
             'product_id' => 'nullable|exists:products,id',
+            'raw_material_id' => 'nullable|exists:raw_materials,id',
             'category_id' => 'nullable|exists:categories,id',
             'is_new_product' => 'nullable|boolean',
             'purchase_type' => 'nullable|string|in:raw_material,finished_product',
@@ -63,6 +75,8 @@ class PurchaseEntryController extends Controller
             'item_name' => 'nullable|string|max:255',
             'product_code' => 'nullable|string|max:100',
             'qty' => 'nullable|numeric|min:0',
+            'count_qty' => 'nullable|numeric|min:0',
+            'unit' => 'nullable|string|max:20',
             'weight' => 'required|numeric|min:0.001',
             'less_weight' => 'nullable|numeric|min:0',
             'net_weight' => 'nullable|numeric|min:0',
@@ -118,6 +132,7 @@ class PurchaseEntryController extends Controller
                 $rate = floatval($validated['rate'] ?? 0);
                 $qty = intval($validated['qty'] ?? 1);
                 $qty = $qty > 0 ? $qty : 1;
+                $countQty = floatval($validated['count_qty'] ?? 0);
 
                 if (isset($validated['total_amount']) && floatval($validated['total_amount']) > 0) {
                     $totalAmount = floatval($validated['total_amount']);
@@ -126,6 +141,7 @@ class PurchaseEntryController extends Controller
                 }
 
                 $validated['qty'] = $qty;
+                $validated['count_qty'] = $countQty;
                 $validated['weight'] = $weight;
                 $validated['less_weight'] = round($lessWeight, 3);
                 $validated['net_weight'] = round($netWeight, 3);
@@ -135,11 +151,12 @@ class PurchaseEntryController extends Controller
                 $validated['total_amount'] = round($totalAmount, 2);
 
                 $product = null;
+                $updatedRawMat = null;
                 $isNewProduct = !empty($request->input('is_new_product')) || ($purchaseType === 'finished_product' && empty($validated['product_id']));
 
                 if ($purchaseType === 'finished_product') {
                     if ($isNewProduct) {
-                        // Create a NEW Finished Jewellery Product directly from Purchase Entry!
+                        // Create a NEW Finished Jewellery Product directly from Purchase Entry
                         $itemName = !empty($validated['item_name']) ? $validated['item_name'] : 'Purchased Jewellery ' . date('dM-Y');
                         $productCode = !empty($validated['product_code']) ? strtoupper(trim($validated['product_code'])) : 'RJ-PUR-' . strtoupper(Str::random(6));
 
@@ -205,35 +222,74 @@ class PurchaseEntryController extends Controller
                         }
                         $product->save();
                     }
-
-                    if ($product) {
-                        // Log Inventory Movement for finished product purchase
-                        \App\Models\InventoryMovement::create([
-                            'product_id' => $product->id,
-                            'movement_type' => 'purchase',
-                            'quantity' => $qty,
-                            'weight' => $netWeight > 0 ? $netWeight : $weight,
-                            'unit_cost' => $rate,
-                            'notes' => "Finished product purchase entry {$validated['purchase_no']}",
-                            'created_by' => auth()->id() ?? null,
-                        ]);
-                    }
                 } else {
                     // Update Raw Material Vault Inventory for raw material purchase
+                    $rawMatId = $validated['raw_material_id'] ?? null;
                     $matType = strtolower($validated['metal_type'] ?? 'gold');
                     $creditWeight = $netWeight > 0 ? $netWeight : $weight;
-                    \App\Models\RawMaterial::creditPurchase($matType, $creditWeight);
+                    $purchaseUnit = $validated['unit'] ?? null;
+
+                    $updatedRawMat = \App\Models\RawMaterial::creditPurchase(
+                        $rawMatId ?: $matType,
+                        $creditWeight,
+                        $countQty,
+                        $purchaseUnit
+                    );
+
+                    if ($updatedRawMat) {
+                        $validated['raw_material_id'] = $updatedRawMat->id;
+                        if (empty($validated['metal_type'])) {
+                            $validated['metal_type'] = $updatedRawMat->material_type;
+                        }
+                        if (empty($validated['unit'])) {
+                            $validated['unit'] = $updatedRawMat->unit;
+                        }
+                    }
                 }
 
                 // Create Purchase Entry record
                 $purchaseEntry = PurchaseEntry::create($validated);
-                $purchaseEntry->load(['supplier', 'category', 'product.category', 'product.subcategory']);
+                $purchaseEntry->load(['supplier', 'category', 'product.category', 'product.subcategory', 'rawMaterial']);
+
+                // Record InventoryMovement
+                if ($purchaseType === 'finished_product' && $product) {
+                    \App\Models\InventoryMovement::create([
+                        'product_id' => $product->id,
+                        'purchase_entry_id' => $purchaseEntry->id,
+                        'movement_type' => 'purchase',
+                        'quantity' => $qty,
+                        'weight' => $netWeight > 0 ? $netWeight : $weight,
+                        'unit_cost' => $rate,
+                        'notes' => "Finished product purchase entry {$purchaseEntry->purchase_no}",
+                        'created_by' => auth()->id() ?? null,
+                    ]);
+                } elseif ($updatedRawMat) {
+                    \App\Models\InventoryMovement::create([
+                        'raw_material_id' => $updatedRawMat->id,
+                        'purchase_entry_id' => $purchaseEntry->id,
+                        'movement_type' => 'purchase',
+                        'quantity' => $countQty > 0 ? $countQty : $qty,
+                        'weight' => $netWeight > 0 ? $netWeight : $weight,
+                        'unit_cost' => $rate,
+                        'notes' => "Raw material purchase entry {$purchaseEntry->purchase_no} ({$updatedRawMat->name})",
+                        'created_by' => auth()->id() ?? null,
+                    ]);
+                }
+
+                NotificationService::notifyPurchaseCreated(
+                    $purchaseEntry->id,
+                    $purchaseEntry->purchase_no,
+                    $purchaseEntry->supplier?->name ?? 'Supplier',
+                    (float) ($purchaseEntry->total_amount ?? 0),
+                    auth()->id()
+                );
 
                 return response()->json([
                     'status' => 'success',
                     'message' => 'Purchase entry recorded & inventory updated successfully!',
                     'purchase_entry' => $purchaseEntry,
-                    'updated_product' => $product
+                    'updated_product' => $product,
+                    'updated_raw_material' => $updatedRawMat
                 ], 201);
             });
         } catch (\Exception $e) {
@@ -243,7 +299,7 @@ class PurchaseEntryController extends Controller
 
     public function show($id)
     {
-        $entry = PurchaseEntry::with(['supplier', 'category', 'product.category', 'product.subcategory'])->find($id);
+        $entry = PurchaseEntry::with(['supplier', 'category', 'product.category', 'product.subcategory', 'rawMaterial'])->find($id);
         if (!$entry) {
             return response()->json(['message' => 'Purchase entry not found'], 404);
         }
@@ -274,15 +330,14 @@ class PurchaseEntryController extends Controller
                         $product->save();
                     }
                 } else {
-                    $matType = strtolower($entry->metal_type ?? 'gold');
                     $deductWeight = floatval($entry->net_weight) > 0 ? floatval($entry->net_weight) : floatval($entry->weight);
-                    $rawMat = \App\Models\RawMaterial::where('material_type', $matType)->first();
-                    if ($rawMat) {
-                        $rawMat->purchased_weight = max(0, round($rawMat->purchased_weight - $deductWeight, 3));
-                        $rawMat->current_balance = max(0, round($rawMat->purchased_weight - $rawMat->allocated_weight, 3));
-                        $rawMat->save();
-                    }
+                    $deductCount = floatval($entry->count_qty ?? 0);
+                    $rawMatRef = $entry->raw_material_id ?: strtolower($entry->metal_type ?? 'gold');
+                    \App\Models\RawMaterial::debitPurchaseReversal($rawMatRef, $deductWeight, $deductCount, $entry->unit);
                 }
+
+                // Delete associated Inventory Movements
+                \App\Models\InventoryMovement::where('purchase_entry_id', $entry->id)->delete();
 
                 $entry->delete();
 

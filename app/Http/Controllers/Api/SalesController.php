@@ -7,6 +7,7 @@ use App\Models\Client;
 use App\Models\Invoice;
 use App\Models\Product;
 use App\Services\SaleService;
+use App\Services\NotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -227,7 +228,17 @@ class SalesController extends Controller
             'items.*.other_charge' => 'nullable|numeric|min:0',
             'items.*.details' => 'nullable|array',
         ]);
-        return response()->json(['message' => 'Sale created successfully.', 'data' => $this->saleService->create($validated, $request->user()?->id)], 201);
+
+        $sale = $this->saleService->create($validated, $request->user()?->id);
+        $invoiceNo = (string) ($sale->invoice_no ?: ($sale->invoice_number ?: ('INV-' . $sale->id)));
+        NotificationService::notifySalesCreated(
+            $sale->id,
+            $invoiceNo,
+            $sale->client_name ?: 'Customer',
+            (float) ($sale->total_amount ?? 0),
+            $request->user()?->id
+        );
+        return response()->json(['message' => 'Sale created successfully.', 'data' => $sale], 201);
     }
 
     public function payment(Request $request, Invoice $sale)

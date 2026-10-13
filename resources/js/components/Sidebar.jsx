@@ -14,8 +14,10 @@ export default function Sidebar({ sidebarOpen = true }) {
   const isJobOrderSubActive = [
     '/job-order/in-progress',
     '/job-order/delay',
-    '/job-order/waste',
     '/job-order/quality-check',
+    '/job-order/ready',
+    '/job-order/certification',
+    '/job-order/hallmarking',
     '/job-order/final-receive',
     '/job-order/history',
   ].some((p) => location.pathname.startsWith(p));
@@ -63,7 +65,6 @@ export default function Sidebar({ sidebarOpen = true }) {
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto sidebar-scroll py-4 px-3 flex flex-col gap-1">
-
           {/* Karigar Dedicated Menu */}
           {isKarigar && !isSuperAdmin && !isAdmin ? (
             <>
@@ -152,6 +153,7 @@ export default function Sidebar({ sidebarOpen = true }) {
                       <Link to="/masters/karats" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/masters/karats' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Karat </Link>
                       <Link to="/masters/stamps" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/masters/stamps' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Stamp </Link>
                       <Link to="/masters/units" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/masters/units' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Unit </Link>
+                      <Link to="/masters/component-categories" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/masters/component-categories' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Component Categories</Link>
                       <Link to="/masters/memberships" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/masters/memberships' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Membership</Link>
                       <Link to="/masters/setting-styles" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/masters/setting-styles' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Setting Styles</Link>
                       <Link to="/masters/gold-types" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/masters/gold-types' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Gold Types</Link>
@@ -159,6 +161,7 @@ export default function Sidebar({ sidebarOpen = true }) {
                       <Link to="/masters/diamond-colors" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/masters/diamond-colors' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Diamond Colour</Link>
                       <Link to="/masters/diamond-clarities" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/masters/diamond-clarities' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Diamond Clarity</Link>
                       <Link to="/masters/work-specifications" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname.startsWith('/masters/work-specifications') ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Work Specification</Link>
+                      <Link to="/masters/operations" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/masters/operations' || location.pathname === '/masters/operation' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Operation</Link>
                       <Link to="/masters/bank-accounts" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/masters/bank-accounts' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Bank Accounts</Link>
                       <Link to="/masters/info" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/masters/info' || location.pathname === '/masters/company-info' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Info</Link>
                     </div>
@@ -207,7 +210,8 @@ export default function Sidebar({ sidebarOpen = true }) {
                       {hasPermission('workorders.receive') && (
                         <Link to="/job-order/receive" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/job-order/receive' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Receive Work Order</Link>
                       )}
-                      <Link to="/job-order" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/job-order' || ['/job-order/in-progress', '/job-order/delay', '/job-order/waste', '/job-order/quality-check', '/job-order/final-receive', '/job-order/history'].some((p) => location.pathname === p) ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Job Order</Link>
+                      <Link to="/job-order/tag-printing" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/job-order/tag-printing' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Tag Printing</Link>
+                      <Link to="/job-order/in-progress" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/job-order' || ['/job-order/in-progress', '/job-order/delay', '/job-order/quality-check', '/job-order/ready', '/job-order/certification', '/job-order/hallmarking', '/job-order/final-receive', '/job-order/history'].some((p) => location.pathname === p) ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Job Order</Link>
                     </div>
                   )}
                 </div>

@@ -30,6 +30,35 @@ class User extends Authenticatable
     ];
 
     /**
+     * The accessors to append to the model's array form.
+     *
+     * @var list<string>
+     */
+    protected $appends = [
+        'avatar_url',
+    ];
+
+    /**
+     * Accessor for full avatar URL with fallback generator.
+     */
+    public function getAvatarUrlAttribute(): string
+    {
+        if ($this->avatar) {
+            if (filter_var($this->avatar, FILTER_VALIDATE_URL) || str_starts_with($this->avatar, 'data:image')) {
+                return $this->avatar;
+            }
+            if (str_starts_with($this->avatar, '/storage/')) {
+                return $this->avatar;
+            }
+            if (str_starts_with($this->avatar, 'storage/')) {
+                return '/' . $this->avatar;
+            }
+            return '/storage/' . $this->avatar;
+        }
+        return 'https://ui-avatars.com/api/?name=' . urlencode($this->name) . '&background=b01622&color=ffffff&bold=true&size=128';
+    }
+
+    /**
      * The attributes that should be hidden for serialization.
      *
      * @var list<string>
@@ -64,7 +93,7 @@ class User extends Authenticatable
 
     public function isKarigar(): bool
     {
-        return strtolower(str_replace(' ', '_', $this->role)) === 'karigar' || !is_null($this->karigar);
+        return false;
     }
 
     public function getPermissionsAttribute(): array

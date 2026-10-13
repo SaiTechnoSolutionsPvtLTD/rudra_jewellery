@@ -14,6 +14,7 @@ class Product extends Model
         'subcategory_id',
         'name',
         'product_code',
+        'design_no',
         'attributes',
         'description',
         'opening_stock_qty',
@@ -42,7 +43,13 @@ class Product extends Model
     protected $appends = [
         'image_url',
         'thumbnail_url',
+        'master_tag_number',
     ];
+
+    public function getMasterTagNumberAttribute(): ?string
+    {
+        return $this->product_code;
+    }
 
     public function getImageUrlAttribute()
     {
@@ -102,5 +109,10 @@ class Product extends Model
     public function inventoryMovements()
     {
         return $this->hasMany(InventoryMovement::class);
+    }
+
+    public function receivedPieces()
+    {
+        return $this->hasMany(WorkOrderReceivedPiece::class, 'product_id')->latest('received_at');
     }
 }

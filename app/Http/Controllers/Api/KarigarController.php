@@ -111,10 +111,18 @@ class KarigarController extends Controller
             ->get()
             ->groupBy('karigar_id');
 
-        // Counts grouped by karigar and status
-        $statusCounts = \App\Models\WorkOrder::whereIn('karigar_id', $karigarIds)
+        // Workload & quantity aggregates (Section 5)
+        $workloadStats = \App\Models\WorkOrder::whereIn('karigar_id', $karigarIds)
             ->selectRaw("karigar_id,
-                SUM(CASE WHEN status NOT IN ('completed', 'cancelled', 'final_received') THEN 1 ELSE 0 END) as active_count,
+                COUNT(id) as total_wo_count,
+                SUM(CASE WHEN status NOT IN ('completed', 'cancelled', 'final_received') THEN 1 ELSE 0 END) as active_wo_count,
+                SUM(COALESCE(required_qty, 1)) as total_required_qty,
+                SUM(COALESCE(completed_qty, 0)) as total_completed_qty,
+                SUM(COALESCE(qc_pending_qty, 0)) as total_qc_qty,
+                SUM(COALESCE(rework_qty, 0)) as total_rework_qty,
+                SUM(COALESCE(ready_qty, 0)) as total_ready_qty,
+                SUM(COALESCE(received_qty, 0)) as total_received_qty,
+                SUM(CASE WHEN is_delayed = 1 THEN 1 ELSE 0 END) as delayed_wo_count,
                 SUM(CASE WHEN status IN ('completed', 'final_received') THEN 1 ELSE 0 END) as completed_count,
                 SUM(CASE WHEN status = 'returned' THEN 1 ELSE 0 END) as returned_count")
             ->groupBy('karigar_id')
@@ -123,7 +131,7 @@ class KarigarController extends Controller
 
         foreach ($karigars as $k) {
             $currentOrder = $activeOrders->get($k->id)?->first();
-            $counts = $statusCounts->get($k->id);
+            $wl = $workloadStats->get($k->id);
 
             $k->current_assigned_order = $currentOrder ? [
                 'id' => $currentOrder->id,
@@ -136,10 +144,22 @@ class KarigarController extends Controller
                 'allotted_weight' => (float)$currentOrder->allotted_weight,
             ] : null;
 
-            $k->is_available = ($currentOrder === null);
-            $k->active_works_count = (int)($counts->active_count ?? 0);
-            $k->completed_works_count = (int)($counts->completed_count ?? 0);
-            $k->returned_works_count = (int)($counts->returned_count ?? 0);
+            // Multiple work orders allowed; never block assignment
+            $k->is_available = true;
+            $k->active_works_count = (int)($wl->active_wo_count ?? 0);
+            $k->completed_works_count = (int)($wl->completed_count ?? 0);
+            $k->returned_works_count = (int)($wl->returned_count ?? 0);
+
+            // Section 5: Exact workload metadata
+            $k->active_work_orders = (int)($wl->active_wo_count ?? 0);
+            $k->active_jobs = (int)($wl->active_wo_count ?? 0);
+            $k->required_qty = (int)($wl->total_required_qty ?? 0);
+            $k->completed_qty = (int)($wl->total_completed_qty ?? 0);
+            $k->pending_qty = max(0, (int)($wl->total_required_qty ?? 0) - (int)($wl->total_completed_qty ?? 0));
+            $k->qc_qty = (int)($wl->total_qc_qty ?? 0);
+            $k->rework_qty = (int)($wl->total_rework_qty ?? 0);
+            $k->ready_qty = (int)($wl->total_ready_qty ?? 0);
+            $k->delayed_jobs = (int)($wl->delayed_wo_count ?? 0);
         }
     }
 
@@ -176,7 +196,6 @@ class KarigarController extends Controller
             'primary_phone' => 'required|string|max:20',
             'secondary_phone' => 'nullable|string|max:20',
             'email' => 'nullable|email|max:255',
-            'password' => 'nullable|string|min:6',
             'specialization' => 'required|string|max:100',
             'experience_years' => 'nullable|integer|min:0',
             'workshop_name' => 'nullable|string|max:255',
@@ -207,8 +226,6 @@ class KarigarController extends Controller
         }
 
         $data = $validator->validated();
-        $rawPassword = $data['password'] ?? null;
-        unset($data['password']);
 
         if (empty($data['status'])) {
             $data['status'] = 'active';
@@ -222,34 +239,10 @@ class KarigarController extends Controller
 
         $karigar = Karigar::create($data);
 
-        // Auto-create/link User account if email is provided
-        if (!empty($karigar->email)) {
-            $userPassword = !empty($rawPassword) ? \Illuminate\Support\Facades\Hash::make($rawPassword) : \Illuminate\Support\Facades\Hash::make('admin123');
-
-            $user = \App\Models\User::firstOrCreate(
-                ['email' => $karigar->email],
-                [
-                    'name' => $karigar->name,
-                    'mobile_number' => $karigar->primary_phone,
-                    'role' => 'Karigar',
-                    'status' => $karigar->status === 'inactive' ? 'inactive' : 'active',
-                    'password' => $userPassword,
-                ]
-            );
-
-            if (!empty($rawPassword)) {
-                $user->password = $userPassword;
-                $user->save();
-            }
-
-            $karigar->user_id = $user->id;
-            $karigar->save();
-        }
-
         return response()->json([
             'status' => 'success',
             'message' => 'Karigar created successfully',
-            'data' => $karigar->load('user'),
+            'data' => $karigar,
         ], 201);
     }
 
@@ -293,7 +286,6 @@ class KarigarController extends Controller
             'primary_phone' => 'required|string|max:20',
             'secondary_phone' => 'nullable|string|max:20',
             'email' => 'nullable|email|max:255',
-            'password' => 'nullable|string|min:6',
             'specialization' => 'required|string|max:100',
             'experience_years' => 'nullable|integer|min:0',
             'workshop_name' => 'nullable|string|max:255',
@@ -324,51 +316,13 @@ class KarigarController extends Controller
         }
 
         $validatedData = $validator->validated();
-        $rawPassword = $validatedData['password'] ?? null;
-        unset($validatedData['password']);
 
         $karigar->update($validatedData);
-
-        // Keep User account name, mobile, and password in sync
-        if ($karigar->user_id) {
-            $userUpdate = [
-                'name' => $karigar->name,
-                'mobile_number' => $karigar->primary_phone,
-            ];
-            if (!empty($karigar->email)) {
-                $userUpdate['email'] = $karigar->email;
-            }
-            if (!empty($rawPassword)) {
-                $userUpdate['password'] = \Illuminate\Support\Facades\Hash::make($rawPassword);
-            }
-            \App\Models\User::where('id', $karigar->user_id)->update($userUpdate);
-        } elseif (!empty($karigar->email)) {
-            $userPassword = !empty($rawPassword) ? \Illuminate\Support\Facades\Hash::make($rawPassword) : \Illuminate\Support\Facades\Hash::make('admin123');
-
-            $user = \App\Models\User::firstOrCreate(
-                ['email' => $karigar->email],
-                [
-                    'name' => $karigar->name,
-                    'mobile_number' => $karigar->primary_phone,
-                    'role' => 'Karigar',
-                    'status' => $karigar->status === 'inactive' ? 'inactive' : 'active',
-                    'password' => $userPassword,
-                ]
-            );
-
-            if (!empty($rawPassword)) {
-                $user->password = $userPassword;
-                $user->save();
-            }
-
-            $karigar->user_id = $user->id;
-            $karigar->save();
-        }
 
         return response()->json([
             'status' => 'success',
             'message' => 'Karigar updated successfully',
-            'data' => $karigar->load('user'),
+            'data' => $karigar,
         ]);
     }
 
@@ -546,13 +500,13 @@ class KarigarController extends Controller
 
         $activeWorks = \App\Models\WorkOrder::where('karigar_id', $id)
             ->whereNotIn('status', ['completed', 'cancelled', 'final_received'])
-            ->with(['timelines', 'client', 'category', 'subcategory'])
+            ->with(['jobOrder', 'timelines', 'client', 'category', 'subcategory'])
             ->latest('id')
             ->get();
 
         $completedWorks = \App\Models\WorkOrder::where('karigar_id', $id)
             ->whereIn('status', ['completed', 'final_received'])
-            ->with(['timelines', 'client', 'category', 'subcategory'])
+            ->with(['jobOrder', 'timelines', 'client', 'category', 'subcategory'])
             ->latest('id')
             ->get();
 

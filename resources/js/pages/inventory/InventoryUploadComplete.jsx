@@ -60,22 +60,7 @@ export default function InventoryUploadComplete() {
     return isNaN(wt) ? 0 : wt;
   };
 
-  const [liveRate22k, setLiveRate22k] = useState(0);
 
-  useEffect(() => {
-    api.get('/metal-rates').then((res) => {
-      if (res.data?.raw22k) setLiveRate22k(res.data.raw22k);
-    }).catch(() => {});
-  }, []);
-
-  const getItemSaleVal = (item) => {
-    const attrs = getAttrs(item);
-    const val = parseFloat(item.sale_value ?? attrs.sale_value ?? 0);
-    if (!isNaN(val) && val > 0) return val;
-    const net = getItemNetWt(item);
-    const rate = parseFloat(item.sale_rate ?? attrs.sale_rate ?? item.gold_rate ?? attrs.gold_rate ?? item.rate ?? attrs.rate ?? liveRate22k ?? 0);
-    return net * rate;
-  };
 
   useEffect(() => {
     const loadData = async () => {
@@ -112,11 +97,33 @@ export default function InventoryUploadComplete() {
     navigate('/inventory/add-new/category');
   };
 
+  const [failedImages, setFailedImages] = useState({});
+
+  const getImageSrc = (comp) => {
+    const attrs = getAttrs(comp);
+    const parentAttrs = comp.parentItem ? getAttrs(comp.parentItem) : {};
+
+    let src = comp.thumb_image || comp.image || (comp.images && comp.images[0]) ||
+              attrs.thumb_image || attrs.image || (attrs.images && attrs.images[0]) ||
+              comp.parentItem?.thumb_image || comp.parentItem?.image ||
+              (comp.parentItem?.images && comp.parentItem.images[0]) ||
+              parentAttrs.thumb_image || parentAttrs.image || (parentAttrs.images && parentAttrs.images[0]);
+
+    if (!src || typeof src !== 'string') return null;
+    if (src.startsWith('data:') || src.startsWith('blob:') || src.startsWith('http://') || src.startsWith('https://')) {
+      return src;
+    }
+    if (!src.startsWith('/')) {
+      return '/' + src;
+    }
+    return src;
+  };
+
   // --- Aggregated Totals ---
   const totalItemsCount = items.length;
   const totalGrossWt = items.reduce((sum, it) => {
     const comps = it.components || getAttrs(it).components || [it];
-    return sum + comps.reduce((cs, c) => cs + (parseFloat(c.gross_wt) || getItemGrossWt(c)), 0);
+    return sum + comps.reduce((cs, c) => cs + (parseFloat(c.gross_wt || c.stone_weight) || getItemGrossWt(c)), 0);
   }, 0);
 
   const totalNetWt = items.reduce((sum, it) => {
@@ -129,19 +136,10 @@ export default function InventoryUploadComplete() {
     return sum + comps.reduce((cs, c) => cs + (parseFloat(c.pure_weight) || getItemPureWt(c)), 0);
   }, 0);
 
-  const totalSaleValNum = items.reduce((sum, it) => sum + getItemSaleVal(it), 0);
-
-  const formatCurrency = (val) => {
-    if (val >= 10000000) return `₹${(val / 10000000).toFixed(2)} Cr`;
-    if (val >= 100000) return `₹${(val / 100000).toFixed(2)} Lakh`;
-    if (val > 0) return `₹${Math.round(val).toLocaleString('en-IN')}`;
-    return '₹0';
-  };
-
   return (
     <div className="w-full pb-20 space-y-6 font-['Inter',-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif] max-w-5xl mx-auto pt-1">
 
-      {/* 1. Header Stepper (Exact alignment matching Image 1) */}
+      {/* 1. Header Stepper */}
       <div className="flex items-center justify-center pt-2 pb-4">
         <div className="flex items-center justify-between w-full max-w-lg relative px-6">
           {/* Horizontal connecting line passing right behind circles */}
@@ -176,7 +174,7 @@ export default function InventoryUploadComplete() {
         </div>
       </div>
 
-      {/* 2. Top Summary Grid matching Image 1 layout */}
+      {/* 2. Top Summary Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
 
         {/* Left Banner */}
@@ -190,11 +188,11 @@ export default function InventoryUploadComplete() {
             </h2>
           </div>
           <p className="text-xs text-stone-700 leading-relaxed font-normal">
-            {totalItemsCount > 0 ? totalItemsCount.toLocaleString('en-IN') : '1,236'} items successfully added to inventory. All records have been cross-referenced with your master valuation lists and verified for heritage authenticity.
+            {totalItemsCount > 0 ? totalItemsCount.toLocaleString('en-IN') : '1'} items successfully added to inventory. All records have been verified and added to physical inventory stock successfully.
           </p>
         </div>
 
-        {/* Right 4 Metric Cards matching Image 1 (Icons on LEFT) */}
+        {/* Right 4 Metric Cards */}
         <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-3.5">
 
           {/* Card 1: Total Items Added */}
@@ -205,7 +203,7 @@ export default function InventoryUploadComplete() {
             <div>
               <span className="text-[11px] font-medium text-stone-500 block">Total Items Added</span>
               <span className="text-xl font-extrabold text-stone-900 block leading-tight mt-0.5">
-                {totalItemsCount > 0 ? totalItemsCount.toLocaleString('en-IN') : '1,236'}
+                {totalItemsCount > 0 ? totalItemsCount.toLocaleString('en-IN') : '1'}
               </span>
               <span className="text-[10px] text-emerald-600 font-bold block mt-0.5">
                 ↑ 12.45% vs Yesterday
@@ -213,18 +211,18 @@ export default function InventoryUploadComplete() {
             </div>
           </div>
 
-          {/* Card 2: Total Value Increase */}
+          {/* Card 2: Total Net Weight */}
           <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex items-center gap-3.5">
             <div className="w-11 h-11 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center text-lg shrink-0 shadow-2xs">
-              <i className="fa-solid fa-chart-line"></i>
+              <i className="fa-solid fa-scale-balanced"></i>
             </div>
             <div>
-              <span className="text-[11px] font-medium text-stone-500 block">Total Value Increase</span>
+              <span className="text-[11px] font-medium text-stone-500 block">Total Net Weight</span>
               <span className="text-xl font-extrabold text-stone-900 block leading-tight mt-0.5">
-                {totalSaleValNum > 0 ? formatCurrency(totalSaleValNum) : '₹4.28 Cr'}
+                {totalNetWt > 0 ? (totalNetWt >= 1000 ? `${(totalNetWt / 1000).toFixed(3)} kg` : `${totalNetWt.toFixed(3)} g`) : '0.000 g'}
               </span>
               <span className="text-[10px] text-stone-500 font-medium block mt-0.5">
-                Audited Valuation
+                Verified Fine Stock
               </span>
             </div>
           </div>
@@ -237,7 +235,7 @@ export default function InventoryUploadComplete() {
             <div>
               <span className="text-[11px] font-medium text-stone-500 block">New Precious Metals</span>
               <span className="text-xl font-extrabold text-stone-900 block leading-tight mt-0.5">
-                {totalGrossWt > 0 ? (totalGrossWt >= 1000 ? `${(totalGrossWt / 1000).toFixed(1)} Kg` : `${totalGrossWt.toFixed(1)} g`) : '12.4 Kg'}
+                {totalGrossWt > 0 ? (totalGrossWt >= 1000 ? `${(totalGrossWt / 1000).toFixed(1)} Kg` : `${totalGrossWt.toFixed(1)} g`) : '167.0 g'}
               </span>
               <span className="text-[10px] text-emerald-600 font-bold block mt-0.5">
                 ↑ 12% Raw Stock Volume
@@ -248,12 +246,12 @@ export default function InventoryUploadComplete() {
           {/* Card 4: New Jewels */}
           <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex items-center gap-3.5">
             <div className="w-11 h-11 rounded-full bg-rose-50 text-[#b01622] flex items-center justify-center text-lg shrink-0 shadow-2xs">
-              <i className="fa-solid fa-[#b01622]"></i>
+              <i className="fa-solid fa-gem"></i>
             </div>
             <div>
               <span className="text-[11px] font-medium text-stone-500 block">New Jewels</span>
               <span className="text-xl font-extrabold text-stone-900 block leading-tight mt-0.5">
-                {totalItemsCount > 0 ? totalItemsCount : '452'}
+                {totalItemsCount > 0 ? totalItemsCount : '1'}
               </span>
               <span className="text-[10px] text-stone-500 font-medium block mt-0.5">
                 Finished Goods
@@ -265,24 +263,22 @@ export default function InventoryUploadComplete() {
 
       </div>
 
-      {/* 3. Dynamic Products/Components Table matching Image 1 */}
-      <div className="bg-white rounded-2xl border border-stone-200/80 shadow-2xs overflow-hidden">
+      {/* 3. Dynamic Products/Components Table */}
+      <div className="bg-white rounded-3xl border border-stone-200/90 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="border-b border-stone-200/80 bg-stone-50 text-stone-900 font-bold text-center text-xs">
-                <th className="py-4 px-6 text-center">Product Image</th>
-                <th className="py-4 px-6 text-center">Category</th>
-                <th className="py-4 px-6 text-center">Stamp</th>
-                <th className="py-4 px-6 text-center">Unit</th>
-                <th className="py-4 px-6 text-center">Pieces</th>
-                <th className="py-4 px-6 text-center">Weight</th>
-                <th className="py-4 px-6 text-center">Rate</th>
+              <tr className="border-b border-stone-200 bg-[#f8f9fa] text-stone-800 font-bold text-center text-xs">
+                <th className="py-4 px-5 text-center">Product Image</th>
+                <th className="py-4 px-5 text-center">Category</th>
+                <th className="py-4 px-5 text-center">Stamp</th>
+                <th className="py-4 px-5 text-center">Unit</th>
+                <th className="py-4 px-5 text-center">Pieces</th>
+                <th className="py-4 px-5 text-center">Weight</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100 bg-white">
               {(() => {
-                // Extract rows dynamically or fallback to Image 1 defaults
                 let tableRows = [];
                 if (items.length > 0) {
                   items.forEach((it) => {
@@ -296,56 +292,54 @@ export default function InventoryUploadComplete() {
                 }
 
                 if (tableRows.length === 0) {
-                  // Fallback sample rows matching Image 1
                   tableRows = [
-                    { category_name: 'Diamond', stamp: '+0', unit: 'Carat', no_of_pieces: 16, gross_wt: 0.5, sale_rate: 220000 },
-                    { category_name: 'Diamond', stamp: '+0', unit: 'Carat', no_of_pieces: 16, gross_wt: 0.5, sale_rate: 220000 },
-                    { category_name: 'Stone', stamp: '', unit: 'Carat', no_of_pieces: 1, gross_wt: 0.5, sale_rate: 220000 }
+                    { category_name: 'Diamond', stamp: 'VVS1', unit: 'g', no_of_pieces: 1, gross_wt: 35.0 },
+                    { category_name: 'Diamond', stamp: 'VVS1', unit: 'g', no_of_pieces: 1, gross_wt: 45.0 },
+                    { category_name: 'Diamond', stamp: 'IGI Certified', unit: 'g', no_of_pieces: 56, gross_wt: 87.0 }
                   ];
                 }
 
                 return tableRows.map((comp, idx) => {
                   const attrs = getAttrs(comp);
-                  const img = comp.thumb_image || comp.image || (comp.images && comp.images[0]) || attrs.thumb_image || '/placeholder-jewelry.png';
                   const catName = comp.category_name || comp.category?.name || comp.item_name || 'Diamond';
-                  const stamp = comp.stamp ?? attrs.stamp ?? '+0';
-                  const unit = comp.unit ?? attrs.unit ?? 'Carat';
-                  const pieces = comp.no_of_pieces ?? attrs.no_of_pieces ?? 16;
-                  const grossWt = (parseFloat(comp.gross_wt ?? attrs.gross_wt ?? getItemGrossWt(comp)) || 0.5).toFixed(1) + 'g';
-                  const rate = (parseFloat(comp.gold_rate ?? attrs.gold_rate ?? comp.sale_rate ?? attrs.sale_rate ?? 220000)).toLocaleString('en-IN');
+                  const stamp = comp.stamp ?? attrs.stamp ?? '-';
+                  const unit = comp.unit ?? attrs.unit ?? 'Grams';
+                  const pieces = comp.no_of_pieces ?? attrs.no_of_pieces ?? 1;
+                  const weightVal = parseFloat(comp.stone_weight ?? comp.gross_wt ?? attrs.stone_weight ?? attrs.gross_wt ?? getItemGrossWt(comp) ?? 0);
+                  const grossWt = weightVal.toFixed(1) + 'g';
+
+                  const imgSrc = getImageSrc(comp);
 
                   return (
                     <tr key={idx} className="hover:bg-stone-50/60 transition-colors text-center text-xs font-medium text-gray-800">
-                      <td className="py-3.5 px-6 text-center">
-                        <div className="w-10 h-10 rounded-lg overflow-hidden bg-stone-900 shadow-2xs mx-auto border border-stone-200 flex items-center justify-center">
+                      <td className="py-3 px-5 text-center">
+                        {imgSrc && !failedImages[idx] ? (
                           <img
-                            src={img}
+                            src={imgSrc}
                             alt={comp.item_name || `Component ${idx + 1}`}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              e.target.onerror = null;
-                              e.target.src = '/placeholder-jewelry.png';
-                            }}
+                            className="w-11 h-11 object-cover rounded-xl border border-stone-200 mx-auto shadow-2xs"
+                            onError={() => setFailedImages((prev) => ({ ...prev, [idx]: true }))}
                           />
-                        </div>
+                        ) : (
+                          <div className="w-11 h-11 rounded-xl bg-amber-50 text-amber-800 border border-amber-200/80 flex items-center justify-center font-bold text-xs mx-auto shadow-2xs">
+                            <i className="fa-solid fa-gem text-amber-700"></i>
+                          </div>
+                        )}
                       </td>
-                      <td className="py-3.5 px-6 text-center text-gray-900 font-medium">
+                      <td className="py-3 px-5 text-center text-gray-900 font-semibold">
                         {catName}
                       </td>
-                      <td className="py-3.5 px-6 text-center text-stone-600 font-mono">
+                      <td className="py-3 px-5 text-center text-stone-700 font-semibold">
                         {stamp}
                       </td>
-                      <td className="py-3.5 px-6 text-center text-stone-600 font-medium">
+                      <td className="py-3 px-5 text-center text-stone-600 font-bold">
                         {unit}
                       </td>
-                      <td className="py-3.5 px-6 text-center text-gray-900 font-bold">
+                      <td className="py-3 px-5 text-center text-gray-900 font-black">
                         {pieces}
                       </td>
-                      <td className="py-3.5 px-6 text-center font-mono font-semibold text-gray-800">
+                      <td className="py-3 px-5 text-center font-mono font-bold text-gray-900">
                         {grossWt}
-                      </td>
-                      <td className="py-3.5 px-6 text-center font-mono font-semibold text-stone-700">
-                        {rate}
                       </td>
                     </tr>
                   );
@@ -356,7 +350,7 @@ export default function InventoryUploadComplete() {
         </div>
       </div>
 
-      {/* 4. Action Buttons Matching Image 1 */}
+      {/* 4. Action Buttons */}
       <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
         <Link
           to="/inventory"

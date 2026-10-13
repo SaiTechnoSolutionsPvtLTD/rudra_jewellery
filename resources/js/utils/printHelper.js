@@ -3,7 +3,7 @@
  * Guarantees 1:1 exact visual parity between report Preview, Print, and Save as PDF
  * preserving colors, headers, KPI cards, tables, logos, and layout structures.
  */
-export const printElement = (elementId, documentTitle = 'Document') => {
+export const printElement = (elementId, documentTitle = 'Document', options = {}) => {
   const elem = document.getElementById(elementId);
   if (!elem) {
     window.print();
@@ -20,6 +20,7 @@ export const printElement = (elementId, documentTitle = 'Document') => {
 
   // Base URL for resolving assets/CSS links cleanly
   const baseUrl = window.location.origin + '/';
+  const pageOrientation = options.orientation === 'landscape' ? 'landscape' : 'portrait';
 
   // Open clean isolated print window
   const printWindow = window.open('', '_blank', 'width=1100,height=900');
@@ -38,11 +39,10 @@ export const printElement = (elementId, documentTitle = 'Document') => {
         <meta charset="UTF-8" />
         <base href="${baseUrl}">
         <title>${documentTitle}</title>
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
         ${styles}
         <style>
           @page {
-            size: A4 portrait;
+            size: A4 ${pageOrientation};
             margin: 8mm;
           }
           *, *::before, *::after, body, div, table, tr, th, td, span, strong, header, footer, [class*="bg-"], [class*="border-"], [class*="text-"] {

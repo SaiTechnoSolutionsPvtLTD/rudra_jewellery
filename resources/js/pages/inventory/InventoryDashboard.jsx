@@ -39,6 +39,16 @@ export default function InventoryDashboard() {
 
   const [subcategories, setSubcategories] = useState([]);
 
+  // Diamond vault state for Total Diamond Carats card
+  const [diamondVault, setDiamondVault] = useState(() => {
+    try {
+      const c = localStorage.getItem('rudhra_diamond_vault');
+      if (c) return JSON.parse(c);
+    } catch (e) {}
+    return { totalCarats: 0, totalCount: 0, breakdown: [] };
+  });
+  const [showDiamondModal, setShowDiamondModal] = useState(false);
+
   const [loading, setLoading] = useState(() => {
     try {
       const c = localStorage.getItem('rudhra_inventory_products');
@@ -74,14 +84,8 @@ export default function InventoryDashboard() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
-  const [liveRate22k, setLiveRate22k] = useState(0);
-
-  // Fetch master categories & live metal rates once on mount
+  // Fetch master categories once on mount
   useEffect(() => {
-    api.get('/metal-rates').then(res => {
-      if (res.data?.raw22k) setLiveRate22k(res.data.raw22k);
-    }).catch(() => {});
-
     api.get('/inventory/categories')
       .then((res) => {
         const catData = res.data || [];
@@ -89,7 +93,27 @@ export default function InventoryDashboard() {
         localStorage.setItem('rudhra_inventory_categories', JSON.stringify(catData));
       })
       .catch((err) => console.error('Failed to load categories', err));
+
+    // Fetch diamond vault data
+    fetchDiamondVault();
   }, []);
+
+  const fetchDiamondVault = async () => {
+    try {
+      const res = await api.get('/raw-materials/unified-stock');
+      const summary = res.data?.summary || {};
+      const breakdown = res.data?.diamond_by_stamp || [];
+      const vault = {
+        totalCarats: Number(summary.diamond_total_carats || 0),
+        totalCount: Number(summary.diamond_total_count || 0),
+        breakdown,
+      };
+      setDiamondVault(vault);
+      localStorage.setItem('rudhra_diamond_vault', JSON.stringify(vault));
+    } catch (err) {
+      console.error('Failed to fetch diamond vault data:', err);
+    }
+  };
 
   const fetchInventory = async () => {
     try {
@@ -172,33 +196,21 @@ export default function InventoryDashboard() {
 
   // Safe accessor helpers for cards matching reference image
   const rawValues = stats.raw_values || {
-    gold: { weight: '0.000 kg', amount: '₹0', change: '+0.0%', is_increase: true },
-    diamond: { weight: '0.00 ct', amount: '₹0', change: '+0.0%', is_increase: true },
-    stone: { weight: '0 units', amount: '₹0', change: '+0.0%', is_increase: true },
-    silver_1: { weight: '0.000 kg', amount: '₹0', change: '+0.0%', is_increase: true },
-    silver_2: { weight: '0.000 kg', amount: '₹0', change: '+0.0%', is_increase: true },
+    gold: { weight: '0.000 kg' },
+    diamond: { weight: '0.00 ct' },
+    stone: { weight: '0 units' },
+    silver_1: { weight: '0.000 kg' },
+    silver_2: { weight: '0.000 kg' },
   };
 
   const jewelValues = stats?.jewel_values || {
-    gold: { weight: '0.000 kg', amount: '₹0', change: '+0.0%', is_increase: true },
-    stone: { weight: '0 units', amount: '₹0', change: '+0.0%', is_increase: true },
-    silver: { weight: '0.000 kg', amount: '₹0', change: '+0.0%', is_increase: true },
-    diamond: { weight: '0.00 ct', amount: '₹0', change: '+0.0%', is_increase: true },
+    gold: { weight: '0.000 kg' },
+    stone: { weight: '0 units' },
+    silver: { weight: '0.000 kg' },
+    diamond: { weight: '0.00 ct' },
   };
 
   const lowStockAlerts = Array.isArray(stats?.low_stock_alerts) ? stats.low_stock_alerts : [];
-
-  // Helper function to render dynamic % change badges
-  const renderBadge = (item) => {
-    const isInc = item?.is_increase !== false;
-    const changeVal = item?.change || '+0.0%';
-    return (
-      <span className={`font-semibold flex items-center text-[10px] ${isInc ? 'text-emerald-600' : 'text-rose-600'}`}>
-        <i className={`fa-solid ${isInc ? 'fa-arrow-up' : 'fa-arrow-down'} text-[8px] mr-0.5`}></i>
-        {changeVal}
-      </span>
-    );
-  };
 
   return (
     <div className="w-full pb-14 space-y-6 font-['Inter',-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif]">
@@ -233,173 +245,193 @@ export default function InventoryDashboard() {
         </div>
       </div>
 
-      {/* 2. Raw Values Section (Red Pill + 4 Cards Grid) */}
+      {/* 2. Raw Stock Section (Red Pill + 4 Cards Grid) */}
       <div>
         <div className="inline-block px-4 py-1.5 bg-[#b01622] text-white text-xs font-bold rounded-xl mb-3 shadow-2xs">
-          Raw Values
+          Raw Material Stock
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
           
-          {/* Gold Value Card */}
+          {/* Raw Gold Stock Card */}
           <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col justify-between hover:border-stone-300 transition-all">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-7 h-7 rounded-full bg-amber-100/70 text-amber-700 flex items-center justify-center text-xs shrink-0">
                 <i className="fa-solid fa-coins"></i>
               </div>
-              <span className="text-[11px] font-semibold text-stone-400">Gold Value</span>
+              <span className="text-[11px] font-semibold text-stone-400">Raw Gold</span>
             </div>
             <div>
               <div className="text-lg font-bold text-gray-900 tracking-tight">
                 {rawValues.gold?.weight || '0.000 kg'}
               </div>
-              <div className="text-[11px] text-stone-500 font-medium flex items-center gap-1 mt-0.5">
-                <span>{rawValues.gold?.amount || '₹0'}</span>
-                {renderBadge(rawValues.gold)}
+              <div className="text-[11px] text-stone-400 font-medium mt-0.5">
+                Vault Balance
               </div>
             </div>
           </div>
 
-          {/* Diamond Value Card */}
+          {/* Raw Diamond Stock Card */}
           <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col justify-between hover:border-stone-300 transition-all">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-7 h-7 rounded-full bg-red-100/70 text-[#b01622] flex items-center justify-center text-xs shrink-0">
                 <i className="fa-solid fa-gem"></i>
               </div>
-              <span className="text-[11px] font-semibold text-stone-400">Diamond Value</span>
+              <span className="text-[11px] font-semibold text-stone-400">Raw Diamond</span>
             </div>
             <div>
               <div className="text-lg font-bold text-gray-900 tracking-tight">
                 {rawValues.diamond?.weight || '0.00 ct'}
               </div>
-              <div className="text-[11px] text-stone-500 font-medium flex items-center gap-1 mt-0.5">
-                <span>{rawValues.diamond?.amount || '₹0'}</span>
-                {renderBadge(rawValues.diamond)}
+              <div className="text-[11px] text-stone-400 font-medium mt-0.5">
+                Vault Balance
               </div>
             </div>
           </div>
 
-          {/* Stone Value Card */}
+          {/* Raw Stone Stock Card */}
           <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col justify-between hover:border-stone-300 transition-all">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-7 h-7 rounded-full bg-amber-100/70 text-amber-800 flex items-center justify-center text-xs shrink-0">
                 <i className="fa-solid fa-circle-dot"></i>
               </div>
-              <span className="text-[11px] font-semibold text-stone-400">Stone Value</span>
+              <span className="text-[11px] font-semibold text-stone-400">Raw Stone</span>
             </div>
             <div>
               <div className="text-lg font-bold text-gray-900 tracking-tight">
                 {rawValues.stone?.weight || '0 units'}
               </div>
-              <div className="text-[11px] text-stone-500 font-medium flex items-center gap-1 mt-0.5">
-                <span>{rawValues.stone?.amount || '₹0'}</span>
-                {renderBadge(rawValues.stone)}
+              <div className="text-[11px] text-stone-400 font-medium mt-0.5">
+                Vault Balance
               </div>
             </div>
           </div>
 
-          {/* Silver Value Card */}
+          {/* Raw Silver Stock Card */}
           <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col justify-between hover:border-stone-300 transition-all">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-7 h-7 rounded-full bg-red-50 text-red-700 flex items-center justify-center text-xs shrink-0 border border-red-100">
                 <i className="fa-solid fa-ring"></i>
               </div>
-              <span className="text-[11px] font-semibold text-stone-400">Silver Value</span>
+              <span className="text-[11px] font-semibold text-stone-400">Raw Silver</span>
             </div>
             <div>
               <div className="text-lg font-bold text-gray-900 tracking-tight">
                 {rawValues.silver_1?.weight || rawValues.silver?.weight || '0.000 kg'}
               </div>
-              <div className="text-[11px] text-stone-500 font-medium flex items-center gap-1 mt-0.5">
-                <span>{rawValues.silver_1?.amount || rawValues.silver?.amount || '₹0'}</span>
-                {renderBadge(rawValues.silver_1 || rawValues.silver)}
+              <div className="text-[11px] text-stone-400 font-medium mt-0.5">
+                Vault Balance
               </div>
             </div>
+          </div>
+
+          {/* Total Diamond Carats Card */}
+          <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col justify-between hover:border-cyan-200 transition-all">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-7 h-7 rounded-full bg-cyan-50 text-cyan-600 flex items-center justify-center text-xs shrink-0 border border-cyan-100">
+                <i className="fa-solid fa-gem"></i>
+              </div>
+              <span className="text-[11px] font-semibold text-stone-400">Total Diamonds</span>
+            </div>
+            <div>
+              <div className="text-lg font-bold text-gray-900 tracking-tight font-mono">
+                {diamondVault.totalCarats.toFixed(3)} <span className="text-xs font-sans font-semibold text-stone-400">ct</span>
+              </div>
+              <div className="text-[11px] text-stone-400 font-medium mt-0.5">
+                <i className="fa-solid fa-boxes-stacked text-[9px] mr-1 text-cyan-400"></i>
+                {diamondVault.totalCount} pcs vault
+              </div>
+            </div>
+            {diamondVault.breakdown.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowDiamondModal(true)}
+                className="mt-2 text-cyan-700 hover:text-cyan-900 bg-cyan-50 hover:bg-cyan-100 border border-cyan-200/60 w-full py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-colors"
+              >
+                View by Stamp ({diamondVault.breakdown.length})
+              </button>
+            )}
           </div>
 
         </div>
       </div>
 
-      {/* 3. Jewel Value Section (Red Pill + 4 Cards Grid) */}
+      {/* 3. Jewellery Stock Section (Red Pill + 4 Cards Grid) */}
       <div>
         <div className="inline-block px-4 py-1.5 bg-[#b01622] text-white text-xs font-bold rounded-xl mb-3 shadow-2xs">
-          Jewel Value
+          Jewellery Stock
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
           
-          {/* Gold Value Card */}
+          {/* Gold Jewellery Stock Card */}
           <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col justify-between hover:border-stone-300 transition-all">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-7 h-7 rounded-full bg-amber-100/70 text-amber-700 flex items-center justify-center text-xs shrink-0">
                 <i className="fa-solid fa-coins"></i>
               </div>
-              <span className="text-[11px] font-semibold text-stone-400">Gold Value</span>
+              <span className="text-[11px] font-semibold text-stone-400">Gold Jewellery</span>
             </div>
             <div>
               <div className="text-lg font-bold text-gray-900 tracking-tight">
                 {jewelValues.gold?.weight || '0.000 kg'}
               </div>
-              <div className="text-[11px] text-stone-500 font-medium flex items-center gap-1 mt-0.5">
-                <span>{jewelValues.gold?.amount || '₹0'}</span>
-                {renderBadge(jewelValues.gold)}
+              <div className="text-[11px] text-stone-400 font-medium mt-0.5">
+                Finished Goods
               </div>
             </div>
           </div>
 
-          {/* Stone Value Card */}
+          {/* Stone Jewellery Stock Card */}
           <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col justify-between hover:border-stone-300 transition-all">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-7 h-7 rounded-full bg-amber-100/70 text-amber-800 flex items-center justify-center text-xs shrink-0">
                 <i className="fa-solid fa-circle-dot"></i>
               </div>
-              <span className="text-[11px] font-semibold text-stone-400">Stone Value</span>
+              <span className="text-[11px] font-semibold text-stone-400">Stone Jewellery</span>
             </div>
             <div>
               <div className="text-lg font-bold text-gray-900 tracking-tight">
                 {jewelValues.stone?.weight || '0 units'}
               </div>
-              <div className="text-[11px] text-stone-500 font-medium flex items-center gap-1 mt-0.5">
-                <span>{jewelValues.stone?.amount || '₹0'}</span>
-                {renderBadge(jewelValues.stone)}
+              <div className="text-[11px] text-stone-400 font-medium mt-0.5">
+                Finished Goods
               </div>
             </div>
           </div>
 
-          {/* Silver Value Card */}
+          {/* Silver Jewellery Stock Card */}
           <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col justify-between hover:border-stone-300 transition-all">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-7 h-7 rounded-full bg-red-50 text-red-700 flex items-center justify-center text-xs shrink-0 border border-red-100">
                 <i className="fa-solid fa-ring"></i>
               </div>
-              <span className="text-[11px] font-semibold text-stone-400">Silver Value</span>
+              <span className="text-[11px] font-semibold text-stone-400">Silver Jewellery</span>
             </div>
             <div>
               <div className="text-lg font-bold text-gray-900 tracking-tight">
                 {jewelValues.silver?.weight || '0.000 kg'}
               </div>
-              <div className="text-[11px] text-stone-500 font-medium flex items-center gap-1 mt-0.5">
-                <span>{jewelValues.silver?.amount || '₹0'}</span>
-                {renderBadge(jewelValues.silver)}
+              <div className="text-[11px] text-stone-400 font-medium mt-0.5">
+                Finished Goods
               </div>
             </div>
           </div>
 
-          {/* Diamond Value Card */}
+          {/* Diamond Jewellery Stock Card */}
           <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col justify-between hover:border-stone-300 transition-all">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-7 h-7 rounded-full bg-red-100/70 text-[#b01622] flex items-center justify-center text-xs shrink-0">
                 <i className="fa-solid fa-gem"></i>
               </div>
-              <span className="text-[11px] font-semibold text-stone-400">Diamond Value</span>
+              <span className="text-[11px] font-semibold text-stone-400">Diamond Jewellery</span>
             </div>
             <div>
               <div className="text-lg font-bold text-gray-900 tracking-tight">
                 {jewelValues.diamond?.weight || '0.00 ct'}
               </div>
-              <div className="text-[11px] text-stone-500 font-medium flex items-center gap-1 mt-0.5">
-                <span>{jewelValues.diamond?.amount || '₹0'}</span>
-                {renderBadge(jewelValues.diamond)}
+              <div className="text-[11px] text-stone-400 font-medium mt-0.5">
+                Finished Goods
               </div>
             </div>
           </div>
@@ -559,9 +591,11 @@ export default function InventoryDashboard() {
             <thead>
               <tr className="border-b border-stone-200/80 bg-stone-50/80 text-stone-700 font-semibold text-xs">
                 <th className="py-3 pl-3 pr-2 whitespace-nowrap">Product Name &amp; SKU</th>
+                <th className="py-3 px-2 whitespace-nowrap">Design No.</th>
                 <th className="py-3 px-2 whitespace-nowrap">Category</th>
-                <th className="py-3 px-2 whitespace-nowrap">Purity/Quality</th>
-                <th className="py-3 px-2 whitespace-nowrap">Weight &amp; Price</th>
+                <th className="py-3 px-2 whitespace-nowrap">Purity</th>
+                <th className="py-3 px-2 whitespace-nowrap">Quality</th>
+                <th className="py-3 px-2 whitespace-nowrap">Weight</th>
                 <th className="py-3 px-2 whitespace-nowrap">Stock QTY</th>
                 <th className="py-3 px-2 whitespace-nowrap">Location</th>
                 <th className="py-3 px-2 whitespace-nowrap">Status</th>
@@ -571,14 +605,14 @@ export default function InventoryDashboard() {
             <tbody className="divide-y divide-stone-100">
               {loading ? (
                 <tr>
-                  <td colSpan="8" className="py-12 text-center text-stone-400">
+                  <td colSpan="10" className="py-12 text-center text-stone-400">
                     <i className="fa-solid fa-circle-notch fa-spin text-xl text-[#b01622] mr-2"></i>
                     Loading inventory catalog...
                   </td>
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan="8" className="py-12 text-center text-stone-400 space-y-2">
+                  <td colSpan="10" className="py-12 text-center text-stone-400 space-y-2">
                     <i className="fa-solid fa-boxes-stacked text-3xl text-stone-300"></i>
                     <p className="font-semibold text-stone-600">No products found</p>
                     <p className="text-[11px] text-stone-400">
@@ -596,20 +630,16 @@ export default function InventoryDashboard() {
                   // Category
                   const categoryName = p.category?.name || attrs.category_name || 'Gold';
 
-                  // Purity / Quality derivation strictly from product attributes / stamp / karat
-                  const rawPurity = attrs.purity || attrs.gold_type || attrs.karat || attrs.stamp || attrs.quality || '';
-                  let purityQuality = rawPurity;
-                  if (!purityQuality) {
-                    purityQuality = '22K Hallmark';
-                  } else if (!purityQuality.toLowerCase().includes('hallmark') && !purityQuality.toLowerCase().includes('color') && !purityQuality.toLowerCase().includes('silver')) {
-                    purityQuality = `${purityQuality} Hallmark`;
-                  }
+                  // Design No.
+                  const designNo = p.design_no || attrs.design_no || '—';
 
-                  // Weight & Price stacked derivation strictly from product attributes
+                  // Purity & Quality separated strictly
+                  const purityVal = attrs.purity || attrs.gold_type || attrs.karat || '—';
+                  const qualityVal = attrs.quality || attrs.setting_style || attrs.stamp || 'Hallmark';
+
+                  // Weight derivation strictly from product attributes
                   const grossWt = attrs.gross_wt || p.opening_stock_weight || 0;
                   const weightStr = grossWt > 0 ? `${grossWt}g` : '—';
-                  const saleVal = attrs.sale_value || attrs.price || attrs.rate || attrs.sale_rate || p.opening_stock_rate || 0;
-                  const priceStr = saleVal > 0 ? `₹${Number(saleVal).toLocaleString('en-IN')}` : '₹0';
 
                   // Stock Quantity (Formatted as 2 digits e.g. 08, 02, 00)
                   const pieces = p.current_stock_qty ?? attrs.pieces ?? 0;
@@ -663,20 +693,14 @@ export default function InventoryDashboard() {
                               const catCode = (p.category?.code || p.category?.name || 'PRD').replace(/[^A-Za-z0-9]/g, '').slice(0, 4).toUpperCase();
                               const subCode = (p.subcategory?.code || p.subcategory?.name || 'GEN').replace(/[^A-Za-z0-9]/g, '').slice(0, 4).toUpperCase();
                               const skuCode = p.sku || attrs.sku || `SKU-${catCode}-${subCode}-${String(p.id).padStart(4, '0')}`;
-                              const designCode = p.product_code || attrs.design_no;
 
                               return (
                                 <>
                                   <div className="font-bold text-gray-900 text-xs leading-snug truncate max-w-[170px]" title={cleanName}>
                                     {cleanName}
                                   </div>
-                                  <div className="text-[11px] font-mono text-stone-400 font-semibold mt-0.5 flex items-center gap-1">
+                                  <div className="text-[11px] font-mono text-stone-400 font-semibold mt-0.5">
                                     <span>{skuCode}</span>
-                                    {designCode && designCode !== skuCode && (
-                                      <span className="text-[10px] font-sans text-stone-400/80" title={`Design Code: ${designCode}`}>
-                                        ({designCode})
-                                      </span>
-                                    )}
                                   </div>
                                 </>
                               );
@@ -685,38 +709,47 @@ export default function InventoryDashboard() {
                         </div>
                       </td>
 
-                      {/* 2. Category */}
+                      {/* 2. Design No. */}
+                      <td className="py-2.5 px-2 font-mono font-bold text-gray-900 text-xs whitespace-nowrap">
+                        {designNo}
+                      </td>
+
+                      {/* 3. Category */}
                       <td className="py-2.5 px-2 text-stone-700 font-semibold text-xs whitespace-nowrap">
                         {categoryName}
                       </td>
 
-                      {/* 3. Purity/Quality */}
+                      {/* 4. Purity */}
+                      <td className="py-2.5 px-2 text-stone-700 font-semibold text-xs whitespace-nowrap">
+                        {purityVal}
+                      </td>
+
+                      {/* 5. Quality */}
                       <td className="py-2.5 px-2 text-stone-700 font-medium text-xs whitespace-nowrap">
-                        {purityQuality}
+                        {qualityVal}
                       </td>
 
-                      {/* 4. Weight & Price (Stacked) */}
-                      <td className="py-2.5 px-2 whitespace-nowrap">
-                        <div className="font-bold text-gray-900 text-xs">{weightStr}</div>
-                        <div className="text-[11px] text-stone-400 font-medium mt-0.5">{priceStr}</div>
+                      {/* 6. Weight */}
+                      <td className="py-2.5 px-2 whitespace-nowrap font-bold text-gray-900 text-xs">
+                        {weightStr}
                       </td>
 
-                      {/* 5. Stock QTY */}
+                      {/* 7. Stock QTY */}
                       <td className="py-2.5 px-2 font-bold text-gray-900 text-xs whitespace-nowrap">
                         {qtyFormatted}
                       </td>
 
-                      {/* 6. Location */}
+                      {/* 8. Location */}
                       <td className="py-2.5 px-2 text-stone-700 font-medium text-xs whitespace-nowrap">
                         {location}
                       </td>
 
-                      {/* 7. Status */}
+                      {/* 9. Status */}
                       <td className="py-2.5 px-2 whitespace-nowrap">
                         {statusBadge}
                       </td>
 
-                      {/* 8. Actions (Edit, View, Delete) */}
+                      {/* 10. Actions (Edit, View, Delete) */}
                       <td className="py-2.5 pl-2 pr-3 text-center whitespace-nowrap">
                         <div className="inline-flex items-center justify-center gap-1">
                           {/* Edit Product */}
@@ -845,6 +878,93 @@ export default function InventoryDashboard() {
         onConfirm={handleConfirmDelete}
         loading={deleting}
       />
+
+      {/* Diamond Stock Breakdown by Stamp Modal */}
+      {showDiamondModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-stone-200 overflow-hidden">
+            <div className="flex items-center justify-between p-4 bg-stone-50 border-b border-stone-200">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-cyan-100 text-cyan-700 flex items-center justify-center text-sm">
+                  <i className="fa-solid fa-gem"></i>
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-stone-900">Diamond Stock by Stamp / Grade</h3>
+                  <p className="text-[11px] text-stone-500">Authoritative vault breakdown</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDiamondModal(false)}
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-200/60 transition-colors cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark text-sm"></i>
+              </button>
+            </div>
+
+            <div className="p-4 max-h-[60vh] overflow-y-auto">
+              <div className="mb-3 p-3 bg-cyan-50/60 rounded-xl border border-cyan-100 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-cyan-800 uppercase tracking-wider block">Total Vault Balance</span>
+                  <span className="text-lg font-black text-cyan-950 font-mono">
+                    {diamondVault.totalCarats.toFixed(3)} ct
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] font-bold text-cyan-800 uppercase tracking-wider block">Total Pieces</span>
+                  <span className="text-sm font-bold text-stone-700 font-mono">
+                    {diamondVault.totalCount} pcs
+                  </span>
+                </div>
+              </div>
+
+              <table className="w-full text-xs text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-stone-200 bg-stone-50 text-[10px] font-bold text-stone-500 uppercase tracking-wider">
+                    <th className="py-2.5 px-3">Stamp / Grade</th>
+                    <th className="py-2.5 px-3 text-right">Available Carats</th>
+                    <th className="py-2.5 px-3 text-right">Available Pieces</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100">
+                  {diamondVault.breakdown.length > 0 ? (
+                    diamondVault.breakdown.map((item, idx) => (
+                      <tr key={idx} className="hover:bg-cyan-50/30 transition-colors">
+                        <td className="py-2.5 px-3 font-semibold text-stone-900 flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-cyan-500 shrink-0"></span>
+                          <span>{item.stamp || 'Unclassified'}</span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono font-bold text-cyan-900">
+                          {Number(item.available_carats || 0).toFixed(3)} ct
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono text-stone-600">
+                          {Number(item.available_count || 0)} pcs
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={3} className="py-6 text-center text-stone-400">
+                        No diamond stamps recorded yet
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="p-3 bg-stone-50 border-t border-stone-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowDiamondModal(false)}
+                className="px-4 py-2 bg-stone-200 hover:bg-stone-300 text-stone-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

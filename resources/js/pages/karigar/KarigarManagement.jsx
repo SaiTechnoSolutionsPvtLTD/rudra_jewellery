@@ -15,8 +15,6 @@ const INITIAL_FORM_STATE = {
   primary_phone: '',
   secondary_phone: '',
   email: '',
-  password: '',
-  confirm_password: '',
   specialization: '',
   experience_years: 5,
   workshop_name: '',
@@ -39,12 +37,7 @@ const INITIAL_FORM_STATE = {
 };
 
 export default function KarigarManagement() {
-  const { isKarigar } = useAuth();
   const { showToast } = useToast();
-
-  if (isKarigar) {
-    return <Navigate to="/job-order/receive" replace />;
-  }
   const [karigars, setKarigars] = useState([]);
   const [loading, setLoading] = useState(true);
   const [initialLoad, setInitialLoad] = useState(true);
@@ -280,8 +273,6 @@ export default function KarigarManagement() {
       primary_phone: karigar.primary_phone || '',
       secondary_phone: karigar.secondary_phone || '',
       email: karigar.email || '',
-      password: '',
-      confirm_password: '',
       specialization: karigar.specialization || (specifications[0]?.name || ''),
       experience_years: karigar.experience_years ?? 5,
       workshop_name: karigar.workshop_name || '',
@@ -348,14 +339,6 @@ export default function KarigarManagement() {
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
       errors.email = 'Enter a valid email address';
     }
-    if (formData.password) {
-      if (formData.password.length < 6) {
-        errors.password = 'Password must be at least 6 characters';
-      }
-      if (formData.password !== formData.confirm_password) {
-        errors.confirm_password = 'Passwords do not match';
-      }
-    }
     if (formData.experience_years === '' || formData.experience_years === null || isNaN(Number(formData.experience_years))) {
       errors.experience_years = 'Years of experience is required';
     } else if (Number(formData.experience_years) < 0) {
@@ -396,7 +379,7 @@ export default function KarigarManagement() {
 
     const errorCount = Object.keys(errors).length;
     if (errorCount > 0) {
-      const tab1Keys = ['karigar_code', 'name', 'primary_phone', 'email', 'password', 'confirm_password', 'experience_years', 'workshop_name', 'workshop_address', 'city', 'state', 'zip_code'];
+      const tab1Keys = ['karigar_code', 'name', 'primary_phone', 'email', 'experience_years', 'workshop_name', 'workshop_address', 'city', 'state', 'zip_code'];
       const tab2Keys = ['specialization', 'standard_wastage_percent', 'making_charge_per_gram', 'current_gold_balance_grams'];
       const tab3Keys = ['pan_number', 'aadhar_number', 'bank_name', 'account_number', 'ifsc_code'];
 
@@ -802,9 +785,9 @@ export default function KarigarManagement() {
             <table className="w-full min-w-[1120px] text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-[#fdf0f0] border-b border-red-200 text-[11px] font-bold text-[#b01622] uppercase tracking-wider whitespace-nowrap">
-                  <th className="py-3.5 px-5">Artisan & Code</th>
+                  <th className="py-3.5 px-5">Artisan &amp; Code</th>
                   <th className="py-3.5 px-5">Craft Specialization</th>
-                  <th className="py-3.5 px-5">Assignment Status</th>
+                  <th className="py-3.5 px-5">Workload &amp; Quantities</th>
                   <th className="py-3.5 px-5">Contact Details</th>
                   <th className="py-3.5 px-5 text-right">Bench Metal WIP</th>
                   <th className="py-3.5 px-5 text-center">Wastage / MC</th>
@@ -814,7 +797,15 @@ export default function KarigarManagement() {
               </thead>
               <tbody className="divide-y divide-stone-100">
                 {karigars.map((karigar, index) => (
-                  <tr key={karigar.id} className="hover:bg-stone-50/70 transition-colors">
+                  <tr
+                    key={karigar.id}
+                    onClick={(e) => {
+                      if (!e.target.closest('button, a, input, select, .status-dropdown-container')) {
+                        setViewKarigar(karigar);
+                      }
+                    }}
+                    className="hover:bg-stone-50/70 transition-colors cursor-pointer"
+                  >
                     {/* Artisan Name & Code */}
                     <td className="py-3.5 px-5 whitespace-nowrap">
                       <div className="flex items-center gap-3">
@@ -832,8 +823,7 @@ export default function KarigarManagement() {
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 whitespace-nowrap">
                             <span
-                              className="font-bold text-stone-900 hover:text-[#b01622] cursor-pointer text-sm whitespace-nowrap"
-                              onClick={() => setViewKarigar(karigar)}
+                              className="font-bold text-stone-900 hover:text-[#b01622] text-sm whitespace-nowrap"
                             >
                               {karigar.name}
                             </span>
@@ -869,37 +859,68 @@ export default function KarigarManagement() {
                     </td>
 
                     {/* Assignment Status & Bench Work */}
-                    <td className="py-3.5 px-5 whitespace-nowrap">
-                      {karigar.is_available ? (
-                        <div className="space-y-1">
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
-                            <i className="fa-solid fa-circle-check text-[10px] text-emerald-500"></i>
-                            Available for Order
+                    {/* Section 5: Karigar Workload & Quantity Lifecycle */}
+                    <td className="py-3.5 px-5">
+                      <div className="space-y-1.5 min-w-[220px]">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="px-2 py-0.5 rounded-md text-[10.5px] font-bold bg-amber-50 text-amber-900 border border-amber-200">
+                            {karigar.active_work_orders || karigar.active_works_count || 0} Active WOs
                           </span>
-                          <div className="text-[10.5px] text-stone-400">
-                            {karigar.completed_works_count || 0} finished jobs
-                          </div>
+                          {Boolean(karigar.delayed_jobs > 0) && (
+                            <span className="px-2 py-0.5 rounded-md text-[10.5px] font-bold bg-rose-50 text-rose-800 border border-rose-200 animate-pulse">
+                              {karigar.delayed_jobs} Delayed
+                            </span>
+                          )}
                         </div>
-                      ) : (
-                        <div className="space-y-1">
+
+                        {/* Quantity Breakdown Pills */}
+                        <div className="flex items-center gap-1 text-[10px] font-semibold text-stone-600 flex-wrap">
+                          <span title="Pending Production Qty" className="px-1.5 py-0.5 bg-stone-100 rounded">
+                            Pending: <strong className="text-stone-900">{karigar.pending_qty ?? 0}</strong>
+                          </span>
+                          <span title="Completed Qty" className="px-1.5 py-0.5 bg-emerald-50 text-emerald-800 rounded">
+                            Done: <strong className="text-emerald-900">{karigar.completed_qty ?? 0}</strong>
+                          </span>
+                          <span title="QC Queue" className="px-1.5 py-0.5 bg-blue-50 text-blue-800 rounded">
+                            QC: <strong className="text-blue-900">{karigar.qc_qty ?? 0}</strong>
+                          </span>
+                          {Boolean(karigar.rework_qty > 0) && (
+                            <span title="Rework Needed" className="px-1.5 py-0.5 bg-rose-50 text-rose-800 rounded">
+                              Rework: <strong className="text-rose-900">{karigar.rework_qty}</strong>
+                            </span>
+                          )}
+                          <span title="Ready" className="px-1.5 py-0.5 bg-purple-50 text-purple-800 rounded">
+                            Ready: <strong className="text-purple-900">{karigar.ready_qty ?? 0}</strong>
+                          </span>
+                        </div>
+
+                        {/* Section 18: Update Work Modal Link */}
+                        {karigar.current_assigned_order?.id ? (
                           <button
                             type="button"
-                            onClick={() => {
-                              if (karigar.current_assigned_order?.id) {
-                                setWorkModalOrderId(karigar.current_assigned_order.id);
-                              }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setWorkModalOrderId(karigar.current_assigned_order.id);
                             }}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-900 border border-amber-300 shadow-2xs hover:bg-amber-100 cursor-pointer transition-colors"
-                            title="Click to open artisan workbench"
+                            className="text-[11px] font-bold text-[#b01622] hover:text-[#881337] flex items-center gap-1 cursor-pointer transition-colors"
                           >
-                            <i className="fa-solid fa-hammer text-[10px] text-amber-600"></i>
-                            Busy • {karigar.current_assigned_order?.work_order_number || 'Active Order'}
+                            <i className="fa-solid fa-pen-to-square text-[10px]"></i>
+                            <span>Update Work ({karigar.current_assigned_order.work_order_number})</span>
                           </button>
-                          <div className="text-[10.5px] text-amber-800 font-medium">
-                            {karigar.current_assigned_order?.status?.toUpperCase()}
-                          </div>
-                        </div>
-                      )}
+                        ) : (karigar.active_work_orders > 0 || karigar.active_works_count > 0) ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setViewKarigar(karigar);
+                            }}
+                            className="text-[11px] font-bold text-[#b01622] hover:text-[#881337] flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            <i className="fa-solid fa-pen-to-square text-[10px]"></i>
+                            <span>Update Ongoing Work</span>
+                          </button>
+                        ) : null}
+                      </div>
                     </td>
 
                     {/* Contact & Location */}
@@ -1515,52 +1536,6 @@ export default function KarigarManagement() {
                       />
                       {formErrors.experience_years && <p className="text-[11px] text-red-500 mt-1">{formErrors.experience_years}</p>}
                     </div>
-
-                    {/* Password & Confirm Password (User Login Account) */}
-                    <div>
-                      <label className="block text-xs font-bold text-stone-700 mb-1">
-                        User Login Password {editingKarigar ? <span className="text-stone-400 font-normal">(Leave blank to keep current)</span> : <span className="text-stone-400 font-normal">(Default: admin123)</span>}
-                      </label>
-                      <div className="relative">
-                        <i className="fa-solid fa-lock absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs"></i>
-                        <input
-                          type={showPassword ? 'text' : 'password'}
-                          name="password"
-                          value={formData.password}
-                          onChange={handleInputChange}
-                          placeholder={editingKarigar ? '••••••••' : 'Set custom password or leave blank'}
-                          className={`w-full pl-8 pr-8 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.password ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
-                            }`}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 text-xs"
-                        >
-                          <i className={`fa-solid ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
-                        </button>
-                      </div>
-                      {formErrors.password && <p className="text-[11px] text-red-500 mt-1">{formErrors.password}</p>}
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-stone-700 mb-1">
-                        Confirm Password
-                      </label>
-                      <div className="relative">
-                        <i className="fa-solid fa-lock absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs"></i>
-                        <input
-                          type={showPassword ? 'text' : 'password'}
-                          name="confirm_password"
-                          value={formData.confirm_password}
-                          onChange={handleInputChange}
-                          placeholder="••••••••"
-                          className={`w-full pl-8 pr-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.confirm_password ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
-                            }`}
-                        />
-                      </div>
-                      {formErrors.confirm_password && <p className="text-[11px] text-red-500 mt-1">{formErrors.confirm_password}</p>}
-                    </div>
                   </div>
 
                   {/* Workshop & Location Section */}
@@ -2160,12 +2135,12 @@ export default function KarigarManagement() {
                       <div className="flex items-center justify-between">
                         <h4 className="font-bold text-gray-900 text-xs uppercase tracking-wider flex items-center gap-2">
                           <i className="fa-solid fa-hammer text-[#b01622]"></i>
-                          <span>Active Project on Bench</span>
+                          <span>Active Projects on Bench ({effectiveActiveOrders.length})</span>
                           {loadingKarigarWorks && <i className="fa-solid fa-circle-notch fa-spin text-[10px] text-stone-400 ml-1"></i>}
                         </h4>
                         {effectiveActiveOrders.length > 0 ? (
                           <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                            Artisan Busy (1 Active Project Rule)
+                            {effectiveActiveOrders.length} Active Job(s) Assigned
                           </span>
                         ) : (
                           <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">

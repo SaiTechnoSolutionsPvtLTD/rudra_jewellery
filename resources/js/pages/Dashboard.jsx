@@ -18,12 +18,7 @@ const resolveItemImage = (item) => {
 };
 
 export default function Dashboard() {
-  const { isKarigar } = useAuth();
   const { showPrompt, showConfirm, showToast } = useToast();
-
-  if (isKarigar) {
-    return <Navigate to="/job-order/receive" replace />;
-  }
 
   // Modal states for Allocated Materials and Bench Metal
   const [isMaterialModalOpen, setIsMaterialModalOpen] = useState(false);
@@ -107,6 +102,7 @@ export default function Dashboard() {
   const [approvingId, setApprovingId] = useState(null);
   const [liveRates, setLiveRates] = useState(null);
 
+
   const fetchLiveMetalRates = async () => {
     try {
       const res = await api.get('/metal-rates');
@@ -149,11 +145,15 @@ export default function Dashboard() {
     window.addEventListener('rudhra_price_list_updated', handleSync);
     window.addEventListener('rudhra_invoices_updated', handleDataSync);
     window.addEventListener('rudhra_workorder_updated', handleDataSync);
+    window.addEventListener('rudhra_purchase_updated', handleDataSync);
+    window.addEventListener('rudhra_inventory_updated', handleDataSync);
     return () => {
       window.removeEventListener('rudhra_metal_rates_updated', handleSync);
       window.removeEventListener('rudhra_price_list_updated', handleSync);
       window.removeEventListener('rudhra_invoices_updated', handleDataSync);
       window.removeEventListener('rudhra_workorder_updated', handleDataSync);
+      window.removeEventListener('rudhra_purchase_updated', handleDataSync);
+      window.removeEventListener('rudhra_inventory_updated', handleDataSync);
     };
   }, [timeRange]);
 
@@ -172,7 +172,7 @@ export default function Dashboard() {
     const p = overridePeriod || timeRange;
     try {
       const res = await api.get('/work-orders/dashboard-stats', {
-        params: { range: p, period: p }
+        params: { range: p, period: p, per_page: 100 }
       });
       if (res.data?.status === 'success' || res.data?.summary || res.data?.data) {
         const payload = res.data.data || res.data.summary || res.data;
@@ -241,7 +241,7 @@ export default function Dashboard() {
     const p = overridePeriod || timeRange;
     setIsFetchingPeriod(true);
     try {
-      const res = await api.get('/dashboard', { params: { period: p } });
+      const res = await api.get('/dashboard', { params: { period: p, refresh: 1 } });
       setData(res.data);
       if (res.data) {
         localStorage.setItem('rudhra_dashboard_data', JSON.stringify(res.data));
@@ -352,33 +352,56 @@ export default function Dashboard() {
 
   const areaD = `${pathD} L ${chartWidth - paddingRight},${chartHeight - 25} L ${paddingLeft},${chartHeight - 25} Z`;
 
-  // Dynamic Average 24K Gold Values based on selected period
+  // Dynamic Average Gold Values based on transaction data for selected period
   const getGoldValuesData = (period) => {
     const p = (period || 'Month').toLowerCase();
-    const vsLabel = p.includes('today') ? 'vs Yesterday' : (p.includes('week') ? 'vs Last Week' : (p.includes('quarter') ? 'vs Last Quarter' : (p.includes('year') ? 'vs Last Year' : (p.includes('all') ? 'vs All Time' : 'vs Last Month'))));
+    const vsLabel = p.includes('today') ? 'vs Yesterday' : (p.includes('week') ? 'vs Last Week' : (p.includes('quarter') ? 'vs Last Quarter' : (p.includes('year') ? 'vs Last Year' : (p.includes('all') ? 'All Time' : 'vs Last Month'))));
     const key = p.includes('today') ? 'today' : (p.includes('week') ? 'week' : (p.includes('quarter') ? 'quarter' : (p.includes('year') ? 'year' : (p.includes('all') ? 'all' : 'month'))));
-    const gObj = data?.summary?.goldAverages?.[key];
-
-    const buy24k = String(data?.summary?.avg24kBuyingRate10gFormatted || '₹62,450');
-    const sell24k = String(data?.summary?.avg24kSellingRate10gFormatted || '₹68,900');
+    const gObj = data?.summary?.currentGoldAverage || data?.summary?.goldAverages?.[key];
 
     if (gObj) {
       return {
-        buyingVal: gObj.buyingVal || buy24k.replace('₹', '').trim(),
-        buyingChange: gObj.buyingChange || '2.4%',
+        buyingVal: gObj.buyingVal ?? '0',
+        buyingChange: gObj.buyingChange ?? 'N/A',
         buyingVs: gObj.buyingVs || vsLabel,
-        sellingVal: gObj.sellingVal || sell24k.replace('₹', '').trim(),
-        sellingChange: gObj.sellingChange || '3.1%',
+        prevBuyingVal: gObj.prevBuyingVal ?? 'N/A',
+        buyingDiff: gObj.buyingDiff ?? 'N/A',
+        buyingDirection: gObj.buyingDirection || 'na',
+        buyingIsIncrease: gObj.buyingIsIncrease,
+        hasBuyingData: Boolean(gObj.hasBuyingData),
+
+        sellingVal: gObj.sellingVal ?? '0',
+        sellingChange: gObj.sellingChange ?? 'N/A',
         sellingVs: gObj.sellingVs || vsLabel,
+        prevSellingVal: gObj.prevSellingVal ?? 'N/A',
+        sellingDiff: gObj.sellingDiff ?? 'N/A',
+        sellingDirection: gObj.sellingDirection || 'na',
+        sellingIsIncrease: gObj.sellingIsIncrease,
+        hasSellingData: Boolean(gObj.hasSellingData),
+
+        unit: gObj.unit || 'g',
       };
     }
     return {
-      buyingVal: buy24k.replace('₹', '').trim(),
-      buyingChange: '2.4%',
+      buyingVal: '0',
+      buyingChange: 'N/A',
       buyingVs: vsLabel,
-      sellingVal: sell24k.replace('₹', '').trim(),
-      sellingChange: '3.1%',
+      prevBuyingVal: 'N/A',
+      buyingDiff: 'N/A',
+      buyingDirection: 'na',
+      buyingIsIncrease: null,
+      hasBuyingData: false,
+
+      sellingVal: '0',
+      sellingChange: 'N/A',
       sellingVs: vsLabel,
+      prevSellingVal: 'N/A',
+      sellingDiff: 'N/A',
+      sellingDirection: 'na',
+      sellingIsIncrease: null,
+      hasSellingData: false,
+
+      unit: 'g',
     };
   };
 
@@ -433,8 +456,8 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* 2. Section 1: Quick Points 5 Stat Cards */}
-      <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 transition-all duration-200 ${isFetchingPeriod ? 'opacity-40 animate-pulse pointer-events-none' : 'opacity-100'}`}>
+      {/* 2. Section 1: Quick Points 6 Stat Cards */}
+      <div className={`grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 transition-all duration-200 ${isFetchingPeriod ? 'opacity-40 animate-pulse pointer-events-none' : 'opacity-100'}`}>
 
         {/* Card 1: Sale */}
         <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-stone-200/80 shadow-2xs hover:shadow-xs transition-all flex flex-col justify-between h-full">
@@ -488,21 +511,21 @@ export default function Dashboard() {
           })()}
         </div>
 
-        {/* Card 3: Inventory Value */}
+        {/* Card 3: Inventory Products */}
         <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-stone-200/80 shadow-2xs hover:shadow-xs transition-all flex flex-col justify-between h-full">
           <div>
             <div className="flex items-center gap-2">
               <div className="w-8.5 h-8.5 rounded-xl bg-pink-50 text-pink-600 flex items-center justify-center text-sm shrink-0">
                 <i className="fa-solid fa-store"></i>
               </div>
-              <span className="text-[10px] font-bold text-stone-400 uppercase tracking-tight truncate">Inventory Value</span>
+              <span className="text-[10px] font-bold text-stone-400 uppercase tracking-tight truncate">Inventory Products</span>
             </div>
             <div className="text-lg sm:text-xl font-extrabold text-stone-900 tracking-tight mt-3">
-              {data?.summary?.inventoryValueFormatted || '₹0'}
+              {data?.summary?.inventoryProductsFormatted ?? (data?.summary?.inventoryProductsCount !== undefined ? String(data?.summary?.inventoryProductsCount) : (data?.summary?.inventoryValueFormatted || '0'))}
             </div>
           </div>
           {(() => {
-            const m = data?.summary?.inventory_metric || { change: '+0.0%', is_increase: true, vs_label: 'vs Last Month' };
+            const m = data?.summary?.inventory_products_metric || data?.summary?.inventory_metric || { change: '+0.0%', is_increase: true, vs_label: 'vs Last Month' };
             const isInc = m.is_increase !== false;
             return (
               <div className={`text-[11px] font-bold flex items-center gap-1 mt-3 ${isInc ? 'text-emerald-600' : 'text-rose-500'}`}>
@@ -675,60 +698,109 @@ export default function Dashboard() {
         {/* Right: Average Gold Values (5 cols) - Matching Image 2 */}
         <div className="lg:col-span-5 bg-white rounded-2xl p-5 sm:p-6 border border-stone-200/80 shadow-2xs flex flex-col justify-between space-y-4 h-full">
           {/* Header */}
-          <div className="border-b border-stone-100 pb-3">
+          <div className="border-b border-stone-100 pb-3 flex items-center justify-between">
             <h3 className="text-lg font-bold text-gray-900 tracking-tight">Average Gold Values</h3>
+            <span className="text-[10px] font-semibold text-stone-500 bg-stone-100/80 px-2 py-0.5 rounded-md border border-stone-200/60">
+              Transaction Avg
+            </span>
           </div>
 
-          {/* Average Gold Values Cards matching Image 2 */}
+          {/* Average Gold Values Cards matching Image 2 with Green & Red themes */}
           <div className="space-y-4 my-auto">
-            {/* Avg Buying Value Box */}
-            <div className="bg-[#f8f9fa] border border-stone-200/70 rounded-2xl p-4 sm:p-5 flex items-center justify-between">
+            {/* Avg Buying Value Box - Green Theme */}
+            <div className="bg-emerald-50/40 hover:bg-emerald-50/60 border border-emerald-200/80 rounded-2xl p-4 sm:p-5 flex items-center justify-between transition-colors shadow-2xs">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-rose-100/80 text-rose-500 flex items-center justify-center text-base shrink-0">
-                  <i className="fa-solid fa-arrow-trend-down"></i>
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-base shrink-0 shadow-2xs ${
+                  goldData.buyingDirection === 'up'
+                    ? 'bg-emerald-500 text-white shadow-emerald-500/20'
+                    : goldData.buyingDirection === 'down'
+                    ? 'bg-rose-500 text-white shadow-rose-500/20'
+                    : 'bg-emerald-100 text-emerald-700 border border-emerald-200/80'
+                }`}>
+                  <i className={`fa-solid ${
+                    goldData.buyingDirection === 'up'
+                      ? 'fa-arrow-trend-up'
+                      : goldData.buyingDirection === 'down'
+                      ? 'fa-arrow-trend-down'
+                      : 'fa-coins'
+                  }`}></i>
                 </div>
                 <div>
-                  <span className="text-xs sm:text-sm font-semibold text-stone-500 block mb-0.5">Avg Buying Value</span>
-                  <div className="text-xl sm:text-2xl font-bold text-stone-800 font-mono tracking-tight flex items-baseline gap-1">
+                  <span className="text-xs sm:text-sm font-bold text-emerald-950 block mb-0.5">Avg Buying Value</span>
+                  <div className="text-xl sm:text-2xl font-bold text-stone-900 font-mono tracking-tight flex items-baseline gap-1">
                     <span>₹ {goldData.buyingVal}</span>
-                    <span className="text-xs font-medium text-stone-400">/</span>
+                    <span className="text-xs font-semibold text-emerald-700">/</span>
+                    <span className="text-xs font-semibold text-emerald-700">{goldData.unit || 'g'}</span>
                   </div>
-                  <span className="text-xs text-stone-400 block font-medium mt-0.5">10g</span>
                 </div>
               </div>
               <div className="text-right shrink-0">
-                <div className="text-sm sm:text-base font-bold text-emerald-500 flex items-center justify-end gap-1">
-                  <i className="fa-solid fa-arrow-up text-xs"></i>
-                  <span>{goldData.buyingChange?.replace('+', '').trim() || '2.4%'}</span>
+                <div className={`text-sm sm:text-base font-bold flex items-center justify-end gap-1 ${
+                  goldData.buyingDirection === 'up'
+                    ? 'text-emerald-700'
+                    : goldData.buyingDirection === 'down'
+                    ? 'text-rose-600'
+                    : 'text-emerald-700/80'
+                }`}>
+                  {goldData.buyingDirection === 'up' && <i className="fa-solid fa-arrow-up text-xs"></i>}
+                  {goldData.buyingDirection === 'down' && <i className="fa-solid fa-arrow-down text-xs"></i>}
+                  {goldData.buyingDirection === 'flat' && <i className="fa-solid fa-minus text-xs"></i>}
+                  <span>{goldData.buyingChange?.replace('+', '').trim() || 'N/A'}</span>
                 </div>
-                <div className="text-xs text-stone-400 font-medium mt-0.5">
+                <div className="text-xs text-stone-500 font-medium mt-0.5">
                   {goldData.buyingVs}
+                </div>
+                <div className="text-[10px] text-stone-400 font-medium mt-0.5" title="Previous period average and absolute difference">
+                  Prev: {goldData.prevBuyingVal !== 'N/A' ? `₹${goldData.prevBuyingVal}` : 'N/A'} • Diff: {goldData.buyingDiff || 'N/A'}
                 </div>
               </div>
             </div>
 
-            {/* Avg Selling Value Box */}
-            <div className="bg-[#f8f9fa] border border-stone-200/70 rounded-2xl p-4 sm:p-5 flex items-center justify-between">
+            {/* Avg Selling Value Box - Red Theme */}
+            <div className="bg-rose-50/40 hover:bg-rose-50/60 border border-rose-200/80 rounded-2xl p-4 sm:p-5 flex items-center justify-between transition-colors shadow-2xs">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-emerald-100/80 text-emerald-500 flex items-center justify-center text-base shrink-0">
-                  <i className="fa-solid fa-arrow-trend-up"></i>
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-base shrink-0 shadow-2xs ${
+                  goldData.sellingDirection === 'up'
+                    ? 'bg-emerald-500 text-white shadow-emerald-500/20'
+                    : goldData.sellingDirection === 'down'
+                    ? 'bg-rose-500 text-white shadow-rose-500/20'
+                    : 'bg-rose-100 text-rose-700 border border-rose-200/80'
+                }`}>
+                  <i className={`fa-solid ${
+                    goldData.sellingDirection === 'up'
+                      ? 'fa-arrow-trend-up'
+                      : goldData.sellingDirection === 'down'
+                      ? 'fa-arrow-trend-down'
+                      : 'fa-coins'
+                  }`}></i>
                 </div>
                 <div>
-                  <span className="text-xs sm:text-sm font-semibold text-stone-500 block mb-0.5">Avg Selling Value</span>
-                  <div className="text-xl sm:text-2xl font-bold text-stone-800 font-mono tracking-tight flex items-baseline gap-1">
+                  <span className="text-xs sm:text-sm font-bold text-rose-950 block mb-0.5">Avg Selling Value</span>
+                  <div className="text-xl sm:text-2xl font-bold text-stone-900 font-mono tracking-tight flex items-baseline gap-1">
                     <span>₹ {goldData.sellingVal}</span>
-                    <span className="text-xs font-medium text-stone-400">/</span>
+                    <span className="text-xs font-semibold text-rose-700">/</span>
+                    <span className="text-xs font-semibold text-rose-700">{goldData.unit || 'g'}</span>
                   </div>
-                  <span className="text-xs text-stone-400 block font-medium mt-0.5">10g</span>
                 </div>
               </div>
               <div className="text-right shrink-0">
-                <div className="text-sm sm:text-base font-bold text-emerald-500 flex items-center justify-end gap-1">
-                  <i className="fa-solid fa-arrow-up text-xs"></i>
-                  <span>{goldData.sellingChange?.replace('+', '').trim() || '3.1%'}</span>
+                <div className={`text-sm sm:text-base font-bold flex items-center justify-end gap-1 ${
+                  goldData.sellingDirection === 'up'
+                    ? 'text-emerald-700'
+                    : goldData.sellingDirection === 'down'
+                    ? 'text-rose-600'
+                    : 'text-rose-700/80'
+                }`}>
+                  {goldData.sellingDirection === 'up' && <i className="fa-solid fa-arrow-up text-xs"></i>}
+                  {goldData.sellingDirection === 'down' && <i className="fa-solid fa-arrow-down text-xs"></i>}
+                  {goldData.sellingDirection === 'flat' && <i className="fa-solid fa-minus text-xs"></i>}
+                  <span>{goldData.sellingChange?.replace('+', '').trim() || 'N/A'}</span>
                 </div>
-                <div className="text-xs text-stone-400 font-medium mt-0.5">
+                <div className="text-xs text-stone-500 font-medium mt-0.5">
                   {goldData.sellingVs}
+                </div>
+                <div className="text-[10px] text-stone-400 font-medium mt-0.5" title="Previous period average and absolute difference">
+                  Prev: {goldData.prevSellingVal !== 'N/A' ? `₹${goldData.prevSellingVal}` : 'N/A'} • Diff: {goldData.sellingDiff || 'N/A'}
                 </div>
               </div>
             </div>
@@ -791,36 +863,29 @@ export default function Dashboard() {
           <div>
             <div className="flex items-center justify-between border-b border-stone-100 pb-3 mb-3">
               <h3 className="text-base font-bold text-stone-900 tracking-tight">Top Selling Categories</h3>
-              <div className="relative">
-                <button
-                  type="button"
-                  className="flex items-center gap-1.5 px-3 py-1 bg-white border border-stone-200 rounded-lg text-xs font-semibold text-stone-600 hover:border-stone-300 transition-colors shadow-2xs cursor-pointer"
-                >
-                  <span>This Month</span>
-                  <i className="fa-solid fa-chevron-down text-[9px] text-stone-400"></i>
-                </button>
-              </div>
             </div>
 
-            <div className="overflow-x-auto w-full">
-              <table className="w-full text-left border-collapse text-xs align-top">
+            <div className="w-full">
+              <table className="w-full text-left border-collapse text-xs align-top table-fixed">
                 <thead>
                   <tr className="text-[11px] font-semibold text-stone-400 border-b border-stone-100">
-                    <th className="pb-3 text-stone-400 font-semibold">Category</th>
-                    <th className="pb-3 text-stone-400 font-semibold text-right">Sales (₹)</th>
-                    <th className="pb-3 text-stone-400 font-semibold text-right">Growth</th>
+                    <th className="pb-3 text-stone-400 font-semibold w-[42%] pr-1">Category</th>
+                    <th className="pb-3 text-stone-400 font-semibold text-right w-[32%] pr-1">Sales (₹)</th>
+                    <th className="pb-3 text-stone-400 font-semibold text-right w-[26%]">Growth</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
                   {topCatData && topCatData.length > 0 ? (
                     topCatData.map((row, idx) => (
                       <tr key={idx} className="hover:bg-stone-50/50 transition-colors">
-                        <td className="py-3 font-semibold text-stone-900 text-xs flex items-center gap-2">
-                          <span className="text-sm">{row.icon}</span>
-                          <span className="truncate max-w-[120px]" title={row.name}>{row.name}</span>
+                        <td className="py-2.5 font-semibold text-stone-900 text-xs truncate pr-1" title={row.name}>
+                          <span className="inline-flex items-center gap-1.5 truncate max-w-full">
+                            <span className="text-sm shrink-0">{row.icon}</span>
+                            <span className="truncate">{row.name}</span>
+                          </span>
                         </td>
-                        <td className="py-3 text-right font-mono font-bold text-stone-900 text-xs whitespace-nowrap">{row.sales}</td>
-                        <td className={`py-3 text-right font-bold text-xs whitespace-nowrap ${row.is_increase === false ? 'text-rose-600' : 'text-[#16a34a]'}`}>{row.growth}</td>
+                        <td className="py-2.5 text-right font-mono font-bold text-stone-900 text-xs truncate pr-1" title={row.sales}>{row.sales}</td>
+                        <td className={`py-2.5 text-right font-bold text-xs truncate ${row.is_increase === false ? 'text-rose-600' : 'text-[#16a34a]'}`} title={row.growth}>{row.growth}</td>
                       </tr>
                     ))
                   ) : null}
@@ -831,8 +896,8 @@ export default function Dashboard() {
 
           {(!topCatData || topCatData.length === 0) && (
             <div className="py-8 flex flex-col items-center justify-center text-stone-400 font-medium my-auto space-y-2">
-              <i className="fa-solid fa-layer-group text-2xl text-stone-300"></i>
-              <span className="text-xs font-semibold">No Categories in Masters</span>
+              <i className="fa-solid fa-chart-pie text-2xl text-stone-300"></i>
+              <span className="text-xs font-semibold">No sales data available</span>
             </div>
           )}
         </div>
@@ -842,36 +907,29 @@ export default function Dashboard() {
           <div>
             <div className="flex items-center justify-between border-b border-stone-100 pb-3 mb-3">
               <h3 className="text-base font-bold text-stone-900 tracking-tight">Action Requires</h3>
-              <div className="relative">
-                <button
-                  type="button"
-                  className="flex items-center gap-1.5 px-3 py-1 bg-white border border-stone-200 rounded-lg text-xs font-semibold text-stone-600 hover:border-stone-300 transition-colors shadow-2xs cursor-pointer"
-                >
-                  <span>This Month</span>
-                  <i className="fa-solid fa-chevron-down text-[9px] text-stone-400"></i>
-                </button>
-              </div>
             </div>
 
-            <div className="overflow-x-auto w-full">
-              <table className="w-full text-left border-collapse text-xs align-top">
+            <div className="w-full">
+              <table className="w-full text-left border-collapse text-xs align-top table-fixed">
                 <thead>
                   <tr className="text-[11px] font-semibold text-stone-400 border-b border-stone-100">
-                    <th className="pb-3 text-stone-400 font-semibold">Category</th>
-                    <th className="pb-3 text-stone-400 font-semibold text-right">Sales (₹)</th>
-                    <th className="pb-3 text-stone-400 font-semibold text-right">Growth</th>
+                    <th className="pb-3 text-stone-400 font-semibold w-[42%] pr-1">Category</th>
+                    <th className="pb-3 text-stone-400 font-semibold text-right w-[32%] pr-1">Sales (₹)</th>
+                    <th className="pb-3 text-stone-400 font-semibold text-right w-[26%]">Growth</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
                   {actionReqData && actionReqData.length > 0 ? (
                     actionReqData.map((row, idx) => (
                       <tr key={idx} className="hover:bg-stone-50/50 transition-colors">
-                        <td className="py-3 font-semibold text-stone-900 text-xs flex items-center gap-2">
-                          <span className="text-sm">{row.icon}</span>
-                          <span className="truncate max-w-[120px]" title={row.name}>{row.name}</span>
+                        <td className="py-2.5 font-semibold text-stone-900 text-xs truncate pr-1" title={row.name}>
+                          <span className="inline-flex items-center gap-1.5 truncate max-w-full">
+                            <span className="text-sm shrink-0">{row.icon}</span>
+                            <span className="truncate">{row.name}</span>
+                          </span>
                         </td>
-                        <td className="py-3 text-right font-mono font-bold text-stone-900 text-xs whitespace-nowrap">{row.sales}</td>
-                        <td className={`py-3 text-right font-bold text-xs whitespace-nowrap ${row.is_increase === false ? 'text-rose-600' : 'text-[#16a34a]'}`}>{row.growth}</td>
+                        <td className="py-2.5 text-right font-mono font-bold text-stone-900 text-xs truncate pr-1" title={row.sales}>{row.sales}</td>
+                        <td className={`py-2.5 text-right font-bold text-xs truncate ${row.is_increase === false ? 'text-rose-600' : 'text-[#16a34a]'}`} title={row.growth}>{row.growth}</td>
                       </tr>
                     ))
                   ) : null}
@@ -1023,9 +1081,12 @@ export default function Dashboard() {
                       type="button"
                       disabled={liveJobsPage === 1}
                       onClick={() => setLiveJobsPage(p => Math.max(1, p - 1))}
-                      className="px-2.5 py-1 bg-white border border-stone-200 rounded-lg text-xs font-semibold text-stone-700 hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-2xs cursor-pointer"
+                      className="px-2.5 py-1 bg-white border border-stone-200 rounded-lg text-xs font-semibold text-stone-700 hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-2xs cursor-pointer flex items-center gap-1"
                     >
-                      <i className="fa-solid fa-chevron-left text-[9px] mr-1"></i> Prev
+                      <svg className="w-2.5 h-2.5 text-stone-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                      </svg>
+                      <span>Prev</span>
                     </button>
 
                     <span className="text-xs font-bold text-stone-700 px-2">
@@ -1036,9 +1097,12 @@ export default function Dashboard() {
                       type="button"
                       disabled={liveJobsPage >= totalLivePages}
                       onClick={() => setLiveJobsPage(p => Math.min(totalLivePages, p + 1))}
-                      className="px-2.5 py-1 bg-white border border-stone-200 rounded-lg text-xs font-semibold text-stone-700 hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-2xs cursor-pointer"
+                      className="px-2.5 py-1 bg-white border border-stone-200 rounded-lg text-xs font-semibold text-stone-700 hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-2xs cursor-pointer flex items-center gap-1"
                     >
-                      Next <i className="fa-solid fa-chevron-right text-[9px] ml-1"></i>
+                      <span>Next</span>
+                      <svg className="w-2.5 h-2.5 text-stone-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                      </svg>
                     </button>
                   </div>
 
@@ -1278,6 +1342,8 @@ export default function Dashboard() {
         karigarsList={karigarsList}
         liveJobs={jobStats.all_active_jobs || jobStats.live_jobs || []}
       />
+
+
 
     </div>
   );

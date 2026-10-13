@@ -8,194 +8,68 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState('');
-  const { login, isAuthenticated, isKarigar, user } = useAuth();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { login, isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
     if (isAuthenticated) {
-      const target = (isKarigar || user?.role === 'Karigar') ? '/job-order/in-progress' : '/dashboard';
-      navigate(target, { replace: true });
+      navigate('/dashboard', { replace: true });
     }
-  }, [isAuthenticated, isKarigar, user, navigate]);
+  }, [isAuthenticated, navigate]);
 
   useEffect(() => {
-    // Generate ambient sparkles
-    const field = document.getElementById('sparkleField');
-    if (field) {
-      field.innerHTML = '';
-      for (let i = 0; i < 40; i++) {
-        const s = document.createElement('div');
-        s.className = 'sparkle';
-        s.style.left = Math.random() * 100 + 'vw';
-        s.style.top = Math.random() * 100 + 'vh';
-        s.style.animationDelay = Math.random() * 3.5 + 's';
-        s.style.animationDuration = 2.5 + Math.random() * 3 + 's';
-        field.appendChild(s);
-      }
-    }
+    // Preload Dashboard bundle in background for instant transition
+    import('../Dashboard').catch(() => {});
+  }, []);
+
+  const sparkles = React.useMemo(() => {
+    return Array.from({ length: 40 }).map((_, i) => ({
+      id: i,
+      left: `${(i * 2.5 + (i % 7) * 11) % 100}vw`,
+      top: `${(i * 3.7 + (i % 5) * 17) % 100}vh`,
+      delay: `${(i * 0.2) % 3.5}s`,
+      duration: `${2.5 + ((i % 4) * 0.8)}s`,
+    }));
   }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setError('');
-    const res = await login(email, password);
-    if (res?.success) {
-      const loggedUser = res?.user;
-      const target = (loggedUser?.role === 'Karigar' || isKarigar) ? '/job-order/in-progress' : '/dashboard';
-      navigate(target, { replace: true });
-    } else {
-      setError(res?.message || 'Invalid credentials');
+    setIsSubmitting(true);
+
+    try {
+      const res = await login(email, password);
+      if (res?.success) {
+        navigate('/dashboard', { replace: true });
+      } else {
+        setError(res?.message || 'Invalid credentials');
+        setIsSubmitting(false);
+      }
+    } catch (err) {
+      setError('Login failed. Please try again.');
+      setIsSubmitting(false);
     }
   };
 
   return (
     <div className="login-wrapper relative min-h-screen flex items-center justify-center bg-radial-maroon p-5 overflow-y-auto">
-      <style>{`
-        :root{
-          --gold: #d4af37;
-          --gold-light: #f3d98b;
-          --gold-dark: #a8791f;
-          --black: #0d0b08;
-          --charcoal: #1a1611;
-          --cream: #f8f1e5;
-          --maroon: #3d0c11;
-          --glass-border: rgba(212,175,55,0.35);
-        }
 
-        .bg-radial-maroon {
-          background: radial-gradient(circle at 20% 20%, var(--maroon), var(--black) 60%);
-        }
-
-        .sparkle-field{
-          position:absolute;
-          inset:0;
-          pointer-events:none;
-          z-index:0;
-        }
-        .sparkle{
-          position:absolute;
-          width:4px;height:4px;
-          background:var(--gold-light);
-          border-radius:50%;
-          opacity:0.7;
-          animation:twinkle 3.5s infinite ease-in-out;
-          box-shadow:0 0 8px 2px var(--gold-light);
-        }
-        @keyframes twinkle{
-          0%,100%{opacity:0.2; transform:scale(0.8);}
-          50%{opacity:1; transform:scale(1.4);}
-        }
-
-        .corner-ornament{
-          position:fixed;
-          width:120px;height:120px;
-          border:2px solid var(--gold);
-          opacity:0.25;
-          z-index:0;
-        }
-        .corner-ornament.top-left{top:30px;left:30px;border-right:none;border-bottom:none;}
-        .corner-ornament.bottom-right{bottom:30px;right:30px;border-left:none;border-top:none;}
-
-        .login-card{
-          position:relative;
-          z-index:2;
-          width:100%;
-          max-width:420px;
-          background:linear-gradient(160deg, rgba(26,22,17,0.9), rgba(13,11,8,0.95));
-          border:1px solid var(--glass-border);
-          border-radius:18px;
-          backdrop-filter:blur(14px);
-          box-shadow:0 25px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(212,175,55,0.08) inset;
-          padding:45px 38px 38px;
-          animation:riseIn 0.8s ease;
-          margin:auto;
-        }
-        @keyframes riseIn{
-          from{opacity:0; transform:translateY(30px);}
-          to{opacity:1; transform:translateY(0);}
-        }
-
-        .brand-logo{
-          width:64px;height:64px;
-          margin:0 auto 14px;
-          border-radius:50%;
-          background:linear-gradient(135deg, var(--gold-light), var(--gold-dark));
-          display:flex;
-          align-items:center;
-          justify-content:center;
-          font-family:'Playfair Display',serif;
-          font-weight:800;
-          font-size:26px;
-          color:var(--black);
-          box-shadow:0 0 25px rgba(212,175,55,0.5);
-        }
-        .brand-name{
-          font-family:'Playfair Display',serif;
-          font-weight:700;
-          font-size:28px;
-          letter-spacing:1.5px;
-          background:linear-gradient(90deg, var(--gold-light), var(--gold), var(--gold-dark));
-          -webkit-background-clip:text;
-          -webkit-text-fill-color:transparent;
-        }
-
-        .divider-orn{
-          display:flex;
-          align-items:center;
-          justify-content:center;
-          gap:10px;
-          margin:22px 0 26px;
-          color:var(--gold);
-          opacity:0.6;
-          font-size:14px;
-        }
-        .divider-orn::before, .divider-orn::after{
-          content:"";
-          height:1px;
-          width:60px;
-          background:linear-gradient(90deg, transparent, var(--gold), transparent);
-        }
-
-        .form-input{
-          width:100%;
-          padding:15px 16px 15px 44px;
-          background:rgba(255,255,255,0.03);
-          border:1px solid rgba(212,175,55,0.25);
-          border-radius:10px;
-          color:var(--cream);
-          font-size:14.5px;
-          outline:none;
-          transition:all 0.3s ease;
-        }
-        .form-input::placeholder{color:rgba(248,241,229,0.35);}
-        .form-input:focus{
-          border-color:var(--gold);
-          background:rgba(212,175,55,0.06);
-          box-shadow:0 0 0 3px rgba(212,175,55,0.12);
-        }
-        .btn-login{
-          width:100%;
-          padding:15px;
-          border:none;
-          border-radius:10px;
-          background:linear-gradient(90deg, var(--gold-dark), var(--gold), var(--gold-light));
-          background-size:200% auto;
-          color:var(--black);
-          font-weight:600;
-          font-size:15px;
-          letter-spacing:0.5px;
-          cursor:pointer;
-          transition:all 0.4s ease;
-          box-shadow:0 10px 25px rgba(212,175,55,0.3);
-        }
-        .btn-login:hover{
-          background-position:right center;
-          transform:translateY(-2px);
-          box-shadow:0 14px 30px rgba(212,175,55,0.45);
-        }
-      `}</style>
-
-      <div className="sparkle-field" id="sparkleField"></div>
+      <div className="sparkle-field">
+        {sparkles.map((s) => (
+          <div
+            key={s.id}
+            className="sparkle"
+            style={{
+              left: s.left,
+              top: s.top,
+              animationDelay: s.delay,
+              animationDuration: s.duration,
+            }}
+          />
+        ))}
+      </div>
       <div className="corner-ornament top-left"></div>
       <div className="corner-ornament bottom-right"></div>
 
@@ -228,6 +102,7 @@ export default function Login() {
               className="form-input"
               placeholder="Email address"
               required
+              disabled={isSubmitting}
               autoFocus
             />
           </div>
@@ -242,6 +117,7 @@ export default function Login() {
               onChange={(e) => setPassword(e.target.value)}
               className="form-input"
               placeholder="Password"
+              disabled={isSubmitting}
               required
             />
             <button
@@ -259,14 +135,26 @@ export default function Login() {
                 type="checkbox"
                 checked={remember}
                 onChange={(e) => setRemember(e.target.checked)}
+                disabled={isSubmitting}
                 className="accent-[#d4af37]"
               />
               Remember me
             </label>
           </div>
 
-          <button type="submit" className="btn-login">
-            Sign In
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className={`btn-login flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-75 cursor-not-allowed' : ''}`}
+          >
+            {isSubmitting ? (
+              <>
+                <i className="fa-solid fa-circle-notch animate-spin text-base"></i>
+                <span>Signing In...</span>
+              </>
+            ) : (
+              'Sign In'
+            )}
           </button>
         </form>
         <div className="mt-6 pt-4 border-t border-[rgba(212,175,55,0.15)] text-center text-xs text-[#f3d98b]/70 font-medium tracking-wide">

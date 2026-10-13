@@ -3,8 +3,12 @@ import { useLocation, useNavigate, Link } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import WorkInProgress from './WorkInProgress';
-import WasteDetails from './WasteDetails';
+import JobOrderDelay from './JobOrderDelay';
 import QualityCheckDetails from './QualityCheckDetails';
+import CertificationDetails from './CertificationDetails';
+import HallmarkingDetails from './HallmarkingDetails';
+import ReadyDetails from './ReadyDetails';
+import ReceiverWork from './ReceiverWork';
 import HistoryDetails from './HistoryDetails';
 
 export const resolveItemImage = (item) => {
@@ -21,9 +25,10 @@ export const resolveItemImage = (item) => {
 const TABS = [
   { id: 'in-progress', label: 'Work in Progress', icon: 'fa-solid fa-spinner', countKey: 'in_progress' },
   { id: 'delay', label: 'Delay / Job Details', icon: 'fa-solid fa-triangle-exclamation', countKey: 'delayed' },
-  { id: 'waste', label: 'Waste Details', icon: 'fa-solid fa-recycle', countKey: 'waste' },
   { id: 'quality-check', label: 'Quality Check', icon: 'fa-solid fa-clipboard-check', countKey: 'quality_check' },
-  { id: 'final-receive', label: 'Final Receive', icon: 'fa-solid fa-circle-check', countKey: 'final_receive' },
+  { id: 'ready', label: 'Ready', icon: 'fa-solid fa-circle-check', countKey: 'ready' },
+  { id: 'certification', label: 'Certification', icon: 'fa-solid fa-award', countKey: 'certification' },
+  { id: 'hallmarking', label: 'Hallmarking', icon: 'fa-solid fa-shield-halved', countKey: 'hallmarking' },
   { id: 'history', label: 'History & Audit', icon: 'fa-solid fa-clock-rotate-left', countKey: 'history' },
 ];
 
@@ -70,8 +75,10 @@ export default function JobOrderHub({ initialTab = 'in-progress' }) {
       const apiTabMap = {
         'in-progress': 'in_progress',
         'delay': 'delayed',
-        'waste': 'waste',
         'quality-check': 'quality_check',
+        'certification': 'certification',
+        'hallmarking': 'hallmarking',
+        'ready': 'ready',
         'final-receive': 'final_receive',
         'history': 'history',
       };
@@ -100,7 +107,7 @@ export default function JobOrderHub({ initialTab = 'in-progress' }) {
   const handleApprove = async (orderId) => {
     const confirmed = await showConfirm({
       title: 'Approve Work Order',
-      message: 'Are you sure you want to approve this work order? It will be marked as Ready for delivery.',
+      message: 'Are you sure you want to approve this work order? It will proceed to Ready.',
       icon: 'fa-solid fa-circle-check',
       confirmText: 'Approve Order'
     });
@@ -109,7 +116,6 @@ export default function JobOrderHub({ initialTab = 'in-progress' }) {
     try {
       setActionLoading(true);
       await api.post(`/work-orders/${orderId}/approve`);
-      await api.post(`/work-orders/${orderId}/mark-ready`);
       showToast('Work order approved successfully!', 'success');
       fetchOrders(activeTab);
     } catch (err) {
@@ -152,7 +158,7 @@ export default function JobOrderHub({ initialTab = 'in-progress' }) {
 
     try {
       setActionLoading(true);
-      await api.post(`/work-orders/${orderId}/final-receive`);
+      await api.post(`/work-orders/${orderId}/receive-piece`);
       showToast('Final receive completed. Product added to inventory.', 'success');
       fetchOrders(activeTab);
     } catch (err) {
@@ -177,12 +183,24 @@ export default function JobOrderHub({ initialTab = 'in-progress' }) {
     return <WorkInProgress />;
   }
 
-  if (activeTab === 'waste') {
-    return <WasteDetails />;
+  if (activeTab === 'delay') {
+    return <JobOrderDelay />;
   }
 
   if (activeTab === 'quality-check') {
     return <QualityCheckDetails />;
+  }
+
+  if (activeTab === 'ready') {
+    return <ReadyDetails />;
+  }
+
+  if (activeTab === 'certification') {
+    return <CertificationDetails />;
+  }
+
+  if (activeTab === 'hallmarking') {
+    return <HallmarkingDetails />;
   }
 
   if (activeTab === 'history') {
@@ -222,13 +240,6 @@ export default function JobOrderHub({ initialTab = 'in-progress' }) {
           >
             <i className="fa-solid fa-plus text-[#b01622]"></i>
             <span>New Work Order</span>
-          </Link>
-          <Link
-            to="/job-order/receive"
-            className="px-4 py-2.5 bg-[#b01622] hover:bg-[#8f1019] text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-2"
-          >
-            <i className="fa-solid fa-dolly"></i>
-            <span>Receive Work Order</span>
           </Link>
         </div>
       </div>
@@ -303,17 +314,10 @@ export default function JobOrderHub({ initialTab = 'in-progress' }) {
             </span>
           </div>
 
-          {activeTab === 'delay' && (
+            {activeTab === 'delay' && (
             <span className="text-xs font-bold text-red-600 flex items-center gap-1.5">
               <i className="fa-solid fa-triangle-exclamation"></i>
               <span>Allotted delivery deadline has passed</span>
-            </span>
-          )}
-
-          {activeTab === 'waste' && (
-            <span className="text-xs font-bold text-amber-700 flex items-center gap-1.5">
-              <i className="fa-solid fa-scale-unbalanced"></i>
-              <span>Live material scrap & wastage variance</span>
             </span>
           )}
 
@@ -335,15 +339,7 @@ export default function JobOrderHub({ initialTab = 'in-progress' }) {
                 <th className="py-3 px-3 whitespace-nowrap">Material</th>
                 
                 {/* Conditional Column Headers based on Tab */}
-                {activeTab === 'waste' ? (
-                  <>
-                    <th className="py-3 px-3 text-right whitespace-nowrap">Allotted Wt</th>
-                    <th className="py-3 px-3 text-right whitespace-nowrap">Finished Wt</th>
-                    <th className="py-3 px-3 text-right whitespace-nowrap">Scrap / Loss</th>
-                    <th className="py-3 px-3 text-right whitespace-nowrap">Allowed %</th>
-                    <th className="py-3 px-3 whitespace-nowrap">Variance Status</th>
-                  </>
-                ) : activeTab === 'delay' ? (
+                {activeTab === 'delay' ? (
                   <>
                     <th className="py-3 px-3 whitespace-nowrap">Due Date</th>
                     <th className="py-3 px-3 whitespace-nowrap">Delay Duration</th>
@@ -439,31 +435,7 @@ export default function JobOrderHub({ initialTab = 'in-progress' }) {
                         </td>
 
                         {/* Dynamic Columns based on Active Tab */}
-                        {activeTab === 'waste' ? (
-                          <>
-                            <td className="py-3 px-3 text-right font-mono font-bold whitespace-nowrap">
-                              {Number(wo.allotted_weight).toFixed(3)} g
-                            </td>
-                            <td className="py-3 px-3 text-right font-mono font-bold text-emerald-700 whitespace-nowrap">
-                              {Number(wo.completed_weight).toFixed(3)} g
-                            </td>
-                            <td className="py-3 px-3 text-right font-mono font-bold text-[#b01622] whitespace-nowrap">
-                              {scrapWt.toFixed(3)} g
-                            </td>
-                            <td className="py-3 px-3 text-right font-mono whitespace-nowrap text-stone-600">
-                              {wo.wastage_allowed_percent}% ({allowedScrap.toFixed(3)}g)
-                            </td>
-                            <td className="py-3 px-3 whitespace-nowrap">
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                isWithinWastage
-                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                  : 'bg-red-50 text-red-700 border border-red-200'
-                              }`}>
-                                {isWithinWastage ? 'Normal Limit' : 'Excess Scrap'}
-                              </span>
-                            </td>
-                          </>
-                        ) : activeTab === 'delay' ? (
+                        {activeTab === 'delay' ? (
                           <>
                             <td className="py-3 px-3 font-mono font-bold text-red-600 whitespace-nowrap">
                               {wo.delivery_date ? new Date(wo.delivery_date).toLocaleDateString('en-GB') : '—'}

@@ -12,6 +12,7 @@ class Stamp extends Model
     protected $fillable = [
         'name',
         'code',
+        'applicable_for',
         'sort_order',
         'description',
     ];

@@ -30,9 +30,11 @@ class DiamondClarityController extends Controller
             'status' => 'nullable|string|in:active,inactive',
         ]);
 
-        if (!isset($validated['sort_order'])) {
+        if (!isset($validated['sort_order']) || $validated['sort_order'] === null || $validated['sort_order'] === '') {
             $maxOrder = DiamondClarity::max('sort_order') ?? 0;
             $validated['sort_order'] = $maxOrder + 1;
+        } else {
+            $validated['sort_order'] = (int)$validated['sort_order'];
         }
 
         if (!isset($validated['status'])) {
@@ -67,6 +69,12 @@ class DiamondClarityController extends Controller
             'description' => 'nullable|string',
             'status' => 'nullable|string|in:active,inactive',
         ]);
+
+        if (!isset($validated['sort_order']) || $validated['sort_order'] === null || $validated['sort_order'] === '') {
+            $validated['sort_order'] = $diamondClarity->sort_order ?? ((DiamondClarity::max('sort_order') ?? 0) + 1);
+        } else {
+            $validated['sort_order'] = (int)$validated['sort_order'];
+        }
 
         $diamondClarity->update($validated);
 

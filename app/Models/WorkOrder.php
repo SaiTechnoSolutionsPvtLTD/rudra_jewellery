@@ -12,6 +12,8 @@ class WorkOrder extends Model
 
     protected $fillable = [
         'work_order_number',
+        'job_order_id',
+        'job_number',
         'client_id',
         'customer_name',
         'product_id',
@@ -25,6 +27,8 @@ class WorkOrder extends Model
         'allotted_date',
         'delivery_date',
         'allotted_weight',
+        'karigar_gold_weight',
+        'additional_allocated_weight',
         'completed_weight',
         'pending_weight',
         'expected_return_weight',
@@ -33,6 +37,16 @@ class WorkOrder extends Model
         'making_charge_per_gram',
         'total_making_charges',
         'total_price',
+        'required_qty',
+        'completed_qty',
+        'qc_pending_qty',
+        'qc_approved_qty',
+        'rework_qty',
+        'ready_qty',
+        'certified_qty',
+        'hallmarked_qty',
+        'received_qty',
+        'finalized_qty',
         'current_stage',
         'status',
         'quality_status',
@@ -41,6 +55,20 @@ class WorkOrder extends Model
         'quality_checked_at',
         'approved_by',
         'approved_at',
+        'certification_status',
+        'certification_details',
+        'certification_updated_by',
+        'certification_updated_at',
+        'hallmarking_status',
+        'hallmarking_details',
+        'hallmarking_updated_by',
+        'hallmarking_updated_at',
+        'is_delayed',
+        'delay_days',
+        'delay_reason',
+        'delay_remarks',
+        'delay_updated_by',
+        'delay_updated_at',
         'return_reason',
         'returned_by',
         'return_date',
@@ -58,11 +86,24 @@ class WorkOrder extends Model
         'created_by',
     ];
 
+    protected static function booted()
+    {
+        static::deleting(function ($workOrder) {
+            $workOrder->items()->delete();
+            $workOrder->receivedPieces()->delete();
+            $workOrder->operations()->delete();
+            $workOrder->timelines()->delete();
+            $workOrder->notifications()->delete();
+        });
+    }
+
     protected $casts = [
         'allotted_date' => 'date',
         'delivery_date' => 'date',
         'return_date' => 'date',
         'allotted_weight' => 'float',
+        'karigar_gold_weight' => 'float',
+        'additional_allocated_weight' => 'float',
         'completed_weight' => 'float',
         'pending_weight' => 'float',
         'expected_return_weight' => 'float',
@@ -73,16 +114,43 @@ class WorkOrder extends Model
         'total_price' => 'float',
         'returned_weight' => 'float',
         'return_count' => 'integer',
+        'required_qty' => 'integer',
+        'completed_qty' => 'integer',
+        'qc_pending_qty' => 'integer',
+        'qc_approved_qty' => 'integer',
+        'rework_qty' => 'integer',
+        'ready_qty' => 'integer',
+        'certified_qty' => 'integer',
+        'hallmarked_qty' => 'integer',
+        'received_qty' => 'integer',
+        'finalized_qty' => 'integer',
+        'is_delayed' => 'boolean',
+        'delay_days' => 'integer',
         'checklist' => 'array',
         'stone_details' => 'array',
         'pricing_details' => 'array',
         'karigar_data' => 'array',
+        'certification_details' => 'array',
+        'hallmarking_details' => 'array',
         'quality_checked_at' => 'datetime',
         'approved_at' => 'datetime',
+        'certification_updated_at' => 'datetime',
+        'hallmarking_updated_at' => 'datetime',
+        'delay_updated_at' => 'datetime',
         'karigar_submitted_at' => 'datetime',
     ];
 
-    protected $appends = ['specifications', 'items', 'delay_history'];
+    protected $appends = ['specifications', 'items_list', 'delay_history', 'pending_production_qty', 'pending_receive_qty'];
+
+    public function getPendingProductionQtyAttribute()
+    {
+        return max(0, (int) $this->required_qty - (int) $this->completed_qty);
+    }
+
+    public function getPendingReceiveQtyAttribute()
+    {
+        return max(0, (int) $this->ready_qty - (int) $this->received_qty);
+    }
 
     /**
      * Delay and Hold history records
@@ -117,10 +185,23 @@ class WorkOrder extends Model
      */
     public function getItemsAttribute()
     {
-        if (!empty($this->pricing_details['items']) && is_array($this->pricing_details['items'])) {
-            return $this->pricing_details['items'];
+        $dbItems = $this->items()->get();
+        if ($dbItems->count() > 0) {
+            return $dbItems;
         }
-        // Fallback: wrap single specifications as item #1
+
+        if (!empty($this->pricing_details['items']) && is_array($this->pricing_details['items'])) {
+            return array_map(function ($itm) {
+                if (is_array($itm)) {
+                    $wt = (float)($itm['allotted_weight'] ?? $itm['allocated_weight'] ?? $itm['gold_weight'] ?? $itm['total_weight'] ?? 0);
+                    $done = (float)($itm['completed_weight'] ?? $itm['done_weight'] ?? $itm['actual_weight'] ?? 0);
+                    $itm['allotted_weight'] = $wt;
+                    $itm['completed_weight'] = $done;
+                }
+                return $itm;
+            }, $this->pricing_details['items']);
+        }
+
         return [$this->specifications];
     }
 
@@ -220,6 +301,11 @@ class WorkOrder extends Model
         return '/placeholder-jewelry.png';
     }
 
+    public function jobOrder()
+    {
+        return $this->belongsTo(JobOrder::class, 'job_order_id');
+    }
+
     public function client()
     {
         return $this->belongsTo(Client::class);
@@ -268,5 +354,45 @@ class WorkOrder extends Model
     public function notifications()
     {
         return $this->hasMany(WorkOrderNotification::class)->latest();
+    }
+
+    public function items()
+    {
+        return $this->hasMany(WorkOrderItem::class, 'work_order_id');
+    }
+
+    public function receivedPieces()
+    {
+        return $this->hasMany(WorkOrderReceivedPiece::class, 'work_order_id')->orderBy('id', 'asc');
+    }
+
+    public function operations()
+    {
+        return $this->hasMany(WorkOrderOperation::class, 'work_order_id')->orderBy('created_at', 'asc');
+    }
+
+    public function materialTransactions()
+    {
+        return $this->hasMany(KarigarMaterialTransaction::class, 'work_order_id')->latest('transaction_date');
+    }
+
+    public function delayUpdater()
+    {
+        return $this->belongsTo(User::class, 'delay_updated_by');
+    }
+
+    public function certificationUpdater()
+    {
+        return $this->belongsTo(User::class, 'certification_updated_by');
+    }
+
+    public function hallmarkingUpdater()
+    {
+        return $this->belongsTo(User::class, 'hallmarking_updated_by');
+    }
+
+    public function getItemsListAttribute()
+    {
+        return $this->items()->get();
     }
 }

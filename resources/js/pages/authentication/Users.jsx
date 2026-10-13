@@ -20,6 +20,7 @@ export default function Users() {
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [avatarFile, setAvatarFile] = useState(null);
 
   // Delete Confirm Modal State
   const [deleteTargetUser, setDeleteTargetUser] = useState(null);
@@ -54,10 +55,10 @@ export default function Users() {
       if (Array.isArray(res.data) && res.data.length > 0) {
         setRolesList(res.data.map(r => r.display_name));
       } else {
-        setRolesList(['Super Admin', 'Admin', 'Manager', 'Staff', 'Karigar']);
+        setRolesList(['Super Admin', 'Admin', 'Manager', 'Staff']);
       }
     } catch (err) {
-      setRolesList(['Super Admin', 'Admin', 'Manager', 'Staff', 'Karigar']);
+      setRolesList(['Super Admin', 'Admin', 'Manager', 'Staff']);
     }
   };
 
@@ -68,6 +69,7 @@ export default function Users() {
 
   const handleOpenCreateModal = () => {
     setEditingId(null);
+    setAvatarFile(null);
     setFormData({
       name: '',
       email: '',
@@ -83,13 +85,14 @@ export default function Users() {
 
   const handleOpenEditModal = (user) => {
     setEditingId(user.id);
+    setAvatarFile(null);
     setFormData({
       name: user.name || '',
       email: user.email || '',
       mobile_number: user.mobile_number || '',
       role: user.role || 'Staff',
       status: user.status || 'active',
-      avatar: user.avatar || '',
+      avatar: user.avatar || user.avatar_url || '',
       password: '',
       confirm_password: ''
     });
@@ -103,11 +106,17 @@ export default function Users() {
       showToast('Image size should be less than 5MB', 'error');
       return;
     }
+    setAvatarFile(file);
     const reader = new FileReader();
     reader.onload = () => {
       setFormData(prev => ({ ...prev, avatar: reader.result }));
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleRemoveAvatar = () => {
+    setAvatarFile(null);
+    setFormData(prev => ({ ...prev, avatar: '' }));
   };
 
   const handleChange = (e) => {
@@ -148,32 +157,55 @@ export default function Users() {
     }
 
     try {
+      const payload = new FormData();
+      payload.append('name', formData.name);
+      payload.append('email', formData.email);
+      payload.append('mobile_number', formData.mobile_number || '');
+      payload.append('role', formData.role);
+      payload.append('status', formData.status || 'active');
+
+      if (formData.password) {
+        payload.append('password', formData.password);
+      }
+
+      if (avatarFile) {
+        payload.append('avatar_file', avatarFile);
+        payload.append('avatar', avatarFile);
+      } else if (formData.avatar) {
+        payload.append('avatar', formData.avatar);
+      } else {
+        payload.append('avatar', '');
+      }
+
       let savedUser = null;
       if (editingId) {
-        const res = await api.put(`/users/${editingId}`, formData);
+        payload.append('_method', 'PUT');
+        const res = await api.post(`/users/${editingId}`, payload, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
         savedUser = res.data?.user || res.data;
         showToast(`User "${formData.name}" updated successfully!`, 'success', 'Updated');
       } else {
-        const res = await api.post('/users', formData);
+        const res = await api.post('/users', payload, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
         savedUser = res.data?.user || res.data;
         showToast(`New user "${formData.name}" created successfully!`, 'success', 'Created');
       }
 
-      // Sync active logged-in user profile & photo immediately across the app
+      // Immediately update local users state and active user context
+      if (savedUser) {
+        setUsers(prev => prev.map(u => u.id === (savedUser.id || editingId) ? { ...u, ...savedUser } : u));
+      }
+
       if (currentUser && (currentUser.id === editingId || currentUser.email === formData.email || currentUser.name === formData.name)) {
-        if (updateUser) {
-          updateUser({
-            name: formData.name,
-            email: formData.email,
-            avatar: formData.avatar,
-            role: formData.role,
-            mobile_number: formData.mobile_number,
-          });
+        if (updateUser && savedUser) {
+          updateUser(savedUser);
         }
       }
 
       setShowModal(false);
-      fetchUsers();
+      await fetchUsers();
     } catch (err) {
       console.error(err);
       showToast(err.response?.data?.message || 'Failed to save user details', 'error', 'Operation Failed');
@@ -332,11 +364,15 @@ export default function Users() {
                     <tr key={user.id} className="hover:bg-gray-50/60 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          {user.avatar ? (
+                          {user.avatar || user.avatar_url ? (
                             <img
-                              src={user.avatar}
+                              src={user.avatar || user.avatar_url}
                               alt={user.name}
                               className="w-10 h-10 rounded-full object-cover border border-stone-200 shadow-xs shrink-0"
+                              onError={(e) => {
+                                e.target.onerror = null;
+                                e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || 'User')}&background=b01622&color=ffffff&bold=true&size=128`;
+                              }}
                             />
                           ) : (
                             <div className="w-10 h-10 rounded-full bg-red-100 text-[#b01622] flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
@@ -475,7 +511,7 @@ export default function Users() {
                     {formData.avatar && (
                       <button
                         type="button"
-                        onClick={() => setFormData(prev => ({ ...prev, avatar: '' }))}
+                        onClick={handleRemoveAvatar}
                         className="px-2.5 py-1 text-red-600 hover:text-red-800 text-xs font-semibold transition-colors"
                       >
                         Remove

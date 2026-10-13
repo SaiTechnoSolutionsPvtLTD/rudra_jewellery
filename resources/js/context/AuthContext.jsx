@@ -16,7 +16,10 @@ export const AuthProvider = ({ children }) => {
     const token = localStorage.getItem('auth_token');
     return !!token && token !== 'undefined' && token !== 'null';
   });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => {
+    const token = localStorage.getItem('auth_token');
+    return !!token && token !== 'undefined' && token !== 'null';
+  });
 
   useEffect(() => {
     const verifyAuth = async () => {
@@ -33,11 +36,13 @@ export const AuthProvider = ({ children }) => {
           }
         } catch (error) {
           clearAuth();
+        } finally {
+          setLoading(false);
         }
       } else {
         clearAuth();
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     verifyAuth();
@@ -94,7 +99,7 @@ export const AuthProvider = ({ children }) => {
   const isAdmin = isSuperAdmin || normalizedRole === 'admin' || normalizedRole === 'administrator';
   const isManager = normalizedRole === 'manager';
   const isStaff = normalizedRole === 'staff';
-  const isKarigar = normalizedRole === 'karigar' || normalizedRole === 'master_karigar' || !!user?.karigar;
+  const isKarigar = false;
 
   const hasPermission = (permKey) => {
     if (isSuperAdmin) return true;

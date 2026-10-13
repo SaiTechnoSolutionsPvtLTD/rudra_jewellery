@@ -115,7 +115,7 @@ class AuthController extends Controller
             'mobile_number' => $user->mobile_number,
             'role' => $user->role,
             'status' => $user->status ?? 'active',
-            'avatar' => $user->avatar ?? null,
+            'avatar' => $user->avatar_url ?? $user->avatar ?? null,
             'permissions' => $user->permissions,
             'karigar' => $user->karigar ? [
                 'id' => $user->karigar->id,

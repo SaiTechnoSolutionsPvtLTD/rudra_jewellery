@@ -55,11 +55,15 @@ export default function GoldTypes() {
 
   const openAddModal = () => {
     setEditingType(null);
+    const maxSort = types.reduce((max, item) => {
+      const num = parseInt(item.sort_order, 10);
+      return !isNaN(num) && num > max ? num : max;
+    }, 0);
     setFormData({
       name: '',
       purity: '',
       karat: '',
-      sort_order: types.length + 1,
+      sort_order: maxSort + 1,
       description: '',
     });
     setIsModalOpen(true);
@@ -147,27 +151,36 @@ export default function GoldTypes() {
       </div>
 
       {/* Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <div className="bg-white rounded-xl border border-gray-200/80 p-4 shadow-2xs">
-          <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Total Gold Types</div>
-          <div className="text-2xl font-black text-gray-900">{types.length}</div>
-          <div className="text-[11px] text-gray-500 mt-1">Active metal options in catalog</div>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200/80 p-4 shadow-2xs">
-          <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Standard Karats</div>
-          <div className="text-2xl font-black text-amber-600">
-            {types.filter(t => ['14 Carat', '18 Carat', '22 Carat', '24 Carat'].includes(t.name)).length}
+      {(() => {
+        const isStandard = (t) => {
+          const n = (t.name || '').toLowerCase().trim();
+          const k = (t.karat || '').toLowerCase().trim();
+          const matches = ['14', '18', '22', '24', '14k', '18k', '22k', '24k', '14 carat', '18 carat', '22 carat', '24 carat'];
+          return matches.some(m => n.includes(m) || k.includes(m));
+        };
+        const standardCount = types.filter(isStandard).length;
+        const customCount = types.length - standardCount;
+
+        return (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+            <div className="bg-white rounded-xl border border-gray-200/80 p-4 shadow-2xs">
+              <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Total Gold Types</div>
+              <div className="text-2xl font-black text-gray-900">{types.length}</div>
+              <div className="text-[11px] text-gray-500 mt-1">Active metal options in catalog</div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200/80 p-4 shadow-2xs">
+              <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Standard Karats</div>
+              <div className="text-2xl font-black text-amber-600">{standardCount}</div>
+              <div className="text-[11px] text-gray-500 mt-1">Hallmark certified purity baselines</div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200/80 p-4 shadow-2xs">
+              <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Custom Alloys</div>
+              <div className="text-2xl font-black text-slate-700">{customCount}</div>
+              <div className="text-[11px] text-gray-500 mt-1">Rose gold, white gold & custom types</div>
+            </div>
           </div>
-          <div className="text-[11px] text-gray-500 mt-1">Hallmark certified purity baselines</div>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200/80 p-4 shadow-2xs">
-          <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Custom Alloys</div>
-          <div className="text-2xl font-black text-slate-700">
-            {types.filter(t => !['14 Carat', '18 Carat', '22 Carat', '24 Carat'].includes(t.name)).length}
-          </div>
-          <div className="text-[11px] text-gray-500 mt-1">Rose gold, white gold & custom types</div>
-        </div>
-      </div>
+        );
+      })()}
 
       {/* Table Container */}
       <div className="bg-white rounded-xl border border-gray-200/80 shadow-2xs overflow-hidden">

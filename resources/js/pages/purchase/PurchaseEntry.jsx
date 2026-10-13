@@ -24,6 +24,7 @@ export default function PurchaseEntry({ initialTab }) {
   const [suppliers, setSuppliers] = useState([]);
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [rawMaterials, setRawMaterials] = useState([]);
   const [purchaseEntries, setPurchaseEntries] = useState([]);
 
   const [loading, setLoading] = useState(true);
@@ -48,6 +49,9 @@ export default function PurchaseEntry({ initialTab }) {
     supplier_id: '',
     purchase_type: 'raw_material', // 'raw_material' | 'finished_product'
     product_id: '',
+    raw_material_id: '',
+    count_qty: '',
+    unit: 'g',
     category_id: '',
     item_name: '',
     product_code: '',
@@ -71,15 +75,58 @@ export default function PurchaseEntry({ initialTab }) {
 
   const [formData, setFormData] = useState(initialFormState);
 
-  // Fetch initial data (Suppliers, Products, Categories, Purchase Entries)
+  // Dedicated Opening Stock State
+  const initialOpeningState = {
+    stock_number: '',
+    material_type: 'gold', // 'gold' | 'diamond' | 'stone' | 'silver'
+    stamp: '',
+    karat: '22K',
+    purity: '91.6',
+    unit: 'g',
+    weight: '',
+    carat_weight: '',
+    quantity: '',
+    rate: '',
+    total_value: '',
+    entry_date: new Date().toISOString().split('T')[0],
+    notes: 'Initial business vault opening balance',
+  };
+  const [openingForm, setOpeningForm] = useState(initialOpeningState);
+  const [openingSaving, setOpeningSaving] = useState(false);
+  const [generatingOpeningNo, setGeneratingOpeningNo] = useState(false);
+  const [openingStockEntries, setOpeningStockEntries] = useState([]);
+  const [unifiedStockData, setUnifiedStockData] = useState(null);
+  const [unifiedLoading, setUnifiedLoading] = useState(false);
+  const [diamondFilterStamp, setDiamondFilterStamp] = useState('');
+
+  // Active Masters from backend
+  const [stampsList, setStampsList] = useState([]);
+  const [karatsList, setKaratsList] = useState([]);
+  const [unitsList, setUnitsList] = useState([]);
+  const [claritiesList, setClaritiesList] = useState([]);
+  const [colorsList, setColorsList] = useState([]);
+
+  // Fetch initial data (Suppliers, Products, Categories, Masters, Opening Stocks, Unified Ledger)
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [supRes, prodRes, catRes, entryRes] = await Promise.all([
+      const [
+        supRes, prodRes, catRes, rawMatRes, entryRes,
+        stampRes, karatRes, unitRes, clarityRes, colorRes,
+        opRes, uniRes
+      ] = await Promise.all([
         api.get('/suppliers'),
         api.get('/products'),
         api.get('/categories').catch(() => ({ data: [] })),
-        api.get('/purchase-entries')
+        api.get('/raw-materials').catch(() => ({ data: [] })),
+        api.get('/purchase-entries'),
+        api.get('/stamps').catch(() => ({ data: [] })),
+        api.get('/karats').catch(() => ({ data: [] })),
+        api.get('/units').catch(() => ({ data: [] })),
+        api.get('/diamond-clarities').catch(() => ({ data: [] })),
+        api.get('/diamond-colors').catch(() => ({ data: [] })),
+        api.get('/material-opening-stocks').catch(() => ({ data: { data: [] } })),
+        api.get('/raw-materials/unified-stock').catch(() => ({ data: null })),
       ]);
 
       const rawSuppliers = Array.isArray(supRes.data?.data) ? supRes.data.data : (Array.isArray(supRes.data) ? supRes.data : []);
@@ -89,15 +136,31 @@ export default function PurchaseEntry({ initialTab }) {
       const activeProducts = rawProducts.filter(p => !p.status || p.status === 'active');
 
       const rawCategories = Array.isArray(catRes.data?.data) ? catRes.data.data : (Array.isArray(catRes.data) ? catRes.data : []);
+      const rawMats = Array.isArray(rawMatRes.data) ? rawMatRes.data : (rawMatRes.data?.data || []);
       const rawEntries = Array.isArray(entryRes.data?.data) ? entryRes.data.data : (Array.isArray(entryRes.data) ? entryRes.data : []);
 
       setSuppliers(activeSuppliers);
       setProducts(activeProducts);
       setCategories(rawCategories);
+      setRawMaterials(rawMats);
       setPurchaseEntries(rawEntries);
 
-      // Auto-fetch fresh Purchase Ref Number
+      // Masters
+      setStampsList(Array.isArray(stampRes.data) ? stampRes.data : (stampRes.data?.data || []));
+      setKaratsList(Array.isArray(karatRes.data) ? karatRes.data : (karatRes.data?.data || []));
+      setUnitsList(Array.isArray(unitRes.data) ? unitRes.data : (unitRes.data?.data || []));
+      setClaritiesList(Array.isArray(clarityRes.data) ? clarityRes.data : (clarityRes.data?.data || []));
+      setColorsList(Array.isArray(colorRes.data) ? colorRes.data : (colorRes.data?.data || []));
+
+      // Opening stocks & unified ledger
+      setOpeningStockEntries(Array.isArray(opRes.data?.data) ? opRes.data.data : (Array.isArray(opRes.data) ? opRes.data : []));
+      if (uniRes.data?.status === 'success') {
+        setUnifiedStockData(uniRes.data);
+      }
+
+      // Auto-fetch fresh Purchase Ref Number & Opening Stock Ref Number
       fetchPurchaseNo();
+      fetchOpeningNo();
 
     } catch (err) {
       console.error('Error fetching purchase entry data:', err);
@@ -121,6 +184,45 @@ export default function PurchaseEntry({ initialTab }) {
     }
   };
 
+  const fetchOpeningNo = async () => {
+    try {
+      setGeneratingOpeningNo(true);
+      const res = await api.get('/material-opening-stocks/generate-no');
+      if (res.data && res.data.stock_number) {
+        setOpeningForm(prev => ({ ...prev, stock_number: res.data.stock_number }));
+      }
+    } catch (err) {
+      console.error('Error generating opening stock no:', err);
+    } finally {
+      setGeneratingOpeningNo(false);
+    }
+  };
+
+  const fetchOpeningStockEntries = async () => {
+    try {
+      const res = await api.get('/material-opening-stocks');
+      if (res.data?.data) {
+        setOpeningStockEntries(res.data.data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch opening stock entries:', e);
+    }
+  };
+
+  const fetchUnifiedStock = async () => {
+    try {
+      setUnifiedLoading(true);
+      const res = await api.get('/raw-materials/unified-stock');
+      if (res.data?.status === 'success') {
+        setUnifiedStockData(res.data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch unified stock:', e);
+    } finally {
+      setUnifiedLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -128,6 +230,24 @@ export default function PurchaseEntry({ initialTab }) {
   // Selected product details for live display card
   const selectedProduct = products.find(p => String(p.id) === String(formData.product_id));
   const selectedSupplier = suppliers.find(s => String(s.id) === String(formData.supplier_id));
+  const selectedRawMaterial = rawMaterials.find(rm => String(rm.id) === String(formData.raw_material_id))
+    || rawMaterials.find(rm => rm.material_type?.toLowerCase() === formData.metal_type?.toLowerCase());
+
+  const handleRawMaterialChange = (e) => {
+    const rawId = e.target.value;
+    const rm = rawMaterials.find(r => String(r.id) === String(rawId));
+    if (rm) {
+      setFormData(prev => ({
+        ...prev,
+        raw_material_id: rm.id,
+        metal_type: rm.material_type || prev.metal_type,
+        unit: rm.unit || prev.unit || 'g',
+        item_name: rm.name || prev.item_name,
+      }));
+    } else {
+      setFormData(prev => ({ ...prev, raw_material_id: '' }));
+    }
+  };
 
   const selectedCategoryCode = selectedProduct?.category?.code?.toUpperCase() || '';
   const selectedCategoryName = selectedProduct?.category?.name?.toLowerCase() || '';
@@ -135,6 +255,7 @@ export default function PurchaseEntry({ initialTab }) {
 
   // Dynamic Weight Math
   const grossWtVal = parseFloat(formData.weight) || 0;
+  const countQtyVal = parseFloat(formData.count_qty) || 0;
   const lessWtVal = parseFloat(formData.less_weight) || 0;
   const computedNetWt = Math.max(0, grossWtVal - lessWtVal).toFixed(3);
   const netWtVal = parseFloat(formData.net_weight) > 0 ? parseFloat(formData.net_weight) : parseFloat(computedNetWt);
@@ -235,8 +356,14 @@ export default function PurchaseEntry({ initialTab }) {
         return;
       }
     }
+    if (formData.purchase_type === 'raw_material') {
+      if (!formData.raw_material_id && !formData.metal_type) {
+        showToast('Please select a Raw Material Master', 'error', 'Validation Error');
+        return;
+      }
+    }
     if (!formData.weight || parseFloat(formData.weight) <= 0) {
-      showToast('Gross Weight (g) is required and must be greater than 0', 'error', 'Validation Error');
+      showToast('Gross Weight is required and must be greater than 0', 'error', 'Validation Error');
       return;
     }
 
@@ -253,6 +380,9 @@ export default function PurchaseEntry({ initialTab }) {
           }
         });
         payload.append('is_new_product', isNewProduct ? '1' : '0');
+        payload.append('raw_material_id', formData.raw_material_id || '');
+        payload.append('count_qty', formData.count_qty || '0');
+        payload.append('unit', formData.unit || 'g');
         payload.append('image', imageFile);
         payload.append('net_weight', computedNetWt);
         payload.append('fine_weight', computedFineWt);
@@ -261,6 +391,9 @@ export default function PurchaseEntry({ initialTab }) {
         payload = {
           ...formData,
           is_new_product: isNewProduct,
+          raw_material_id: formData.raw_material_id || null,
+          count_qty: parseFloat(formData.count_qty) || 0,
+          unit: formData.unit || 'g',
           net_weight: computedNetWt,
           fine_weight: computedFineWt,
           total_amount: formData.total_amount || computedTotal
@@ -318,6 +451,138 @@ export default function PurchaseEntry({ initialTab }) {
     }
   };
 
+  const handleOpeningInputChange = (e) => {
+    const { name, value } = e.target;
+    setOpeningForm(prev => {
+      const updated = { ...prev, [name]: value };
+      const r = parseFloat(name === 'rate' ? value : updated.rate) || 0;
+      const wt = parseFloat(name === 'weight' ? value : updated.weight) || 0;
+      const cwt = parseFloat(name === 'carat_weight' ? value : updated.carat_weight) || 0;
+      const qty = parseFloat(name === 'quantity' ? value : updated.quantity) || 0;
+
+      if (updated.material_type === 'diamond') {
+        updated.total_value = (cwt > 0 ? (cwt * r) : (qty * r)).toFixed(2);
+      } else if (updated.material_type === 'stone') {
+        updated.total_value = (cwt > 0 ? (cwt * r) : (wt > 0 ? wt * r : qty * r)).toFixed(2);
+      } else {
+        updated.total_value = (wt * r).toFixed(2);
+      }
+      return updated;
+    });
+  };
+
+  const handleOpeningMaterialChange = (matType) => {
+    const defaultUnit = (matType === 'diamond' || matType === 'stone') ? 'ct' : 'g';
+    const defaultKarat = matType === 'gold' ? '22K' : '';
+    const defaultPurity = matType === 'gold' ? '91.6' : (matType === 'silver' ? '92.5' : '');
+
+    const matStamps = stampsList.filter(s => {
+      if (!s.applicable_for) return true;
+      const af = s.applicable_for.toLowerCase();
+      return af.includes(matType) || af.includes('all');
+    });
+
+    setOpeningForm(prev => ({
+      ...prev,
+      material_type: matType,
+      unit: defaultUnit,
+      karat: defaultKarat,
+      purity: defaultPurity,
+      stamp: matStamps.length > 0 ? matStamps[0].name : '',
+      weight: '',
+      carat_weight: '',
+      quantity: '',
+      rate: '',
+      total_value: '',
+    }));
+  };
+
+  const handleOpeningSubmit = async (e) => {
+    e.preventDefault();
+    const mat = openingForm.material_type;
+    if (mat === 'gold' || mat === 'silver') {
+      if (!openingForm.weight || parseFloat(openingForm.weight) <= 0) {
+        showToast('Weight is required and must be greater than 0', 'error', 'Validation Error');
+        return;
+      }
+    } else if (mat === 'diamond') {
+      if ((!openingForm.carat_weight || parseFloat(openingForm.carat_weight) <= 0) &&
+          (!openingForm.quantity || parseFloat(openingForm.quantity) <= 0)) {
+        showToast('Either Carat Weight or Quantity is required for diamond stock', 'error', 'Validation Error');
+        return;
+      }
+    } else if (mat === 'stone') {
+      if ((!openingForm.carat_weight || parseFloat(openingForm.carat_weight) <= 0) &&
+          (!openingForm.weight || parseFloat(openingForm.weight) <= 0) &&
+          (!openingForm.quantity || parseFloat(openingForm.quantity) <= 0)) {
+        showToast('Carat Weight, Weight or Quantity is required for colour stone stock', 'error', 'Validation Error');
+        return;
+      }
+    }
+
+    setOpeningSaving(true);
+    try {
+      const payload = {
+        ...openingForm,
+        weight: openingForm.weight ? parseFloat(openingForm.weight) : null,
+        carat_weight: openingForm.carat_weight ? parseFloat(openingForm.carat_weight) : null,
+        quantity: openingForm.quantity ? parseFloat(openingForm.quantity) : null,
+        rate: openingForm.rate ? parseFloat(openingForm.rate) : null,
+        total_value: openingForm.total_value ? parseFloat(openingForm.total_value) : null,
+        purity: openingForm.purity ? parseFloat(openingForm.purity) : null,
+      };
+
+      const res = await api.post('/material-opening-stocks', payload);
+      showToast(res.data?.message || 'Opening stock recorded and inventory balance updated successfully!', 'success');
+
+      window.dispatchEvent(new CustomEvent('rudhra_inventory_updated'));
+      window.dispatchEvent(new CustomEvent('rudhra_purchase_updated'));
+
+      fetchUnifiedStock();
+      fetchOpeningStockEntries();
+      fetchOpeningNo();
+
+      setOpeningForm(prev => ({
+        ...prev,
+        weight: '',
+        carat_weight: '',
+        quantity: '',
+        rate: '',
+        total_value: '',
+      }));
+
+    } catch (err) {
+      console.error(err);
+      const msg = err.response?.data?.message || 'Failed to save opening stock';
+      showToast(msg, 'error');
+    } finally {
+      setOpeningSaving(false);
+    }
+  };
+
+  const handleDeleteOpeningStock = async (id, stockNo) => {
+    const confirmed = await showConfirm({
+      title: 'Reverse Opening Stock',
+      message: `Are you sure you want to reverse opening stock "${stockNo}"? Vault balance will be automatically adjusted.`,
+      icon: 'fa-solid fa-trash-can',
+      confirmText: 'Reverse Stock'
+    });
+    if (!confirmed) return;
+
+    try {
+      const res = await api.delete(`/material-opening-stocks/${id}`);
+      showToast(res.data?.message || 'Opening stock reversed successfully', 'success');
+
+      window.dispatchEvent(new CustomEvent('rudhra_inventory_updated'));
+      window.dispatchEvent(new CustomEvent('rudhra_purchase_updated'));
+      fetchUnifiedStock();
+      fetchOpeningStockEntries();
+    } catch (err) {
+      console.error(err);
+      showToast(err.response?.data?.message || 'Failed to reverse opening stock', 'error');
+    }
+  };
+
   // Filter Purchase History
   const filteredEntries = purchaseEntries.filter(entry => {
     if (searchTerm.trim() === '') return true;
@@ -372,13 +637,68 @@ export default function PurchaseEntry({ initialTab }) {
           </Link>
 
           <button
-            onClick={fetchData}
+            onClick={() => { fetchData(); fetchUnifiedStock(); }}
             className="p-2.5 text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors cursor-pointer"
             title="Refresh Data"
           >
-            <i className={`fa-solid fa-rotate ${loading ? 'animate-spin' : ''}`}></i>
+            <i className={`fa-solid fa-rotate ${loading || unifiedLoading ? 'animate-spin' : ''}`}></i>
           </button>
         </div>
+      </div>
+
+      {/* NAVIGATION SUB-TABS (Supplier Purchase | Opening Stock | Unified Stock | History) */}
+      <div className="flex items-center gap-2 border-b border-gray-200 pb-1 overflow-x-auto">
+        <button
+          type="button"
+          onClick={() => { setActiveTab('new'); navigate('/purchase/new'); }}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+            activeTab === 'new'
+              ? 'bg-[#b01622] text-white shadow-sm ring-2 ring-red-200'
+              : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
+          }`}
+        >
+          <i className="fa-solid fa-cart-shopping"></i>
+          New Supplier Purchase
+        </button>
+
+        <button
+          type="button"
+          onClick={() => { setActiveTab('opening'); }}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+            activeTab === 'opening'
+              ? 'bg-[#b01622] text-white shadow-sm ring-2 ring-red-200'
+              : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
+          }`}
+        >
+          <i className="fa-solid fa-vault"></i>
+          Existing Material / Opening Stock
+        </button>
+
+        <button
+          type="button"
+          onClick={() => { setActiveTab('stock'); fetchUnifiedStock(); }}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+            activeTab === 'stock'
+              ? 'bg-[#b01622] text-white shadow-sm ring-2 ring-red-200'
+              : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
+          }`}
+        >
+          <i className="fa-solid fa-scale-balanced"></i>
+          Unified Available Stock View
+        </button>
+
+        <button
+          type="button"
+          onClick={() => { setActiveTab('details'); navigate('/purchase/details'); }}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+            activeTab === 'details'
+              ? 'bg-[#b01622] text-white shadow-sm ring-2 ring-red-200'
+              : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
+          }`}
+        >
+          <i className="fa-solid fa-clock-rotate-left"></i>
+          Purchase History Log
+        </button>
       </div>
 
       {/* PURCHASE STOCK ENTRY FORM CARD */}
@@ -474,6 +794,31 @@ export default function PurchaseEntry({ initialTab }) {
             {formData.purchase_type === 'raw_material' ? (
               /* RAW MATERIAL VAULT FIELDS */
               <div className="space-y-3">
+                {/* 1. Existing Raw Material Master Selector */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-bold text-gray-800">
+                      Select Raw Material Master <span className="text-red-500">*</span>
+                    </label>
+                    <span className="text-[11px] text-stone-500">
+                      Adds to existing stock balance
+                    </span>
+                  </div>
+                  <select
+                    name="raw_material_id"
+                    value={formData.raw_material_id}
+                    onChange={handleRawMaterialChange}
+                    className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-900 focus:outline-none focus:border-[#b01622]"
+                  >
+                    <option value="">-- Select Existing Raw Material --</option>
+                    {rawMaterials.map((rm) => (
+                      <option key={rm.id} value={rm.id}>
+                        {rm.name} ({rm.material_type?.toUpperCase()}) — Current: {parseFloat(rm.current_balance || 0).toFixed(3)} {rm.unit || 'g'}{parseFloat(rm.current_count || 0) > 0 ? ` | Count: ${parseFloat(rm.current_count)}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-gray-800 mb-1.5">
@@ -489,10 +834,29 @@ export default function PurchaseEntry({ initialTab }) {
                       <option value="silver">Silver (999 Fine / 925 Sterling)</option>
                       <option value="platinum">Platinum</option>
                       <option value="diamond">Raw Loose Diamonds / Cents</option>
-                      <option value="gemstone">Loose Gemstones / Pearls</option>
+                      <option value="stone">Precious Stones / Gemstones</option>
                     </select>
                   </div>
 
+                  <div>
+                    <label className="block text-xs font-bold text-gray-800 mb-1.5">
+                      Unit of Measurement
+                    </label>
+                    <select
+                      name="unit"
+                      value={formData.unit || selectedRawMaterial?.unit || 'g'}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-900 focus:outline-none focus:border-[#b01622]"
+                    >
+                      <option value="g">Grams (g)</option>
+                      <option value="kg">Kilograms (kg)</option>
+                      <option value="ct">Carats (ct)</option>
+                      <option value="units">Units / Pieces</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-gray-800 mb-1.5">
                       Purity Grade
@@ -511,6 +875,22 @@ export default function PurchaseEntry({ initialTab }) {
                       <option value="925 Silver">925 Sterling Silver</option>
                     </select>
                   </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-800 mb-1.5">
+                      Purchased Count / Pieces
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      name="count_qty"
+                      value={formData.count_qty}
+                      onChange={(e) => setFormData({ ...formData, count_qty: sanitizeDecimal(e.target.value) })}
+                      placeholder="e.g. 5 (pieces/units)"
+                      className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:border-[#b01622]"
+                    />
+                  </div>
                 </div>
 
                 <div>
@@ -526,6 +906,53 @@ export default function PurchaseEntry({ initialTab }) {
                     className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:border-[#b01622]"
                   />
                 </div>
+
+                {/* Live Stock Balance Verification Card */}
+                {selectedRawMaterial && (
+                  <div className="p-3.5 rounded-xl bg-amber-50/70 border border-amber-200 space-y-2">
+                    <div className="flex items-center justify-between text-xs font-bold text-amber-900 border-b border-amber-200/60 pb-1.5">
+                      <span className="flex items-center gap-1.5">
+                        <i className="fa-solid fa-scale-balanced text-amber-700"></i>
+                        Live Stock Impact: {selectedRawMaterial.name}
+                      </span>
+                      <span className="text-[11px] font-mono bg-white px-2 py-0.5 rounded border border-amber-200 text-amber-800">
+                        Unit: {formData.unit || selectedRawMaterial.unit}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2.5 text-center pt-0.5">
+                      <div className="bg-white p-2 rounded-lg border border-amber-100 shadow-2xs">
+                        <div className="text-[10px] font-bold text-gray-500 uppercase">Current Stock</div>
+                        <div className="text-xs font-bold text-gray-800 font-mono mt-0.5">
+                          {parseFloat(selectedRawMaterial.current_balance || 0).toFixed(3)} {formData.unit || selectedRawMaterial.unit}
+                        </div>
+                        <div className="text-[10px] text-gray-500 mt-0.5">
+                          Count: <strong className="text-gray-700">{parseFloat(selectedRawMaterial.current_count || 0)}</strong>
+                        </div>
+                      </div>
+
+                      <div className="bg-white p-2 rounded-lg border border-amber-200 shadow-2xs">
+                        <div className="text-[10px] font-bold text-amber-800 uppercase">+ Added Stock</div>
+                        <div className="text-xs font-bold text-[#b01622] font-mono mt-0.5">
+                          +{grossWtVal.toFixed(3)} {formData.unit || selectedRawMaterial.unit}
+                        </div>
+                        <div className="text-[10px] text-amber-700 mt-0.5">
+                          Count: <strong>+{countQtyVal}</strong>
+                        </div>
+                      </div>
+
+                      <div className="bg-emerald-50/80 p-2 rounded-lg border border-emerald-200 shadow-2xs">
+                        <div className="text-[10px] font-bold text-emerald-800 uppercase">= Resulting Stock</div>
+                        <div className="text-xs font-bold text-emerald-700 font-mono mt-0.5">
+                          {(parseFloat(selectedRawMaterial.current_balance || 0) + grossWtVal).toFixed(3)} {formData.unit || selectedRawMaterial.unit}
+                        </div>
+                        <div className="text-[10px] text-emerald-800 mt-0.5">
+                          Count: <strong>{parseFloat(selectedRawMaterial.current_count || 0) + countQtyVal}</strong>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               /* FINISHED JEWELLERY CATALOG FIELDS */
@@ -962,6 +1389,907 @@ export default function PurchaseEntry({ initialTab }) {
         </form>
       )}
 
+      {/* DEDICATED OPENING STOCK / EXISTING MATERIAL ENTRY FORM */}
+      {activeTab === 'opening' && (
+        <div className="space-y-6">
+          <form onSubmit={handleOpeningSubmit} className="bg-white rounded-2xl border border-gray-200/90 shadow-sm p-6 space-y-6">
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+              <div className="flex items-center gap-2.5 text-base font-bold text-gray-900">
+                <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center text-sm">
+                  <i className="fa-solid fa-vault"></i>
+                </div>
+                <div>
+                  <span>Record Jewellery Material Opening Stock / Existing Stock</span>
+                  <p className="text-xs text-gray-500 font-normal mt-0.5">
+                    Record materials already owned by Rudhra Jewellers to establish starting stock balances without creating supplier debt.
+                  </p>
+                </div>
+              </div>
+              <span className="text-xs bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 py-1 rounded-full font-semibold">
+                <i className="fa-solid fa-shield-check text-emerald-600 mr-1.5"></i> Vault Balance Initializer
+              </span>
+            </div>
+
+            {/* A. MATERIAL TYPE SELECTION */}
+            <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col md:flex-row items-center justify-between gap-4">
+              <span className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-2">
+                <i className="fa-solid fa-gem text-[#b01622]"></i>
+                Select Material Type:
+              </span>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 w-full md:w-auto">
+                <button
+                  type="button"
+                  onClick={() => handleOpeningMaterialChange('gold')}
+                  className={`px-4 py-2.5 text-xs font-bold rounded-xl border transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                    openingForm.material_type === 'gold'
+                      ? 'bg-amber-600 text-white border-amber-600 shadow-sm ring-2 ring-amber-200'
+                      : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
+                  }`}
+                >
+                  <i className="fa-solid fa-coins"></i>
+                  Gold
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleOpeningMaterialChange('diamond')}
+                  className={`px-4 py-2.5 text-xs font-bold rounded-xl border transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                    openingForm.material_type === 'diamond'
+                      ? 'bg-cyan-600 text-white border-cyan-600 shadow-sm ring-2 ring-cyan-200'
+                      : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
+                  }`}
+                >
+                  <i className="fa-solid fa-gem"></i>
+                  Diamond
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleOpeningMaterialChange('stone')}
+                  className={`px-4 py-2.5 text-xs font-bold rounded-xl border transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                    openingForm.material_type === 'stone'
+                      ? 'bg-purple-600 text-white border-purple-600 shadow-sm ring-2 ring-purple-200'
+                      : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
+                  }`}
+                >
+                  <i className="fa-solid fa-shapes"></i>
+                  Colour Stones
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleOpeningMaterialChange('silver')}
+                  className={`px-4 py-2.5 text-xs font-bold rounded-xl border transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                    openingForm.material_type === 'silver'
+                      ? 'bg-slate-700 text-white border-slate-700 shadow-sm ring-2 ring-slate-200'
+                      : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
+                  }`}
+                >
+                  <i className="fa-solid fa-ring"></i>
+                  Silver
+                </button>
+              </div>
+            </div>
+
+            {/* B. DYNAMIC FORM FIELDS BY MATERIAL TYPE */}
+            <div className="bg-white rounded-xl border border-gray-100 p-4 space-y-4">
+              <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-2">
+                <i className="fa-solid fa-sliders text-[#b01622]"></i>
+                {openingForm.material_type.toUpperCase()} Specifications & Starting Stock
+              </h3>
+
+              {/* 1. GOLD FIELDS */}
+              {openingForm.material_type === 'gold' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Weight (g) <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      min="0"
+                      name="weight"
+                      value={openingForm.weight}
+                      onKeyDown={handleDecimalKeyDown}
+                      onChange={(e) => handleOpeningInputChange({ target: { name: 'weight', value: sanitizeDecimal(e.target.value) } })}
+                      placeholder="e.g. 50.000"
+                      required
+                      className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-xs font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Stamp / Purity Master
+                    </label>
+                    <select
+                      name="stamp"
+                      value={openingForm.stamp}
+                      onChange={handleOpeningInputChange}
+                      className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                    >
+                      <option value="">-- Select Gold Stamp --</option>
+                      {stampsList
+                        .filter(s => !s.applicable_for || s.applicable_for.toLowerCase().includes('gold') || s.applicable_for.toLowerCase().includes('all'))
+                        .map(s => (
+                          <option key={s.id} value={s.name}>{s.name} ({s.code || s.applicable_for || 'Stamp'})</option>
+                        ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Karat
+                    </label>
+                    <select
+                      name="karat"
+                      value={openingForm.karat}
+                      onChange={handleOpeningInputChange}
+                      className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                    >
+                      <option value="">-- Select Karat --</option>
+                      {karatsList.map(k => (
+                        <option key={k.id} value={k.name}>{k.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Unit
+                    </label>
+                    <select
+                      name="unit"
+                      value={openingForm.unit}
+                      onChange={handleOpeningInputChange}
+                      className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                    >
+                      {unitsList.length > 0 ? (
+                        unitsList.map(u => (
+                          <option key={u.id} value={u.code || u.name}>{u.name} ({u.code})</option>
+                        ))
+                      ) : (
+                        <option value="g">Grams (g)</option>
+                      )}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Purity / Touch (%)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      name="purity"
+                      value={openingForm.purity}
+                      onChange={handleOpeningInputChange}
+                      placeholder="e.g. 91.6"
+                      className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Rate per Gram (₹)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      name="rate"
+                      value={openingForm.rate}
+                      onKeyDown={handleDecimalKeyDown}
+                      onChange={(e) => handleOpeningInputChange({ target: { name: 'rate', value: sanitizeDecimal(e.target.value) } })}
+                      placeholder="e.g. 7200.00"
+                      className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Total Valuation (₹)
+                    </label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={openingForm.total_value ? `₹${Number(openingForm.total_value).toLocaleString('en-IN')}` : '₹0'}
+                      className="w-full px-3.5 py-2.5 bg-amber-50/70 border border-amber-200 rounded-xl text-xs font-bold text-amber-900"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 2. DIAMOND FIELDS */}
+              {openingForm.material_type === 'diamond' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Quantity / Count (Pcs)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      name="quantity"
+                      value={openingForm.quantity}
+                      onKeyDown={handleIntegerKeyDown}
+                      onChange={(e) => handleOpeningInputChange({ target: { name: 'quantity', value: sanitizeInteger(e.target.value) } })}
+                      placeholder="e.g. 24"
+                      className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-xs font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Carat Weight (ct)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      min="0"
+                      name="carat_weight"
+                      value={openingForm.carat_weight}
+                      onKeyDown={handleDecimalKeyDown}
+                      onChange={(e) => handleOpeningInputChange({ target: { name: 'carat_weight', value: sanitizeDecimal(e.target.value) } })}
+                      placeholder="e.g. 3.500"
+                      className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-xs font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Diamond Stamp / Grade Master
+                    </label>
+                    <select
+                      name="stamp"
+                      value={openingForm.stamp}
+                      onChange={handleOpeningInputChange}
+                      className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                    >
+                      <option value="">-- Select Diamond Stamp/Grade --</option>
+                      {stampsList
+                        .filter(s => !s.applicable_for || s.applicable_for.toLowerCase().includes('diamond') || s.applicable_for.toLowerCase().includes('all'))
+                        .map(s => (
+                          <option key={s.id} value={s.name}>{s.name} ({s.code || 'Diamond'})</option>
+                        ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Unit
+                    </label>
+                    <select
+                      name="unit"
+                      value={openingForm.unit}
+                      onChange={handleOpeningInputChange}
+                      className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                    >
+                      <option value="ct">Carats (ct)</option>
+                      <option value="pcs">Pieces (pcs)</option>
+                    </select>
+                  </div>
+
+                  {claritiesList.length > 0 && (
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">
+                        Clarity (Optional)
+                      </label>
+                      <select
+                        name="clarity"
+                        value={openingForm.clarity || ''}
+                        onChange={handleOpeningInputChange}
+                        className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                      >
+                        <option value="">-- Select Clarity --</option>
+                        {claritiesList.map(c => (
+                          <option key={c.id} value={c.name}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Rate per Carat (₹)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      name="rate"
+                      value={openingForm.rate}
+                      onKeyDown={handleDecimalKeyDown}
+                      onChange={(e) => handleOpeningInputChange({ target: { name: 'rate', value: sanitizeDecimal(e.target.value) } })}
+                      placeholder="e.g. 45000.00"
+                      className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Total Valuation (₹)
+                    </label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={openingForm.total_value ? `₹${Number(openingForm.total_value).toLocaleString('en-IN')}` : '₹0'}
+                      className="w-full px-3.5 py-2.5 bg-cyan-50/70 border border-cyan-200 rounded-xl text-xs font-bold text-cyan-900"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 3. COLOUR STONES FIELDS */}
+              {openingForm.material_type === 'stone' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Quantity / Count (Pcs)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      name="quantity"
+                      value={openingForm.quantity}
+                      onKeyDown={handleIntegerKeyDown}
+                      onChange={(e) => handleOpeningInputChange({ target: { name: 'quantity', value: sanitizeInteger(e.target.value) } })}
+                      placeholder="e.g. 50"
+                      className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-xs font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Weight or Carat
+                    </label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      min="0"
+                      name="carat_weight"
+                      value={openingForm.carat_weight}
+                      onKeyDown={handleDecimalKeyDown}
+                      onChange={(e) => handleOpeningInputChange({ target: { name: 'carat_weight', value: sanitizeDecimal(e.target.value) } })}
+                      placeholder="e.g. 12.500"
+                      className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-xs font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Stone Stamp / Classification Master
+                    </label>
+                    <select
+                      name="stamp"
+                      value={openingForm.stamp}
+                      onChange={handleOpeningInputChange}
+                      className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                    >
+                      <option value="">-- Select Stone Master Classification --</option>
+                      {stampsList
+                        .filter(s => !s.applicable_for || s.applicable_for.toLowerCase().includes('stone') || s.applicable_for.toLowerCase().includes('all'))
+                        .map(s => (
+                          <option key={s.id} value={s.name}>{s.name} ({s.code || 'Stone'})</option>
+                        ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Unit
+                    </label>
+                    <select
+                      name="unit"
+                      value={openingForm.unit}
+                      onChange={handleOpeningInputChange}
+                      className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                    >
+                      <option value="ct">Carats (ct)</option>
+                      <option value="g">Grams (g)</option>
+                      <option value="pcs">Pieces (pcs)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Rate per Unit (₹)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      name="rate"
+                      value={openingForm.rate}
+                      onKeyDown={handleDecimalKeyDown}
+                      onChange={(e) => handleOpeningInputChange({ target: { name: 'rate', value: sanitizeDecimal(e.target.value) } })}
+                      placeholder="e.g. 500.00"
+                      className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Total Valuation (₹)
+                    </label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={openingForm.total_value ? `₹${Number(openingForm.total_value).toLocaleString('en-IN')}` : '₹0'}
+                      className="w-full px-3.5 py-2.5 bg-purple-50/70 border border-purple-200 rounded-xl text-xs font-bold text-purple-900"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 4. SILVER FIELDS */}
+              {openingForm.material_type === 'silver' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Weight (g) <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      min="0"
+                      name="weight"
+                      value={openingForm.weight}
+                      onKeyDown={handleDecimalKeyDown}
+                      onChange={(e) => handleOpeningInputChange({ target: { name: 'weight', value: sanitizeDecimal(e.target.value) } })}
+                      placeholder="e.g. 250.000"
+                      required
+                      className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-xs font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Stamp / Purity Master
+                    </label>
+                    <select
+                      name="stamp"
+                      value={openingForm.stamp}
+                      onChange={handleOpeningInputChange}
+                      className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                    >
+                      <option value="">-- Select Silver Stamp --</option>
+                      {stampsList
+                        .filter(s => !s.applicable_for || s.applicable_for.toLowerCase().includes('silver') || s.applicable_for.toLowerCase().includes('all'))
+                        .map(s => (
+                          <option key={s.id} value={s.name}>{s.name} ({s.code || 'Silver'})</option>
+                        ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Unit
+                    </label>
+                    <select
+                      name="unit"
+                      value={openingForm.unit}
+                      onChange={handleOpeningInputChange}
+                      className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                    >
+                      <option value="g">Grams (g)</option>
+                      <option value="kg">Kilograms (kg)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Rate per Gram (₹)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      name="rate"
+                      value={openingForm.rate}
+                      onKeyDown={handleDecimalKeyDown}
+                      onChange={(e) => handleOpeningInputChange({ target: { name: 'rate', value: sanitizeDecimal(e.target.value) } })}
+                      placeholder="e.g. 110.00"
+                      className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Total Valuation (₹)
+                    </label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={openingForm.total_value ? `₹${Number(openingForm.total_value).toLocaleString('en-IN')}` : '₹0'}
+                      className="w-full px-3.5 py-2.5 bg-slate-100 border border-slate-300 rounded-xl text-xs font-bold text-slate-900"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* C. REFERENCE, DATE & REASON / AUDIT */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-gray-700">
+                    Opening Stock Ref No <span className="text-red-500">*</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={fetchOpeningNo}
+                    disabled={generatingOpeningNo}
+                    className="text-[11px] font-bold text-[#b01622] hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <i className={`fa-solid fa-arrows-rotate ${generatingOpeningNo ? 'fa-spin' : ''}`}></i> Refresh
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  name="stock_number"
+                  value={openingForm.stock_number}
+                  onChange={handleOpeningInputChange}
+                  required
+                  placeholder="OS-1001"
+                  className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Entry Date <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  name="entry_date"
+                  value={openingForm.entry_date}
+                  onChange={handleOpeningInputChange}
+                  required
+                  className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Vault Location / Reason Notes
+                </label>
+                <input
+                  type="text"
+                  name="notes"
+                  value={openingForm.notes}
+                  onChange={handleOpeningInputChange}
+                  placeholder="e.g. Main Vault Locker #1 Starting Balance"
+                  className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                />
+              </div>
+            </div>
+
+            {/* ACTION BAR */}
+            <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+              <div className="text-xs text-gray-500">
+                <i className="fa-solid fa-circle-info text-amber-600 mr-1"></i>
+                Saving will update the <strong className="text-gray-800">existing {openingForm.material_type} vault balance</strong> directly with an audit trail.
+              </div>
+
+              <button
+                type="submit"
+                disabled={openingSaving}
+                className="px-8 py-3 bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer"
+              >
+                {openingSaving ? (
+                  <i className="fa-solid fa-circle-notch fa-spin"></i>
+                ) : (
+                  <>
+                    <i className="fa-solid fa-vault text-xs"></i>
+                    Save Opening Stock & Credit Vault Balance
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+
+          {/* OPENING STOCK RECORDED LOG TABLE */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden">
+            <div className="p-4 border-b border-gray-200 bg-gray-50/50 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <i className="fa-solid fa-clock-rotate-left text-amber-700"></i>
+                <h3 className="text-sm font-bold text-gray-900">Recorded Opening Stock Audit Entries</h3>
+                <span className="bg-amber-100 text-amber-800 text-xs font-semibold px-2 py-0.5 rounded-full">
+                  {openingStockEntries.length} Records
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={fetchOpeningStockEntries}
+                className="text-xs text-gray-600 hover:text-gray-900 font-semibold cursor-pointer"
+              >
+                <i className="fa-solid fa-rotate mr-1"></i> Refresh Log
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-gray-50 text-[10px] font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200">
+                  <tr>
+                    <th className="py-3 px-4">Stock Ref No</th>
+                    <th className="py-3 px-4">Date</th>
+                    <th className="py-3 px-4">Material</th>
+                    <th className="py-3 px-4">Stamp / Grade</th>
+                    <th className="py-3 px-4">Karat</th>
+                    <th className="py-3 px-4 text-right">Weight</th>
+                    <th className="py-3 px-4 text-right">Carats</th>
+                    <th className="py-3 px-4 text-right">Quantity</th>
+                    <th className="py-3 px-4 text-right">Valuation</th>
+                    <th className="py-3 px-4 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {openingStockEntries.length > 0 ? (
+                    openingStockEntries.map((entry) => (
+                      <tr key={entry.id} className="hover:bg-amber-50/30 transition-colors">
+                        <td className="py-3 px-4 font-mono font-bold text-gray-900">{entry.stock_number}</td>
+                        <td className="py-3 px-4 text-gray-600">{entry.entry_date}</td>
+                        <td className="py-3 px-4 font-semibold capitalize">
+                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                            entry.material_type === 'gold' ? 'bg-amber-100 text-amber-800' :
+                            entry.material_type === 'diamond' ? 'bg-cyan-100 text-cyan-800' :
+                            entry.material_type === 'stone' ? 'bg-purple-100 text-purple-800' :
+                            'bg-slate-100 text-slate-800'
+                          }`}>
+                            {entry.material_type}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-gray-800 font-medium">{entry.stamp || '—'}</td>
+                        <td className="py-3 px-4 text-gray-600">{entry.karat || '—'}</td>
+                        <td className="py-3 px-4 text-right font-mono font-bold text-gray-900">
+                          {entry.weight ? `${Number(entry.weight).toFixed(3)} ${entry.unit || 'g'}` : '—'}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono font-bold text-cyan-900">
+                          {entry.carat_weight ? `${Number(entry.carat_weight).toFixed(3)} ct` : '—'}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono text-gray-700">
+                          {entry.quantity ? `${Number(entry.quantity)} pcs` : '—'}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono font-bold text-gray-900">
+                          {entry.total_value ? `₹${Number(entry.total_value).toLocaleString('en-IN')}` : '—'}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteOpeningStock(entry.id, entry.stock_number)}
+                            className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                            title="Reverse Opening Stock"
+                          >
+                            <i className="fa-solid fa-trash-can text-xs"></i>
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={10} className="py-8 text-center text-gray-400">
+                        No opening stock records found. Use the form above to add initial business stock.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. UNIFIED AVAILABLE STOCK VIEW */}
+      {activeTab === 'stock' && (
+        <div className="space-y-6">
+          {/* Summary Metric Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white p-4 rounded-2xl border border-amber-200/80 shadow-2xs">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center text-sm font-bold">
+                  <i className="fa-solid fa-coins"></i>
+                </div>
+                <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wider">Available Gold</span>
+              </div>
+              <div className="text-xl font-black text-stone-900 font-mono">
+                {Number(unifiedStockData?.summary?.gold_total_weight || 0).toFixed(3)} <span className="text-xs font-bold text-amber-700">g</span>
+              </div>
+              <p className="text-[11px] text-stone-400 mt-1">24K / 22K pure & alloy balance</p>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-cyan-200/80 shadow-2xs">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 rounded-lg bg-cyan-50 text-cyan-700 flex items-center justify-center text-sm font-bold">
+                  <i className="fa-solid fa-gem"></i>
+                </div>
+                <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wider">Available Diamonds</span>
+              </div>
+              <div className="text-xl font-black text-cyan-950 font-mono">
+                {Number(unifiedStockData?.summary?.diamond_total_carats || 0).toFixed(3)} <span className="text-xs font-bold text-cyan-700">ct</span>
+              </div>
+              <p className="text-[11px] text-stone-500 font-semibold mt-1">
+                {Number(unifiedStockData?.summary?.diamond_total_count || 0)} pcs in vault
+              </p>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-purple-200/80 shadow-2xs">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-700 flex items-center justify-center text-sm font-bold">
+                  <i className="fa-solid fa-shapes"></i>
+                </div>
+                <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wider">Colour Stones</span>
+              </div>
+              <div className="text-xl font-black text-stone-900 font-mono">
+                {Number(unifiedStockData?.summary?.stone_total_count || 0)} <span className="text-xs font-bold text-purple-700">pcs</span>
+              </div>
+              <p className="text-[11px] text-stone-400 mt-1">Precious & semi-precious stock</p>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 rounded-lg bg-slate-50 text-slate-700 flex items-center justify-center text-sm font-bold">
+                  <i className="fa-solid fa-ring"></i>
+                </div>
+                <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wider">Available Silver</span>
+              </div>
+              <div className="text-xl font-black text-stone-900 font-mono">
+                {Number(unifiedStockData?.summary?.silver_total_weight || 0).toFixed(3)} <span className="text-xs font-bold text-slate-700">g</span>
+              </div>
+              <p className="text-[11px] text-stone-400 mt-1">92.5 sterling / fine balance</p>
+            </div>
+          </div>
+
+          {/* Unified Available Stock Summary Table */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden">
+            <div className="p-4 border-b border-gray-200 bg-gray-50/50 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <i className="fa-solid fa-scale-balanced text-[#b01622]"></i>
+                <h2 className="text-base font-bold text-gray-900">Unified Available Stock Summary</h2>
+                <span className="bg-emerald-100 text-emerald-800 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+                  Purchases + Opening Stock
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={fetchUnifiedStock}
+                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+              >
+                <i className={`fa-solid fa-arrows-rotate mr-1 ${unifiedLoading ? 'fa-spin' : ''}`}></i> Refresh Stock
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-gray-50 text-[10px] font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200">
+                  <tr>
+                    <th className="py-3.5 px-4">Material Type</th>
+                    <th className="py-3.5 px-4">Stamp / Purity / Grade</th>
+                    <th className="py-3.5 px-4">Karat</th>
+                    <th className="py-3.5 px-4">Unit</th>
+                    <th className="py-3.5 px-4 text-right">Available Weight</th>
+                    <th className="py-3.5 px-4 text-right">Available Carat Weight</th>
+                    <th className="py-3.5 px-4 text-right">Available Quantity / Count</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {Array.isArray(unifiedStockData?.unified_rows) && unifiedStockData.unified_rows.length > 0 ? (
+                    unifiedStockData.unified_rows.map((row, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50 transition-colors">
+                        <td className="py-3.5 px-4 font-bold text-gray-900 flex items-center gap-2">
+                          <span className={`w-2.5 h-2.5 rounded-full ${
+                            row.material_type === 'Gold' ? 'bg-amber-500' :
+                            row.material_type === 'Diamond' ? 'bg-cyan-500' :
+                            row.material_type === 'Silver' ? 'bg-slate-500' : 'bg-purple-500'
+                          }`}></span>
+                          {row.material_type}
+                        </td>
+                        <td className="py-3.5 px-4 text-gray-800 font-semibold">{row.stamp_grade || '—'}</td>
+                        <td className="py-3.5 px-4 text-gray-600">{row.karat || '—'}</td>
+                        <td className="py-3.5 px-4 font-mono text-gray-700 font-semibold">{row.unit}</td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-gray-900">
+                          {row.available_weight !== null ? `${Number(row.available_weight).toFixed(3)} g` : '—'}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-cyan-900">
+                          {row.available_carat_weight !== null ? `${Number(row.available_carat_weight).toFixed(3)} ct` : '—'}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono text-gray-800">
+                          {row.available_quantity !== null ? `${Number(row.available_quantity)} pcs` : '—'}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center text-gray-400">
+                        {unifiedLoading ? 'Loading authoritative stock balance...' : 'No stock balance records found.'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* DIAMOND STOCK BY STAMP TABLE */}
+          <div className="bg-white rounded-2xl border border-cyan-200/90 shadow-xs overflow-hidden">
+            <div className="p-4 border-b border-cyan-100 bg-cyan-50/40 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <i className="fa-solid fa-gem text-cyan-600"></i>
+                <h3 className="text-base font-bold text-gray-900">Diamond Stock by Stamp / Grade Breakdown</h3>
+                <span className="bg-cyan-100 text-cyan-800 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+                  Separate Balances per Stamp
+                </span>
+              </div>
+
+              <div className="relative w-48 sm:w-60">
+                <i className="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                <input
+                  type="text"
+                  placeholder="Filter diamond stamp..."
+                  value={diamondFilterStamp}
+                  onChange={(e) => setDiamondFilterStamp(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-cyan-50/60 text-[10px] font-bold text-cyan-900 uppercase tracking-wider border-b border-cyan-100">
+                  <tr>
+                    <th className="py-3 px-4">Diamond Stamp / Grade</th>
+                    <th className="py-3 px-4 text-right">Available Carat Weight (ct)</th>
+                    <th className="py-3 px-4 text-right">Available Count (Pcs)</th>
+                    <th className="py-3 px-4 text-center">Unit</th>
+                    <th className="py-3 px-4 text-center">Quick Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {Array.isArray(unifiedStockData?.diamond_by_stamp) && unifiedStockData.diamond_by_stamp.length > 0 ? (
+                    unifiedStockData.diamond_by_stamp
+                      .filter(d => !diamondFilterStamp || d.stamp.toLowerCase().includes(diamondFilterStamp.toLowerCase()))
+                      .map((d, idx) => (
+                        <tr key={idx} className="hover:bg-cyan-50/30 transition-colors">
+                          <td className="py-3 px-4 font-bold text-gray-900 flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-cyan-600"></span>
+                            {d.stamp}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono font-black text-cyan-950">
+                            {Number(d.available_carats || 0).toFixed(3)} ct
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono font-semibold text-gray-700">
+                            {Number(d.available_count || 0)} pcs
+                          </td>
+                          <td className="py-3 px-4 text-center font-mono text-gray-500">{d.unit || 'ct'}</td>
+                          <td className="py-3 px-4 text-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleOpeningMaterialChange('diamond');
+                                setOpeningForm(prev => ({ ...prev, stamp: d.stamp }));
+                                setActiveTab('opening');
+                              }}
+                              className="px-2.5 py-1 bg-cyan-50 hover:bg-cyan-100 text-cyan-800 rounded-lg text-[11px] font-bold transition-colors cursor-pointer"
+                            >
+                              + Add Opening Stock
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                  ) : (
+                    <tr>
+                      <td colSpan={5} className="py-8 text-center text-gray-400">
+                        No diamond stamps recorded yet. Add opening diamond stock to view breakdown.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* RECENT PURCHASE ENTRIES HISTORY TABLE CARD */}
       {(activeTab === 'details' || activeTab === 'all') && (
         <div className="bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden">
@@ -1080,13 +2408,16 @@ export default function PurchaseEntry({ initialTab }) {
                             {isRaw ? 'Vault Raw Material' : 'Finished Jewellery'}
                           </span>
                           <div className="font-bold text-gray-900">
-                            {item.product?.name || item.item_name || (isRaw ? `${item.metal_type?.toUpperCase()} Vault Stock` : 'Jewellery Product')}
+                            {item.product?.name || item.raw_material?.name || item.item_name || (isRaw ? `${item.metal_type?.toUpperCase()} Vault Stock` : 'Jewellery Product')}
                           </div>
                         </td>
 
                         {/* Weight & Touch */}
                         <td className="py-3.5 px-4 text-center">
-                          <div className="font-bold text-amber-700">{item.weight} g</div>
+                          <div className="font-bold text-amber-700">{item.weight} {item.unit || 'g'}</div>
+                          {item.count_qty > 0 && (
+                            <div className="text-[10px] text-gray-600 font-medium">Count: {item.count_qty}</div>
+                          )}
                           <div className="text-[11px] text-emerald-700">Touch: {item.touch}%</div>
                         </td>
 

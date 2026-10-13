@@ -6,10 +6,32 @@ import { ToastProvider } from './context/ToastContext';
 
 import AppLayout from './layouts/AppLayout';
 import Login from './pages/auth/Login';
-const Dashboard = lazy(() => import('./pages/Dashboard'));
+const lazyWithRetry = (componentImport) =>
+  lazy(async () => {
+    const pageHasBeenReloaded = sessionStorage.getItem('rudhra_chunk_reloaded');
+    try {
+      return await componentImport();
+    } catch (error) {
+      const isChunkError =
+        error?.message?.includes('dynamically imported module') ||
+        error?.message?.includes('Failed to fetch') ||
+        error?.message?.includes('Loading chunk') ||
+        error?.name === 'ChunkLoadError';
+
+      if (isChunkError && !pageHasBeenReloaded) {
+        sessionStorage.setItem('rudhra_chunk_reloaded', 'true');
+        window.location.reload();
+        return new Promise(() => {});
+      }
+      sessionStorage.removeItem('rudhra_chunk_reloaded');
+      throw error;
+    }
+  });
+
+const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
 import ClientList from './pages/clients/ClientList';
 import RegisterClient from './pages/clients/RegisterClient';
-const BillingDashboard = lazy(() => import('./pages/clients/BillingDashboard'));
+const BillingDashboard = lazyWithRetry(() => import('./pages/clients/BillingDashboard'));
 import Users from './pages/authentication/Users';
 import Roles from './pages/authentication/Roles';
 import Permissions from './pages/authentication/Permissions';
@@ -36,37 +58,41 @@ import DiamondClarities from './pages/masters/DiamondClarities';
 import Karats from './pages/masters/Karats';
 import Stamps from './pages/masters/Stamps';
 import Units from './pages/masters/Units';
+import ComponentCategories from './pages/masters/ComponentCategories';
 import WorkSpecifications from './pages/masters/WorkSpecifications';
 import BankAccounts from './pages/masters/BankAccounts';
+import Operations from './pages/masters/Operations';
 import CompanyInfoMaster from './pages/masters/CompanyInfoMaster';
-const KarigarManagement = lazy(() => import('./pages/karigar/KarigarManagement'));
-const SalesModule = lazy(() => import('./pages/sales/SalesModule'));
-const ReportModule = lazy(() => import('./pages/reports/ReportModule'));
+const KarigarManagement = lazyWithRetry(() => import('./pages/karigar/KarigarManagement'));
+const SalesModule = lazyWithRetry(() => import('./pages/sales/SalesModule'));
+const ReportModule = lazyWithRetry(() => import('./pages/reports/ReportModule'));
 
 // Inventory Module
-const InventoryDashboard = lazy(() => import('./pages/inventory/InventoryDashboard'));
+const InventoryDashboard = lazyWithRetry(() => import('./pages/inventory/InventoryDashboard'));
 import InventoryBulkUpload from './pages/inventory/InventoryBulkUpload';
 import InventoryAddNewCategory from './pages/inventory/InventoryAddNewCategory';
 import InventoryAddNewSubcategory from './pages/inventory/InventoryAddNewSubcategory';
 import InventoryAddNewUpload from './pages/inventory/InventoryAddNewUpload';
 import InventoryUploadComplete from './pages/inventory/InventoryUploadComplete';
-const InventoryViewProduct = lazy(() => import('./pages/inventory/InventoryViewProduct'));
-const InventoryEditProduct = lazy(() => import('./pages/inventory/InventoryEditProduct'));
+const InventoryViewProduct = lazyWithRetry(() => import('./pages/inventory/InventoryViewProduct'));
+const InventoryEditProduct = lazyWithRetry(() => import('./pages/inventory/InventoryEditProduct'));
 import InventoryJewelleryTag from './pages/inventory/InventoryJewelleryTag';
 import InventoryBarcodeTag from './pages/inventory/InventoryBarcodeTag';
 
 // Job Order / Karigar Workflow Module
-const JobCreationDashboard = lazy(() => import('./pages/job-order/JobCreationDashboard'));
-const JobOrdersList = lazy(() => import('./pages/job-order/JobOrdersList'));
-const NewWorkOrder = lazy(() => import('./pages/job-order/NewWorkOrder'));
-const ReceiverWork = lazy(() => import('./pages/job-order/ReceiverWork'));
-const WorkInProgress = lazy(() => import('./pages/job-order/WorkInProgress'));
-const JobOrderDelay = lazy(() => import('./pages/job-order/JobOrderDelay'));
-const JobOrderHub = lazy(() => import('./pages/job-order/JobOrderHub'));
+const JobCreationDashboard = lazyWithRetry(() => import('./pages/job-order/JobCreationDashboard'));
+const JobOrdersList = lazyWithRetry(() => import('./pages/job-order/JobOrdersList'));
+const NewWorkOrder = lazyWithRetry(() => import('./pages/job-order/NewWorkOrder'));
+const ReceiverWork = lazyWithRetry(() => import('./pages/job-order/ReceiverWork'));
+const WorkInProgress = lazyWithRetry(() => import('./pages/job-order/WorkInProgress'));
+const JobOrderDelay = lazyWithRetry(() => import('./pages/job-order/JobOrderDelay'));
+const JobOrderHub = lazyWithRetry(() => import('./pages/job-order/JobOrderHub'));
+const TagPrinting = lazyWithRetry(() => import('./pages/job-order/TagPrinting'));
+const NotificationsHistory = lazyWithRetry(() => import('./pages/notifications/NotificationsHistory'));
 
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
-  
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0d0b08]">
@@ -83,7 +109,7 @@ const ProtectedRoute = ({ children }) => {
 };
 
 const PermissionRoute = ({ requiredPermission, superAdminOnly, children }) => {
-  const { isAuthenticated, loading, isSuperAdmin, hasPermission, isKarigar } = useAuth();
+  const { isAuthenticated, loading, isSuperAdmin, hasPermission } = useAuth();
 
   if (loading) {
     return (
@@ -103,7 +129,7 @@ const PermissionRoute = ({ requiredPermission, superAdminOnly, children }) => {
         <i className="fa-solid fa-shield-xmark text-4xl text-rose-600 mb-3 block"></i>
         <h3 className="text-lg font-bold text-rose-900 mb-1">Access Denied</h3>
         <p className="text-sm text-rose-700 mb-4">You do not have Super Administrator privileges to view this section.</p>
-        <button onClick={() => window.location.href = isKarigar ? '/job-creation/dashboard' : '/dashboard'} className="px-4 py-2 bg-rose-700 text-white rounded-lg text-xs font-semibold hover:bg-rose-800">Return to Dashboard</button>
+        <button onClick={() => window.location.href = '/dashboard'} className="px-4 py-2 bg-rose-700 text-white rounded-lg text-xs font-semibold hover:bg-rose-800">Return to Dashboard</button>
       </div>
     );
   }
@@ -114,7 +140,7 @@ const PermissionRoute = ({ requiredPermission, superAdminOnly, children }) => {
         <i className="fa-solid fa-lock text-4xl text-amber-600 mb-3 block"></i>
         <h3 className="text-lg font-bold text-amber-900 mb-1">Permission Required</h3>
         <p className="text-sm text-amber-700 mb-4">You do not have the required permission ({requiredPermission}) to access this page.</p>
-        <button onClick={() => window.location.href = isKarigar ? '/job-creation/dashboard' : '/dashboard'} className="px-4 py-2 bg-amber-700 text-white rounded-lg text-xs font-semibold hover:bg-amber-800">Return to Dashboard</button>
+        <button onClick={() => window.location.href = '/dashboard'} className="px-4 py-2 bg-amber-700 text-white rounded-lg text-xs font-semibold hover:bg-amber-800">Return to Dashboard</button>
       </div>
     );
   }
@@ -123,7 +149,7 @@ const PermissionRoute = ({ requiredPermission, superAdminOnly, children }) => {
 };
 
 const GuestRoute = ({ children }) => {
-  const { isAuthenticated, loading, isKarigar, user } = useAuth();
+  const { isAuthenticated, loading } = useAuth();
 
   if (loading) {
     return (
@@ -134,17 +160,14 @@ const GuestRoute = ({ children }) => {
   }
 
   if (isAuthenticated) {
-    const target = (isKarigar || user?.role === 'Karigar') ? '/job-order/in-progress' : '/dashboard';
-    return <Navigate to={target} replace />;
+    return <Navigate to="/dashboard" replace />;
   }
 
   return children;
 };
 
 const HomeRedirect = () => {
-  const { isKarigar, user } = useAuth();
-  const target = (isKarigar || user?.role === 'Karigar') ? '/job-order/in-progress' : '/dashboard';
-  return <Navigate to={target} replace />;
+  return <Navigate to="/dashboard" replace />;
 };
 
 class ErrorBoundary extends React.Component {
@@ -159,43 +182,70 @@ class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, errorInfo) {
     console.error("Uncaught application error:", error, errorInfo);
+    const isChunkError =
+      error?.message?.includes('dynamically imported module') ||
+      error?.message?.includes('Failed to fetch') ||
+      error?.message?.includes('Loading chunk');
+
+    if (isChunkError) {
+      const storageKey = 'rudhra_error_boundary_chunk_reload';
+      if (!sessionStorage.getItem(storageKey)) {
+        sessionStorage.setItem(storageKey, 'true');
+        window.location.reload();
+      }
+    }
   }
 
   handleClearCacheAndReload = () => {
     try {
       localStorage.clear();
       sessionStorage.clear();
-    } catch (e) {}
+    } catch (e) { }
     window.location.href = '/login';
   };
 
   render() {
     if (this.state.hasError) {
+      const isChunkError =
+        this.state.error?.message?.includes('dynamically imported module') ||
+        this.state.error?.message?.includes('Failed to fetch') ||
+        this.state.error?.message?.includes('Loading chunk');
+
       return (
         <div className="min-h-screen bg-stone-100 flex items-center justify-center p-6 font-['Inter',sans-serif]">
           <div className="bg-white rounded-2xl p-8 max-w-md w-full border border-stone-200 shadow-xl text-center space-y-4">
-            <div className="w-14 h-14 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto text-2xl">
-              <i className="fa-solid fa-triangle-exclamation"></i>
+            <div className={`w-14 h-14 ${isChunkError ? 'bg-amber-50 text-amber-600' : 'bg-rose-50 text-rose-600'} rounded-full flex items-center justify-center mx-auto text-2xl`}>
+              <i className={`fa-solid ${isChunkError ? 'fa-rotate' : 'fa-triangle-exclamation'}`}></i>
             </div>
-            <h2 className="text-lg font-bold text-stone-900">Something went wrong</h2>
+            <h2 className="text-lg font-bold text-stone-900">
+              {isChunkError ? 'Application Update Available' : 'Something went wrong'}
+            </h2>
             <p className="text-xs text-stone-500 leading-relaxed">
-              An unexpected error occurred while loading this section:
+              {isChunkError
+                ? 'The application has been updated with latest components. Please reload the page to load the newest version.'
+                : 'An unexpected error occurred while loading this section:'}
             </p>
             <div className="bg-stone-50 border border-stone-200 rounded-lg p-3 text-left overflow-x-auto text-[11px] font-mono text-rose-700 max-h-32">
               {this.state.error?.message || String(this.state.error)}
             </div>
             <div className="flex items-center justify-center gap-3 pt-2">
               <button
-                onClick={() => window.location.reload()}
-                className="px-4 py-2 bg-[#b01622] text-white text-xs font-semibold rounded-xl hover:bg-[#8e111a] transition-colors cursor-pointer"
+                onClick={() => {
+                  try {
+                    sessionStorage.removeItem('rudhra_chunk_reloaded');
+                    sessionStorage.removeItem('rudhra_error_boundary_chunk_reload');
+                  } catch (e) {}
+                  window.location.reload();
+                }}
+                className="px-5 py-2.5 bg-[#b01622] text-white text-xs font-semibold rounded-xl hover:bg-[#8e111a] transition-colors cursor-pointer shadow-xs"
               >
-                Reload Page
+                Reload &amp; Update
               </button>
               <button
                 onClick={this.handleClearCacheAndReload}
-                className="px-4 py-2 bg-stone-200 text-stone-700 text-xs font-semibold rounded-xl hover:bg-stone-300 transition-colors cursor-pointer"
+                className="px-4 py-2.5 bg-stone-200 text-stone-700 text-xs font-semibold rounded-xl hover:bg-stone-300 transition-colors cursor-pointer"
               >
-                Reset Session & Login
+                Reset Session &amp; Login
               </button>
             </div>
           </div>
@@ -218,7 +268,7 @@ function App() {
                   <Login />
                 </GuestRoute>
               } />
-              
+
               <Route element={
                 <ProtectedRoute>
                   <AppLayout />
@@ -226,6 +276,7 @@ function App() {
               }>
                 <Route path="/" element={<HomeRedirect />} />
                 <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/notifications" element={<NotificationsHistory />} />
                 <Route path="/karigars" element={
                   <PermissionRoute requiredPermission="karigars.view">
                     <KarigarManagement />
@@ -285,6 +336,7 @@ function App() {
                 <Route path="/masters/karats" element={<Karats />} />
                 <Route path="/masters/stamps" element={<Stamps />} />
                 <Route path="/masters/units" element={<Units />} />
+                <Route path="/masters/component-categories" element={<ComponentCategories />} />
                 <Route path="/masters/products" element={<Navigate to="/inventory" replace />} />
                 <Route path="/masters/products/create" element={<Navigate to="/inventory/add-new/category" replace />} />
                 <Route path="/masters/products/:id/edit" element={<Navigate to="/inventory" replace />} />
@@ -310,6 +362,8 @@ function App() {
                 <Route path="/masters/diamond-colors" element={<DiamondColors />} />
                 <Route path="/masters/diamond-clarities" element={<DiamondClarities />} />
                 <Route path="/masters/work-specifications" element={<WorkSpecifications />} />
+                <Route path="/masters/operations" element={<Operations />} />
+                <Route path="/masters/operation" element={<Navigate to="/masters/operations" replace />} />
                 <Route path="/masters/bank-accounts" element={<BankAccounts />} />
                 <Route path="/masters/info" element={<CompanyInfoMaster />} />
                 <Route path="/masters/company-info" element={<CompanyInfoMaster />} />
@@ -330,16 +384,19 @@ function App() {
                 {/* Job Order / Karigar Workflow Routes */}
                 <Route path="/job-creation" element={<JobCreationDashboard />} />
                 <Route path="/job-creation/dashboard" element={<JobCreationDashboard />} />
-                <Route path="/job-order" element={<JobOrdersList />} />
-                <Route path="/job-orders" element={<JobOrdersList />} />
+                <Route path="/job-order" element={<WorkInProgress />} />
+                <Route path="/job-orders" element={<WorkInProgress />} />
                 <Route path="/job-order/new" element={<NewWorkOrder initialMode="create" />} />
                 <Route path="/job-order/receive" element={<ReceiverWork />} />
+                <Route path="/job-order/tag-printing" element={<TagPrinting />} />
                 <Route path="/job-order/in-progress" element={<WorkInProgress />} />
                 <Route path="/job-order/work-in-progress" element={<WorkInProgress />} />
                 <Route path="/job-order/delay" element={<JobOrderDelay />} />
                 <Route path="/job-order/delay-hold" element={<JobOrderDelay />} />
-                <Route path="/job-order/waste" element={<JobOrderHub initialTab="waste" />} />
                 <Route path="/job-order/quality-check" element={<JobOrderHub initialTab="quality-check" />} />
+                <Route path="/job-order/certification" element={<JobOrderHub initialTab="certification" />} />
+                <Route path="/job-order/hallmarking" element={<JobOrderHub initialTab="hallmarking" />} />
+                <Route path="/job-order/ready" element={<JobOrderHub initialTab="ready" />} />
                 <Route path="/job-order/final-receive" element={<JobOrderHub initialTab="final-receive" />} />
                 <Route path="/job-order/history" element={<JobOrderHub initialTab="history" />} />
                 <Route path="/job-order/:id" element={<NewWorkOrder initialMode="details" />} />
@@ -373,6 +430,8 @@ function App() {
 
 const container = document.getElementById('app');
 if (container) {
-  const root = createRoot(container);
-  root.render(<App />);
+  if (!container._reactRoot) {
+    container._reactRoot = createRoot(container);
+  }
+  container._reactRoot.render(<App />);
 }

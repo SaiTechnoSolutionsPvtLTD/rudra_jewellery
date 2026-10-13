@@ -32,8 +32,13 @@ export default function BenchMetalModal({ isOpen, onClose, totalBenchMetal = 0, 
 
   // Calculate live active jobs per Karigar from liveJobs
   liveJobs.forEach((job) => {
-    const kId = job.karigar_id || job.artisan_id;
+    let kId = job.karigar_id || job.artisan_id;
     const kName = job.karigar_name || job.artisan_name || 'Unassigned';
+
+    if (!kId && kName !== 'Unassigned') {
+      const match = karigarsList.find((k) => k.name?.toLowerCase().trim() === kName.toLowerCase().trim());
+      if (match) kId = match.id;
+    }
 
     if (!kId) return;
 

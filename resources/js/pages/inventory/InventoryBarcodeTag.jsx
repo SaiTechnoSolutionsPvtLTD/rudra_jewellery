@@ -54,7 +54,7 @@ function QRBlock({ accent = '#b01622' }) {
 /* ───────────────────────────────────────────────────────────
    Single printable label card (used in grid)
 ─────────────────────────────────────────────────────────── */
-function LabelCard({ code, name, purity, grossWt, netWt, diaWt, stamp, huid, price, variant = 'full' }) {
+function LabelCard({ code, name, purity, grossWt, netWt, diaWt, stamp, huid, variant = 'full' }) {
   return (
     <div
       style={{ breakInside: 'avoid' }}
@@ -87,10 +87,10 @@ function LabelCard({ code, name, purity, grossWt, netWt, diaWt, stamp, huid, pri
         <div className="font-mono text-[8px] font-bold text-stone-600 text-center tracking-widest">*{code}*</div>
       </div>
 
-      {/* Price footer */}
+      {/* Stock & Hallmark Footer */}
       <div className="border-t border-stone-200 px-3 py-1.5 flex items-center justify-between bg-stone-50/50">
         <span className="text-[9.5px] text-stone-500 font-mono font-bold">BIS {stamp}</span>
-        <span className="text-sm font-black text-[#b01622]">₹{Number(price).toLocaleString('en-IN')}</span>
+        <span className="text-xs font-black text-[#b01622] font-mono">Gross: {Number(grossWt).toFixed(3)}g</span>
       </div>
     </div>
   );
@@ -142,13 +142,7 @@ export default function InventoryBarcodeTag() {
   const stamp         = attributes.stamp     || '916 BIS';
   const settingStyle  = attributes.setting_style || 'N/A';
   const openClose     = attributes.open_close_type || attributes.open_close_details || 'N/A';
-  const rate          = Number(attributes.sale_rate || attributes.rate || product?.opening_stock_rate || 0);
-  const makingCharge  = attributes.making_charge ? `₹${attributes.making_charge}/g` : '₹750/g';
-  const wastage       = attributes.wastage_percent ? `${attributes.wastage_percent}%` : '3.50%';
-  const valuation     = attributes.sale_value
-    ? Number(attributes.sale_value)
-    : (Number(netWt) * rate) + (diaWt ? Number(diaWt) * 65000 : 0);
-  const formattedPrice = Math.round(valuation).toLocaleString('en-IN');
+
   const artisanName   = karigar?.name || '-';
   const imageSrc      = product?.image_url || product?.image || '/placeholder-jewelry.png';
   const printDate     = new Date().toLocaleDateString('en-IN', {
@@ -319,18 +313,18 @@ export default function InventoryBarcodeTag() {
               <div><span className="text-stone-400 block uppercase font-bold text-[8px]">Total Gross Wt</span> <strong className="font-mono text-stone-900">{Number(grossWt).toFixed(3)} g</strong></div>
               <div><span className="text-stone-400 block uppercase font-bold text-[8px]">Net Fine Wt</span> <strong className="font-mono text-stone-900">{Number(netWt).toFixed(3)} g</strong></div>
               <div><span className="text-stone-400 block uppercase font-bold text-[8px]">Diamond Weight</span> <strong className="font-mono text-purple-700">{diaWt ? `${Number(diaWt).toFixed(2)} CT` : '0.00 CT'}</strong></div>
-              <div><span className="text-stone-400 block uppercase font-bold text-[8px]">Wastage</span> <strong className="text-stone-800">{wastage}</strong></div>
-              <div><span className="text-stone-400 block uppercase font-bold text-[8px]">Making Charge</span> <strong className="text-stone-800">{makingCharge}</strong></div>
+              <div><span className="text-stone-400 block uppercase font-bold text-[8px]">Design No</span> <strong className="text-stone-800 font-mono">{product?.design_no || 'N/A'}</strong></div>
+              <div><span className="text-stone-400 block uppercase font-bold text-[8px]">Stock Qty</span> <strong className="text-stone-800 font-bold">{stockQty} Units</strong></div>
               <div><span className="text-stone-400 block uppercase font-bold text-[8px]">BIS HUID Tag</span> <strong className="font-mono text-stone-900">{huid}</strong></div>
             </div>
           </div>
 
-          {/* Price & QR block */}
+          {/* Stock Weight & QR block */}
           <div className="col-span-3 flex flex-col items-center gap-2">
             <div className="bg-[#b01622] text-white rounded-xl px-3 py-2 text-center w-full shadow-xs">
-              <div className="text-[9px] font-bold text-red-100 uppercase tracking-wider">MRP (Incl. GST)</div>
-              <div className="text-xl font-black mt-0.5">₹{formattedPrice}</div>
-              <div className="text-[9px] text-red-100">Gold Rate: ₹{rate.toLocaleString('en-IN')}/g</div>
+              <div className="text-[9px] font-bold text-red-100 uppercase tracking-wider">STOCK WEIGHT</div>
+              <div className="text-xl font-black mt-0.5 font-mono">{Number(grossWt).toFixed(3)} g</div>
+              <div className="text-[9px] text-red-100 font-mono">Net: {Number(netWt).toFixed(3)} g • {purity}</div>
             </div>
             <div className="flex items-center gap-2 w-full">
               <div className="w-14 h-14 border border-stone-300 rounded-lg p-1 bg-white shrink-0">
@@ -365,7 +359,7 @@ export default function InventoryBarcodeTag() {
           <div className="text-right">
             <div className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Stock Quantity</div>
             <div className="font-mono text-lg font-black text-stone-900 mt-0.5">{String(stockQty).padStart(2, '0')} pcs</div>
-            <div className="text-[9px] text-stone-500">ERP Ref: TAG-{id}-{Math.round(valuation).toString().slice(-4)}</div>
+            <div className="text-[9px] text-stone-500">ERP Ref: TAG-{id}-{String(code).replace(/[^A-Za-z0-9]/g, '').slice(-4)}</div>
           </div>
         </div>
 
@@ -393,7 +387,6 @@ export default function InventoryBarcodeTag() {
                 diaWt={diaWt}
                 stamp={stamp}
                 huid={huid}
-                price={Math.round(valuation)}
                 variant={labelCount === 6 ? 'full' : 'compact'}
               />
             ))}

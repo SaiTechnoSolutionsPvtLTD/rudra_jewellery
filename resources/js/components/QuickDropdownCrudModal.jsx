@@ -87,6 +87,13 @@ export default function QuickDropdownCrudModal({
       itemName: 'Item',
       emptyNamePlaceholder: 'e.g. Box Link Chain or Antique Temple Necklace',
     },
+    component_category: {
+      title: 'Manage Component Categories',
+      icon: 'fa-solid fa-layer-group',
+      endpoint: '/component-categories',
+      itemName: 'Component Category',
+      emptyNamePlaceholder: 'e.g. Diamond, Stones, Pearls, CZ Stones',
+    },
   }[type] || {
     title: 'Manage Options',
     icon: 'fa-solid fa-list',
@@ -130,11 +137,20 @@ export default function QuickDropdownCrudModal({
       color: 'red',
       min_ct: '',
       max_ct: '',
+      applicable_for: [],
     });
   };
 
   const handleEditClick = (item) => {
     setEditingId(item.id);
+    let appArr = ['Gold', 'Silver', 'Diamond', 'Stone'];
+    if (item.applicable_for) {
+      if (item.applicable_for === 'All') {
+        appArr = ['Gold', 'Silver', 'Diamond', 'Stone'];
+      } else {
+        appArr = item.applicable_for.split(',').map(s => s.trim()).filter(Boolean);
+      }
+    }
     setFormData({
       name: item.name || '',
       purity: item.purity || '',
@@ -142,6 +158,7 @@ export default function QuickDropdownCrudModal({
       color: item.color || 'red',
       min_ct: item.min_ct !== null && item.min_ct !== undefined ? String(item.min_ct) : '',
       max_ct: item.max_ct !== null && item.max_ct !== undefined ? String(item.max_ct) : '',
+      applicable_for: appArr,
     });
   };
 
@@ -149,6 +166,11 @@ export default function QuickDropdownCrudModal({
     e.preventDefault();
     if (!formData.name.trim()) {
       showToast(`Please provide a valid ${config.itemName} name`, 'error');
+      return;
+    }
+
+    if (type === 'stamp' && (!formData.applicable_for || formData.applicable_for.length === 0)) {
+      showToast('Please select a material type (Gold, Diamond, or Stone)', 'error');
       return;
     }
 
@@ -360,6 +382,37 @@ export default function QuickDropdownCrudModal({
                         </>
                       )}
                     </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Stamp specific field: Link to Material Type */}
+              {type === 'stamp' && (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Link With Material Type <span className="text-[#b01622]">*</span>
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-white p-2.5 rounded-lg border border-gray-300">
+                    {['Gold', 'Silver', 'Diamond', 'Stone'].map((mat) => {
+                      const list = formData.applicable_for || [];
+                      const isChecked = list.includes(mat);
+                      return (
+                        <label key={mat} className="flex items-center gap-1.5 text-xs font-bold text-gray-800 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {
+                              const updated = isChecked
+                                ? list.filter((m) => m !== mat)
+                                : [...list, mat];
+                              setFormData({ ...formData, applicable_for: updated });
+                            }}
+                            className="w-3.5 h-3.5 rounded text-[#b01622] focus:ring-[#b01622] cursor-pointer"
+                          />
+                          <span>{mat}</span>
+                        </label>
+                      );
+                    })}
                   </div>
                 </div>
               )}

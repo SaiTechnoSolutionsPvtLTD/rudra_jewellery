@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import { cleanProductName } from '../../utils/formatters';
 
 export default function JobOrdersList() {
   const navigate = useNavigate();
@@ -16,6 +17,7 @@ export default function JobOrdersList() {
   const [activeMenuId, setActiveMenuId] = useState(null);
   const [liveJobs, setLiveJobs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [previewModal, setPreviewModal] = useState({ open: false, title: '', src: '' });
 
   // Pagination state driven by backend API
   const [currentPage, setCurrentPage] = useState(1);
@@ -167,7 +169,7 @@ export default function JobOrdersList() {
               <span>Ongoing Projects List</span>
             </h2>
             <p className="text-[11px] text-gray-400 font-normal mt-0.5">
-              Click on any project row to open its Work in Progress, Delay, Waste, and Quality Check sub-pages.
+              Click on any project row to open its Work in Progress, Delay, and Quality Check sub-pages.
             </p>
           </div>
 
@@ -213,6 +215,7 @@ export default function JobOrdersList() {
               <tr className="text-[10px] font-bold text-[#9ca3af] tracking-wider uppercase border-b border-gray-100 bg-stone-50/50">
                 <th className="py-3 px-3 font-semibold whitespace-nowrap text-center w-12">S.NO</th>
                 <th className="py-3 px-3.5 font-semibold whitespace-nowrap">WORK ORDER NO</th>
+                <th className="py-3 px-3 font-semibold whitespace-nowrap text-center w-16">IMAGE</th>
                 <th className="py-3 px-3 font-semibold whitespace-nowrap">PRODUCT / ITEM</th>
                 <th className="py-3 px-3 font-semibold whitespace-nowrap">AACHARI (ARTISAN)</th>
                 <th className="py-3 px-3 font-semibold whitespace-nowrap text-right">ALLOTTED WT</th>
@@ -227,14 +230,14 @@ export default function JobOrdersList() {
             <tbody className="divide-y divide-gray-50">
               {loading && liveJobs.length === 0 ? (
                 <tr>
-                  <td colSpan="11" className="py-8 text-center text-gray-400 text-xs">
+                  <td colSpan="12" className="py-8 text-center text-gray-400 text-xs">
                     <i className="fa-solid fa-spinner fa-spin text-[#9e1b27] mr-2"></i>
                     Loading ongoing project work orders...
                   </td>
                 </tr>
               ) : liveJobs.length === 0 ? (
                 <tr>
-                  <td colSpan="11" className="py-8 text-center text-gray-400 text-xs">
+                  <td colSpan="12" className="py-8 text-center text-gray-400 text-xs">
                     No active ongoing work orders found. Click "+ New Work Order" to create one.
                   </td>
                 </tr>
@@ -255,10 +258,32 @@ export default function JobOrdersList() {
                       {job.work_order_number}
                     </td>
 
+                    {/* Image Thumbnail */}
+                    <td className="py-2 px-3 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                      <div
+                        onClick={() => setPreviewModal({ open: true, title: `${job.work_order_number} - ${job.item_type}`, src: job.image_url || '/images/samples/peacock_choker.jpg' })}
+                        className="w-10 h-10 rounded-lg overflow-hidden border border-stone-200 bg-stone-100 mx-auto flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-[#9e1b27] hover:border-[#9e1b27] transition-all shadow-2xs group/img relative"
+                        title="Click to view full design image"
+                      >
+                        <img
+                          src={job.image_url || '/images/samples/peacock_choker.jpg'}
+                          alt={job.item_type || 'Work Order Image'}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            e.target.onerror = null;
+                            e.target.src = '/images/samples/peacock_choker.jpg';
+                          }}
+                        />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 flex items-center justify-center transition-opacity">
+                          <i className="fa-solid fa-magnifying-glass-plus text-white text-[10px]"></i>
+                        </div>
+                      </div>
+                    </td>
+
                     {/* Item Type */}
                     <td className="py-3.5 px-3 font-bold text-gray-900 text-xs">
-                      <div className="max-w-[190px] truncate" title={job.item_type}>
-                        {job.item_type}
+                      <div className="max-w-[190px] truncate" title={cleanProductName(job.item_type, job.design_no || job.design_code)}>
+                        {cleanProductName(job.item_type, job.design_no || job.design_code)}
                       </div>
                     </td>
 
@@ -410,6 +435,46 @@ export default function JobOrdersList() {
           </div>
         </div>
       </div>
+
+      {/* Image Preview Modal */}
+      {previewModal.open && (
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in duration-150"
+          onClick={() => setPreviewModal({ open: false, title: '', src: '' })}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-xl w-full p-5 shadow-2xl border border-stone-200 relative overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-stone-100 mb-4">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#9e1b27] block">
+                  Uploaded Reference / CAD Design Image
+                </span>
+                <h3 className="text-sm font-extrabold text-stone-900">{previewModal.title}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewModal({ open: false, title: '', src: '' })}
+                className="w-8 h-8 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-600 flex items-center justify-center text-xs transition-colors cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+            <div className="max-h-[70vh] flex items-center justify-center bg-stone-50 rounded-xl overflow-hidden p-2 border border-stone-100">
+              <img
+                src={previewModal.src}
+                alt={previewModal.title}
+                className="max-h-[65vh] max-w-full object-contain rounded-lg shadow-sm"
+                onError={(e) => {
+                  e.target.onerror = null;
+                  e.target.src = '/images/samples/peacock_choker.jpg';
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

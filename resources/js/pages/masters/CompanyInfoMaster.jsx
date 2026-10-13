@@ -32,8 +32,8 @@ export default function CompanyInfoMaster() {
         localStorage.setItem('rudhra_company_info', JSON.stringify(def));
         window.dispatchEvent(new CustomEvent('rudhra_company_info_updated', { detail: def }));
       } else {
-        setCompanies([DEFAULT_COMPANY_INFO]);
-        localStorage.setItem('rudhra_company_info', JSON.stringify(DEFAULT_COMPANY_INFO));
+        setCompanies([]);
+        localStorage.removeItem('rudhra_company_info');
       }
     } catch (err) {
       console.warn('Company info fetch warning, using local state:', err);

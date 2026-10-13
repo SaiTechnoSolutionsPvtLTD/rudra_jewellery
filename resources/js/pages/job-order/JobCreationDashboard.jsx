@@ -57,7 +57,7 @@ export default function JobCreationDashboard() {
   const [paginationMeta, setPaginationMeta] = useState({
     current_page: 1,
     last_page: 1,
-    per_page: 4,
+    per_page: 5,
     total: 0,
     from: 0,
     to: 0,
@@ -83,7 +83,7 @@ export default function JobCreationDashboard() {
 
   const [materialAllocations, setMaterialAllocations] = useState([]);
   const [allocPage, setAllocPage] = useState(1);
-  const allocPerPage = 3;
+  const allocPerPage = 5;
 
   const [auditLogs, setAuditLogs] = useState([]);
   const [auditPage, setAuditPage] = useState(1);
@@ -115,7 +115,7 @@ export default function JobCreationDashboard() {
     try {
       setLoading(true);
       const res = await api.get('/work-orders/dashboard-stats', {
-        params: { range: timeRange, page, per_page: 4 },
+        params: { range: timeRange, page, per_page: 5 },
       });
 
       if (res.data?.status === 'success') {
@@ -151,7 +151,7 @@ export default function JobCreationDashboard() {
           setPaginationMeta({
             current_page: d.pagination.current_page || 1,
             last_page: d.pagination.last_page || 1,
-            per_page: d.pagination.per_page || 4,
+            per_page: d.pagination.per_page || 5,
             total: d.pagination.total || 0,
             from: d.pagination.from || 0,
             to: d.pagination.to || 0,
@@ -344,7 +344,7 @@ export default function JobCreationDashboard() {
         </div>
       </div>
 
-      {/* 3. Tab Navigation Bar (Exact Match to Image 1) */}
+      {/* 3. Tab Navigation Bar */}
       <div className="border-b border-[#ebd0cb] mt-1 mb-6">
         <nav className="flex items-center gap-10 -mb-px overflow-x-auto no-scrollbar">
           <button
@@ -368,19 +368,7 @@ export default function JobCreationDashboard() {
                 : 'border-transparent text-[#6e2d27] hover:text-[#b01622]'
             }`}
           >
-            Dealy/ Job Details
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleTabClick('waste', '/job-order/waste')}
-            className={`pb-3 text-[14px] font-bold whitespace-nowrap transition-colors border-b-2 cursor-pointer ${
-              activeTab === 'waste'
-                ? 'border-[#b01622] text-[#5c2725]'
-                : 'border-transparent text-[#6e2d27] hover:text-[#b01622]'
-            }`}
-          >
-            Waste Details
+            Delay / Job Details
           </button>
 
           <button
@@ -392,7 +380,43 @@ export default function JobCreationDashboard() {
                 : 'border-transparent text-[#6e2d27] hover:text-[#b01622]'
             }`}
           >
-            Quality Check & Final Receive
+            Quality Check
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleTabClick('ready', '/job-order/ready')}
+            className={`pb-3 text-[14px] font-bold whitespace-nowrap transition-colors border-b-2 cursor-pointer ${
+              activeTab === 'ready'
+                ? 'border-[#b01622] text-[#5c2725]'
+                : 'border-transparent text-[#6e2d27] hover:text-[#b01622]'
+            }`}
+          >
+            Ready
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleTabClick('certification', '/job-order/certification')}
+            className={`pb-3 text-[14px] font-bold whitespace-nowrap transition-colors border-b-2 cursor-pointer ${
+              activeTab === 'certification'
+                ? 'border-[#b01622] text-[#5c2725]'
+                : 'border-transparent text-[#6e2d27] hover:text-[#b01622]'
+            }`}
+          >
+            Certification
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleTabClick('hallmarking', '/job-order/hallmarking')}
+            className={`pb-3 text-[14px] font-bold whitespace-nowrap transition-colors border-b-2 cursor-pointer ${
+              activeTab === 'hallmarking'
+                ? 'border-[#b01622] text-[#5c2725]'
+                : 'border-transparent text-[#6e2d27] hover:text-[#b01622]'
+            }`}
+          >
+            Hallmarking
           </button>
 
           <button
@@ -534,9 +558,9 @@ export default function JobCreationDashboard() {
             <table className="w-full text-left text-xs border-collapse min-w-[780px]">
               <thead>
                 <tr className="text-[10px] font-bold text-[#9ca3af] tracking-wider uppercase border-b border-gray-100">
-                  <th className="py-2.5 px-3 font-semibold whitespace-nowrap">ARTISAN NAME</th>
                   <th className="py-2.5 px-3 font-semibold whitespace-nowrap">ORDER ID</th>
-                  <th className="py-2.5 px-3 font-semibold whitespace-nowrap">ITEM TYPE</th>
+                  <th className="py-2.5 px-3 font-semibold whitespace-nowrap">ITEM NAME</th>
+                  <th className="py-2.5 px-3 font-semibold whitespace-nowrap">ARTISAN NAME</th>
                   <th className="py-2.5 px-3 font-semibold whitespace-nowrap text-right">ALLOTTED WT</th>
                   <th className="py-2.5 px-3 font-semibold whitespace-nowrap text-right">COMPLETED WT</th>
                   <th className="py-2.5 px-3 font-semibold whitespace-nowrap text-right">PENDING WT</th>
@@ -567,7 +591,19 @@ export default function JobCreationDashboard() {
                       onClick={() => navigate(`/job-order/${job.id}`)}
                       className="hover:bg-[#fafafa] transition-colors group cursor-pointer"
                     >
-                      {/* Artisan Name with Avatar */}
+                      {/* 1. Order ID */}
+                      <td className="py-3.5 px-3 font-mono font-bold text-gray-700 text-xs whitespace-nowrap">
+                        {job.work_order_number}
+                      </td>
+
+                      {/* 2. Item Name */}
+                      <td className="py-3.5 px-3 font-medium text-gray-800 text-xs">
+                        <div className="max-w-[170px] truncate" title={job.item_type || job.product_name}>
+                          {job.item_type || job.product_name}
+                        </div>
+                      </td>
+
+                      {/* 3. Artisan Name with Avatar */}
                       <td className="py-3.5 px-3 whitespace-nowrap">
                         <div className="flex items-center gap-2.5">
                           <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-[10px] ${job.avatar_color}`}>
@@ -576,18 +612,6 @@ export default function JobCreationDashboard() {
                           <span className="font-semibold text-gray-900 text-xs">
                             {job.artisan_name}
                           </span>
-                        </div>
-                      </td>
-
-                      {/* Order ID */}
-                      <td className="py-3.5 px-3 font-mono font-bold text-gray-500 text-xs whitespace-nowrap">
-                        {job.work_order_number}
-                      </td>
-
-                      {/* Item Type */}
-                      <td className="py-3.5 px-3 font-medium text-gray-800 text-xs">
-                        <div className="max-w-[170px] truncate" title={job.item_type}>
-                          {job.item_type}
                         </div>
                       </td>
 
@@ -714,8 +738,11 @@ export default function JobCreationDashboard() {
                 disabled={paginationMeta.current_page <= 1}
                 onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
                 className="w-6 h-6 flex items-center justify-center rounded border border-[#e5e7eb] disabled:opacity-40 text-gray-500 hover:bg-gray-50 text-[11px] transition-colors cursor-pointer"
+                title="Previous Page"
               >
-                <i className="fa-solid fa-chevron-left text-[9px]"></i>
+                <svg className="w-3 h-3 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                </svg>
               </button>
 
               {/* Numbered Page Buttons */}
@@ -740,8 +767,11 @@ export default function JobCreationDashboard() {
                 disabled={paginationMeta.current_page >= paginationMeta.last_page}
                 onClick={() => setCurrentPage((prev) => Math.min(paginationMeta.last_page, prev + 1))}
                 className="w-6 h-6 flex items-center justify-center rounded border border-[#e5e7eb] disabled:opacity-40 text-gray-500 hover:bg-gray-50 text-[11px] transition-colors cursor-pointer"
+                title="Next Page"
               >
-                <i className="fa-solid fa-chevron-right text-[9px]"></i>
+                <svg className="w-3 h-3 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
               </button>
             </div>
           </div>
@@ -750,55 +780,121 @@ export default function JobCreationDashboard() {
         {/* Right Column: Material Allocation (Real Data from Project DB) */}
         <div className="lg:col-span-4 bg-white rounded-xl border border-[#eceff3] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)] flex flex-col justify-between">
           <div>
-            <h2 className="text-sm font-bold text-[#111827] tracking-tight mb-5">
-              Material Allocation
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-bold text-[#111827] tracking-tight">
+                Material Allocation
+              </h2>
+              <span className="text-[11px] font-semibold text-stone-400">
+                {materialAllocations.length} Artisan{materialAllocations.length === 1 ? '' : 's'}
+              </span>
+            </div>
 
-            {/* List of Material Allocations */}
+            {/* List of Material Allocations (Paginated to 5 rows at a time) */}
             {materialAllocations.length === 0 ? (
               <div className="py-6 text-center text-xs text-gray-400">
                 No active material allocations recorded.
               </div>
             ) : (
-              <div className="space-y-4">
-                {materialAllocations.map((alloc, i) => (
-                  <div
-                    key={i}
-                    className="pl-3 py-0.5 border-l-4"
-                    style={{ borderColor: alloc.color || '#78591e' }}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-xs font-bold text-gray-900 leading-snug">
-                          {alloc.artisan_name}
+              (() => {
+                const totalPages = Math.ceil(materialAllocations.length / allocPerPage) || 1;
+                const safePage = Math.min(Math.max(1, allocPage), totalPages);
+                const startIndex = (safePage - 1) * allocPerPage;
+                const paginatedAllocations = materialAllocations.slice(startIndex, startIndex + allocPerPage);
+
+                return (
+                  <div>
+                    <div className="space-y-3.5">
+                      {paginatedAllocations.map((alloc, i) => (
+                        <div
+                          key={alloc.artisan_id || i}
+                          className="pl-3 py-0.5 border-l-4"
+                          style={{ borderColor: alloc.color || '#78591e' }}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="text-xs font-bold text-gray-900 leading-snug">
+                                {alloc.artisan_name}
+                              </div>
+                              <div className="text-[10.5px] text-[#9ca3af]">
+                                {alloc.material_title}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-xs font-bold text-gray-900 leading-snug">
+                                {alloc.issued_weight}
+                              </div>
+                              <div className="text-[10.5px] text-[#9ca3af]">
+                                {alloc.balance_weight}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Horizontal Bar */}
+                          <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden mt-2">
+                            <div
+                              className="h-full rounded-full transition-all duration-700"
+                              style={{
+                                backgroundColor: alloc.color || '#78591e',
+                                width: `${Math.min(100, Math.max(8, alloc.percent || 15))}%`,
+                              }}
+                            ></div>
+                          </div>
                         </div>
-                        <div className="text-[10.5px] text-[#9ca3af]">
-                          {alloc.material_title}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xs font-bold text-gray-900 leading-snug">
-                          {alloc.issued_weight}
-                        </div>
-                        <div className="text-[10.5px] text-[#9ca3af]">
-                          {alloc.balance_weight}
-                        </div>
-                      </div>
+                      ))}
                     </div>
 
-                    {/* Horizontal Bar */}
-                    <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden mt-2">
-                      <div
-                        className="h-full rounded-full transition-all duration-700"
-                        style={{
-                          backgroundColor: alloc.color || '#78591e',
-                          width: `${Math.min(100, Math.max(8, alloc.percent || 15))}%`,
-                        }}
-                      ></div>
-                    </div>
+                    {/* Material Allocation Pagination (5 rows per page) */}
+                    {materialAllocations.length > allocPerPage && (
+                      <div className="flex items-center justify-between pt-3 mt-4 border-t border-gray-100">
+                        <span className="text-[10.5px] text-[#6b7280]">
+                          Showing {startIndex + 1}–{Math.min(startIndex + allocPerPage, materialAllocations.length)} of {materialAllocations.length}
+                        </span>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            disabled={safePage <= 1}
+                            onClick={() => setAllocPage((prev) => Math.max(1, prev - 1))}
+                            className="w-6 h-6 flex items-center justify-center rounded border border-[#e5e7eb] disabled:opacity-40 text-gray-500 hover:bg-gray-50 text-[10px] transition-colors cursor-pointer"
+                            title="Previous Artisans"
+                          >
+                            <svg className="w-2.5 h-2.5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                            </svg>
+                          </button>
+
+                          {Array.from({ length: totalPages }, (_, idx) => idx + 1).map((pageNum) => (
+                            <button
+                              key={pageNum}
+                              type="button"
+                              onClick={() => setAllocPage(pageNum)}
+                              className={`w-6 h-6 flex items-center justify-center rounded text-[10px] font-semibold cursor-pointer ${
+                                safePage === pageNum
+                                  ? 'bg-[#9e1b27] text-white'
+                                  : 'border border-[#e5e7eb] text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              {pageNum}
+                            </button>
+                          ))}
+
+                          <button
+                            type="button"
+                            disabled={safePage >= totalPages}
+                            onClick={() => setAllocPage((prev) => Math.min(totalPages, prev + 1))}
+                            className="w-6 h-6 flex items-center justify-center rounded border border-[#e5e7eb] disabled:opacity-40 text-gray-500 hover:bg-gray-50 text-[10px] transition-colors cursor-pointer"
+                            title="Next Artisans"
+                          >
+                            <svg className="w-2.5 h-2.5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
+                );
+              })()
             )}
           </div>
 
@@ -891,15 +987,18 @@ export default function JobCreationDashboard() {
                         </p>
                       </div>
 
-                      {/* Action Buttons: Approve & Reject */}
+                      {/* Action Buttons: Inspect & Reject */}
                       <div className="grid grid-cols-2 gap-2 mt-1">
                         <button
                           type="button"
-                          disabled={actionLoading}
-                          onClick={() => handleApproveQC(card)}
-                          className="py-1.5 px-3 bg-[#16a34a] hover:bg-[#15803d] disabled:opacity-50 text-white font-bold text-xs rounded-md transition-colors text-center cursor-pointer shadow-2xs"
+                          onClick={() => {
+                            const woId = card.work_order_id || card.id;
+                            const itemId = card.work_order_item_id;
+                            navigate(itemId ? `/job-order/quality-check?order_id=${woId}&item_id=${itemId}` : `/job-order/quality-check?order_id=${woId}`);
+                          }}
+                          className="py-1.5 px-3 bg-[#16a34a] hover:bg-[#15803d] text-white font-bold text-xs rounded-md transition-colors text-center cursor-pointer shadow-2xs"
                         >
-                          Approve
+                          Inspect / QC
                         </button>
                         <button
                           type="button"

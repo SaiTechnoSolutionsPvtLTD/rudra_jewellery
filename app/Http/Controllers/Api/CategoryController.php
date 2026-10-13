@@ -50,52 +50,6 @@ class CategoryController extends Controller
         ];
     }
 
-    private function getInitialCategories()
-    {
-        return [
-            [
-                'id' => 1,
-                'name' => 'Gold',
-                'code' => 'GOLD',
-                'description' => '24K / 22K Precious Yellow Metal for Jewellery Casting & Fabrication',
-                'status' => 'active',
-                'form_schema' => $this->getDefaultFormSchema('GOLD'),
-                'created_at' => now()->toDateTimeString(),
-                'updated_at' => now()->toDateTimeString(),
-            ],
-            [
-                'id' => 2,
-                'name' => 'Silver',
-                'code' => 'SILVER',
-                'description' => 'Fine 999 Pure & Sterling 925 Silver Bullion',
-                'status' => 'active',
-                'form_schema' => $this->getDefaultFormSchema('SILVER'),
-                'created_at' => now()->toDateTimeString(),
-                'updated_at' => now()->toDateTimeString(),
-            ],
-            [
-                'id' => 3,
-                'name' => 'Diamond',
-                'code' => 'DIAMOND',
-                'description' => 'Precious Gemstones, Natural Cut & Uncut Certified Diamonds',
-                'status' => 'active',
-                'form_schema' => $this->getDefaultFormSchema('DIAMOND'),
-                'created_at' => now()->toDateTimeString(),
-                'updated_at' => now()->toDateTimeString(),
-            ],
-            [
-                'id' => 4,
-                'name' => 'Stones',
-                'code' => 'STONES',
-                'description' => 'Precious & Semi-precious Gemstones, Rubies, Emeralds & Decorative Stones',
-                'status' => 'active',
-                'form_schema' => $this->getDefaultFormSchema('STONES'),
-                'created_at' => now()->toDateTimeString(),
-                'updated_at' => now()->toDateTimeString(),
-            ],
-        ];
-    }
-
     public function index(Request $request)
     {
         try {
@@ -147,20 +101,10 @@ class CategoryController extends Controller
                 ], 201);
             }
         } catch (\Exception $e) {
-            // Fallback
+            return response()->json(['message' => 'Failed to create category: ' . $e->getMessage()], 500);
         }
 
-        $categories = Cache::get('mock_categories', $this->getInitialCategories());
-        $newId = count($categories) > 0 ? max(array_column($categories, 'id')) + 1 : 1;
-        $newCategory = array_merge(['id' => $newId], $validated);
-        array_unshift($categories, $newCategory);
-        Cache::put('mock_categories', $categories, 86400);
-
-        return response()->json([
-            'status' => 'success',
-            'message' => 'Category created successfully',
-            'category' => $newCategory
-        ], 201);
+        return response()->json(['message' => 'Categories table not found.'], 500);
     }
 
     public function show(Request $request, $id)

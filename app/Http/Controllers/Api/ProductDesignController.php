@@ -24,7 +24,7 @@ class ProductDesignController extends Controller
      */
     public function index(Request $request)
     {
-        if (ProductDesign::count() === 0 || $request->boolean('sync')) {
+        if ($request->boolean('sync')) {
             $this->performInventorySync();
         }
 
@@ -171,7 +171,9 @@ class ProductDesignController extends Controller
             $queryInDesigns->where('id', '!=', $ignoreId);
         }
         $existsInDesigns = $queryInDesigns->exists();
-        $existsInProducts = \App\Models\Product::where('product_code', $designNo)->exists();
+        $existsInProducts = \App\Models\Product::where('design_no', $designNo)
+            ->orWhere('attributes->design_no', $designNo)
+            ->exists();
 
         $exists = $existsInDesigns || $existsInProducts;
         $location = $existsInDesigns ? 'uploaded designs' : ($existsInProducts ? 'inventory products' : null);
@@ -194,7 +196,7 @@ class ProductDesignController extends Controller
 
         while (
             ProductDesign::where('design_no', $prefix . $num)->exists() ||
-            \App\Models\Product::where('product_code', $prefix . $num)->exists()
+            \App\Models\Product::where('design_no', $prefix . $num)->orWhere('attributes->design_no', $prefix . $num)->exists()
         ) {
             $num++;
         }
@@ -211,7 +213,7 @@ class ProductDesignController extends Controller
     {
         $designNo = trim($request->design_no ?? '');
 
-        if (\App\Models\Product::where('product_code', $designNo)->exists()) {
+        if (\App\Models\Product::where('design_no', $designNo)->orWhere('attributes->design_no', $designNo)->exists()) {
             return response()->json([
                 'message' => "The Design Number '{$designNo}' is already used by an inventory product. Design numbers must be unique across all products.",
                 'errors' => ['design_no' => ["Design Number '{$designNo}' already exists in inventory products."]]
@@ -304,7 +306,7 @@ class ProductDesignController extends Controller
         $design = ProductDesign::findOrFail($id);
         $designNo = trim($request->design_no ?? '');
 
-        if (\App\Models\Product::where('product_code', $designNo)->exists()) {
+        if (\App\Models\Product::where('design_no', $designNo)->orWhere('attributes->design_no', $designNo)->exists()) {
             return response()->json([
                 'message' => "The Design Number '{$designNo}' is already used by an inventory product. Design numbers must be unique across all products.",
                 'errors' => ['design_no' => ["Design Number '{$designNo}' already exists in inventory products."]]
@@ -578,8 +580,8 @@ class ProductDesignController extends Controller
             $inventoryProducts = \App\Models\Product::with(['category', 'subcategory'])->get();
 
             foreach ($inventoryProducts as $prod) {
-                $code = $prod->product_code ?: ('PRD-' . sprintf('%04d', $prod->id));
                 $attrs = is_array($prod->attributes) ? $prod->attributes : json_decode($prod->attributes ?? '[]', true);
+                $code = $prod->design_no ?: ($attrs['design_no'] ?? $prod->product_code);
 
                 $netWt = (float) ($attrs['net_weight'] ?? $prod->opening_stock_weight ?? 1.500);
                 $purityRaw = $attrs['purity'] ?? '22K';

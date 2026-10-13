@@ -19,7 +19,7 @@ export default function Categories() {
   // Form modal state
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  
+
   // Delete confirm modal state
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -27,7 +27,7 @@ export default function Categories() {
   // Form builder modal state
   const [formBuilderTarget, setFormBuilderTarget] = useState(null);
   const [savingSchema, setSavingSchema] = useState(false);
-  
+
   const [formData, setFormData] = useState({
     name: '',
     code: '',
@@ -156,8 +156,8 @@ export default function Categories() {
 
   const filteredItems = categories.filter(item => {
     const matchesSearch = (item.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          (item.code || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          (item.description || '').toLowerCase().includes(searchTerm.toLowerCase());
+      (item.code || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (item.description || '').toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || item.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -169,7 +169,7 @@ export default function Categories() {
 
   return (
     <div className="w-full pb-12">
-      
+
       {/* Top Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
         <div>
@@ -219,15 +219,12 @@ export default function Categories() {
             <i className="fa-solid fa-gem"></i>
           </div>
           <div>
-            <p className="text-xs font-medium text-gray-400 mb-1">Metal & Gem Categories</p>
-            <div className="text-2xl font-bold text-gray-900 tracking-tight">
-              {categories.filter(c => {
-                const code = (c.code || '').toUpperCase();
-                const name = (c.name || '').toUpperCase();
-                const keywords = ['GOLD', 'SILVER', 'DIAMOND', 'PLATINUM', 'STONE', 'GEM', 'RUBY', 'EMERALD', 'SAPPHIRE', 'PEARL', 'METAL'];
-                return keywords.some(kw => code.includes(kw) || name.includes(kw));
-              }).length}
-            </div>
+            {categories.filter(c => {
+              const code = (c.code || '').toUpperCase();
+              const name = (c.name || '').toUpperCase();
+              const keywords = ['GOLD', 'SILVER', 'DIAMOND', 'PLATINUM', 'STONE', 'GEM', 'RUBY', 'EMERALD', 'SAPPHIRE', 'PEARL', 'METAL'];
+              return keywords.some(kw => code.includes(kw) || name.includes(kw));
+            }).length}
           </div>
         </div>
       </div>

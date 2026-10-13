@@ -31,6 +31,8 @@ class InventoryController extends Controller
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
                   ->orWhere('product_code', 'like', "%{$search}%")
+                  ->orWhere('design_no', 'like', "%{$search}%")
+                  ->orWhere('attributes->design_no', 'like', "%{$search}%")
                   ->orWhere('description', 'like', "%{$search}%")
                   ->orWhere('attributes->purity', 'like', "%{$search}%")
                   ->orWhere('attributes->gold_type', 'like', "%{$search}%")
@@ -227,16 +229,34 @@ class InventoryController extends Controller
         };
 
         // Helper function for product valuation
-        $calcProdVal = function($p) {
+        $calcProdVal = function($p) use ($goldRatePerGram, $silverRatePerGram, $liveRates) {
             $attrs = is_array($p->attributes) ? $p->attributes : (json_decode($p->attributes ?? '[]', true) ?: []);
             $val = (float) ($attrs['sale_value'] ?? 0);
+            $qty = (int) ($p->current_stock_qty ?? $p->opening_stock_qty ?? 1);
+            if ($qty < 0) $qty = 0;
+
             if ($val <= 0) {
                 $rate = (float) ($attrs['sale_rate'] ?? $attrs['rate'] ?? $p->opening_stock_rate ?? 0);
-                $qty = (int) ($p->current_stock_qty ?? $p->opening_stock_qty ?? 1);
-                $wt = (float) ($attrs['gross_wt'] ?? $p->opening_stock_weight ?? 0);
-                $val = $qty * ($wt > 0 ? $wt * $rate : $rate);
+                $wt = (float) ($attrs['net_wt'] ?? $attrs['gross_wt'] ?? $p->opening_stock_weight ?? 0);
+
+                if ($rate <= 0) {
+                    $catName = strtolower(($p->category?->name ?? '') . ' ' . ($p->name ?? ''));
+                    $karat = strtolower((string)($attrs['karat'] ?? $attrs['purity'] ?? $attrs['stamp'] ?? $attrs['gold_type'] ?? ''));
+
+                    if (str_contains($catName, 'silver') || str_contains($karat, 'silver')) {
+                        $rate = $silverRatePerGram;
+                    } elseif (str_contains($karat, '18k') || str_contains($karat, '750')) {
+                        $rate = (float)($liveRates['raw18k'] ?? round($goldRatePerGram * 18 / 24));
+                    } elseif (str_contains($karat, '24k') || str_contains($karat, '999')) {
+                        $rate = $goldRatePerGram;
+                    } else {
+                        // Standard jewelry gold 22K (916)
+                        $rate = (float)($liveRates['raw22k'] ?? round($goldRatePerGram * 22 / 24));
+                    }
+                }
+
+                $val = ($wt > 0) ? ($wt * $rate) : ($qty * $rate);
             } else {
-                $qty = (int) ($p->current_stock_qty ?? $p->opening_stock_qty ?? 1);
                 if ($qty > 1) {
                     $val = $val * $qty;
                 }
@@ -576,75 +596,137 @@ class InventoryController extends Controller
         $artisanName = $karigar ? $karigar->name : 'Rajesh Varma';
         $workshopName = $karigar ? ($karigar->workshop_name ?: $karigar->name) : 'Varma Handcrafted Filigree & Temple Arts';
 
-        $now = now();
-        $movements = [];
+        $now = now()->setTimezone('Asia/Kolkata');
+        $formatLocalTime = function ($dt) use ($now) {
+            if (!$dt) return $now->format('d M Y, h:i A');
+            try {
+                if ($dt instanceof \Illuminate\Support\Carbon || $dt instanceof \Carbon\Carbon) {
+                    $cStr = $dt->toDateTimeString();
+                    return \Carbon\Carbon::createFromFormat('Y-m-d H:i:s', $cStr, 'UTC')
+                        ->setTimezone('Asia/Kolkata')
+                        ->format('d M Y, h:i A');
+                }
+                $cStr = is_string($dt) ? $dt : date('Y-m-d H:i:s', strtotime($dt));
+                return \Carbon\Carbon::createFromFormat('Y-m-d H:i:s', substr($cStr, 0, 19), 'UTC')
+                    ->setTimezone('Asia/Kolkata')
+                    ->format('d M Y, h:i A');
+            } catch (\Throwable $e) {
+                return $now->format('d M Y, h:i A');
+            }
+        };
 
-        // 1. Dynamic user-logged DB movements
-        foreach ($dbMovements as $dbm) {
-            $qty = (int) $dbm->quantity;
-            $isAdd = $qty >= 0;
-            $movements[] = [
-                'id' => 'dbm-' . $dbm->id,
-                'date_time' => $dbm->created_at ? $dbm->created_at->format('d M Y, h:i A') : $now->format('d M Y, h:i A'),
-                'action_type' => $dbm->movement_type ?: ($isAdd ? 'Stock Inward (Added)' : 'Stock Reduction'),
-                'badge_color' => $isAdd ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200',
-                'change' => ($isAdd ? '+' : '') . str_pad($qty, 2, '0', STR_PAD_LEFT),
-                'change_color' => $isAdd ? 'text-emerald-600 font-bold' : 'text-rose-600 font-bold',
-                'balance' => str_pad($currentQty, 2, '0', STR_PAD_LEFT),
-                'staff' => $dbm->creator ? $dbm->creator->name : 'Inventory Staff',
-                'remarks' => $dbm->notes ?: ($isAdd ? "Stock inward of {$qty} unit(s) logged into Master Vault" : "Stock reduction of " . abs($qty) . " unit(s) recorded"),
-            ];
-        }
+        // 4. Initial Stock Inward & Dynamic Stock Movements Timeline
+        $openingQty = (int) ($product->opening_stock_qty ?: 1);
+        if ($openingQty <= 0) $openingQty = 1;
 
-        // 2. Real Customer Sales from Billing Invoices
-        foreach ($saleItems as $si) {
-            $invNo = $si->invoice->invoice_number ?? ('INV-' . $si->invoice_id);
-            $sDate = $si->created_at ? $si->created_at->format('d M Y, h:i A') : $now->format('d M Y, h:i A');
-            $qtySold = (int) ($si->quantity ?: 1);
-            $movements[] = [
-                'id' => 'sale-' . $si->id,
-                'date_time' => $sDate,
-                'action_type' => 'Customer Sale (' . $invNo . ')',
-                'badge_color' => 'bg-rose-50 text-rose-700 border-rose-200',
-                'change' => '-' . str_pad($qtySold, 2, '0', STR_PAD_LEFT),
-                'change_color' => 'text-rose-600 font-bold',
-                'balance' => str_pad($currentQty, 2, '0', STR_PAD_LEFT),
-                'staff' => 'Billing Counter Staff',
-                'remarks' => "Stock outward via Invoice #{$invNo} — Quantity: {$qtySold}, Net Wt: {$si->net_weight}g at ₹" . number_format($si->rate) . "/g",
-            ];
-        }
-
-        // 3. Real Purchases from DB (if any exist)
-        foreach ($purchaseEntries as $pe) {
-            $pDate = $pe->purchase_date ? date('d M Y, h:i A', strtotime($pe->purchase_date)) : $now->copy()->subDays(3)->format('d M Y, h:i A');
-            $supplierName = $pe->supplier->name ?? 'Kesav';
-            $movements[] = [
-                'id' => 'pur-' . $pe->id,
-                'date_time' => $pDate,
-                'action_type' => 'Purchase ' . $pe->purchase_no,
-                'badge_color' => 'bg-amber-50 text-amber-700 border-amber-200',
-                'change' => '+' . str_pad($pe->qty, 2, '0', STR_PAD_LEFT),
-                'change_color' => 'text-emerald-600 font-bold',
-                'balance' => str_pad($currentQty, 2, '0', STR_PAD_LEFT),
-                'staff' => 'Arvind (Admin)',
-                'remarks' => "Stock inward from Supplier {$supplierName} — Gross Wt: {$pe->weight}g, Touch: {$pe->touch}% at ₹" . number_format($pe->rate) . "/g",
-            ];
-        }
-
-        // 4. Initial Stock Inward (Added) / Master Vault Intake
-        $inwardDate = $product->created_at ? $product->created_at->format('d M Y, h:i A') : $now->copy()->subDays(3)->setTime(10, 0)->format('d M Y, h:i A');
-        $initQty = (int) ($product->opening_stock_qty ?: $currentQty);
-        $movements[] = [
+        $inwardDate = $formatLocalTime($product->created_at);
+        $initMovement = [
             'id' => 'mov-init',
+            'created_at_dt' => $product->created_at,
             'date_time' => $inwardDate,
             'action_type' => 'Stock Inward (Added)',
             'badge_color' => 'bg-emerald-50 text-emerald-700 border-emerald-200',
-            'change' => '+' . str_pad($initQty, 2, '0', STR_PAD_LEFT),
+            'change_num' => $openingQty,
+            'change' => '+' . str_pad($openingQty, 2, '0', STR_PAD_LEFT),
             'change_color' => 'text-emerald-600 font-bold',
-            'balance' => str_pad($initQty, 2, '0', STR_PAD_LEFT),
             'staff' => 'Arvind (Admin)',
-            'remarks' => "Initial stock inward of {$initQty} unit(s) added into Master Vault — Gross Wt: {$grossWt}g, Net Wt: {$netWt}g, Gold Purity: {$purity}, BIS HUID: {$huid} received from {$workshopName}",
+            'remarks' => "Initial stock inward of {$openingQty} unit(s) added into Master Vault — Gross Wt: {$grossWt}g, Net Wt: {$netWt}g, Gold Purity: {$purity}, BIS HUID: {$huid} received from {$workshopName}",
         ];
+
+        // Combine all events: DB movements, Sales, Purchases, Initial Inward
+        $allEvents = [];
+        $allEvents[] = $initMovement;
+
+        foreach ($dbMovements as $dbm) {
+            $qty = (int) $dbm->quantity;
+            $isAdd = $qty >= 0;
+            $allEvents[] = [
+                'id' => 'dbm-' . $dbm->id,
+                'created_at_dt' => $dbm->created_at,
+                'date_time' => $formatLocalTime($dbm->created_at),
+                'action_type' => $dbm->movement_type ?: ($isAdd ? 'Stock Addition (Updated)' : 'Stock Reduction'),
+                'badge_color' => $isAdd ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200',
+                'change_num' => $qty,
+                'change' => ($isAdd ? '+' : '') . str_pad($qty, 2, '0', STR_PAD_LEFT),
+                'change_color' => $isAdd ? 'text-emerald-600 font-bold' : 'text-rose-600 font-bold',
+                'staff' => $dbm->creator ? $dbm->creator->name : 'Arvind',
+                'remarks' => $dbm->notes ?: ($isAdd ? "Stock quantity updated by +{$qty} unit(s)" : "Stock reduction of " . abs($qty) . " unit(s) recorded"),
+            ];
+        }
+
+        foreach ($saleItems as $si) {
+            $invNo = $si->invoice->invoice_number ?? ('INV-' . $si->invoice_id);
+            $sDate = $formatLocalTime($si->created_at);
+            $qtySold = (int) ($si->quantity ?: 1);
+            $allEvents[] = [
+                'id' => 'sale-' . $si->id,
+                'created_at_dt' => $si->created_at,
+                'date_time' => $sDate,
+                'action_type' => 'Customer Sale (' . $invNo . ')',
+                'badge_color' => 'bg-rose-50 text-rose-700 border-rose-200',
+                'change_num' => -$qtySold,
+                'change' => '-' . str_pad($qtySold, 2, '0', STR_PAD_LEFT),
+                'change_color' => 'text-rose-600 font-bold',
+                'staff' => 'Billing Counter Staff',
+                'remarks' => "Stock outward via Invoice #{$invNo} — Quantity: {$qtySold}, Net Wt: {$si->net_weight}g",
+            ];
+        }
+
+        foreach ($purchaseEntries as $pe) {
+            $pDate = $formatLocalTime($pe->purchase_date);
+            $supplierName = $pe->supplier->name ?? 'Kesav';
+            $allEvents[] = [
+                'id' => 'pur-' . $pe->id,
+                'created_at_dt' => $pe->created_at ?? $pe->purchase_date,
+                'date_time' => $pDate,
+                'action_type' => 'Purchase ' . $pe->purchase_no,
+                'badge_color' => 'bg-amber-50 text-amber-700 border-amber-200',
+                'change_num' => (int) $pe->qty,
+                'change' => '+' . str_pad($pe->qty, 2, '0', STR_PAD_LEFT),
+                'change_color' => 'text-emerald-600 font-bold',
+                'staff' => 'Arvind (Admin)',
+                'remarks' => "Stock inward from Supplier {$supplierName} — Gross Wt: {$pe->weight}g, Touch: {$pe->touch}%",
+            ];
+        }
+
+        // Check if there is an unlogged difference between current_stock_qty and openingQty
+        $currentStockQty = (int) ($product->current_stock_qty ?? $openingQty);
+        if ($currentStockQty > $openingQty && empty($dbMovements)) {
+            $diffQty = $currentStockQty - $openingQty;
+            $updateDate = $formatLocalTime($product->updated_at ?: $now);
+
+            $allEvents[] = [
+                'id' => 'mov-stock-update',
+                'created_at_dt' => $product->updated_at ?: $now,
+                'date_time' => $updateDate,
+                'action_type' => 'Stock Addition (Updated)',
+                'badge_color' => 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                'change_num' => $diffQty,
+                'change' => '+' . str_pad($diffQty, 2, '0', STR_PAD_LEFT),
+                'change_color' => 'text-emerald-600 font-bold',
+                'staff' => 'Arvind',
+                'remarks' => "Stock quantity updated by +{$diffQty} unit(s) (Available stock increased from {$openingQty} to {$currentStockQty} units)",
+            ];
+        }
+
+        // Sort events chronologically (ASC - oldest first) to calculate exact running balance
+        usort($allEvents, function ($a, $b) {
+            $tA = strtotime($a['created_at_dt'] ?? 0);
+            $tB = strtotime($b['created_at_dt'] ?? 0);
+            return $tA <=> $tB;
+        });
+
+        // Compute exact running balances forward from zero
+        $runningBal = 0;
+        foreach ($allEvents as &$ev) {
+            $runningBal += $ev['change_num'];
+            $ev['balance'] = str_pad(max(0, $runningBal), 2, '0', STR_PAD_LEFT);
+            unset($ev['change_num'], $ev['created_at_dt']);
+        }
+        unset($ev);
+
+        // Sort DESC (newest first) for UI display
+        $movements = array_reverse($allEvents);
 
         return response()->json([
             'product' => $product,
@@ -768,7 +850,10 @@ class InventoryController extends Controller
                 // Resolve Subcategory ID
                 $subcategory_id = null;
                 if (!empty($rawSubcatId) && is_numeric($rawSubcatId)) {
-                    $subcatObj = Subcategory::find($rawSubcatId);
+                    $subcatObj = Subcategory::where('id', $rawSubcatId)->where('category_id', $category_id)->first();
+                    if (!$subcatObj) {
+                        $subcatObj = Subcategory::find($rawSubcatId);
+                    }
                     if ($subcatObj) {
                         $subcategory_id = $subcatObj->id;
                     }
@@ -794,6 +879,15 @@ class InventoryController extends Controller
                     if ($subcatObj) {
                         $subcategory_id = $subcatObj->id;
                     }
+                }
+
+                $grossWt = (float) ($itemData['gross_wt'] ?? 0);
+                if ($grossWt <= 0) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => "Gross weight must be greater than 0 for item " . ($idx + 1) . ".",
+                        'errors' => ['gross_wt' => ["Gross weight must be greater than 0."]]
+                    ], 422);
                 }
 
                 $name = !empty($itemData['name']) ? $itemData['name'] : ('Product ' . date('Ymd-His'));
@@ -858,10 +952,13 @@ class InventoryController extends Controller
                     }
                 }
 
+                $designNo = !empty($itemData['design_no']) ? trim($itemData['design_no']) : null;
+
                 // Compile attributes
                 $attributes = [
                     'source' => 'inventory',
                     'is_inventory' => true,
+                    'design_no' => $designNo,
                     'gross_wt' => (float) ($itemData['gross_wt'] ?? 0),
                     'net_wt' => (float) ($itemData['net_wt'] ?? 0),
                     'pure_weight' => (float) ($itemData['pure_weight'] ?? 0),
@@ -891,6 +988,10 @@ class InventoryController extends Controller
                     'rate' => $itemData['rate'] ?? null,
                     'sale_rate' => $itemData['sale_rate'] ?? null,
                     'sale_value' => (float) ($itemData['sale_value'] ?? 0),
+                    'vendor' => $itemData['vendor'] ?? $itemData['vendor_name'] ?? null,
+                    'vendor_name' => $itemData['vendor_name'] ?? $itemData['vendor'] ?? null,
+                    'vendor_id' => $itemData['vendor_id'] ?? null,
+                    'quality' => $itemData['quality'] ?? null,
                 ];
 
                 $product = Product::create([
@@ -898,6 +999,7 @@ class InventoryController extends Controller
                     'subcategory_id' => $subcategory_id,
                     'name' => $name,
                     'product_code' => $code,
+                    'design_no' => $designNo,
                     'attributes' => $attributes,
                     'description' => $itemData['description'] ?? null,
                     'opening_stock_qty' => (int) ($itemData['stock_qty'] ?? 1),
@@ -949,6 +1051,7 @@ class InventoryController extends Controller
             }));
         }
 
+        $attrs['design_no'] = $request->input('design_no', $attrs['design_no'] ?? null);
         $attrs['gross_wt'] = $request->input('gross_wt', $attrs['gross_wt'] ?? null);
         $attrs['net_wt'] = $request->input('net_wt', $attrs['net_wt'] ?? null);
         $attrs['purity'] = $request->input('purity', $attrs['purity'] ?? '22K');
@@ -964,6 +1067,10 @@ class InventoryController extends Controller
         $attrs['wastage_percent'] = $request->input('wastage_percent', $attrs['wastage_percent'] ?? '3.50');
         $attrs['making_charge'] = $request->input('making_charge', $attrs['making_charge'] ?? '650');
         $attrs['open_close_type'] = $request->input('open_close_type', $attrs['open_close_type'] ?? 'Close');
+        $attrs['vendor'] = $request->input('vendor', $request->input('vendor_name', $attrs['vendor'] ?? null));
+        $attrs['vendor_name'] = $request->input('vendor_name', $request->input('vendor', $attrs['vendor_name'] ?? null));
+        $attrs['vendor_id'] = $request->input('vendor_id', $attrs['vendor_id'] ?? null);
+        $attrs['quality'] = $request->input('quality', $attrs['quality'] ?? null);
 
         if ($request->has('components')) {
             $attrs['components'] = $request->input('components');
@@ -990,6 +1097,9 @@ class InventoryController extends Controller
 
         $product->name = $request->name;
         $product->product_code = $request->product_code;
+        if ($request->has('design_no')) {
+            $product->design_no = $request->design_no;
+        }
         $product->category_id = $request->category_id;
         $product->subcategory_id = $request->subcategory_id ?: null;
         $product->description = $request->description;
@@ -1005,12 +1115,25 @@ class InventoryController extends Controller
             $product->opening_stock_rate = (float)($request->input('sale_rate', $request->input('gold_rate', $request->input('opening_stock_rate'))));
         }
 
-        if ($request->has('current_stock_qty')) {
-            $product->current_stock_qty = (int)$request->input('current_stock_qty');
-            $attrs['no_of_pieces'] = (string)$product->current_stock_qty;
-        } elseif ($request->has('stock_qty')) {
-            $product->current_stock_qty = (int)$request->input('stock_qty');
-            $attrs['no_of_pieces'] = (string)$product->current_stock_qty;
+        $oldStock = (int) ($product->current_stock_qty ?? $product->opening_stock_qty ?? 1);
+
+        if ($request->has('current_stock_qty') || $request->has('stock_qty')) {
+            $newStock = (int) $request->input('current_stock_qty', $request->input('stock_qty'));
+            $product->current_stock_qty = $newStock;
+            $attrs['no_of_pieces'] = (string) $newStock;
+
+            if ($newStock != $oldStock) {
+                $diff = $newStock - $oldStock;
+                InventoryMovement::create([
+                    'product_id' => $product->id,
+                    'movement_type' => $diff > 0 ? 'Stock Addition (Updated)' : 'Stock Reduction (Updated)',
+                    'quantity' => $diff,
+                    'weight' => ((float)($attrs['gross_wt'] ?? $product->opening_stock_weight ?? 0)) * abs($diff),
+                    'unit_cost' => (float)($attrs['sale_rate'] ?? $attrs['rate'] ?? $product->opening_stock_rate ?? 0),
+                    'notes' => "Stock quantity updated from {$oldStock} to {$newStock} unit(s)",
+                    'created_by' => auth()->id() ?? null,
+                ]);
+            }
         }
 
         $product->attributes = $attrs;
@@ -1381,8 +1504,8 @@ class InventoryController extends Controller
     public function getCategories()
     {
         $categories = Category::with(['subcategories' => function ($q) {
-            $q->where('status', 'active');
-        }])->where('status', 'active')->get();
+            $q->where('status', 'active')->orderBy('id', 'asc');
+        }])->where('status', 'active')->orderBy('id', 'asc')->get();
 
         return response()->json($categories);
     }

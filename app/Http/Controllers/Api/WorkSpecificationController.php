@@ -16,11 +16,6 @@ class WorkSpecificationController extends Controller
      */
     public function index(Request $request)
     {
-        // Auto-seed initial work specifications if database table is empty
-        if (WorkSpecification::count() === 0) {
-            $this->seedInitialWorkSpecifications();
-        }
-
         $query = WorkSpecification::query()->withCount('karigars');
 
         // Status filter
@@ -90,6 +85,13 @@ class WorkSpecificationController extends Controller
         $validated['color'] = $validated['color'] ?? 'amber';
         $validated['status'] = $validated['status'] ?? 'active';
 
+        if (!isset($validated['sort_order']) || $validated['sort_order'] === null || $validated['sort_order'] === '') {
+            $maxOrder = WorkSpecification::max('sort_order') ?? 0;
+            $validated['sort_order'] = $maxOrder + 1;
+        } else {
+            $validated['sort_order'] = (int)$validated['sort_order'];
+        }
+
         $spec = WorkSpecification::create($validated);
 
         return response()->json([
@@ -133,6 +135,12 @@ class WorkSpecificationController extends Controller
             'status' => 'nullable|in:active,inactive',
             'sort_order' => 'nullable|integer',
         ]);
+
+        if (!isset($validated['sort_order']) || $validated['sort_order'] === null || $validated['sort_order'] === '') {
+            $validated['sort_order'] = $spec->sort_order ?? ((WorkSpecification::max('sort_order') ?? 0) + 1);
+        } else {
+            $validated['sort_order'] = (int)$validated['sort_order'];
+        }
 
         $oldName = $spec->name;
         $spec->update($validated);

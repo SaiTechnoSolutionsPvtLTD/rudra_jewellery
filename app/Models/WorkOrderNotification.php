@@ -11,12 +11,17 @@ class WorkOrderNotification extends Model
 
     protected $fillable = [
         'work_order_id',
+        'piece_id',
         'karigar_id',
         'user_id',
         'type',
+        'entity_type',
+        'entity_id',
         'title',
         'message',
         'data',
+        'action_url',
+        'idempotency_key',
         'is_read',
         'read_at',
     ];
@@ -30,6 +35,11 @@ class WorkOrderNotification extends Model
     public function workOrder()
     {
         return $this->belongsTo(WorkOrder::class);
+    }
+
+    public function piece()
+    {
+        return $this->belongsTo(WorkOrderReceivedPiece::class, 'piece_id');
     }
 
     public function karigar()

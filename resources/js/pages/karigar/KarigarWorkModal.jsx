@@ -88,22 +88,17 @@ export default function KarigarWorkModal({ isOpen, onClose, workOrderId, onUpdat
       }
 
       const payload = {
-        action: actionType,
-        completed_weight: completedWeight ? parseFloat(completedWeight) : 0,
-        completed_qty: parseInt(completedQty) || 1,
-        gold_used: goldUsed ? parseFloat(goldUsed) : (completedWeight ? parseFloat(completedWeight) : 0),
-        scrap_weight: scrapWeight ? parseFloat(scrapWeight) : 0,
-        karigar_notes: karigarNotes,
-        delivery_date: delayDate,
-        delay_date: delayDate,
-        delay_reason: delayReason,
-        current_stage: timelineStage,
-        stone_details: stones,
-        reference_image: uploadedImage,
+        completed_now: actionType === 'submit' ? (parseInt(completedQty) || 1) : 0,
+        actual_weight: completedWeight ? parseFloat(completedWeight) : 0,
+        gold_weight: goldUsed ? parseFloat(goldUsed) : (completedWeight ? parseFloat(completedWeight) : 0),
         remarks: karigarNotes,
+        delay: Boolean(delayReason || delayDate),
+        delay_days: delayDate ? Math.max(1, Math.round((new Date(delayDate) - new Date()) / 86400000)) : 1,
+        delay_reason: delayReason,
+        delay_remarks: karigarNotes,
       };
 
-      const res = await api.post(`/work-orders/${workOrderId}/karigar-update`, payload);
+      const res = await api.post(`/work-orders/${workOrderId}/wip-update`, payload);
       const updatedOrder = res.data.data;
       setOrder(updatedOrder);
 

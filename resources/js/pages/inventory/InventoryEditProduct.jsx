@@ -18,6 +18,7 @@ export default function InventoryEditProduct() {
   const [karatsList, setKaratsList] = useState([]);
   const [stampsList, setStampsList] = useState([]);
   const [unitsList, setUnitsList] = useState([]);
+  const [suppliersList, setSuppliersList] = useState([]);
 
   // Master management modals
   const [crudModalType, setCrudModalType] = useState(null); // 'karat' | 'stamp' | 'unit'
@@ -33,6 +34,25 @@ export default function InventoryEditProduct() {
   const [savingStockOnly, setSavingStockOnly] = useState(false);
   const [imageError, setImageError] = useState(false);
 
+  // Filter stamps dynamically by category
+  const getFilteredStamps = (categoryName) => {
+    if (!stampsList || stampsList.length === 0) return [];
+    const cat = String(categoryName || 'Gold').toLowerCase().trim();
+    const filtered = stampsList.filter((st) => {
+      if (!st.applicable_for) return true;
+      const app = String(st.applicable_for).toLowerCase();
+      if (app.includes('all')) return true;
+      if (cat.includes('gold')) return app.includes('gold');
+      if (cat.includes('diamond')) return app.includes('diamond');
+      if (cat.includes('stone') || cat.includes('gem') || cat.includes('pearl') || cat.includes('cz')) {
+        return app.includes('stone') || app.includes('gem');
+      }
+      if (cat.includes('silver')) return app.includes('silver');
+      return app.includes(cat);
+    });
+    return filtered;
+  };
+
   // Image Gallery State for Main Product
   const [imageUrls, setImageUrls] = useState([]);
 
@@ -40,29 +60,39 @@ export default function InventoryEditProduct() {
   const [formData, setFormData] = useState({
     item_name: '',
     product_code: '',
+    design_no: '',
     category_id: '',
     subcategory_id: '',
     karat: '22K',
     purity: '91.6',
     stamp: '916',
-    unit: 'Carat',
+    unit: 'g',
     size: '0.00',
     no_of_pieces: '1',
     gross_wt: '',
     net_wt: '',
     pure_weight: '',
-    gold_rate: '',
-    sale_rate: '',
-    sale_value: '',
+    vendor: '',
+    vendor_name: '',
+    vendor_id: '',
+    quality: '',
     description: '',
   });
 
   // Paired / Sub-Components list
   const [components, setComponents] = useState([]);
-
   const [rawAttributes, setRawAttributes] = useState({});
 
-  // Compute pure weight 24K automatically
+  // Helper check for Diamond or Stone categories
+  const isDiamondOrStoneCat = (catName = '') => {
+    const name = (catName || '').toLowerCase();
+    return name.includes('diamond') || name.includes('stone') || name.includes('gem');
+  };
+
+  const selectedCat = categoriesList.find((c) => String(c.id) === String(formData.category_id));
+  const isSilverCategory = (selectedCat?.name || rawAttributes?.category_name || '').toLowerCase().includes('silver');
+
+  // Pure 24K Gold Weight = Net Gold Weight * (Purity / 100)
   const computePureWeight = (netWt, purityPct) => {
     const net = parseFloat(netWt) || 0;
     const pur = parseFloat(purityPct) || 0;
@@ -80,13 +110,14 @@ export default function InventoryEditProduct() {
     try {
       setLoading(true);
 
-      const [prodRes, catRes, itemMasterRes, karatRes, stampRes, unitRes] = await Promise.all([
+      const [prodRes, catRes, itemMasterRes, karatRes, stampRes, unitRes, supplierRes] = await Promise.all([
         api.get(`/inventory/products/${id}`),
         api.get('/inventory/categories').catch(() => api.get('/categories')),
         api.get('/items').catch(() => api.get('/item-masters')).catch(() => ({ data: [] })),
         api.get('/karats').catch(() => ({ data: [] })),
         api.get('/stamps').catch(() => ({ data: [] })),
         api.get('/units').catch(() => ({ data: [] })),
+        api.get('/suppliers').catch(() => ({ data: { data: [] } })),
       ]);
 
       const cats = catRes.data?.categories || catRes.data || [];
@@ -95,6 +126,8 @@ export default function InventoryEditProduct() {
       setKaratsList(karatRes.data || []);
       setStampsList(stampRes.data || []);
       setUnitsList(unitRes.data || []);
+      const sups = supplierRes.data?.data || supplierRes.data || [];
+      setSuppliersList(Array.isArray(sups) ? sups : []);
 
       const p = prodRes.data.product || {};
       const attrs = prodRes.data.attributes || (typeof p.attributes === 'string' ? JSON.parse(p.attributes || '{}') : (p.attributes || {}));
@@ -128,24 +161,25 @@ export default function InventoryEditProduct() {
       const pur = attrs.purity || attrs.gold_type || '91.6';
       const pureWt = attrs.pure_weight || computePureWeight(net || gross, pur);
       const itemName = (p.name || attrs.item_name || '').replace(/\s*\(\d+\s*Parts\)/gi, '');
-
       setFormData({
         item_name: itemName,
         product_code: p.product_code || attrs.item_code || '',
+        design_no: p.design_no || attrs.design_no || '',
         category_id: p.category_id || '',
         subcategory_id: p.subcategory_id || '',
         karat: attrs.karat || '22K',
         purity: pur,
         stamp: attrs.stamp || '916',
-        unit: attrs.unit || 'Carat',
+        unit: attrs.unit || 'g',
         size: attrs.size || '0.00',
         no_of_pieces: String(p.current_stock_qty ?? attrs.no_of_pieces ?? 1),
         gross_wt: gross,
         net_wt: net,
         pure_weight: pureWt,
-        gold_rate: attrs.gold_rate || attrs.rate || p.opening_stock_rate || '',
-        sale_rate: attrs.sale_rate || attrs.rate || p.opening_stock_rate || '',
-        sale_value: attrs.sale_value || attrs.price || '',
+        vendor: attrs.vendor || attrs.vendor_name || '',
+        vendor_name: attrs.vendor_name || attrs.vendor || '',
+        vendor_id: attrs.vendor_id || '',
+        quality: attrs.quality || attrs.setting_style || '',
         description: p.description || '',
       });
 
@@ -173,10 +207,6 @@ export default function InventoryEditProduct() {
     handleCategorySelect(e.target.value);
   };
 
-  const handleSubcategorySelect = (subId) => {
-    setFormData((prev) => ({ ...prev, subcategory_id: subId }));
-  };
-
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => {
@@ -187,19 +217,10 @@ export default function InventoryEditProduct() {
         updated.pure_weight = computePureWeight(calcNet, updated.purity);
       }
 
-      if (name === 'sale_rate' || name === 'gross_wt' || name === 'net_wt') {
-        const wt = parseFloat(updated.net_wt || updated.gross_wt || 0);
-        const sRate = parseFloat(updated.sale_rate || 0);
-        if (wt > 0 && sRate > 0) {
-          updated.sale_value = (wt * sRate).toFixed(2);
-        }
-      }
-
       return updated;
     });
   };
 
-  // Quick Stock Update Action
   const handleQuickStockSave = async () => {
     try {
       setSavingStockOnly(true);
@@ -230,7 +251,6 @@ export default function InventoryEditProduct() {
     }
   };
 
-  // Image Upload Handlers for Main Product
   const handleFileUpload = (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
@@ -275,35 +295,38 @@ export default function InventoryEditProduct() {
     setImageUrls((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // Components Management Handlers
   const handleAddComponent = () => {
+    const diaCat = categoriesList.find((c) => isDiamondOrStoneCat(c.name)) || categoriesList[0];
+    const isDia = isDiamondOrStoneCat(diaCat?.name);
+
     const newComp = {
       id_temp: Date.now() + Math.random(),
-      component_type: `Component ${components.length + 1}`,
-      category_id: formData.category_id,
+      component_type: isDia ? 'Diamond/Stone Component' : 'Metal Component',
+      category_id: diaCat?.id || formData.category_id,
+      category_name: diaCat?.name || 'Diamond/Stone',
       subcategory_id: formData.subcategory_id,
       item_code: `${formData.product_code}-C${components.length + 1}`,
-      item_name: `Component ${components.length + 1}`,
-      karat: formData.karat || '22K',
-      purity: formData.purity || '91.6',
-      stamp: formData.stamp || '916',
-      unit: formData.unit || 'Carat',
+      item_name: diaCat?.name || `Component ${components.length + 1}`,
+      karat: '18K',
+      purity: '75.0',
+      stamp: 'VVS1',
+      unit: 'g',
+      stone_weight: '',
       gross_wt: '',
       net_wt: '',
       pure_weight: '',
-      gold_rate: formData.gold_rate || '',
-      sale_rate: formData.sale_rate || '',
-      sale_value: '',
       size: '0.00',
       no_of_pieces: '1',
       images: [],
     };
     setComponents((prev) => [...prev, newComp]);
-    showToast('New component form added below', 'info');
+    showToast('New component entry added below', 'info');
   };
 
   const handleRemoveComponent = (compIdx) => {
-    setComponents((prev) => prev.filter((_, idx) => idx !== compIdx));
+    const comp = components[compIdx];
+    if (!comp) return;
+    setComponents((prev) => prev.filter((c) => c.id_temp !== comp.id_temp));
     showToast('Component removed', 'info');
   };
 
@@ -312,16 +335,12 @@ export default function InventoryEditProduct() {
       const copy = [...prev];
       const comp = { ...copy[compIdx], [fieldName]: value };
 
-      if (fieldName === 'gross_wt' || fieldName === 'net_wt' || fieldName === 'purity') {
-        const net = comp.net_wt || comp.gross_wt;
-        comp.pure_weight = computePureWeight(net, comp.purity);
-      }
+      const isDia = isDiamondOrStoneCat(comp.category_name);
 
-      if (fieldName === 'sale_rate' || fieldName === 'gross_wt' || fieldName === 'net_wt') {
-        const wt = parseFloat(comp.net_wt || comp.gross_wt || 0);
-        const sRate = parseFloat(comp.sale_rate || 0);
-        if (wt > 0 && sRate > 0) {
-          comp.sale_value = (wt * sRate).toFixed(2);
+      if (!isDia) {
+        if (fieldName === 'gross_wt' || fieldName === 'net_wt' || fieldName === 'purity') {
+          const net = comp.net_wt || comp.gross_wt;
+          comp.pure_weight = computePureWeight(net, comp.purity);
         }
       }
 
@@ -352,6 +371,7 @@ export default function InventoryEditProduct() {
         ...rawAttributes,
         item_name: formData.item_name,
         item_code: formData.product_code,
+        design_no: formData.design_no,
         karat: formData.karat,
         purity: formData.purity,
         stamp: formData.stamp,
@@ -361,11 +381,10 @@ export default function InventoryEditProduct() {
         gross_wt: parseFloat(formData.gross_wt) || 0,
         net_wt: parseFloat(formData.net_wt) || parseFloat(formData.gross_wt) || 0,
         pure_weight: parseFloat(formData.pure_weight) || 0,
-        gold_rate: formData.gold_rate,
-        sale_rate: formData.sale_rate,
-        sale_value: formData.sale_value,
-        rate: formData.gold_rate || formData.sale_rate,
-        price: formData.sale_value,
+        vendor: formData.vendor,
+        vendor_name: formData.vendor_name || formData.vendor,
+        vendor_id: formData.vendor_id,
+        quality: formData.quality,
         images: imageUrls,
         child_images: imageUrls.slice(1),
         thumb_image: imageUrls[0],
@@ -375,21 +394,21 @@ export default function InventoryEditProduct() {
       await api.put(`/inventory/products/${id}`, {
         name: formData.item_name,
         product_code: formData.product_code,
+        design_no: formData.design_no,
         category_id: formData.category_id,
         subcategory_id: formData.subcategory_id,
         current_stock_qty: updatedStockQty,
         stock_qty: updatedStockQty,
         gross_wt: parseFloat(formData.gross_wt) || 0,
         net_wt: parseFloat(formData.net_wt) || parseFloat(formData.gross_wt) || 0,
-        sale_rate: parseFloat(formData.sale_rate || formData.gold_rate) || 0,
-        gold_rate: parseFloat(formData.gold_rate || formData.sale_rate) || 0,
-        opening_stock_weight: parseFloat(formData.gross_wt) || 0,
-        opening_fine_weight: parseFloat(formData.net_wt) || 0,
-        opening_stock_rate: parseFloat(formData.sale_rate || formData.gold_rate) || 0,
+        pure_weight: parseFloat(formData.pure_weight) || 0,
+        vendor: formData.vendor,
+        vendor_name: formData.vendor_name || formData.vendor,
+        vendor_id: formData.vendor_id,
+        quality: formData.quality,
         description: formData.description,
         image: imageUrls[0],
         thumbnail: imageUrls[0],
-        attributes: updatedAttributes,
       });
 
       showToast(`Product "${formData.item_name}" updated in inventory successfully!`, 'success', 'Inventory Updated');
@@ -438,9 +457,7 @@ export default function InventoryEditProduct() {
         </Link>
       </div>
 
-      {/* ========================================================================= */}
-      {/* SECTION 1: QUICK IN-STOCK QUANTITY ENTRY BOX                              */}
-      {/* ========================================================================= */}
+      {/* QUICK IN-STOCK QUANTITY ENTRY BOX */}
       <div className="bg-gradient-to-r from-amber-500/10 via-amber-100/60 to-orange-50/70 rounded-2xl border border-amber-300 p-4 sm:p-5 shadow-2xs space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -472,7 +489,6 @@ export default function InventoryEditProduct() {
           </button>
         </div>
 
-        {/* Quick Stock Controls Input */}
         <div className="bg-white rounded-xl p-3 border border-amber-200/90 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-2xs">
           <span className="text-[11px] font-bold text-stone-700 uppercase tracking-wider">
             CURRENT IN-STOCK QUANTITY (PIECES)
@@ -519,9 +535,8 @@ export default function InventoryEditProduct() {
         </div>
       </div>
 
-      {/* ========================================================================= */}
-      {/* SECTION 2: CATEGORY & SUBCATEGORY SELECTION                               */}
-      {/* ========================================================================= */}
+
+      {/* CATEGORY & SUBCATEGORY SELECTION */}
       <div className="bg-white rounded-2xl border border-stone-200/90 p-6 shadow-2xs space-y-5">
         <div>
           <h2 className="text-base font-bold text-gray-900 tracking-tight">Category &amp; Subcategory Selection</h2>
@@ -530,7 +545,6 @@ export default function InventoryEditProduct() {
           </p>
         </div>
 
-        {/* Categories Grid */}
         <div className="space-y-2">
           <span className="text-[11px] font-bold text-stone-600 uppercase tracking-wider block">
             Category
@@ -568,7 +582,6 @@ export default function InventoryEditProduct() {
           </div>
         </div>
 
-        {/* Subcategories Grid */}
         {subcategoriesList.length > 0 && (
           <div className="space-y-2 pt-2 border-t border-stone-100">
             <span className="text-[11px] font-bold text-stone-600 uppercase tracking-wider block">
@@ -609,17 +622,14 @@ export default function InventoryEditProduct() {
         )}
       </div>
 
-      {/* ========================================================================= */}
-      {/* SECTION 3: MAIN PRODUCT SPECIFICATIONS & MEDIA UPLOAD                     */}
-      {/* ========================================================================= */}
+      {/* MAIN PRODUCT SPECIFICATIONS FORM */}
       <form onSubmit={handleSubmitFinal} className="bg-white rounded-2xl border border-stone-200/90 shadow-2xs overflow-hidden space-y-0">
 
-        {/* Header Banner */}
         <div className="bg-[#b01622] text-white px-6 py-4 flex items-center justify-between">
           <div>
             <h2 className="text-lg font-bold tracking-tight">Main Product Specifications &amp; Media</h2>
             <p className="text-xs text-red-100 font-normal mt-0.5">
-              Edit item specifications and media details.
+              Edit item specifications, purity, weight details, vendor, and media details.
             </p>
           </div>
           <div className="px-3 py-1 rounded-lg bg-white/10 text-white text-xs font-mono font-bold">
@@ -645,7 +655,6 @@ export default function InventoryEditProduct() {
                 onChange={handleFileUpload}
               />
 
-              {/* Main Thumbnail Dropzone */}
               <div
                 onClick={() => fileInputRef.current?.click()}
                 className={`relative border-2 border-dashed rounded-xl overflow-hidden text-center cursor-pointer transition-all flex flex-col items-center justify-center min-h-[220px] group ${imageError
@@ -709,7 +718,6 @@ export default function InventoryEditProduct() {
                 </div>
               )}
 
-              {/* Child Images Gallery */}
               {imageUrls.length > 0 && (
                 <div className="space-y-1.5 pt-1">
                   <div className="flex items-center justify-between">
@@ -777,7 +785,7 @@ export default function InventoryEditProduct() {
             {/* Right Column: Form Inputs */}
             <div className="lg:col-span-7 space-y-3.5">
 
-              {/* Row 1: CATEGORY & SUBCATEGORY DROPDOWNS */}
+              {/* Row 1: CATEGORY & SUBCATEGORY */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
                   <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
@@ -819,8 +827,8 @@ export default function InventoryEditProduct() {
                 </div>
               </div>
 
-              {/* Row 2: ITEM NAME & DESIGN NO */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              {/* Row 2: ITEM NAME, PRODUCT SKU, & DESIGN NO */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                 <div>
                   <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
                     ITEM NAME <span className="text-red-500">*</span>
@@ -851,16 +859,30 @@ export default function InventoryEditProduct() {
 
                 <div>
                   <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
-                    DESIGN NO / SKU <span className="text-red-500">*</span>
+                    PRODUCT SKU <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
                     name="product_code"
                     value={formData.product_code}
                     onChange={handleInputChange}
-                    placeholder="RD-DIA-001"
+                    placeholder="RJ-G-18294"
                     className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
                     required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                    DESIGN NO.
+                  </label>
+                  <input
+                    type="text"
+                    name="design_no"
+                    value={formData.design_no || ''}
+                    onChange={handleInputChange}
+                    placeholder="RJ-DES-001"
+                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
                   />
                 </div>
               </div>
@@ -889,12 +911,15 @@ export default function InventoryEditProduct() {
                       if (kVal.includes('24')) pVal = '99.9';
                       else if (kVal.includes('18')) pVal = '75.0';
                       else if (kVal.includes('14')) pVal = '58.5';
-                      setFormData((prev) => ({
-                        ...prev,
-                        karat: kVal,
-                        purity: pVal,
-                        pure_weight: computePureWeight(prev.net_wt || prev.gross_wt, pVal),
-                      }));
+                      setFormData((prev) => {
+                        const pure = computePureWeight(prev.net_wt || prev.gross_wt, pVal);
+                        return {
+                          ...prev,
+                          karat: kVal,
+                          purity: pVal,
+                          pure_weight: pure,
+                        };
+                      });
                     }}
                     className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622] cursor-pointer"
                   >
@@ -1007,7 +1032,7 @@ export default function InventoryEditProduct() {
                 </div>
               </div>
 
-              {/* Row 5: GROSS WEIGHT, NET WEIGHT, PURE WEIGHT OF 24K */}
+              {/* Row 5: GROSS WEIGHT, NET GOLD WEIGHT, PURE WEIGHT OF 24K */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                 <div>
                   <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
@@ -1019,14 +1044,14 @@ export default function InventoryEditProduct() {
                     name="gross_wt"
                     value={formData.gross_wt}
                     onChange={handleInputChange}
-                    placeholder="0.00g"
+                    placeholder="0.000g"
                     className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
                   />
                 </div>
 
                 <div>
                   <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
-                    NET WEIGHT (g)
+                    {isSilverCategory ? 'NET SILVER WEIGHT (g)' : 'NET GOLD WEIGHT (g)'}
                   </label>
                   <input
                     type="number"
@@ -1034,70 +1059,89 @@ export default function InventoryEditProduct() {
                     name="net_wt"
                     value={formData.net_wt}
                     onChange={handleInputChange}
-                    placeholder="0.00g"
+                    placeholder="0.000g"
                     className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
                   />
                 </div>
 
                 <div>
                   <label className="block text-[11px] font-bold text-[#b01622] uppercase tracking-wider mb-1">
-                    PURE WEIGHT OF 24K
+                    {isSilverCategory ? 'FINE SILVER WEIGHT' : 'PURE WEIGHT OF 24K'}
                   </label>
                   <input
                     type="text"
                     name="pure_weight"
-                    value={formData.pure_weight ? `${formData.pure_weight}g` : ''}
-                    placeholder="0.00g"
-                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-black text-[#b01622] focus:outline-none"
+                    value={formData.pure_weight ? `${formData.pure_weight} g` : ''}
+                    placeholder="0.000g"
+                    className="w-full p-2.5 bg-stone-100 border border-stone-300 rounded-xl text-xs font-mono font-black text-[#b01622] focus:outline-none cursor-not-allowed"
                     readOnly
                   />
                 </div>
               </div>
 
-              {/* Row 6: RATE, SALE RATE, SALE VALUE */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+              {/* Row 5.5: VENDOR & QUALITY */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
-                  <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
-                    RATE (₹)
-                  </label>
-                  <input
-                    type="text"
-                    name="gold_rate"
-                    value={formData.gold_rate}
-                    onChange={handleInputChange}
-                    placeholder="Rate"
-                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider">
+                      VENDOR
+                    </label>
+                    <Link
+                      to="/suppliers"
+                      target="_blank"
+                      className="text-[10px] text-[#b01622] font-bold hover:underline"
+                    >
+                      + SUPPLIERS
+                    </Link>
+                  </div>
+                  <select
+                    name="vendor"
+                    value={formData.vendor}
+                    onChange={(e) => {
+                      const selectedVal = e.target.value;
+                      const foundSup = suppliersList.find((s) => s.name === selectedVal || String(s.id) === selectedVal);
+                      setFormData((prev) => ({
+                        ...prev,
+                        vendor: selectedVal,
+                        vendor_name: foundSup ? foundSup.name : selectedVal,
+                        vendor_id: foundSup ? foundSup.id : '',
+                      }));
+                    }}
+                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622] cursor-pointer"
+                  >
+                    <option value="">-- Select Vendor --</option>
+                    {suppliersList.length > 0 ? (
+                      suppliersList.map((sup) => (
+                        <option key={sup.id} value={sup.name}>
+                          {sup.name} {sup.company_name ? `(${sup.company_name})` : sup.supplier_code ? `[${sup.supplier_code}]` : ''}
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="Kesav">Kesav (Kesav Ornaments)</option>
+                        <option value="Suraj Karyekar">Suraj Karyekar (Mumbai Hub)</option>
+                        <option value="Rajesh Varma">Rajesh Varma (Varma Filigree)</option>
+                      </>
+                    )}
+                  </select>
                 </div>
 
                 <div>
                   <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
-                    SALE RATE (₹)
+                    QUALITY
                   </label>
                   <input
                     type="text"
-                    name="sale_rate"
-                    value={formData.sale_rate}
+                    name="quality"
+                    value={formData.quality}
                     onChange={handleInputChange}
-                    placeholder="Sale Rate"
-                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
-                    SALE VALUE (₹)
-                  </label>
-                  <input
-                    type="text"
-                    name="sale_value"
-                    value={formData.sale_value}
-                    onChange={handleInputChange}
-                    placeholder="0.00"
-                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-[#b01622] focus:outline-none focus:bg-white focus:border-[#b01622]"
+                    placeholder="e.g. VVS1 - E Color / 22K Hallmark"
+                    className="w-full p-2.5 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
                   />
                 </div>
               </div>
+
+
 
               {/* Row 7: DESCRIPTION */}
               <div>
@@ -1118,9 +1162,7 @@ export default function InventoryEditProduct() {
           </div>
         </div>
 
-        {/* ========================================================================= */}
-        {/* SECTION 4: PRODUCT COMPONENTS BREAKDOWN (PAIRED ITEMS / SUB-COMPONENTS)   */}
-        {/* ========================================================================= */}
+        {/* PRODUCT COMPONENTS BREAKDOWN */}
         <div className="bg-white rounded-2xl border border-stone-200/90 shadow-2xs overflow-hidden p-6 space-y-4">
           <div className="flex items-center justify-between border-b border-stone-100 pb-3">
             <div>
@@ -1135,147 +1177,148 @@ export default function InventoryEditProduct() {
               className="px-4 py-2 bg-[#b01622] hover:bg-[#8f1019] text-white text-xs font-bold rounded-xl shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer"
             >
               <i className="fa-solid fa-plus text-xs"></i>
-              <span>+ Add Paired Component</span>
+              <span>+ Add New Item</span>
             </button>
           </div>
 
           {components.length > 0 ? (
             <div className="space-y-6 pt-2">
-              {components.map((comp, compIdx) => (
-                <div key={comp.id_temp || compIdx} className="bg-[#faf7f7] rounded-xl border border-stone-300 p-5 space-y-4 relative">
+              {components.map((comp, compIdx) => {
+                const isDia = isDiamondOrStoneCat(comp.category_name || comp.item_name);
 
-                  {/* Component Form Header */}
-                  <div className="flex items-center justify-between border-b border-stone-200 pb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="w-6 h-6 rounded-full bg-[#b01622] text-white text-xs font-bold flex items-center justify-center">
-                        {compIdx + 1}
-                      </span>
-                      <h3 className="text-sm font-bold text-gray-900">
-                        {comp.item_name || `Component ${compIdx + 1}`}
-                      </h3>
-                      {comp.item_code && (
-                        <span className="text-xs font-mono text-[#b01622] font-semibold bg-red-50 px-2 py-0.5 rounded">
-                          {comp.item_code}
+                return (
+                  <div key={comp.id_temp || compIdx} className="bg-[#faf7f7] rounded-xl border border-stone-300 p-5 space-y-4 relative">
+
+                    {/* Component Header */}
+                    <div className="flex items-center justify-between border-b border-stone-200 pb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="w-6 h-6 rounded-full bg-[#b01622] text-white text-xs font-bold flex items-center justify-center">
+                          {compIdx + 1}
                         </span>
-                      )}
-                    </div>
+                        <h3 className="text-sm font-bold text-gray-900">
+                          {comp.category_name || comp.item_name || `Component ${compIdx + 1}`}
+                        </h3>
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-stone-200 text-stone-700">
+                          {comp.category_name || (isDia ? 'Diamond/Stone' : 'Gold')}
+                        </span>
+                        {comp.item_code && (
+                          <span className="text-xs font-mono text-[#b01622] font-semibold bg-red-50 px-2 py-0.5 rounded">
+                            {comp.item_code}
+                          </span>
+                        )}
+                      </div>
 
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveComponent(compIdx)}
-                      className="px-3 py-1 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1"
-                    >
-                      <i className="fa-solid fa-trash-can text-[10px]"></i>
-                      <span>Remove Component</span>
-                    </button>
-                  </div>
-
-                  {/* Component Form Inputs */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                    <div>
-                      <label className="block text-[10px] font-bold text-stone-600 uppercase mb-1">
-                        Component Name
-                      </label>
-                      <input
-                        type="text"
-                        value={comp.item_name || ''}
-                        onChange={(e) => handleComponentChange(compIdx, 'item_name', e.target.value)}
-                        className="w-full p-2 bg-white border border-stone-300 rounded-lg text-xs font-semibold text-gray-900"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-bold text-stone-600 uppercase mb-1">
-                        Item / Component Code
-                      </label>
-                      <input
-                        type="text"
-                        value={comp.item_code || ''}
-                        onChange={(e) => handleComponentChange(compIdx, 'item_code', e.target.value)}
-                        className="w-full p-2 bg-white border border-stone-300 rounded-lg text-xs font-mono font-bold text-gray-900"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-bold text-stone-600 uppercase mb-1">
-                        Karat
-                      </label>
-                      <select
-                        value={comp.karat || '22K'}
-                        onChange={(e) => handleComponentChange(compIdx, 'karat', e.target.value)}
-                        className="w-full p-2 bg-white border border-stone-300 rounded-lg text-xs font-semibold text-gray-900"
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveComponent(compIdx)}
+                        className="px-3 py-1 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1"
                       >
-                        <option value="22K">22K</option>
-                        <option value="24K">24K</option>
-                        <option value="18K">18K</option>
-                        <option value="14K">14K</option>
-                      </select>
+                        <i className="fa-solid fa-trash-can text-[10px]"></i>
+                        <span>Remove Component</span>
+                      </button>
                     </div>
 
-                    <div>
-                      <label className="block text-[10px] font-bold text-stone-600 uppercase mb-1">
-                        Purity (%)
-                      </label>
-                      <input
-                        type="text"
-                        value={comp.purity || '91.6'}
-                        onChange={(e) => handleComponentChange(compIdx, 'purity', e.target.value)}
-                        className="w-full p-2 bg-white border border-stone-300 rounded-lg text-xs font-semibold text-gray-900"
-                      />
-                    </div>
+                    {/* Component Form Inputs */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-bold text-stone-600 uppercase mb-1">
+                          Category Name
+                        </label>
+                        <select
+                          value={comp.category_id || ''}
+                          onChange={(e) => {
+                            const cat = categoriesList.find((c) => String(c.id) === String(e.target.value));
+                            handleComponentChange(compIdx, 'category_id', e.target.value);
+                            if (cat) {
+                              handleComponentChange(compIdx, 'category_name', cat.name);
+                              handleComponentChange(compIdx, 'item_name', cat.name);
+                              const filteredStamps = getFilteredStamps(cat.name);
+                              const firstStamp = filteredStamps.length > 0 ? filteredStamps[0].name : '';
+                              handleComponentChange(compIdx, 'stamp', firstStamp);
+                            }
+                          }}
+                          className="w-full p-2 bg-white border border-stone-300 rounded-lg text-xs font-semibold text-gray-900"
+                        >
+                          {categoriesList.map((c) => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
+                      </div>
 
-                    <div>
-                      <label className="block text-[10px] font-bold text-stone-600 uppercase mb-1">
-                        Gross Weight (g)
-                      </label>
-                      <input
-                        type="number"
-                        step="0.001"
-                        value={comp.gross_wt || ''}
-                        onChange={(e) => handleComponentChange(compIdx, 'gross_wt', e.target.value)}
-                        className="w-full p-2 bg-white border border-stone-300 rounded-lg text-xs font-mono font-bold text-gray-900"
-                      />
-                    </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-stone-600 uppercase mb-1">
+                          Stamp
+                        </label>
+                        <select
+                          value={comp.stamp || ''}
+                          onChange={(e) => handleComponentChange(compIdx, 'stamp', e.target.value)}
+                          className="w-full p-2 bg-white border border-stone-300 rounded-lg text-xs font-semibold text-gray-900"
+                        >
+                          {getFilteredStamps(comp.category_name || comp.category).length > 0 ? (
+                            getFilteredStamps(comp.category_name || comp.category).map((st) => (
+                              <option key={st.id} value={st.name}>
+                                {st.name}
+                              </option>
+                            ))
+                          ) : (
+                            <option value="">No stamps available</option>
+                          )}
+                        </select>
+                      </div>
 
-                    <div>
-                      <label className="block text-[10px] font-bold text-stone-600 uppercase mb-1">
-                        Net Weight (g)
-                      </label>
-                      <input
-                        type="number"
-                        step="0.001"
-                        value={comp.net_wt || ''}
-                        onChange={(e) => handleComponentChange(compIdx, 'net_wt', e.target.value)}
-                        className="w-full p-2 bg-white border border-stone-300 rounded-lg text-xs font-mono font-bold text-gray-900"
-                      />
-                    </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-stone-600 uppercase mb-1">
+                          Unit
+                        </label>
+                        <select
+                          value={comp.unit || (unitsList.length > 0 ? unitsList[0].name : 'Grams')}
+                          onChange={(e) => handleComponentChange(compIdx, 'unit', e.target.value)}
+                          className="w-full p-2 bg-white border border-stone-300 rounded-lg text-xs font-semibold text-gray-900"
+                        >
+                          {unitsList.length > 0 ? (
+                            unitsList.map((u) => (
+                              <option key={u.id} value={u.name}>{u.name}</option>
+                            ))
+                          ) : (
+                            <>
+                              <option value="Grams">Grams</option>
+                              <option value="Carats">Carats</option>
+                            </>
+                          )}
+                        </select>
+                      </div>
 
-                    <div>
-                      <label className="block text-[10px] font-bold text-[#b01622] uppercase mb-1">
-                        Pure Weight 24K (g)
-                      </label>
-                      <input
-                        type="text"
-                        value={comp.pure_weight ? `${comp.pure_weight}g` : ''}
-                        readOnly
-                        className="w-full p-2 bg-stone-100 border border-stone-300 rounded-lg text-xs font-mono font-bold text-[#b01622]"
-                      />
-                    </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-stone-600 uppercase mb-1">
+                          No. of Pieces
+                        </label>
+                        <input
+                          type="number"
+                          value={comp.no_of_pieces || 1}
+                          onChange={(e) => handleComponentChange(compIdx, 'no_of_pieces', e.target.value)}
+                          className="w-full p-2 bg-white border border-stone-300 rounded-lg text-xs font-bold text-gray-900"
+                        />
+                      </div>
 
-                    <div>
-                      <label className="block text-[10px] font-bold text-stone-600 uppercase mb-1">
-                        Sale Rate (₹)
-                      </label>
-                      <input
-                        type="text"
-                        value={comp.sale_rate || ''}
-                        onChange={(e) => handleComponentChange(compIdx, 'sale_rate', e.target.value)}
-                        className="w-full p-2 bg-white border border-stone-300 rounded-lg text-xs font-mono text-gray-900"
-                      />
+                      <div>
+                        <label className="block text-[10px] font-bold text-[#b01622] uppercase mb-1">
+                          Stone Weight (g)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.001"
+                          value={comp.stone_weight || comp.gross_wt || ''}
+                          onChange={(e) => {
+                            handleComponentChange(compIdx, 'stone_weight', e.target.value);
+                            handleComponentChange(compIdx, 'gross_wt', e.target.value);
+                          }}
+                          className="w-full p-2 bg-white border border-stone-300 rounded-lg text-xs font-mono font-bold text-gray-900"
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="p-6 text-center bg-stone-50 rounded-xl border border-dashed border-stone-300 text-stone-500 text-xs font-semibold space-y-2">
@@ -1286,7 +1329,7 @@ export default function InventoryEditProduct() {
                 className="px-4 py-1.5 bg-white border border-stone-300 hover:border-[#b01622] text-[#b01622] text-xs font-bold rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5"
               >
                 <i className="fa-solid fa-plus text-xs"></i>
-                <span>Add Component Box</span>
+                <span>Add New Item</span>
               </button>
             </div>
           )}
@@ -1304,7 +1347,7 @@ export default function InventoryEditProduct() {
           <button
             type="submit"
             disabled={saving}
-            className="px-8 py-3 bg-[#b01622] hover:bg-[#8f1019] text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+            className="px-8 py-3 bg-[#b01622] hover:bg-[#8f1019] text-[#ffffff] rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
           >
             {saving && <i className="fa-solid fa-circle-notch fa-spin"></i>}
             <span>Save &amp; Update Inventory Item</span>
@@ -1313,7 +1356,7 @@ export default function InventoryEditProduct() {
 
       </form>
 
-      {/* Quick CRUD Master Modal for Karat, Stamp, Unit */}
+      {/* Quick CRUD Master Modal */}
       {showCrudModal && (
         <QuickDropdownCrudModal
           isOpen={showCrudModal}

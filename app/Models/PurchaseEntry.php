@@ -13,12 +13,15 @@ class PurchaseEntry extends Model
         'purchase_no',
         'supplier_id',
         'product_id',
+        'raw_material_id',
         'category_id',
         'purchase_type',
         'metal_type',
         'purity',
         'item_name',
         'qty',
+        'count_qty',
+        'unit',
         'weight',
         'less_weight',
         'net_weight',
@@ -35,7 +38,9 @@ class PurchaseEntry extends Model
     ];
 
     protected $casts = [
+        'raw_material_id' => 'integer',
         'qty' => 'integer',
+        'count_qty' => 'float',
         'weight' => 'float',
         'less_weight' => 'float',
         'net_weight' => 'float',
@@ -62,5 +67,10 @@ class PurchaseEntry extends Model
     public function category()
     {
         return $this->belongsTo(Category::class);
+    }
+
+    public function rawMaterial()
+    {
+        return $this->belongsTo(RawMaterial::class);
     }
 }

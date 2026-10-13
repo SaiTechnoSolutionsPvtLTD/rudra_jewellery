@@ -39,10 +39,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
 
-    // Notifications Top Bar Feed
+    // Notifications Top Bar Feed & Management
     Route::get('/notifications', [NotificationController::class, 'index']);
-    Route::post('/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
+    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+    Route::match(['post', 'patch'], '/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
     Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllAsRead']);
+    Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
 
     Route::get('/dashboard', [DashboardController::class, 'index']);
     Route::get('/metal-rates', [DashboardController::class, 'metalRates']);
@@ -53,14 +55,40 @@ Route::middleware('auth:sanctum')->group(function () {
     // Work Orders & Live Job Workflow (Pages 14, 15, 16 & Job Order views)
     Route::get('/work-orders/dashboard-stats', [WorkOrderController::class, 'dashboardStats']);
     Route::get('/work-orders/generate-number', [WorkOrderController::class, 'generateOrderNumber']);
+    Route::get('/job-orders/generate-number', [WorkOrderController::class, 'generateJobOrderNumber']);
+    Route::get('/work-orders/delays', [WorkOrderController::class, 'delays']);
+    Route::get('/work-orders/search-receiving', [WorkOrderController::class, 'searchReceiving']);
+    Route::get('/work-orders/ready-pieces', [WorkOrderController::class, 'readyPieces']);
+    Route::get('/work-orders/tags', [WorkOrderController::class, 'getTags']);
+    Route::get('/inventory/products/{id}/tags', [WorkOrderController::class, 'getProductTags']);
+
+    Route::get('/work-orders/{id}/receiving-data', [WorkOrderController::class, 'receivingData']);
+    Route::get('/work-orders/{id}/pieces', [WorkOrderController::class, 'getPieces']);
+    Route::get('/work-orders/{id}/operations', [WorkOrderController::class, 'getOperations']);
+    Route::post('/work-orders/{id}/operations', [WorkOrderController::class, 'recordOperation']);
+    Route::post('/work-orders/batch-submit-qc', [WorkOrderController::class, 'batchSubmitQc']);
+    Route::post('/work-orders/{id}/wip-update', [WorkOrderController::class, 'wipUpdate']);
+    Route::post('/work-orders/{id}/qc-action', [WorkOrderController::class, 'qcAction']);
+    Route::post('/work-orders/{id}/certification-action', [WorkOrderController::class, 'certificationAction']);
+    Route::post('/work-orders/{id}/hallmarking-action', [WorkOrderController::class, 'hallmarkingAction']);
+    Route::post('/work-orders/{id}/receive-piece', [WorkOrderController::class, 'receivePiece']);
+    Route::post('/work-orders/{id}/receive', [WorkOrderController::class, 'receive']);
+    Route::post('/work-orders/{id}/final-receive', [WorkOrderController::class, 'finalReceive']);
+    Route::post('/work-orders/{id}/finalize-inventory', [WorkOrderController::class, 'finalizeInventory']);
+
     Route::post('/work-orders/{id}/receiver-update', [WorkOrderController::class, 'updateReceiver']);
     Route::post('/work-orders/{id}/karigar-update', [WorkOrderController::class, 'karigarUpdate']);
+    Route::post('/work-orders/{id}/manager-update', [WorkOrderController::class, 'managerUpdate']);
     Route::post('/work-orders/{id}/timeline-update', [WorkOrderController::class, 'addTimelineUpdate']);
     Route::post('/work-orders/{id}/delay-update', [WorkOrderController::class, 'delayUpdate']);
     Route::post('/work-orders/{id}/approve', [WorkOrderController::class, 'approve']);
     Route::post('/work-orders/{id}/return', [WorkOrderController::class, 'returnOrReject']);
     Route::post('/work-orders/{id}/mark-ready', [WorkOrderController::class, 'markReady']);
-    Route::post('/work-orders/{id}/final-receive', [WorkOrderController::class, 'finalReceive']);
+    Route::post('/work-orders/{id}/move-to-ready', [WorkOrderController::class, 'moveToReady']);
+    Route::post('/work-orders/{id}/update-certification', [WorkOrderController::class, 'updateCertification']);
+    Route::post('/work-orders/{id}/update-hallmarking', [WorkOrderController::class, 'updateHallmarking']);
+    Route::post('/received-pieces/{id}/update-certification', [WorkOrderController::class, 'updatePieceCertification']);
+    Route::post('/received-pieces/{id}/update-hallmarking', [WorkOrderController::class, 'updatePieceHallmarking']);
     Route::get('/work-orders/{id}/pdf', [WorkOrderController::class, 'exportPdf']);
     Route::apiResource('work-orders', WorkOrderController::class);
 
@@ -98,18 +126,26 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::apiResource('roles', RoleController::class);
     Route::apiResource('permissions', PermissionController::class);
+    Route::post('/users/upload-avatar', [UserController::class, 'uploadAvatar']);
+    Route::post('/users/{id}/avatar', [UserController::class, 'uploadAvatar']);
+    Route::post('/users/{id}', [UserController::class, 'update']);
     Route::apiResource('users', UserController::class);
     Route::apiResource('categories', CategoryController::class);
     Route::apiResource('subcategories', SubcategoryController::class);
     Route::apiResource('items', ItemController::class);
     Route::get('/products/generate-sku', [ProductController::class, 'generateSku']);
+    Route::get('/products/lookup-design', [ProductController::class, 'lookupDesign']);
     Route::post('/products/bulk-opening-stock', [ProductController::class, 'bulkUpdateOpeningStock']);
     Route::post('/products/{id}/opening-stock', [ProductController::class, 'updateOpeningStock']);
     Route::apiResource('products', ProductController::class);
     Route::apiResource('memberships', MembershipController::class);
     Route::apiResource('suppliers', SupplierController::class);
+    Route::get('/raw-materials', [PurchaseEntryController::class, 'rawMaterials']);
+    Route::get('/raw-materials/unified-stock', [\App\Http\Controllers\Api\MaterialOpeningStockController::class, 'unifiedStock']);
     Route::get('/purchase-entries/generate-no', [PurchaseEntryController::class, 'generateNo']);
     Route::apiResource('purchase-entries', PurchaseEntryController::class);
+    Route::get('/material-opening-stocks/generate-no', [\App\Http\Controllers\Api\MaterialOpeningStockController::class, 'generateNo']);
+    Route::apiResource('material-opening-stocks', \App\Http\Controllers\Api\MaterialOpeningStockController::class);
 
     // Product Designs & Upload
     Route::get('/product-designs/check-design-no', [\App\Http\Controllers\Api\ProductDesignController::class, 'checkDesignNo']);
@@ -135,8 +171,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('karats', \App\Http\Controllers\Api\KaratController::class);
     Route::apiResource('stamps', \App\Http\Controllers\Api\StampController::class);
     Route::apiResource('units', \App\Http\Controllers\Api\UnitController::class);
+    Route::apiResource('component-categories', \App\Http\Controllers\Api\ComponentCategoryController::class);
+    Route::apiResource('operations', \App\Http\Controllers\Api\OperationController::class);
 
-    // Karigar (Artisan) Management
+    // Karigar (Artisan) Management & Material Ledger
+    Route::get('/karigar-materials', [\App\Http\Controllers\Api\KarigarMaterialController::class, 'index']);
+    Route::get('/karigars/{id}/material-ledger', [\App\Http\Controllers\Api\KarigarMaterialController::class, 'ledger']);
+    Route::post('/karigars/{id}/material-action', [\App\Http\Controllers\Api\KarigarMaterialController::class, 'storeAction']);
     Route::get('/karigars/generate-code', [KarigarController::class, 'generateCode']);
     Route::get('/karigars/{id}/works', [KarigarController::class, 'works']);
     Route::apiResource('karigars', KarigarController::class);

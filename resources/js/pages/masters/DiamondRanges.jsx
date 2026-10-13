@@ -212,7 +212,10 @@ export default function DiamondRanges() {
         <div className="bg-white rounded-xl border border-gray-200/80 p-4 shadow-2xs">
           <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">D &amp; E Color Diamonds</div>
           <div className="text-2xl font-black text-[#b01622]">
-            {ranges.filter(r => ['D', 'E'].includes((r.colour || '').toUpperCase())).length}
+            {ranges.filter(r => {
+              const c = (r.colour || '').toUpperCase();
+              return c.includes('D') || c.includes('E');
+            }).length}
           </div>
           <div className="text-[11px] text-gray-500 mt-1">Colorless high grade items</div>
         </div>
@@ -250,8 +253,13 @@ export default function DiamondRanges() {
                     <th className="px-3 py-3 text-center">CLARITY</th>
                     <th className="px-3 py-3">REMARKS</th>
                     <th className="px-3 py-3 text-center">UNIT</th>
+                    <th className="px-3 py-3 text-center">TUNCH</th>
+                    <th className="px-3 py-3 text-center">SALE LB</th>
                     <th className="px-3 py-3 text-center">PC</th>
                     <th className="px-3 py-3 text-right">WT (CT)</th>
+                    <th className="px-3 py-3 text-right">DOLLAR</th>
+                    <th className="px-3 py-3 text-right">DISC. %</th>
+                    <th className="px-3 py-3 text-right">DOLX RATE</th>
                     <th className="px-3 py-3 text-right">RATE (₹)</th>
                     <th className="px-3 py-3 text-right">VALUE (₹)</th>
                     <th className="px-4 py-3 text-center w-16">ACTIONS</th>
@@ -279,9 +287,20 @@ export default function DiamondRanges() {
                         <td className="px-3 py-3 text-center font-bold text-stone-800">{item.clarity || 'VS'}</td>
                         <td className="px-3 py-3 text-stone-500 max-w-xs truncate">{item.remarks || item.description || '-'}</td>
                         <td className="px-3 py-3 text-center text-stone-600">{item.unit || 'Carat'}</td>
+                        <td className="px-3 py-3 text-center text-stone-600 font-mono">{item.tunch || '-'}</td>
+                        <td className="px-3 py-3 text-center text-stone-600 font-mono">{item.sale_lb || '-'}</td>
                         <td className="px-3 py-3 text-center font-bold text-stone-900 font-mono">{item.pc || 1}</td>
                         <td className="px-3 py-3 text-right font-mono font-bold text-[#b01622]">
                           {Number(item.wt_ct || item.min_ct || 0).toFixed(3)}
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono text-stone-700">
+                          $ {Number(item.dollar || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono text-stone-700">
+                          {Number(item.disc_percent || 0).toFixed(2)}%
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono text-stone-700">
+                          {Number(item.dolx_rate || 0).toFixed(2)}
                         </td>
                         <td className="px-3 py-3 text-right font-mono text-stone-800 font-semibold">
                           ₹ {Number(item.rate || 13500).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
@@ -381,22 +400,18 @@ export default function DiamondRanges() {
                     className="w-full px-3 py-2 border border-stone-300 rounded-xl focus:outline-hidden focus:border-[#b01622] cursor-pointer"
                   >
                     <option value="">Select Stamp</option>
-                    {stamps.length > 0 ? (
-                      stamps.map((st) => (
+                    {stamps
+                      .filter((st) => {
+                        if (typeof st === 'string') return true;
+                        if (!st.applicable_for) return false;
+                        const apps = st.applicable_for.split(',').map((s) => s.trim().toLowerCase());
+                        return apps.includes('diamond') || apps.includes('all');
+                      })
+                      .map((st) => (
                         <option key={st.id || st.code || st.name} value={st.name || st.code || st}>
                           {st.name || st.code || st}
                         </option>
-                      ))
-                    ) : (
-                      <>
-                        <option value="1">1</option>
-                        <option value="916">916</option>
-                        <option value="750">750</option>
-                        <option value="585">585</option>
-                        <option value="999">999</option>
-                        <option value="+0">+0</option>
-                      </>
-                    )}
+                      ))}
                   </select>
                 </div>
                 <div>

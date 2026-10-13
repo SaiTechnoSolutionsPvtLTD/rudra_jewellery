@@ -1,438 +1,332 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useLocation, useNavigate, Link, Navigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate, Link } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
-import { useAuth } from '../../context/AuthContext';
-import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
-import { getStoredCompanyInfo, fetchCompanyInfo } from '../../utils/companyInfoService';
 import { printElement } from '../../utils/printHelper';
-
-const SAMPLE_IMAGES = [
-  { label: '22K Gold Peacock Choker', url: '/images/samples/peacock_choker.jpg' },
-  { label: 'Royal Temple Kada Bangles', url: '/images/samples/kada_bangles.jpg' },
-  { label: 'Traditional Gold Necklace', url: '/images/samples/gold_necklace.jpg' },
-  { label: 'Ruby Royal Choker Set', url: '/images/samples/ruby_set.jpg' },
-  { label: 'Diamond Solitaire Ring', url: '/images/samples/solitaire_ring.jpg' },
-  { label: 'Diamond Cluster Drops', url: '/images/samples/diamond_earrings.jpg' },
-  { label: 'Navratna Traditional Pendant', url: '/images/samples/pendant_set.jpg' },
-];
-
-const STAGES = [
-  { key: 'created', label: 'Job Created', short: 'Created', step: 1 },
-  { key: 'assigned', label: 'Assigned', short: 'Assigned', step: 2 },
-  { key: 'work_started', label: 'Work Started', short: 'Work Started', step: 3 },
-  { key: 'quality_check', label: 'QC Pending', short: 'QC Pending', step: 4 },
-  { key: 'ready', label: 'Ready', short: 'Ready', step: 5 },
-  { key: 'delivered', label: 'Delivered', short: 'Delivered', step: 6 },
-];
+import JewelleryTagCard, { buildPrintableTagsHtml } from '../../components/JewelleryTagCard';
+import { WorkOrderPrintHeader, WorkOrderPrintMetadata } from '../../components/WorkOrderPrintLayout';
+import { cleanProductName } from '../../utils/formatters';
 
 export default function ReceiverWork() {
-  const { isKarigar } = useAuth();
-  if (isKarigar) {
-    return <Navigate to="/job-order/in-progress" replace />;
-  }
   const location = useLocation();
   const navigate = useNavigate();
   const { showToast, showConfirm } = useToast();
 
   const [orders, setOrders] = useState([]);
+  const [readyPieces, setReadyPieces] = useState([]);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
+  const [selectedJobId, setSelectedJobId] = useState(null);
+  const [selectedPieceId, setSelectedPieceId] = useState(null);
+  const [receivingPrefill, setReceivingPrefill] = useState(null);
   const [currentOrder, setCurrentOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [processingAction, setProcessingAction] = useState(false);
 
-  // View state: 'list' (rows table) vs 'detail' (exact screenshot detail page)
+
+
+  // View state: 'list' (rows table) vs 'detail' (unified receiving workflow page)
   const [viewMode, setViewMode] = useState('list');
+  
+  // Primary Tab in Receive Page: 'ready' (available to receive only) vs 'history' (receiving history)
+  const [primaryTab, setPrimaryTab] = useState('ready');
+  const [historyViewType, setHistoryViewType] = useState('orders'); // 'orders' or 'pieces'
+  const [allReceivedPieces, setAllReceivedPieces] = useState([]);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [historyStatusFilter, setHistoryStatusFilter] = useState('all');
   const [listPage, setListPage] = useState(1);
-  const itemsPerPage = 6;
+  const [receivedHistoryPage, setReceivedHistoryPage] = useState(1);
+  const [detailTagsPage, setDetailTagsPage] = useState(1);
+  const itemsPerPage = 8;
+  const detailItemsPerPage = 5;
 
-  // Editable 21-Column Material / Row Details (Identical to NewWorkOrder.jsx)
-  const [weightRows, setWeightRows] = useState([]);
-  const [selectedMonth, setSelectedMonth] = useState('all');
-  const [showRowModal, setShowRowModal] = useState(false);
-  const [editingRowIndex, setEditingRowIndex] = useState(null);
-  const [formErrors, setFormErrors] = useState({});
-  const [previewDoc, setPreviewDoc] = useState(null);
+  // Search input for WO lookup in list view
+  const [woSearchInput, setWoSearchInput] = useState('');
 
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && previewDoc) {
-        setPreviewDoc(null);
-      }
-    };
-    if (previewDoc) {
-      window.addEventListener('keydown', handleKeyDown);
-    }
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [previewDoc]);
+  // Search filter for Individual Tags table
+  const [tagSearchTerm, setTagSearchTerm] = useState('');
 
-  // Master Setting Styles state
-  const [settingStyles, setSettingStyles] = useState([]);
-  const [showStylesModal, setShowStylesModal] = useState(false);
+  // Selected piece for print previews
+  const [selectedPieceForVoucher, setSelectedPieceForVoucher] = useState(null);
+  const [selectedPieceForTag, setSelectedPieceForTag] = useState(null);
+  const [isVoucherModalOpen, setIsVoucherModalOpen] = useState(false);
+  const [isTagModalOpen, setIsTagModalOpen] = useState(false);
 
-  const fetchSettingStyles = async () => {
-    try {
-      const res = await api.get('/styles');
-      setSettingStyles(res.data || []);
-    } catch (err) {
-      console.error('Failed to fetch setting styles:', err);
-    }
-  };
-
-  const [companyInfo, setCompanyInfo] = useState(() => getStoredCompanyInfo());
-
-  useEffect(() => {
-    fetchSettingStyles();
-    fetchCompanyInfo().then(info => {
-      if (info) setCompanyInfo(info);
-    });
-    const handleCompanyUpdate = (e) => {
-      if (e?.detail) setCompanyInfo(e.detail);
-    };
-    window.addEventListener('rudhra_company_info_updated', handleCompanyUpdate);
-    return () => window.removeEventListener('rudhra_company_info_updated', handleCompanyUpdate);
-  }, []);
-
-  const designFileInputRef = useRef(null);
-  const refImageInputRef = useRef(null);
-
-  const handleDesignFileUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    setRowForm((prev) => ({
-      ...prev,
-      design_file: url,
-      image: prev.image || url,
-    }));
-  };
-
-  const handleReferenceImageUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    setRowForm((prev) => ({
-      ...prev,
-      reference_image: url,
-      image: url,
-    }));
-  };
-
-  const defaultRowForm = {
-    work_name: '22K Yellow Gold Jewellery',
-    material_type: '22K Yellow Gold',
-    material_subtitle: '916 Hallmark Standard',
-    ordered_date: '2026-07-02',
-    delivery_date: '2026-07-02',
-    image: '/images/samples/peacock_choker.jpg',
-    design_file: '/images/samples/peacock_choker.jpg',
-    reference_image: '/images/samples/peacock_choker.jpg',
-    qty: 1,
-    setting_type: 'Prong',
-    design_number: 'DDvd1',
-    gold_priory: '-',
-    total_weight: '5.91',
-    gold_weight: '5.91',
-    old_weight: '5.91',
-    colour_stone: '5.91',
-    silver: '0.278',
-    diamond_ct: '278',
-    no_of_dia: '15',
-    net_weight: '2.56',
-    purity: '2.65',
-    wastage: '9.50',
-    percentages: '2%',
-    pure_24k: '8.6',
-    mc: '2650',
-    total_mc: '4586.56',
-    remarks: '-',
-  };
-
-  const [rowForm, setRowForm] = useState(defaultRowForm);
-
-  const updateFormField = (field, val) => {
-    setRowForm((prev) => ({ ...prev, [field]: val }));
-    if (formErrors[field]) {
-      setFormErrors((prev) => {
-        const next = { ...prev };
-        delete next[field];
-        return next;
-      });
-    }
-  };
-
-  // Helper formatters
-  const formatDateDisplay = (dateStr) => {
-    if (!dateStr) return '—';
-    const s = String(dateStr).trim();
-    if (s.includes('-')) {
-      const parts = s.split('-');
-      if (parts[0].length === 4) {
-        return `${parts[2]}-${parts[1]}-${parts[0]}`;
-      }
-    }
-    return s;
-  };
-
-  const formatWeight = (val, fallback = '0.000') => {
-    if (val === undefined || val === null || val === '') return fallback;
-    const num = parseFloat(val);
-    if (isNaN(num)) return fallback;
-    return num.toFixed(3);
-  };
-
-  const resolveItemImage = (item) => {
-    if (item?.image && String(item.image).trim().length > 0) return item.image;
-    if (item?.image_url && String(item.image_url).trim().length > 0) return item.image_url;
-    if (item?.reference_image && String(item.reference_image).trim().length > 0) return item.reference_image;
-    if (item?.design_file && String(item.design_file).trim().length > 0) return item.design_file;
-    return '/images/samples/peacock_choker.jpg';
-  };
-
-  // Worker Allocation / Used Gold Tracking
-  const [goldIssued, setGoldIssued] = useState(100.0);
-  const [goldUsed, setGoldUsed] = useState(50.0);
-  const [receiveDate, setReceiveDate] = useState('2024-10-24');
-
-  // Tracking Timeline Stage
-  const [currentStageKey, setCurrentStageKey] = useState('work_started');
-
-  // QC Checklist with inline remark inputs
-  const [qcChecklist, setQcChecklist] = useState({
-    weight_verified: true,
-    weight_note: 'Exact match',
-    stone_count: false,
-    stone_note: '',
-    polish: false,
-    hallmark: false,
-    finish: false,
+  // Physical Piece Receiving Form State
+  const [pieceForm, setPieceForm] = useState({
+    gross_weight: '',
+    old_weight: '0.000',
+    color_stone_weight: '0.000',
+    color_stone_count: '0',
+    silver_weight: '0.000',
+    diamond_weight: '0.000',
+    diamond_count: '0',
+    diamond_details: '',
+    touch: '91.60',
+    gold_karat: '22K',
+    making_charge_type: 'per_gram', // per_gram, percentage, fixed
+    making_charge: '450',
+    total_making_charge: '',
+    given_metal: '0.000',
+    given_cash: '0.00',
+    wastage_weight: '0.000',
+    karigar_gold_weight: '0.000',
+    description: '',
+    huid: '',
+    certificate_no: '',
+    receive_date: new Date().toISOString().split('T')[0],
+    completion_image: '',
+    completion_image_preview: '',
   });
 
-  // Return Details (If Any)
-  const [returnReason, setReturnReason] = useState('');
-  const [returnPhotoUrl, setReturnPhotoUrl] = useState('');
-  const [returnNotes, setReturnNotes] = useState('');
+  const updatePieceField = (field, val) => {
+    setPieceForm((prev) => ({ ...prev, [field]: val }));
+  };
 
-  // Stone Count
-  const [stoneAllocated, setStoneAllocated] = useState(48);
-  const [stoneReceived, setStoneReceived] = useState(48);
+  const handleCompletionImageUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  // Print Voucher Modal
-  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
+    if (!validTypes.includes(file.type)) {
+      showToast?.('Please upload a valid image file (JPG, PNG, or WEBP).', 'error');
+      return;
+    }
 
-  useEffect(() => {
-    fetchWorkOrders();
-  }, []);
+    if (file.size > 5 * 1024 * 1024) {
+      showToast?.('Image file size must be less than 5MB.', 'error');
+      return;
+    }
 
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result;
+      setPieceForm((prev) => ({
+        ...prev,
+        completion_image: base64,
+        completion_image_preview: base64,
+      }));
+      showToast?.('Completion image loaded for this piece.', 'success');
+    };
+    reader.onerror = () => {
+      showToast?.('Failed to read image file.', 'error');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Masters Gold Karats State
+  const [karatMasters, setKaratMasters] = useState([]);
+
+  const fetchKarats = async () => {
+    try {
+      const res = await api.get('/karats');
+      const list = res.data || [];
+      const goldKarats = list.filter((k) => {
+        const name = (k.name || '').toLowerCase().trim();
+        const desc = (k.description || '').toLowerCase();
+        return name.includes('k') || name.includes('karat') || desc.includes('gold') || desc.includes('karat') || desc.includes('hallmark');
+      });
+      setKaratMasters(goldKarats.length > 0 ? goldKarats : list);
+    } catch (e) {
+      console.warn('Failed to load karat master items:', e);
+    }
+  };
+
+  // Fetch all orders eligible for receiving & all received piece tags for history
   const fetchWorkOrders = async () => {
     try {
       setLoading(true);
-      const res = await api.get('/work-orders', { params: { tab: 'ongoing' } });
-      const list = res.data.data || [];
-      setOrders(list);
+      fetchKarats();
+      const [ordersRes, readyRes, tagsRes] = await Promise.all([
+        api.get('/work-orders'),
+        api.get('/work-orders/ready-pieces').catch(() => ({ data: { data: [] } })),
+        api.get('/work-orders/tags').catch(() => ({ data: { data: [] } })),
+      ]);
+      const allOrders = ordersRes.data.data || [];
+      const readyPieces = readyRes.data.data || [];
+      const allTags = tagsRes.data.data || [];
 
-      // Check query params if an order was passed
+      const readyRows = readyPieces.map((piece) => ({
+        ...piece,
+        id: piece.piece_id || piece.id,
+        piece_id: piece.piece_id || piece.id,
+        work_order_id: piece.work_order_id,
+        work_order_number: piece.work_order_number,
+        product_name: piece.product_name || 'Jewellery Piece',
+        design_no: piece.design_no || '—',
+        image_url: piece.image_url || piece.product?.thumbnail_url || piece.product?.image_url || '',
+        artisan_name: piece.artisan_name || 'In-House Artisan',
+        gross_weight: Number(piece.gross_weight || 0),
+        net_gold_weight: Number(piece.net_gold_weight || 0),
+        allotted_weight: Number(piece.allotted_weight || 0),
+        ordered_date: piece.ordered_date || null,
+        delivery_date: piece.delivery_date || null,
+        work_order_item: piece.work_order_item || null,
+        product: piece.product || null,
+        is_piece_row: true,
+      }));
+
+      setOrders(allOrders);
+      setReadyPieces(readyRows);
+      setAllReceivedPieces(allTags);
+
       const params = new URLSearchParams(location.search);
       const queryOrderId = params.get('order_id');
-
-      if (queryOrderId) {
-        const found = list.find((o) => String(o.id) === String(queryOrderId));
-        if (found) {
-          setSelectedOrderId(found.id);
-          loadOrderDetails(found.id, true);
-          return;
-        }
+      const queryPieceId = params.get('piece_id');
+      const queryTab = params.get('tab');
+      if (queryTab === 'history') {
+        setPrimaryTab('history');
+      } else if (queryTab === 'ready') {
+        setPrimaryTab('ready');
       }
-
-      // Default to list mode unless an order was explicitly requested
-      setViewMode('list');
+      if (queryOrderId) {
+        await loadOrderDetails(queryOrderId, true, queryPieceId);
+      }
     } catch (err) {
-      console.error('Failed to load orders in receiver work:', err);
-      showToast?.('Failed to load work orders list', 'error');
+      console.error('Failed to fetch work orders:', err);
+      showToast?.('Failed to load work orders', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  const loadOrderDetails = async (id, forceDetailView = true) => {
+  useEffect(() => {
+    fetchWorkOrders();
+  }, [location.search]);
+
+  // Dedicated WO Lookup Form Handler
+  const handleSearchWO = async (e) => {
+    e?.preventDefault();
+    if (!woSearchInput.trim()) return;
+
     try {
       setLoading(true);
-      const res = await api.get(`/work-orders/${id}`);
-      const o = res.data.data;
+      const res = await api.get('/work-orders/search-receiving', {
+        params: { search: woSearchInput.trim() },
+      });
+      const found = res.data?.data || [];
+      if (found.length > 0) {
+        loadOrderDetails(found[0].id, true);
+      } else {
+        showToast?.('No ready unreceived work orders found matching that number.', 'warning');
+      }
+    } catch (err) {
+      console.error('Search WO error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load single work order details with automatic QC piece prefill
+  const loadOrderDetails = async (id, forceDetailView = true, targetPieceId = null) => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams(location.search);
+      const effPieceId = targetPieceId || params.get('piece_id');
+
+      const [res, recvDataRes, piecesRes] = await Promise.all([
+        api.get(`/work-orders/${id}`),
+        api.get(`/work-orders/${id}/receiving-data`, {
+          params: effPieceId ? { piece_id: effPieceId } : {}
+        }).catch((e) => {
+          console.warn('Receiving data prefill endpoint info:', e);
+          return null;
+        }),
+        api.get(`/work-orders/${id}/pieces`).catch((e) => {
+          console.warn('Failed to load physical piece history:', e);
+          return null;
+        }),
+      ]);
+
+      const responseOrder = res.data.data;
+      const persistedPieces = piecesRes?.data?.data;
+      const receivedPieces = Array.isArray(persistedPieces)
+        ? persistedPieces.filter((piece) => Boolean(piece.received_at))
+        : (responseOrder.received_pieces || responseOrder.receivedPieces || []).filter((piece) => Boolean(piece.received_at));
+      const o = { ...responseOrder, received_pieces: receivedPieces };
       setCurrentOrder(o);
       setSelectedOrderId(o.id);
+      setReceivedHistoryPage(1);
+      setDetailTagsPage(1);
 
-      // Initialize Gold Allocation
-      const issued = parseFloat(o.allotted_weight) || 100.0;
-      const used = parseFloat(o.completed_weight) || 50.0;
-      setGoldIssued(issued);
-      setGoldUsed(used);
+      const pre = recvDataRes?.data?.data?.prefilled;
+      if (pre) {
+        setSelectedPieceId(pre.piece_id);
+        setReceivingPrefill(pre);
+        if (pre.product_image_url) {
+          setCurrentOrder((previous) => previous ? { ...previous, product: pre.product || previous.product } : previous);
+        }
+        if (pre.work_order_item_id) {
+          setSelectedJobId(pre.work_order_item_id);
+        }
 
-      // Initialize Receive Date
-      if (o.allotted_date) {
-        setReceiveDate(o.allotted_date);
-      } else {
-        setReceiveDate(new Date().toISOString().split('T')[0]);
-      }
-
-      // Initialize Timeline Stage
-      const mapStage = (stage) => {
-        if (!stage) return 'work_started';
-        if (['created'].includes(stage)) return 'created';
-        if (['allocated', 'received_by_artisan'].includes(stage)) return 'assigned';
-        if (['work_started', 'work_in_progress'].includes(stage)) return 'work_started';
-        if (['work_completed', 'sent_for_approval', 'quality_check'].includes(stage)) return 'quality_check';
-        if (['approved', 'ready'].includes(stage)) return 'ready';
-        if (['delivered', 'final_received'].includes(stage)) return 'delivered';
-        return 'work_started';
-      };
-      setCurrentStageKey(mapStage(o.current_stage));
-
-      // Initialize Row Details matching screenshot table exactly (22 Columns)
-      const rawItems = o.pricing_details?.items || o.items || o.pricing_details?.weight_rows || [];
-      const baseDeliveryDate = o.delivery_date || '2026-07-02';
-      const baseOrderDate = o.allotted_date || '2026-07-02';
-
-      let parsedRows = [];
-      if (Array.isArray(rawItems) && rawItems.length > 0) {
-        parsedRows = rawItems.map((r, idx) => {
-          const isDiamond = String(r.material_type || '').toLowerCase().includes('diamond');
-          return {
-            id: r.id || `row-${idx + 1}-${Date.now()}`,
-            work_name: r.work_name || o.product_name || (isDiamond ? 'Round Brilliant Diamonds' : '22K Yellow Gold Jewellery'),
-            material_type: r.material_type || (isDiamond ? 'Round Brilliant Diamonds' : '22K Yellow Gold'),
-            material_subtitle: r.material_subtitle || (isDiamond ? 'VS1 Clarity - F Color' : '916 Hallmark Standard'),
-            ordered_date: r.ordered_date || baseOrderDate,
-            delivery_date: r.delivery_date || baseDeliveryDate,
-            image: r.image || r.image_url || o.image_url || (isDiamond ? '/images/samples/diamond_ring.jpg' : '/images/samples/peacock_choker.jpg'),
-            qty: r.qty !== undefined ? r.qty : (r.need_pcs || 1),
-            setting_type: r.setting_type || 'Prong',
-            design_number: r.design_number || r.design_code || 'DDvd1',
-            gold_priory: r.gold_priory || '-',
-            total_weight: r.total_weight !== undefined ? r.total_weight : (r.gold_weight !== undefined ? r.gold_weight : (isDiamond ? '0.27' : '5.91')),
-            gold_weight: r.gold_weight !== undefined ? r.gold_weight : (r.old_weight !== undefined ? r.old_weight : (isDiamond ? '0.27' : '5.91')),
-            old_weight: r.gold_weight !== undefined ? r.gold_weight : (r.old_weight !== undefined ? r.old_weight : (isDiamond ? '0.27' : '5.91')),
-            colour_stone: r.colour_stone !== undefined ? r.colour_stone : (isDiamond ? '0.27' : '5.91'),
-            silver: r.silver !== undefined ? r.silver : (isDiamond ? '0.001' : '0.278'),
-            diamond_ct: r.diamond_ct !== undefined ? r.diamond_ct : (isDiamond ? '1' : '278'),
-            no_of_dia: r.no_of_dia !== undefined ? r.no_of_dia : (isDiamond ? '5' : '15'),
-            net_weight: r.net_weight !== undefined ? r.net_weight : (isDiamond ? '4.56' : '2.56'),
-            purity: r.purity !== undefined ? r.purity : (isDiamond ? '4.661' : '2.65'),
-            wastage: r.wastage !== undefined ? r.wastage : (isDiamond ? '2.560' : '9.50'),
-            percentages: r.percentages || (isDiamond ? '6%' : '2%'),
-            pure_24k: r.pure_24k !== undefined ? r.pure_24k : (isDiamond ? '4.5' : '8.6'),
-            mc: r.mc !== undefined ? r.mc : '2650',
-            total_mc: r.total_mc !== undefined ? r.total_mc : '4586.56',
-            remarks: r.remarks || r.remark || r.notes || '-',
-          };
+        setPieceForm({
+          gross_weight: pre.gross_weight != null ? String(pre.gross_weight) : '',
+          old_weight: pre.old_weight != null ? String(pre.old_weight) : '0.000',
+          color_stone_weight: pre.color_stone_weight != null ? String(pre.color_stone_weight) : '0.000',
+          color_stone_count: pre.color_stone_count != null ? String(pre.color_stone_count) : '0',
+          silver_weight: pre.silver_weight != null ? String(pre.silver_weight) : '0.000',
+          diamond_weight: pre.diamond_weight != null ? String(pre.diamond_weight) : '0.000',
+          diamond_count: pre.diamond_count != null ? String(pre.diamond_count) : '0',
+          diamond_details: pre.diamond_details || '',
+          touch: pre.purity != null ? String(pre.purity) : '',
+          gold_karat: pre.gold_karat || o.karat || '',
+          making_charge_type: pre.making_charge_type || 'per_gram',
+          making_charge: pre.making_charge != null ? String(pre.making_charge) : (o.making_charge_per_gram != null ? String(o.making_charge_per_gram) : ''),
+          total_making_charge: '',
+          given_metal: '0.000',
+          given_cash: '0.00',
+          description: pre.product_name || o.product_name || 'Gold Jewellery Piece',
+          huid: pre.huid || '',
+          certificate_no: pre.certificate_no || '',
+          receive_date: pre.receive_date || new Date().toISOString().split('T')[0],
+          completion_image: pre.image_path || pre.image || pre.completion_image || '',
+          completion_image_preview: pre.image_path || pre.image || pre.completion_image || '',
         });
       } else {
-        // Fallback default rows matching user's exact uploaded table image
-        parsedRows = [
-          {
-            id: 'row-1',
-            work_name: '22K Yellow Gold Jewellery',
-            material_type: '22K Yellow Gold',
-            material_subtitle: '916 Hallmark Standard',
-            ordered_date: '2026-07-02',
-            delivery_date: '2026-07-02',
-            image: '/images/samples/peacock_choker.jpg',
-            qty: 1,
-            setting_type: 'Prong',
-            design_number: 'DDvd1',
-            gold_priory: '-',
-            total_weight: '5.91',
-            gold_weight: '5.91',
-            old_weight: '5.91',
-            colour_stone: '5.91',
-            silver: '0.278',
-            diamond_ct: '278',
-            no_of_dia: '15',
-            net_weight: '2.56',
-            purity: '2.65',
-            wastage: '9.50',
-            percentages: '2%',
-            pure_24k: '8.6',
-            mc: '2650',
-            total_mc: '4586.56',
-            remarks: '-',
-          },
-          {
-            id: 'row-2',
-            work_name: 'Round Brilliant Diamonds',
-            material_type: 'Round Brilliant Diamonds',
-            material_subtitle: 'VS1 Clarity - F Color',
-            ordered_date: '2026-07-02',
-            delivery_date: '2026-07-02',
-            image: '/images/samples/diamond_ring.jpg',
-            qty: 1,
-            setting_type: 'Prong',
-            design_number: 'DDvd1',
-            gold_priory: '-',
-            total_weight: '0.27',
-            gold_weight: '0.27',
-            old_weight: '0.27',
-            colour_stone: '0.27',
-            silver: '0.001',
-            diamond_ct: '1',
-            no_of_dia: '5',
-            net_weight: '4.56',
-            purity: '4.661',
-            wastage: '2.560',
-            percentages: '6%',
-            pure_24k: '4.5',
-            mc: '2650',
-            total_mc: '4586.56',
-            remarks: '-',
-          },
-        ];
-      }
-      setWeightRows(parsedRows);
+        setSelectedPieceId(null);
+        setReceivingPrefill(null);
 
-      // Initialize QC Checklist
-      const savedChecklist = o.checklist || {};
-      setQcChecklist({
-        weight_verified: savedChecklist.weight_verified ?? true,
-        weight_note: savedChecklist.weight_note || 'Exact match',
-        stone_count: savedChecklist.stone_count ?? false,
-        stone_note: savedChecklist.stone_note || '',
-        polish: savedChecklist.polish ?? false,
-        hallmark: savedChecklist.hallmark ?? false,
-        finish: savedChecklist.finish ?? false,
-      });
+        // Auto-select first item if multi-item order
+        if (o.items && o.items.length > 0) {
+          const eligibleItem = o.items.find((it) => (it.ready_qty || 0) > (it.received_qty || 0)) || o.items[0];
+          setSelectedJobId(eligibleItem.id);
+        } else {
+          setSelectedJobId(null);
+        }
 
-      // Initialize Return Details
-      setReturnReason(o.return_reason || '');
-      setReturnNotes(o.karigar_data?.return_notes || '');
-      setReturnPhotoUrl(o.karigar_data?.return_photo_url || '');
-
-      // Initialize Stone Count dynamically from database data
-      const stDetails = o.stone_details;
-      if (Array.isArray(stDetails) && stDetails.length > 0) {
-        const totalExp = stDetails.reduce((acc, s) => acc + (Number(s.expected) || Number(s.count) || Number(s.no_of_stones) || 0), 0);
-        const totalRec = stDetails.reduce((acc, s) => acc + (Number(s.received) || Number(s.received_count) || Number(s.count) || 0), 0);
-        setStoneAllocated(totalExp || 48);
-        setStoneReceived(totalRec || (totalExp || 48));
-      } else if (o.pricing_details?.stone_count) {
-        const sAlloc = parseInt(o.pricing_details.stone_count.allocated) || parseInt(o.pricing_details.stone_count) || 48;
-        const sRec = parseInt(o.pricing_details.stone_count.received) || sAlloc;
-        setStoneAllocated(sAlloc);
-        setStoneReceived(sRec);
-      } else if (parsedRows && parsedRows.length > 0) {
-        const diaSum = parsedRows.reduce((acc, r) => acc + (parseInt(r.no_of_dia || r.no_of_stones || 0) || 0), 0);
-        setStoneAllocated(diaSum > 0 ? diaSum : 48);
-        setStoneReceived(diaSum > 0 ? diaSum : 48);
-      } else {
-        setStoneAllocated(48);
-        setStoneReceived(48);
+        setPieceForm({
+          gross_weight: '',
+          old_weight: '',
+          color_stone_weight: '',
+          color_stone_count: '',
+          silver_weight: '',
+          diamond_weight: '',
+          diamond_count: '',
+          diamond_details: '',
+          touch: '',
+          gold_karat: '',
+          making_charge_type: 'per_gram',
+          making_charge: '',
+          total_making_charge: '',
+          given_metal: '',
+          given_cash: '',
+          description: '',
+          huid: '',
+          certificate_no: '',
+          receive_date: new Date().toISOString().split('T')[0],
+          completion_image: '',
+          completion_image_preview: '',
+        });
       }
 
       if (forceDetailView) {
         setViewMode('detail');
-        navigate(`/job-order/receive?order_id=${id}`, { replace: true });
+        const navUrl = effPieceId 
+          ? `/job-order/receive?order_id=${id}&piece_id=${effPieceId}` 
+          : `/job-order/receive?order_id=${id}`;
+        navigate(navUrl, { replace: true });
       }
     } catch (err) {
       console.error('Failed to load order details:', err);
@@ -442,382 +336,304 @@ export default function ReceiverWork() {
     }
   };
 
-  // Row selection handler from table
-  const handleSelectOrderRow = (orderId) => {
-    loadOrderDetails(orderId, true);
-  };
-
   // Switch to list view
   const handleBackToList = () => {
     setViewMode('list');
     navigate('/job-order/receive', { replace: true });
   };
 
-  // Add / Edit Row Modal Handlers matching NewWorkOrder.jsx
-  const handleOpenAddRowModal = () => {
-    const nextDesignNum = 'DG-' + Math.floor(4580 + Math.random() * 200);
-    setRowForm({
-      ...defaultRowForm,
-      design_number: nextDesignNum,
-      ordered_date: currentOrder?.allotted_date || new Date().toISOString().split('T')[0],
-      delivery_date: currentOrder?.delivery_date || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
-    });
-    setFormErrors({});
-    setEditingRowIndex(null);
-    setShowRowModal(true);
+  // Switch selected item if multi-item order
+  const handleSelectItem = (item) => {
+    setSelectedJobId(item.id);
+    setPieceForm((prev) => ({
+      ...prev,
+      gross_weight: item.completed_weight ? String(item.completed_weight) : prev.gross_weight,
+      description: item.product_name || prev.description,
+    }));
   };
 
-  const handleOpenEditRowModal = (rowOrIndex) => {
-    let item;
-    let actualIndex;
-    if (typeof rowOrIndex === 'number') {
-      item = weightRows[rowOrIndex];
-      actualIndex = rowOrIndex;
-    } else {
-      item = rowOrIndex;
-      actualIndex = weightRows.findIndex((r) => r.id === item?.id);
-    }
-    if (!item) return;
-    setRowForm({
-      ...defaultRowForm,
-      ...item,
-      qty: item.qty || 1,
-      total_weight: item.total_weight || item.gold_weight || '5.91',
-    });
-    setFormErrors({});
-    setEditingRowIndex(actualIndex !== -1 ? actualIndex : null);
-    setShowRowModal(true);
-  };
+  // Accurate Jewellery Weight Calculations (Section 6)
+  const grossVal = Math.max(0, parseFloat(pieceForm.gross_weight) || 0);
+  const oldVal = Math.max(0, parseFloat(pieceForm.old_weight) || 0);
+  const diaCtVal = Math.max(0, parseFloat(pieceForm.diamond_weight) || 0);
+  const diaGrams = diaCtVal * 0.2; // 1 carat = 0.2 grams
+  const stoneCtVal = Math.max(0, parseFloat(pieceForm.color_stone_weight) || 0);
+  const stoneGrams = stoneCtVal * 0.2; // 1 carat = 0.2 grams
+  const calculatedNetWeight = Math.max(0, parseFloat((grossVal - diaGrams - stoneGrams - oldVal).toFixed(3)));
 
-  const handleSaveRowModal = (e) => {
-    e?.preventDefault();
-    const errors = {};
-    const finalWorkName = rowForm.work_name || rowForm.material_type || 'Jewellery Component';
-    if (!rowForm.material_type || !String(rowForm.material_type).trim()) {
-      errors.material_type = 'Material Type is required.';
-    }
-    if (!rowForm.design_number || !String(rowForm.design_number).trim()) {
-      errors.design_number = 'Design Number is required (e.g. DDvd1).';
-    }
-    if (Object.keys(errors).length > 0) {
-      setFormErrors(errors);
-      showToast?.('Please fill required fields.', 'warning');
-      return;
-    }
+  const touchVal = Math.min(100, Math.max(0, parseFloat(pieceForm.touch) || 91.60));
+  const calculatedPure24k = parseFloat(((calculatedNetWeight * touchVal) / 100).toFixed(3));
 
-    const cleanedRow = {
-      ...rowForm,
-      work_name: finalWorkName,
-      id: rowForm.id || `row-${Date.now()}`,
-      qty: parseInt(rowForm.qty, 10) || 1,
-      total_weight: rowForm.total_weight ? parseFloat(rowForm.total_weight).toFixed(2) : '0.00',
-      gold_weight: rowForm.gold_weight ? parseFloat(rowForm.gold_weight).toFixed(2) : (rowForm.old_weight ? parseFloat(rowForm.old_weight).toFixed(2) : '0.00'),
-      old_weight: rowForm.gold_weight ? parseFloat(rowForm.gold_weight).toFixed(2) : (rowForm.old_weight ? parseFloat(rowForm.old_weight).toFixed(2) : '0.00'),
-      colour_stone: rowForm.colour_stone ? parseFloat(rowForm.colour_stone).toFixed(2) : '0.00',
-      silver: rowForm.silver ? parseFloat(rowForm.silver).toFixed(3) : '0.000',
-      diamond_ct: rowForm.diamond_ct ? String(rowForm.diamond_ct) : '0',
-      no_of_dia: parseInt(rowForm.no_of_dia, 10) || 0,
-      net_weight: rowForm.net_weight ? parseFloat(rowForm.net_weight).toFixed(2) : '0.00',
-      purity: rowForm.purity ? String(rowForm.purity) : '2.65',
-      wastage: rowForm.wastage ? parseFloat(rowForm.wastage).toFixed(2) : '0.00',
-      percentages: rowForm.percentages ? (String(rowForm.percentages).includes('%') ? rowForm.percentages : `${rowForm.percentages}%`) : '0%',
-      pure_24k: rowForm.pure_24k ? String(rowForm.pure_24k) : '0.0',
-      mc: rowForm.mc ? String(rowForm.mc) : '0',
-      total_mc: rowForm.total_mc ? String(rowForm.total_mc) : '0.00',
-      remarks: rowForm.remarks || '-',
-    };
+  // Making Charge Calculation
+  const mcTypeVal = pieceForm.making_charge_type || 'per_gram';
+  const mcRateVal = Math.max(0, parseFloat(pieceForm.making_charge) || 0);
+  let calculatedTotalMC = 0;
+  if (mcTypeVal === 'per_gram') {
+    calculatedTotalMC = parseFloat((mcRateVal * calculatedNetWeight).toFixed(2));
+  } else if (mcTypeVal === 'percentage') {
+    // 7200 baseline gold rate
+    calculatedTotalMC = parseFloat(((mcRateVal / 100) * (calculatedNetWeight * 7200)).toFixed(2));
+  } else {
+    calculatedTotalMC = mcRateVal;
+  }
 
-    if (editingRowIndex !== null) {
-      setWeightRows((prev) => {
-        const next = [...prev];
-        next[editingRowIndex] = cleanedRow;
-        return next;
-      });
-      showToast?.('Row details updated in receive order.', 'success');
-    } else {
-      setWeightRows((prev) => [...prev, cleanedRow]);
-      showToast?.('New row added to receive order table.', 'success');
-    }
-    setShowRowModal(false);
-    setEditingRowIndex(null);
-  };
-
-  const handleRemoveRow = (rowOrIndex) => {
-    if (weightRows.length <= 1) {
-      showToast?.('At least one row is required in the work order table.', 'warning');
-      return;
-    }
-    if (typeof rowOrIndex === 'number') {
-      setWeightRows((prev) => prev.filter((_, idx) => idx !== rowOrIndex));
-    } else {
-      setWeightRows((prev) => prev.filter((r) => r.id !== rowOrIndex?.id));
-    }
-    showToast?.('Row removed.', 'info');
-  };
-
-  // Filter job items by selected month matching NewWorkOrder.jsx
-  const displayedJobItems = weightRows.filter((row) => {
-    if (selectedMonth === 'all') return true;
-    const d = String(row.ordered_date || row.delivery_date || '');
-    if (!d) return true;
-    const parts = d.split('-');
-    if (parts.length >= 2) {
-      const monthPart = parts[0].length === 4 ? parts[1] : parts[1];
-      return String(monthPart).padStart(2, '0') === String(selectedMonth).padStart(2, '0');
-    }
-    return true;
-  });
-
-  // Calculate totals matching screenshot table exactly (22 columns)
-  const totalQty = displayedJobItems.reduce((acc, r) => acc + (parseFloat(r.qty) || 0), 0);
-  const totalTotalWeight = displayedJobItems.reduce((acc, r) => acc + (parseFloat(r.total_weight) || 0), 0);
-  const totalGoldWeight = displayedJobItems.reduce((acc, r) => acc + (parseFloat(r.gold_weight ?? r.old_weight) || 0), 0);
-  const totalOldWeight = totalGoldWeight;
-  const totalColourStone = displayedJobItems.reduce((acc, r) => acc + (parseFloat(r.colour_stone) || 0), 0);
-  const totalSilver = displayedJobItems.reduce((acc, r) => acc + (parseFloat(r.silver) || 0), 0);
-  const totalDiamondCt = displayedJobItems.reduce((acc, r) => acc + (parseFloat(r.diamond_ct) || 0), 0);
-  const totalNoOfDia = displayedJobItems.reduce((acc, r) => acc + (parseInt(r.no_of_dia, 10) || 0), 0);
-  const totalNetWeight = displayedJobItems.reduce((acc, r) => acc + (parseFloat(r.net_weight) || 0), 0);
-  const totalPurity = displayedJobItems.reduce((acc, r) => acc + (parseFloat(r.purity) || 0), 0);
-  const totalWastageVal = displayedJobItems.reduce((acc, r) => acc + (parseFloat(r.wastage) || 0), 0);
-  const totalPure24k = displayedJobItems.reduce((acc, r) => acc + (parseFloat(r.pure_24k) || 0), 0);
-  const totalMcSum = displayedJobItems.reduce((acc, r) => acc + (parseFloat(r.total_mc) || 0), 0);
-  const pendingGold = Math.max(0, goldIssued - goldUsed);
-
-  // Tracking Timeline Stage Click Handler (Instant Persistence)
-  const handleStageClick = async (stageKey) => {
+  // Authoritative Single Action: Receive Work Order (Section 2, 5, 10)
+  const handleReceiveWorkOrder = async (e) => {
+    if (e) e.preventDefault();
     if (!currentOrder) return;
-    const STAGE_RANKS = {
-      created: 1,
-      allocated: 2,
-      received_by_artisan: 3,
-      work_started: 4,
-      work_in_progress: 5,
-      work_completed: 6,
-      sent_for_approval: 7,
-      quality_check: 8,
-      approved: 9,
-      ready: 10,
-      delivered: 11,
-      final_received: 12,
-    };
-    const targetRank = STAGE_RANKS[stageKey] || 0;
-    const currentRank = STAGE_RANKS[currentOrder?.current_stage] || 0;
-    if (targetRank < currentRank && !['returned', 'rework'].includes(currentOrder?.status)) {
-      showToast?.('Workflow tracking can only move forward. Previous stages cannot be selected reversely.', 'warning');
+
+    const remainingReceivable = (currentOrder.ready_qty || 0) - (currentOrder.received_qty || 0);
+    if (!selectedPieceId && remainingReceivable <= 0 && !['ready', 'fully_ready'].includes(currentOrder.current_stage)) {
+      showToast?.('No remaining ready pieces to receive for this work order.', 'warning');
+      return;
+    }
+    if (receivingPrefill?.is_already_received) {
+      showToast?.('This physical piece has already been received.', 'warning');
       return;
     }
 
-    setCurrentStageKey(stageKey);
-    try {
-      await api.post(`/work-orders/${currentOrder.id}/receiver-update`, {
-        current_stage: stageKey,
-        action_note: `Stage updated to ${stageKey} by Admin in Reception`,
-      });
-      const stObj = STAGES.find((s) => s.key === stageKey);
-      showToast?.(`Tracking timeline stage updated to: ${stObj?.label || stageKey}`, 'success');
-      setCurrentOrder((prev) => (prev ? { ...prev, current_stage: stageKey } : prev));
-      fetchWorkOrders();
-    } catch (err) {
-      console.warn('Stage update error:', err);
-      const msg = err.response?.data?.message || 'Failed to update stage';
-      showToast?.(msg, 'error');
+    if (grossVal <= 0) {
+      showToast?.('Please enter a valid Gross Weight greater than 0.', 'error');
+      return;
     }
-  };
 
-  // Advance to Next Stage Helper
-  const handleAdvanceNextStage = () => {
-    const currentIdx = STAGES.findIndex((s) => s.key === currentStageKey);
-    if (currentIdx < STAGES.length - 1) {
-      const nextKey = STAGES[currentIdx + 1].key;
-      handleStageClick(nextKey);
-    } else {
-      showToast?.('Work order is already at the final delivery stage.', 'info');
+    if (calculatedNetWeight <= 0) {
+      showToast?.('Calculated Net Gold Weight must be greater than 0. Please verify Gross Weight, Stone and Old Weight.', 'error');
+      return;
     }
-  };
 
-  // Save all Receive Work updates
-  const handleSaveReceiveWork = async () => {
-    if (!currentOrder) return;
+    const confirmed = await showConfirm({
+      title: 'Confirm Receive Work Order',
+      message: `Physically receive 1 piece (Gross: ${grossVal.toFixed(3)}g, Net: ${calculatedNetWeight.toFixed(3)}g)? A unique Receive Work Order Number (RWO) and Tag Number will be atomically generated.`,
+      icon: 'fa-solid fa-box-archive',
+      confirmText: 'Receive Work Order',
+    });
+    if (!confirmed) return;
+
     try {
       setSaving(true);
+      const diaCount = parseInt(pieceForm.diamond_count, 10) || 0;
+      const orderProductStamp = currentOrder?.product?.attributes?.stamp || currentOrder?.product?.stamp || currentOrder?.stamp || '0';
+      const cleanOrderStamp = String(orderProductStamp).replace(/^\++/, '').trim();
+      const formattedOrderStamp = cleanOrderStamp ? `+${cleanOrderStamp}` : '+0';
+      const diaDetails = pieceForm.diamond_details || `Dia-${diaCtVal.toFixed(2)}/${formattedOrderStamp}/${diaCount}`;
 
       const payload = {
-        completed_weight: goldUsed,
-        pending_weight: pendingGold,
-        current_stage: currentStageKey,
-        checklist: qcChecklist,
-        return_reason: returnReason,
-        pricing_details: {
-          ...(currentOrder.pricing_details || {}),
-          items: weightRows,
-          weight_rows: weightRows,
-        },
-        karigar_data: {
-          ...(currentOrder.karigar_data || {}),
-          gold_issued: goldIssued,
-          gold_used: goldUsed,
-          pending_gold: pendingGold,
-          return_photo_url: returnPhotoUrl,
-          return_notes: returnNotes,
-          stone_allocated: stoneAllocated,
-          stone_received: stoneReceived,
-          receive_date: receiveDate,
-        },
-        action_note: `Receive Work Order updated by Admin at ${new Date().toLocaleTimeString('en-IN')}`,
+        piece_id: selectedPieceId || null,
+        work_order_item_id: selectedJobId || null,
+        gross_weight: grossVal,
+        net_gold_weight: calculatedNetWeight,
+        old_weight: oldVal,
+        purity: touchVal,
+        gold_karat: pieceForm.gold_karat || '22K',
+        pure_24k_weight: calculatedPure24k,
+        color_stone_weight: stoneCtVal,
+        color_stone_count: parseInt(pieceForm.color_stone_count, 10) || 0,
+        silver_weight: Math.max(0, parseFloat(pieceForm.silver_weight) || 0),
+        diamond_weight: diaCtVal,
+        diamond_count: diaCount,
+        diamond_stamp: formattedOrderStamp,
+        diamond_details: diaDetails,
+        making_charge_type: mcTypeVal,
+        making_charge_per_gram: mcRateVal,
+        total_making_charge: calculatedTotalMC,
+        given_metal_qty: Math.max(0, parseFloat(pieceForm.given_metal) || 0),
+        given_cash: Math.max(0, parseFloat(pieceForm.given_cash) || 0),
+        wastage_weight: Math.max(0, parseFloat(pieceForm.wastage_weight) || 0),
+        karigar_gold_weight: Math.max(0, parseFloat(pieceForm.karigar_gold_weight) || 0),
+        description: pieceForm.description || currentOrder.product_name,
+        huid: null,
+        certificate_no: null,
+        image: pieceForm.completion_image || null,
+        completion_image: pieceForm.completion_image || null,
+        delivery_date: pieceForm.receive_date || new Date().toISOString().split('T')[0],
       };
 
-      const res = await api.post(`/work-orders/${currentOrder.id}/receiver-update`, payload);
-      setCurrentOrder(res.data.data);
-      showToast?.('Receive Work Order changes and row details saved successfully!', 'success');
-      fetchWorkOrders();
+      const res = await api.post(`/work-orders/${currentOrder.id}/receive-piece`, payload);
+      const receivedPiece = res.data?.piece || res.data?.data?.received_piece;
+      const printablePiece = receivedPiece ? {
+        ...receivedPiece,
+        product: receivingPrefill?.product || currentOrder?.items?.find((item) => String(item.id) === String(selectedJobId))?.product || currentOrder?.product,
+        item: receivingPrefill?.work_order_item || currentOrder?.items?.find((item) => String(item.id) === String(selectedJobId)) || null,
+        work_order: currentOrder,
+        image_path: receivedPiece.image_path || pieceForm.completion_image || '',
+        completion_image: receivedPiece.image_path || pieceForm.completion_image || '',
+        image_url: receivedPiece.image_path || pieceForm.completion_image || '',
+        ordered_date: receivingPrefill?.ordered_date || currentOrder?.allotted_date || currentOrder?.job_order?.order_date || null,
+        delivery_date: receivingPrefill?.delivery_date || receivingPrefill?.work_order_item?.delivery_date || currentOrder?.delivery_date || null,
+        allotted_weight: receivingPrefill?.allotted_weight ?? null,
+      } : null;
+      const rwoNo = receivedPiece?.receive_order_number || res.data?.receive_order_number;
+      const tagNo = receivedPiece?.tag_number || res.data?.tag_number;
+
+      showToast?.(`Piece successfully received! Assigned RWO: ${rwoNo} and Tag: ${tagNo}.`, 'success');
+
+      // Auto-open printable voucher modal
+      if (printablePiece) {
+        setSelectedPieceForVoucher(printablePiece);
+        setIsVoucherModalOpen(true);
+        setSelectedPieceId(receivedPiece.id);
+        setReceivingPrefill((previous) => ({
+          ...previous,
+          piece_id: receivedPiece.id,
+          piece_number: receivedPiece.piece_number,
+          tag_number: receivedPiece.tag_number,
+          receive_order_number: receivedPiece.receive_order_number,
+          is_already_received: true,
+        }));
+      }
+
+      if (res.data?.order) setCurrentOrder(res.data.order);
+      await fetchWorkOrders();
     } catch (err) {
-      console.error('Failed to save receiver work:', err);
-      const msg = err.response?.data?.message || 'Failed to save receiver work';
-      showToast?.(msg, 'error');
+      console.error('Receive Work Order error:', err);
+      showToast?.(err.response?.data?.message || 'Failed to receive work order', 'error');
     } finally {
       setSaving(false);
     }
   };
 
-  // Complete Work Handler (Dedicated action requested by user)
-  const handleCompleteWork = async () => {
-    if (!currentOrder) return;
-    const confirmed = await showConfirm({
-      title: 'Finalize Work Order',
-      message: `Complete and finalize Work Order #${currentOrder.work_order_number}? This will mark it 100% COMPLETED and finalize reception.`,
-      icon: 'fa-solid fa-circle-check',
-      confirmText: 'Complete Work Order'
-    });
-    if (!confirmed) return;
+  // Helper for dynamic persisted lifecycle state (Section 3)
+  const getLifecycleStatus = (wo) => {
+    if (!wo) return { label: 'Ready for Receiving', bg: 'bg-emerald-50 text-emerald-800 border-emerald-200' };
+    const pieceRow = wo.is_piece_row || wo.piece_id || wo.piece_number != null;
+    const req = wo.required_qty || 1;
+    const ready = wo.ready_qty || 0;
+    const rec = wo.received_qty || 0;
+    const fin = wo.finalized_qty || 0;
 
-    try {
-      setProcessingAction(true);
-      setCurrentStageKey('delivered');
-      const res = await api.post(`/work-orders/${currentOrder.id}/approve`, {
-        quality_notes: `Work completed and approved in Receive Work Order. Final Weight: ${goldUsed}g. All ${weightRows.length} material rows verified.`,
-      });
-      setCurrentOrder(res.data.data);
-      showToast?.(
-        `Work Order #${currentOrder.work_order_number} marked COMPLETED successfully! Artisan is now freed for new orders.`,
-        'success'
-      );
-      fetchWorkOrders();
-    } catch (err) {
-      console.error('Complete Work failed:', err);
-      showToast?.(err.response?.data?.message || 'Failed to complete work order', 'error');
-    } finally {
-      setProcessingAction(false);
+    if (pieceRow) {
+      return { label: 'Ready for Receiving', bg: 'bg-emerald-50 text-emerald-800 border-emerald-200' };
     }
+
+    if (fin >= req || wo.status === 'completed') {
+      return { label: 'Completed', bg: 'bg-stone-900 text-white border-stone-800' };
+    }
+    if (rec >= req) {
+      if (wo.certification_status === 'pending') {
+        return { label: 'Awaiting Certification', bg: 'bg-blue-50 text-blue-800 border-blue-200' };
+      }
+      if (wo.hallmarking_status === 'pending') {
+        return { label: 'Awaiting Hallmarking', bg: 'bg-purple-50 text-purple-800 border-purple-200' };
+      }
+      return { label: 'Received / Awaiting Final Posting', bg: 'bg-teal-50 text-teal-800 border-teal-200' };
+    }
+    if (rec > 0) {
+      return { label: `Partially Received (${rec}/${req})`, bg: 'bg-indigo-50 text-indigo-800 border-indigo-200' };
+    }
+    if (ready > rec) {
+      return { label: 'Ready for Receiving', bg: 'bg-emerald-50 text-emerald-800 border-emerald-200' };
+    }
+    return { label: (wo.current_stage || wo.status || 'Active').replace(/_/g, ' ').toUpperCase(), bg: 'bg-amber-50 text-amber-800 border-amber-200' };
   };
 
-  // Final Approval Action (Approve Button)
-  const handleApprove = async () => {
-    if (!currentOrder) return;
-    const confirmed = await showConfirm({
-      title: 'Approve Work Order',
-      message: `Approve and finalize Work Order ${currentOrder.work_order_number}? This will mark it COMPLETED.`,
-      icon: 'fa-solid fa-circle-check',
-      confirmText: 'Approve Order'
-    });
-    if (!confirmed) return;
-    try {
-      setProcessingAction(true);
-      setCurrentStageKey('ready');
-      const res = await api.post(`/work-orders/${currentOrder.id}/approve`, {
-        quality_notes: `Approved in Receive Work Order. Weight Verified: ${qcChecklist.weight_verified ? 'Yes' : 'No'
-          }`,
-      });
-      setCurrentOrder(res.data.data);
-      showToast?.(
-        `Work Order ${currentOrder.work_order_number} successfully approved and completed!`,
-        'success'
-      );
-      fetchWorkOrders();
-    } catch (err) {
-      console.error('Approve failed:', err);
-      showToast?.(err.response?.data?.message || 'Failed to approve work order', 'error');
-    } finally {
-      setProcessingAction(false);
-    }
-  };
+  // Current active job/item if multi-item order
+  const activeItem = currentOrder?.items?.find((i) => i.id === selectedJobId) || currentOrder?.items?.[0] || null;
+  const designRefCode = activeItem?.design_no || currentOrder?.design_code || `DES-${currentOrder?.id || '001'}`;
+  const artisanName = currentOrder?.karigar?.name || currentOrder?.karigar_name || 'Master Artisan';
+  const customerName = currentOrder?.client?.name || currentOrder?.customer_name || 'Retail Client';
+  const orderNumber = currentOrder?.work_order_number || `WO-${currentOrder?.id}`;
 
-  // Return / Rework Action
-  const handleRejectOrReturn = async () => {
-    if (!currentOrder) return;
-    if (!returnReason.trim()) {
-      showToast?.('Please select a Return Reason before returning for rework', 'warning');
-      return;
-    }
-    try {
-      setProcessingAction(true);
-      const res = await api.post(`/work-orders/${currentOrder.id}/return`, {
-        return_reason: returnReason,
-        returned_weight: goldUsed,
-      });
-      setCurrentOrder(res.data.data);
-      showToast?.(
-        `Work Order returned to artisan for rework. Reason: ${returnReason}`,
-        'info'
-      );
-      fetchWorkOrders();
-    } catch (err) {
-      console.error('Return failed:', err);
-      showToast?.(err.response?.data?.message || 'Failed to return work order', 'error');
-    } finally {
-      setProcessingAction(false);
-    }
-  };
+  const readyOrders = readyPieces;
 
-  // Photo Upload Handler (Mock / Data URL)
-  const handlePhotoUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (uploadEvent) => {
-        setReturnPhotoUrl(uploadEvent.target.result);
-        showToast?.('Return photo uploaded successfully', 'success');
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  // Filter orders for table list view
-  const filteredOrders = orders.filter((o) => {
-    const matchesSearch =
-      !searchTerm ||
-      o.work_order_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      o.product_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      o.karigar_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      o.design_code?.toLowerCase().includes(searchTerm.toLowerCase());
-
-    if (!matchesSearch) return false;
-
-    if (statusFilter === 'all') return true;
-    if (statusFilter === 'ongoing') return !['completed', 'cancelled', 'final_received'].includes(o.status);
-    if (statusFilter === 'in_progress') return ['work_started', 'work_in_progress', 'received_by_artisan'].includes(o.current_stage);
-    if (statusFilter === 'in_review') return ['sent_for_approval', 'quality_check', 'pending_approval'].includes(o.status) || ['quality_check', 'work_completed'].includes(o.current_stage);
-    if (statusFilter === 'returned') return o.status === 'returned' || o.return_count > 0;
-    if (statusFilter === 'ready') {
-      return (
-        o.status === 'ready' ||
-        o.current_stage === 'ready' ||
-        o.status === 'completed' ||
-        o.status === 'approved' ||
-        o.current_stage === 'approved' ||
-        o.quality_status === 'passed' ||
-        (Array.isArray(o.timelines) && o.timelines.some(t => t.stage === 'ready' || t.stage_label?.toLowerCase().includes('ready')))
-      );
-    }
-
-    return true;
+  // History Orders: orders that have received items or are completed
+  const historyOrders = orders.filter((o) => {
+    const rec = Number(o.received_qty || 0);
+    const st = String(o.status || '').toLowerCase();
+    const stage = String(o.current_stage || '').toLowerCase();
+    return rec > 0 || st === 'completed' || st === 'final_received' || stage === 'final_received';
   });
 
-  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / itemsPerPage));
-  const paginatedOrders = filteredOrders.slice((listPage - 1) * itemsPerPage, listPage * itemsPerPage);
+  // Filtered ready orders in list view
+  const filteredReadyOrders = readyOrders.filter((o) => {
+    const s = searchTerm.toLowerCase();
+    const matchSearch =
+      (o.work_order_number || '').toLowerCase().includes(s) ||
+      (o.piece_number ? `piece ${o.piece_number}` : '').toLowerCase().includes(s) ||
+      (o.karigar_name || o.karigar?.name || '').toLowerCase().includes(s) ||
+      (o.product_name || '').toLowerCase().includes(s) ||
+      (o.design_no || o.design_code || '').toLowerCase().includes(s);
 
-  // Loading indicator
-  if (loading && !currentOrder && orders.length === 0) {
+    if (statusFilter === 'all') return matchSearch;
+    if (statusFilter === 'partially_received') return matchSearch && !o.is_piece_row && (o.received_qty || 0) > 0;
+    if (statusFilter === 'fully_ready') return matchSearch && (o.is_piece_row || (o.ready_qty || 0) >= (o.required_qty || 1));
+    return matchSearch;
+  });
+
+  // Filtered history orders
+  const filteredHistoryOrders = historyOrders.filter((o) => {
+    const s = searchTerm.toLowerCase();
+    const matchSearch =
+      (o.work_order_number || '').toLowerCase().includes(s) ||
+      (o.karigar_name || o.karigar?.name || '').toLowerCase().includes(s) ||
+      (o.product_name || '').toLowerCase().includes(s) ||
+      (o.design_code || '').toLowerCase().includes(s);
+
+    if (historyStatusFilter === 'all') return matchSearch;
+    if (historyStatusFilter === 'completed') return matchSearch && (o.status === 'completed' || (o.finalized_qty || 0) >= (o.required_qty || 1) || (o.received_qty || 0) >= (o.required_qty || 1));
+    if (historyStatusFilter === 'partially_received') return matchSearch && (o.received_qty || 0) > 0 && (o.received_qty || 0) < (o.required_qty || 1);
+    return matchSearch;
+  });
+
+  // Filtered history pieces (individual tags)
+  const filteredHistoryPieces = allReceivedPieces.filter((p) => {
+    const s = searchTerm.toLowerCase();
+    if (!s) return true;
+    return (
+      (p.tag_number || '').toLowerCase().includes(s) ||
+      (p.receive_order_number || '').toLowerCase().includes(s) ||
+      (p.design_no || '').toLowerCase().includes(s) ||
+      (p.product_name || '').toLowerCase().includes(s) ||
+      (p.karigar?.name || p.karigar_name || '').toLowerCase().includes(s) ||
+      (p.work_order?.work_order_number || '').toLowerCase().includes(s)
+    );
+  });
+
+  // Filtered individual tags in detail view
+  const receivedPiecesList = (currentOrder?.received_pieces || currentOrder?.receivedPieces || []).filter((piece) => Boolean(piece.received_at));
+
+  // Weight & Stone Summaries for Section A & Section B (Requirement 2)
+  const allottedGrossWeight = Number(currentOrder?.allotted_weight || 0) + Number(currentOrder?.additional_allocated_weight || 0);
+  const completedGrossWeight = receivedPiecesList.reduce((sum, p) => sum + Number(p.gross_weight || 0), 0);
+
+  let allottedDiaCount = 0;
+  let allottedColorCount = 0;
+  if (currentOrder?.items && Array.isArray(currentOrder.items)) {
+    currentOrder.items.forEach((item) => {
+      const diaPcs = Number(item.total_dia_pcs || item.diamond_count || item.dia_count || 0);
+      const colPcs = Number(item.stone_count || item.color_stone_count || 0);
+      allottedDiaCount += diaPcs;
+      allottedColorCount += colPcs;
+    });
+  }
+  if (allottedDiaCount === 0 && Number(currentOrder?.total_dia_pcs || 0) > 0) {
+    allottedDiaCount = Number(currentOrder.total_dia_pcs);
+  }
+  const totalAllottedStones = allottedDiaCount + allottedColorCount;
+
+  const receivedDiaCount = receivedPiecesList.reduce((sum, p) => sum + Number(p.diamond_count || 0), 0);
+  const receivedColorCount = receivedPiecesList.reduce((sum, p) => sum + Number(p.color_stone_count || 0), 0);
+  const totalReceivedStones = receivedDiaCount + receivedColorCount;
+
+  const filteredTagsList = receivedPiecesList.filter((p) => {
+    if (!p.tag_number) return false;
+    if (!tagSearchTerm.trim()) return true;
+    const q = tagSearchTerm.toLowerCase();
+    return (
+      (p.tag_number || '').toLowerCase().includes(q) ||
+      (p.receive_order_number || '').toLowerCase().includes(q) ||
+      (p.design_no || '').toLowerCase().includes(q)
+    );
+  });
+  const receivedHistoryPages = Math.max(1, Math.ceil(receivedPiecesList.length / detailItemsPerPage));
+  const safeReceivedHistoryPage = Math.min(receivedHistoryPage, receivedHistoryPages);
+  const paginatedReceivedPieces = receivedPiecesList.slice((safeReceivedHistoryPage - 1) * detailItemsPerPage, safeReceivedHistoryPage * detailItemsPerPage);
+  const detailTagsPages = Math.max(1, Math.ceil(filteredTagsList.length / detailItemsPerPage));
+  const safeDetailTagsPage = Math.min(detailTagsPage, detailTagsPages);
+  const paginatedDetailTags = filteredTagsList.slice((safeDetailTagsPage - 1) * detailItemsPerPage, safeDetailTagsPage * detailItemsPerPage);
+
+  // Loading spinner
+  if (loading && !currentOrder && viewMode === 'detail') {
     return (
       <div className="flex flex-col items-center justify-center h-96 text-stone-400 gap-3 font-['Inter',sans-serif]">
         <div className="w-10 h-10 border-4 border-[#b01622] border-t-transparent rounded-full animate-spin"></div>
@@ -826,14 +642,58 @@ export default function ReceiverWork() {
     );
   }
 
+  if (loading && viewMode === 'list') {
+    return (
+      <div className="w-full min-h-[60vh] pb-16 space-y-5 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif]">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 text-xs text-stone-500 font-semibold mb-1">
+              <span>Manufacturing</span>
+              <i className="fa-solid fa-chevron-right text-[9px] text-stone-300"></i>
+              <span>Job Orders</span>
+              <i className="fa-solid fa-chevron-right text-[9px] text-stone-300"></i>
+              <span className="text-[#b01622] font-bold">Receive Work Order</span>
+            </div>
+            <h1 className="text-xl sm:text-2xl font-black text-gray-900 flex items-center gap-3">
+              Receive Work Orders
+              <span className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white px-3 py-1 text-xs font-semibold text-stone-500">
+                <i className="fa-solid fa-circle-notch fa-spin text-[#b01622]"></i> Loading records
+              </span>
+            </h1>
+          </div>
+          <div className="flex items-center gap-2 text-sm text-stone-500" aria-label="Loading receiving data">
+            <i className="fa-solid fa-box-open text-[#b01622]"></i>
+            <i className="fa-solid fa-clock-rotate-left text-emerald-700"></i>
+            <i className="fa-solid fa-tags text-purple-700"></i>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-stone-200 bg-white p-8">
+          <div className="h-9 rounded-lg bg-stone-100 animate-pulse mb-4"></div>
+          <div className="h-14 rounded-xl bg-stone-50 animate-pulse mb-3"></div>
+          <div className="h-14 rounded-xl bg-stone-50 animate-pulse mb-3"></div>
+          <div className="h-14 rounded-xl bg-stone-50 animate-pulse"></div>
+        </div>
+      </div>
+    );
+  }
+
   // ==========================================
-  // VIEW MODE 1: ROWS LIST VIEW (Selectable rows)
+  // VIEW MODE 1: ROWS LIST VIEW
   // ==========================================
   if (viewMode === 'list') {
+    // Select active dataset based on primary tab and history view type
+    const activeDataset = primaryTab === 'ready'
+      ? filteredReadyOrders
+      : historyViewType === 'orders'
+      ? filteredHistoryOrders
+      : filteredHistoryPieces;
+
+    const totalPages = Math.ceil(activeDataset.length / itemsPerPage) || 1;
+    const paginatedItems = activeDataset.slice((listPage - 1) * itemsPerPage, listPage * itemsPerPage);
+
     return (
       <div className="w-full pb-16 space-y-5 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif]">
-
-        {/* Breadcrumb & Header */}
+        {/* 1. BREADCRUMB & HEADER */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-xs text-stone-500 font-semibold mb-1">
@@ -841,16 +701,20 @@ export default function ReceiverWork() {
               <i className="fa-solid fa-chevron-right text-[9px] text-stone-300"></i>
               <span>Job Orders</span>
               <i className="fa-solid fa-chevron-right text-[9px] text-stone-300"></i>
-              <span className="text-[#b01622] font-bold">Reception</span>
+              <span className="text-[#b01622] font-bold">Receive Work Order</span>
             </div>
-            <h1 className="text-xl font-black text-gray-900 tracking-tight flex items-center gap-2.5">
+            <h1 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight flex items-center gap-3">
               <span>Receive Work Orders</span>
-              <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 font-bold">
-                {filteredOrders.length} Orders Ready
+              <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${
+                primaryTab === 'ready'
+                  ? 'bg-amber-50 text-amber-900 border-amber-200'
+                  : 'bg-stone-100 text-stone-700 border-stone-200'
+              }`}>
+                {primaryTab === 'ready' ? `${readyOrders.length} Ready to Receive` : `${historyOrders.length} Received in History`}
               </span>
             </h1>
             <p className="text-xs text-stone-500 mt-0.5">
-              Select any work order row below to open weight confirmation, gold tracking, timeline, and QC reception.
+              Physical jewelry receiving vault. Only items QC passed &amp; ready are available to receive. Track full receiving history below.
             </p>
           </div>
 
@@ -866,10 +730,148 @@ export default function ReceiverWork() {
           </div>
         </div>
 
-        {/* Filters & Search Toolbar */}
-        <div className="bg-white rounded-2xl border border-stone-200/80 shadow-2xs p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div className="relative flex-1 max-w-md">
-            <i className="fa-solid fa-magnifying-glass text-stone-400 text-xs absolute left-3.5 top-1/2 -translate-y-1/2"></i>
+
+
+        {/* 3. DEDICATED WO LOOKUP FORM */}
+        <form onSubmit={handleSearchWO} className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-2xs">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center text-sm font-bold shrink-0">
+              <i className="fa-solid fa-barcode"></i>
+            </div>
+            <div>
+              <div className="text-xs font-bold text-gray-900">Work Order Receiving Lookup</div>
+              <div className="text-[11px] text-stone-500">Enter Work Order Number to fetch ready unreceived pieces for individual tag generation</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <input
+              type="text"
+              value={woSearchInput}
+              onChange={(e) => setWoSearchInput(e.target.value)}
+              placeholder="e.g. WO-TEST-001 or WO-2026-0001"
+              className="px-3.5 py-2 bg-white border border-stone-300 rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-hidden focus:border-[#b01622] w-full sm:w-64"
+            />
+            <button
+              type="submit"
+              className="px-4 py-2 bg-[#b01622] hover:bg-[#8f1019] text-white text-xs font-bold rounded-xl transition-all shadow-2xs whitespace-nowrap cursor-pointer flex items-center gap-1.5"
+            >
+              <i className="fa-solid fa-magnifying-glass"></i>
+              <span>Fetch &amp; Receive</span>
+            </button>
+          </div>
+        </form>
+
+        {/* 4. PRIMARY VIEW TABS SWITCHER: READY FOR RECEIVING vs RECEIVING HISTORY */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-2.5 rounded-2xl border border-stone-200/90 shadow-2xs">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setPrimaryTab('ready');
+                setListPage(1);
+              }}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                primaryTab === 'ready'
+                  ? 'bg-[#b01622] text-white shadow-xs'
+                  : 'bg-stone-50 hover:bg-stone-100 text-stone-700 border border-stone-200'
+              }`}
+            >
+              <i className="fa-solid fa-box-open"></i>
+              <span>Ready for Receiving</span>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                primaryTab === 'ready' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-900'
+              }`}>
+                {readyOrders.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setPrimaryTab('history');
+                setListPage(1);
+              }}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                primaryTab === 'history'
+                  ? 'bg-[#b01622] text-white shadow-xs'
+                  : 'bg-stone-50 hover:bg-stone-100 text-stone-700 border border-stone-200'
+              }`}
+            >
+              <i className="fa-solid fa-clock-rotate-left"></i>
+              <span>Receiving History</span>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                primaryTab === 'history' ? 'bg-white/20 text-white' : 'bg-stone-200 text-stone-800'
+              }`}>
+                {historyOrders.length}
+              </span>
+            </button>
+          </div>
+
+          {/* Sub-Filters / Sub-Toggles depending on Primary Tab */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {primaryTab === 'ready' ? (
+              [
+                { id: 'all', label: `All Available (${readyOrders.length})` },
+                { id: 'partially_received', label: `Partially Received (${readyOrders.filter(o => !o.is_piece_row && (o.received_qty || 0) > 0).length})` },
+                { id: 'fully_ready', label: `Fully Ready (${readyOrders.filter(o => o.is_piece_row || (o.ready_qty || 0) >= (o.required_qty || 1)).length})` },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => {
+                    setStatusFilter(tab.id);
+                    setListPage(1);
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                    statusFilter === tab.id
+                      ? 'bg-amber-100 text-amber-900 font-bold border border-amber-300'
+                      : 'bg-stone-100 hover:bg-stone-200 text-stone-600'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))
+            ) : (
+              <div className="flex items-center gap-1.5 bg-stone-100 p-1 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHistoryViewType('orders');
+                    setListPage(1);
+                  }}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    historyViewType === 'orders'
+                      ? 'bg-white text-stone-900 shadow-2xs'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                >
+                  <i className="fa-solid fa-folder-open text-[10px] mr-1.5"></i>
+                  <span>Received Orders ({historyOrders.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHistoryViewType('pieces');
+                    setListPage(1);
+                  }}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    historyViewType === 'pieces'
+                      ? 'bg-white text-stone-900 shadow-2xs'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                >
+                  <i className="fa-solid fa-tags text-[10px] mr-1.5"></i>
+                  <span>Received Pieces &amp; Tags ({allReceivedPieces.length})</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 5. SEARCH BAR */}
+        <div className="bg-white border border-stone-200/80 rounded-2xl p-3 flex items-center justify-between gap-3 shadow-2xs">
+          <div className="flex items-center gap-2 w-full sm:w-96">
+            <i className="fa-solid fa-magnifying-glass text-stone-400 text-xs ml-2"></i>
             <input
               type="text"
               value={searchTerm}
@@ -877,234 +879,478 @@ export default function ReceiverWork() {
                 setSearchTerm(e.target.value);
                 setListPage(1);
               }}
-              placeholder="Search by WO#, Job ID, Product, or Artisan..."
-              className="w-full pl-9 pr-4 py-2 bg-stone-50 border border-stone-200 focus:border-[#b01622] focus:bg-white rounded-xl text-xs font-medium text-gray-900 focus:outline-hidden transition-all"
+              placeholder={
+                primaryTab === 'ready'
+                  ? 'Filter ready orders by WO#, Artisan, Product...'
+                  : historyViewType === 'pieces'
+                  ? 'Filter history pieces by Tag#, Voucher (RO#), WO#, Artisan, Product...'
+                  : 'Filter history orders by WO#, Artisan, Product...'
+              }
+              className="w-full text-xs bg-transparent border-none outline-hidden text-stone-800 placeholder-stone-400 font-medium"
             />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="text-stone-400 hover:text-stone-600 text-xs px-2"
+              >
+                <i className="fa-solid fa-xmark"></i>
+              </button>
+            )}
           </div>
 
-          {/* Status Filter Pills */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
-            {[
-              { key: 'all', label: 'All Orders' },
-              { key: 'ongoing', label: 'Ongoing' },
-              { key: 'in_progress', label: 'In Progress' },
-              { key: 'in_review', label: 'In Review' },
-              { key: 'returned', label: 'Returned / Rework' },
-              { key: 'ready', label: 'Ready' },
-            ].map((tab) => (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => {
-                  setStatusFilter(tab.key);
-                  setListPage(1);
-                }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${statusFilter === tab.key
-                  ? 'bg-[#b01622] text-white shadow-2xs'
-                  : 'bg-stone-100 hover:bg-stone-200 text-stone-600'
-                  }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+          <div className="text-xs text-stone-500 font-medium">
+            Showing <span className="font-bold text-stone-800">{activeDataset.length}</span> {primaryTab === 'ready' ? 'ready order(s)' : historyViewType === 'pieces' ? 'tag(s)' : 'order(s)'}
           </div>
         </div>
 
-        {/* Work Orders Table (Selectable Rows) */}
-        <div className="bg-white rounded-2xl border border-stone-200/80 shadow-2xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-[#fbf7f2] border-b border-stone-200/80 text-[#785b3a] font-black uppercase text-[10.5px] tracking-wider">
-                  <th className="py-3.5 px-4 whitespace-nowrap min-w-[130px]">Work Order #</th>
-                  <th className="py-3.5 px-4 whitespace-nowrap min-w-[120px]">Design Code</th>
-                  <th className="py-3.5 px-4 min-w-[180px]">Product Details</th>
-                  <th className="py-3.5 px-4 whitespace-nowrap min-w-[150px]">Assigned Artisan</th>
-                  <th className="py-3.5 px-4 text-center whitespace-nowrap min-w-[100px]">Receive Date</th>
-                  <th className="py-3.5 px-4 text-center whitespace-nowrap min-w-[100px]">Due Date</th>
-                  <th className="py-3.5 px-4 text-right whitespace-nowrap min-w-[90px]">Allotted (g)</th>
-                  <th className="py-3.5 px-4 text-right whitespace-nowrap min-w-[95px]">Gold Used (g)</th>
-                  <th className="py-3.5 px-4 text-right whitespace-nowrap min-w-[90px]">Pending (g)</th>
-                  <th className="py-3.5 px-4 text-center whitespace-nowrap min-w-[150px]">Status / Stage</th>
-                  <th className="py-3.5 px-4 text-center whitespace-nowrap min-w-[140px]">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-stone-100">
-                {paginatedOrders.length === 0 ? (
-                  <tr>
-                    <td colSpan="11" className="py-12 text-center text-stone-400">
-                      <i className="fa-solid fa-box-open text-2xl text-stone-300 mb-2 block"></i>
-                      <span>No work orders found matching your search or filters.</span>
-                    </td>
+        {/* 6. MAIN CONTENT TABLES */}
+        {primaryTab === 'ready' ? (
+          /* ========================================================= */
+          /* READY FOR RECEIVING TABLE (ONLY READY ITEMS WITH RECEIVABLE > 0) */
+          /* ========================================================= */
+          <div className="bg-white border border-stone-200/80 rounded-3xl overflow-hidden shadow-2xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-[#fbf7f2] border-b border-stone-200 text-[#785b3a] font-black uppercase text-[10px] tracking-wider">
+                    <th className="py-3 px-4">Work Order</th>
+                    <th className="py-3 px-4">Artisan</th>
+                    <th className="py-3 px-4">Product / Design</th>
+                    <th className="py-3 px-4 text-center">Piece</th>
+                    <th className="py-3 px-4 text-right">Gross Wt (g)</th>
+                    <th className="py-3 px-4 text-right">Net Gold Wt (g)</th>
+                    <th className="py-3 px-4 text-center whitespace-nowrap min-w-[140px]">Receive</th>
+                    <th className="py-3 px-4">Lifecycle Status</th>
+                    <th className="py-3 px-4 text-center">Action</th>
                   </tr>
-                ) : (
-                  paginatedOrders.map((order) => {
-                    const isDuePast = order.delivery_date && new Date(order.delivery_date) < new Date();
-                    return (
-                      <tr
-                        key={order.id}
-                        onClick={() => handleSelectOrderRow(order.id)}
-                        className="hover:bg-amber-50/40 cursor-pointer transition-colors group"
-                      >
-                        <td className="py-3.5 px-4 font-mono font-bold text-[#b01622] group-hover:underline whitespace-nowrap">
-                          {order.work_order_number}
-                        </td>
-                        <td className="py-3.5 px-4 font-mono font-semibold text-stone-600 whitespace-nowrap">
-                          {order.design_code || `BR-SKU-${order.id + 9900}`}
-                        </td>
-                        <td className="py-3.5 px-4 min-w-[180px]">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 rounded-lg overflow-hidden bg-stone-100 border border-stone-200 shrink-0">
-                              <img
-                                src={order.image_url || '/images/samples/gold_necklace.jpg'}
-                                alt={order.product_name}
-                                className="w-full h-full object-cover"
-                                onError={(e) => {
-                                  e.target.src = '/images/samples/gold_necklace.jpg';
-                                }}
-                              />
-                            </div>
-                            <div>
-                              <div className="font-bold text-gray-900 leading-snug">{order.product_name}</div>
-                              <div className="text-[10px] text-stone-400">{order.material_type || 'Gold 22K'}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-3.5 px-4 whitespace-nowrap">
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full bg-red-100 text-[#b01622] flex items-center justify-center text-[10px] font-bold shrink-0">
-                              <i className="fa-solid fa-user"></i>
-                            </div>
-                            <span className="font-semibold text-stone-800">
-                              {order.karigar_name || order.karigar?.name || 'Unassigned'}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="py-3.5 px-4 text-center text-stone-500 font-medium whitespace-nowrap">
-                          {order.allotted_date ? new Date(order.allotted_date).toLocaleDateString('en-GB') : '—'}
-                        </td>
-                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                          <span
-                            className={`font-medium ${isDuePast && !['completed', 'final_received'].includes(order.status)
-                              ? 'text-rose-600 font-bold'
-                              : 'text-stone-600'
-                              }`}
+                </thead>
+                <tbody className="divide-y divide-stone-100">
+                  {paginatedItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="py-16 text-center text-stone-400 text-xs">
+                        <i className="fa-solid fa-circle-check text-4xl text-emerald-400 mb-2 block"></i>
+                        <span className="font-bold text-stone-700 text-sm block">No Products Currently Available for Receiving</span>
+                        <span className="text-stone-500 block mt-1 max-w-md mx-auto">
+                          Only products that have passed Quality Check (QC) and are Ready appear here. Work orders in progress or fully received are filtered out.
+                        </span>
+                        <div className="mt-4 flex items-center justify-center gap-3">
+                          <Link
+                            to="/job-order/quality-check"
+                            className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold rounded-xl text-xs transition-colors"
                           >
-                            {order.delivery_date ? new Date(order.delivery_date).toLocaleDateString('en-GB') : '—'}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4 text-right font-mono font-bold text-stone-700 whitespace-nowrap">
-                          {Number(order.allotted_weight || 100).toFixed(2)}
-                        </td>
-                        <td className="py-3.5 px-4 text-right font-mono font-bold text-stone-900 whitespace-nowrap">
-                          {Number(order.completed_weight || 50).toFixed(2)}
-                        </td>
-                        <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-600 whitespace-nowrap">
-                          {Number(order.pending_weight || 50).toFixed(2)}
-                        </td>
-                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                          <span className="px-2.5 py-1 rounded-full text-[10.5px] font-bold uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-200 whitespace-nowrap inline-block">
-                            {order.status === 'returned'
-                              ? 'Rework'
-                              : order.status === 'ready'
-                                ? 'Ready'
-                                : order.current_stage?.replace(/_/g, ' ') || 'In Review'}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-1.5">
-                            <Link
-                              to={`/job-order/in-progress?order_id=${order.id}`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="px-2.5 py-1 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold rounded-lg text-[11px] transition-all flex items-center gap-1 cursor-pointer"
-                              title="Work in Progress"
-                            >
-                              <i className="fa-solid fa-spinner text-[#b01622] text-[10px]"></i>
-                              <span>WIP</span>
-                            </Link>
+                            Go to Quality Check
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => setPrimaryTab('history')}
+                            className="px-4 py-2 bg-[#b01622] hover:bg-[#8f1019] text-white font-bold rounded-xl text-xs transition-colors"
+                          >
+                            View Receiving History
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedItems.map((order) => {
+                      const st = getLifecycleStatus(order);
+                      return (
+                        <tr
+                          key={order.piece_id || order.id}
+                          onClick={() => loadOrderDetails(order.work_order_id || order.id, true, order.piece_id || order.id)}
+                          className="hover:bg-amber-50/40 cursor-pointer transition-colors group"
+                        >
+                          <td className="py-3.5 px-4 font-mono font-black text-[#b01622]">
+                            {order.work_order_number || `WO-${order.work_order_id || order.id}`}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="font-bold text-gray-900">{order.artisan_name || order.karigar?.name || order.karigar_name || 'Artisan'}</div>
+                            <div className="text-[10px] text-stone-400">Bench Goldsmith</div>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="font-bold text-gray-800">{order.product_name || 'Jewellery Work'}</div>
+                            <div className="text-[10.5px] font-mono text-stone-500">{order.design_no || order.design_code || '—'}</div>
+                          </td>
+                          <td className="py-3.5 px-4 text-center font-mono font-bold text-stone-700">
+                            P{order.piece_number || 1}
+                          </td>
+                          <td className="py-3.5 px-4 text-center font-mono font-bold text-emerald-800">
+                            {order.gross_weight != null ? Number(order.gross_weight).toFixed(3) : '—'}
+                          </td>
+                          <td className="py-3.5 px-4 text-center font-mono font-bold text-blue-800">
+                            {order.net_gold_weight != null ? Number(order.net_gold_weight).toFixed(3) : '—'}
+                          </td>
+                          <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                            <span className="font-mono font-bold px-3 py-1 rounded-lg text-xs bg-amber-100 text-amber-900 border border-amber-300 whitespace-nowrap inline-flex items-center justify-center">
+                              Receive one piece
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className={`px-2.5 py-1 rounded-full text-[10.5px] font-bold border inline-block ${st.bg}`}>
+                              {st.label}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleSelectOrderRow(order.id);
+                                loadOrderDetails(order.work_order_id || order.id, true, order.piece_id || order.id);
                               }}
-                              className="px-3 py-1 bg-white hover:bg-[#b01622] text-[#b01622] hover:text-white border border-[#b01622] font-bold rounded-lg text-[11px] transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                              className="px-3.5 py-1.5 bg-[#b01622] hover:bg-[#8f1019] text-white font-bold rounded-xl text-xs transition-all shadow-2xs inline-flex items-center gap-1.5 cursor-pointer"
                             >
-                              <span>Receive</span>
-                              <i className="fa-solid fa-arrow-right text-[10px]"></i>
+                              <i className="fa-solid fa-box-archive text-[10px]"></i>
+                              <span>Receive Piece {order.piece_number || 1}</span>
                             </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
 
-          {/* Pagination Footer */}
-          <div className="p-4 border-t border-stone-200 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-stone-500">
-            <div>
-              Showing {paginatedOrders.length > 0 ? (listPage - 1) * itemsPerPage + 1 : 0} to{' '}
-              {Math.min(listPage * itemsPerPage, filteredOrders.length)} of {filteredOrders.length} work orders
-            </div>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                disabled={listPage <= 1}
-                onClick={() => setListPage((p) => Math.max(1, p - 1))}
-                className="w-8 h-8 rounded-lg border border-stone-200 hover:bg-stone-100 text-stone-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center font-bold"
-              >
-                <i className="fa-solid fa-chevron-left text-[10px]"></i>
-              </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((pg) => (
-                <button
-                  key={pg}
-                  type="button"
-                  onClick={() => setListPage(pg)}
-                  className={`w-8 h-8 rounded-lg text-xs font-bold transition-all ${listPage === pg
-                    ? 'bg-[#b01622] text-white'
-                    : 'border border-stone-200 hover:bg-stone-100 text-stone-700'
-                    }`}
-                >
-                  {pg}
-                </button>
-              ))}
-              <button
-                type="button"
-                disabled={listPage >= totalPages}
-                onClick={() => setListPage((p) => Math.min(totalPages, p + 1))}
-                className="w-8 h-8 rounded-lg border border-stone-200 hover:bg-stone-100 text-stone-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center font-bold"
-              >
-                <i className="fa-solid fa-chevron-right text-[10px]"></i>
-              </button>
-            </div>
+            {/* Pagination for Ready */}
+            {totalPages > 1 && (
+              <div className="p-3.5 bg-stone-50/70 border-t border-stone-200 flex items-center justify-between text-xs text-stone-600">
+                <span>Showing page {listPage} of {totalPages}</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={listPage <= 1}
+                    onClick={() => setListPage((p) => p - 1)}
+                    className="px-3 py-1 bg-white border border-stone-200 rounded-lg disabled:opacity-40 cursor-pointer"
+                  >
+                    Prev
+                  </button>
+                  <button
+                    type="button"
+                    disabled={listPage >= totalPages}
+                    onClick={() => setListPage((p) => p + 1)}
+                    className="px-3 py-1 bg-white border border-stone-200 rounded-lg disabled:opacity-40 cursor-pointer"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-        </div>
+        ) : historyViewType === 'orders' ? (
+          /* ========================================================= */
+          /* RECEIVING HISTORY: RECEIVED WORK ORDERS VIEW */
+          /* ========================================================= */
+          <div className="bg-white border border-stone-200/80 rounded-3xl overflow-hidden shadow-2xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-stone-50 border-b border-stone-200 text-stone-600 font-bold uppercase text-[10px] tracking-wider">
+                    <th className="py-3 px-4">Work Order</th>
+                    <th className="py-3 px-4">Artisan</th>
+                    <th className="py-3 px-4">Product / Design</th>
+                    <th className="py-3 px-4 text-center">Required</th>
+                    <th className="py-3 px-4 text-center">Received</th>
+                    <th className="py-3 px-4 text-center">Remaining</th>
+                    <th className="py-3 px-4">Lifecycle Status</th>
+                    <th className="py-3 px-4 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100">
+                  {paginatedItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-16 text-center text-stone-400 text-xs">
+                        <i className="fa-solid fa-clock-rotate-left text-4xl text-stone-300 mb-2 block"></i>
+                        <span className="font-bold text-stone-700 text-sm block">No Receiving History Records Found</span>
+                        <span className="text-stone-500 block mt-1">Orders that have been received will be archived here.</span>
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedItems.map((order) => {
+                      const st = getLifecycleStatus(order);
+                      const remaining = Math.max(0, (order.required_qty || 1) - (order.received_qty || 0));
+                      const receivable = Math.max(0, (order.ready_qty || 0) - (order.received_qty || 0));
+                      return (
+                        <tr
+                          key={order.id}
+                          onClick={() => loadOrderDetails(order.id, true)}
+                          className="hover:bg-stone-50/70 cursor-pointer transition-colors group"
+                        >
+                          <td className="py-3.5 px-4 font-mono font-black text-[#b01622]">
+                            {order.work_order_number || `WO-${order.id}`}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="font-bold text-gray-900">{order.karigar?.name || order.karigar_name || 'Artisan'}</div>
+                            <div className="text-[10px] text-stone-400">Bench Goldsmith</div>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="font-bold text-gray-800">{order.product_name || 'Jewellery Work'}</div>
+                            <div className="text-[10.5px] font-mono text-stone-500">{order.design_code || '—'}</div>
+                          </td>
+                          <td className="py-3.5 px-4 text-center font-mono font-bold text-stone-700">
+                            {order.required_qty || order.quantity || 1}
+                          </td>
+                          <td className="py-3.5 px-4 text-center font-mono font-bold text-blue-800">
+                            {order.received_qty || 0}
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            <span className={`font-mono font-bold px-2 py-0.5 rounded-lg text-xs ${remaining > 0 ? 'text-amber-800 bg-amber-50' : 'text-emerald-800 bg-emerald-50'}`}>
+                              {remaining === 0 ? 'Fully Received' : `${remaining} Remaining`}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className={`px-2.5 py-1 rounded-full text-[10.5px] font-bold border inline-block ${st.bg}`}>
+                              {st.label}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                              <button
+                                type="button"
+                                onClick={() => loadOrderDetails(order.id, true)}
+                                className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold rounded-xl text-xs transition-all shadow-2xs inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <i className="fa-solid fa-eye text-[10px]"></i>
+                                <span>Details</span>
+                              </button>
+                              {receivable > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPrimaryTab('ready');
+                                    setStatusFilter('all');
+                                    setSearchTerm(order.work_order_number || '');
+                                    setListPage(1);
+                                  }}
+                                  className="px-3 py-1.5 bg-[#b01622] hover:bg-[#8f1019] text-white font-bold rounded-xl text-xs transition-all shadow-2xs inline-flex items-center gap-1 cursor-pointer"
+                                >
+                                  <i className="fa-solid fa-list-check text-[10px]"></i>
+                                  <span>View {receivable} ready pieces</span>
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination for History Orders */}
+            {totalPages > 1 && (
+              <div className="p-3.5 bg-stone-50/70 border-t border-stone-200 flex items-center justify-between text-xs text-stone-600">
+                <span>Showing page {listPage} of {totalPages}</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={listPage <= 1}
+                    onClick={() => setListPage((p) => p - 1)}
+                    className="px-3 py-1 bg-white border border-stone-200 rounded-lg disabled:opacity-40 cursor-pointer"
+                  >
+                    Prev
+                  </button>
+                  <button
+                    type="button"
+                    disabled={listPage >= totalPages}
+                    onClick={() => setListPage((p) => p + 1)}
+                    className="px-3 py-1 bg-white border border-stone-200 rounded-lg disabled:opacity-40 cursor-pointer"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          /* ========================================================= */
+          /* RECEIVING HISTORY: INDIVIDUAL RECEIVED PIECES & TAGS LOG */
+          /* ========================================================= */
+          <div className="bg-white border border-stone-200/80 rounded-3xl overflow-hidden shadow-2xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-stone-50 border-b border-stone-200 text-stone-600 font-bold uppercase text-[10px] tracking-wider">
+                    <th className="py-3 px-4">Receive Order (RO#)</th>
+                    <th className="py-3 px-4">Tag Number</th>
+                    <th className="py-3 px-4">Work Order</th>
+                    <th className="py-3 px-4">Artisan</th>
+                    <th className="py-3 px-4">Product / Design</th>
+                    <th className="py-3 px-4 text-center">Date</th>
+                    <th className="py-3 px-4 text-right">Gross Wt</th>
+                    <th className="py-3 px-4 text-right">Net Wt</th>
+                    <th className="py-3 px-4 text-center">Touch / Karat</th>
+                    <th className="py-3 px-4 text-center">Certification</th>
+                    <th className="py-3 px-4 text-center">Hallmarking</th>
+                    <th className="py-3 px-4 text-center">Making Charge</th>
+                    <th className="py-3 px-4 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100">
+                  {paginatedItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={13} className="py-16 text-center text-stone-400 text-xs">
+                        <i className="fa-solid fa-tags text-4xl text-stone-300 mb-2 block"></i>
+                        <span className="font-bold text-stone-700 text-sm block">No Received Tags Found</span>
+                        <span className="text-stone-500 block mt-1">Individual received pieces and voucher numbers will appear here.</span>
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedItems.map((piece) => {
+                      const netWt = Number(piece.net_gold_weight || 0).toFixed(3);
+                      const gross = Number(piece.gross_weight || 0).toFixed(3);
+                      const isCertCompleted = piece.certification_status === 'completed';
+                      const isCertSkipped = piece.certification_status === 'skipped' || piece.certification_status === 'not_required';
+                      const isHallCompleted = piece.hallmarking_status === 'completed';
+                      const isHallSkipped = piece.hallmarking_status === 'skipped' || piece.hallmarking_status === 'not_required';
+
+                      return (
+                        <tr key={piece.id} className="hover:bg-stone-50/70 transition-colors">
+                          <td className="py-3.5 px-4 font-mono font-bold text-emerald-800">
+                            {piece.receive_order_number || `RO-${piece.id}`}
+                          </td>
+                          <td className="py-3.5 px-4 font-mono font-bold text-gray-900">
+                            <span className="bg-stone-100 border border-stone-300 px-2 py-0.5 rounded text-[11px]">
+                              {piece.tag_number || 'N/A'}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 font-mono font-bold text-[#b01622]">
+                            {piece.work_order?.work_order_number || `WO-${piece.work_order_id}`}
+                          </td>
+                          <td className="py-3.5 px-4 text-stone-800 font-semibold">
+                            {piece.karigar?.name || piece.karigar_name || 'Artisan'}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="font-bold text-gray-900">{piece.product_name || piece.description || 'Jewellery'}</div>
+                            <div className="text-[10px] font-mono text-stone-500">{piece.design_no || '—'}</div>
+                          </td>
+                          <td className="py-3.5 px-4 text-center text-stone-600 font-mono text-[11px]">
+                            {piece.received_at ? new Date(piece.received_at).toLocaleDateString() : '—'}
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono font-bold text-stone-900">
+                            {gross}g
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-700">
+                            {netWt}g
+                          </td>
+                          <td className="py-3.5 px-4 text-center font-mono">
+                            <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-900 font-bold border border-amber-200 text-[10px]">
+                              {piece.gold_karat || '22K'} ({piece.purity || '91.6'}%)
+                            </span>
+                          </td>
+                          {/* Certification */}
+                          <td className="py-3.5 px-4 text-center">
+                            {isCertSkipped ? (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold text-stone-500 bg-stone-100 border border-stone-200">
+                                Skipped
+                              </span>
+                            ) : isCertCompleted ? (
+                              <span className="font-mono font-bold text-stone-900 text-[11px]">
+                                {piece.certificate_no || 'Completed'}
+                              </span>
+                            ) : (
+                              <span className="text-stone-400 font-bold">-</span>
+                            )}
+                          </td>
+                          {/* Hallmarking */}
+                          <td className="py-3.5 px-4 text-center">
+                            {isHallSkipped ? (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold text-stone-500 bg-stone-100 border border-stone-200">
+                                Skipped
+                              </span>
+                            ) : isHallCompleted ? (
+                              <span className="font-mono font-bold text-stone-900 text-[11px]">
+                                {piece.huid || 'Completed'}
+                              </span>
+                            ) : (
+                              <span className="text-stone-400 font-bold">-</span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 text-center font-mono font-semibold text-stone-800">
+                            ₹{Number(piece.total_making_charge || 0).toLocaleString()}
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                type="button"
+                                title="Print Voucher"
+                                onClick={() => {
+                                  setSelectedPieceForVoucher(piece);
+                                  setIsVoucherModalOpen(true);
+                                }}
+                                className="w-7 h-7 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 flex items-center justify-center transition-colors cursor-pointer"
+                              >
+                                <i className="fa-solid fa-file-invoice text-xs"></i>
+                              </button>
+                              <button
+                                type="button"
+                                title="Print Tag"
+                                onClick={() => {
+                                  setSelectedPieceForTag(piece);
+                                  setIsTagModalOpen(true);
+                                }}
+                                className="w-7 h-7 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 flex items-center justify-center transition-colors cursor-pointer"
+                              >
+                                <i className="fa-solid fa-tag text-xs"></i>
+                              </button>
+                              <button
+                                type="button"
+                                title="View Work Order"
+                                onClick={() => loadOrderDetails(piece.work_order_id, true)}
+                                className="w-7 h-7 rounded-lg bg-[#b01622]/10 hover:bg-[#b01622]/20 text-[#b01622] flex items-center justify-center transition-colors cursor-pointer"
+                              >
+                                <i className="fa-solid fa-arrow-up-right-from-square text-xs"></i>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination for History Pieces */}
+            {totalPages > 1 && (
+              <div className="p-3.5 bg-stone-50/70 border-t border-stone-200 flex items-center justify-between text-xs text-stone-600">
+                <span>Showing page {listPage} of {totalPages}</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={listPage <= 1}
+                    onClick={() => setListPage((p) => p - 1)}
+                    className="px-3 py-1 bg-white border border-stone-200 rounded-lg disabled:opacity-40 cursor-pointer"
+                  >
+                    Prev
+                  </button>
+                  <button
+                    type="button"
+                    disabled={listPage >= totalPages}
+                    onClick={() => setListPage((p) => p + 1)}
+                    className="px-3 py-1 bg-white border border-stone-200 rounded-lg disabled:opacity-40 cursor-pointer"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   }
 
   // ==========================================
-  // VIEW MODE 2: EXACT MATCH TO USER'S SCREENSHOT
+  // VIEW MODE 2: DETAIL RECEIVING PAGE
   // ==========================================
-  const orderNumber = currentOrder?.work_order_number || (currentOrder?.id ? `WO-${currentOrder.id}` : '—');
-  const artisanName = currentOrder?.karigar_name || currentOrder?.karigar?.name || 'Unassigned';
-  const customerName = currentOrder?.customer_name || currentOrder?.client?.full_name || currentOrder?.client?.name || 'Customer Order';
-  const designRefCode = currentOrder?.design_code || (currentOrder?.id ? `SKU-${currentOrder.id}` : '—');
-  const estDeliveryDate = currentOrder?.delivery_date
-    ? new Date(currentOrder.delivery_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-    : '—';
-  const displayReceiveDate = receiveDate
-    ? new Date(receiveDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-    : new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-
-  const stoneVariance = stoneAllocated - stoneReceived;
+  const currentBadge = getLifecycleStatus(currentOrder);
+  const receivableCount = selectedPieceId
+    ? (receivingPrefill?.is_already_received ? 0 : 1)
+    : Math.max(0, (currentOrder?.ready_qty || 0) - (currentOrder?.received_qty || 0));
 
   return (
-    <div className={`w-full pb-20 space-y-6 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif] ${isPrintModalOpen ? 'print:hidden' : ''}`}>
-
+    <div className="w-full pb-20 space-y-6 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif]">
       {/* 1. TOP HEADER & BREADCRUMBS */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -1122,46 +1368,42 @@ export default function ReceiverWork() {
             <i className="fa-solid fa-chevron-right text-[8px] text-stone-300"></i>
             <span>Job Orders</span>
             <i className="fa-solid fa-chevron-right text-[8px] text-stone-300"></i>
-            <span className="text-stone-600 font-medium">Reception</span>
+            <span className="text-stone-600 font-medium">Receive Work Order</span>
           </div>
 
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
               Receive Work Order #{orderNumber}
             </h1>
-            <span className="px-3 py-1 rounded-full text-xs font-bold bg-[#fef6e0] text-[#a16207] border border-[#fef08a] inline-flex items-center gap-1.5">
-              <i className="fa-solid fa-clock-rotate-left text-[10px]"></i>
-              <span>In Review</span>
+            <span className={`px-3 py-1 rounded-full text-xs font-bold border inline-flex items-center gap-1.5 ${currentBadge.bg}`}>
+              <i className="fa-solid fa-circle-dot text-[9px]"></i>
+              <span>{currentBadge.label}</span>
             </span>
-
-            {/* Quick Switcher dropdown for convenience */}
-            {orders.length > 0 && (
-              <select
-                value={selectedOrderId || ''}
-                onChange={(e) => loadOrderDetails(e.target.value, true)}
-                className="w-full sm:w-[420px] text-sm bg-white border border-stone-200 rounded-xl px-3.5 py-2 text-stone-800 font-semibold shadow-2xs cursor-pointer focus:outline-hidden focus:border-[#b01622]"
-              >
-                {orders.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    Switch: {o.design_code || o.work_order_number} ({o.product_name})
-                  </option>
-                ))}
-              </select>
-            )}
           </div>
         </div>
 
         <div className="flex items-center gap-3">
           <Link
             to={`/job-order/in-progress?order_id=${selectedOrderId || currentOrder?.id}`}
-            className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center gap-2 cursor-pointer"
+            className="px-3.5 py-2 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center gap-2 cursor-pointer"
           >
             <i className="fa-solid fa-spinner text-[#b01622] text-xs"></i>
             <span>Work in Progress</span>
           </Link>
+          <Link
+            to={`/job-order/history?order_id=${selectedOrderId || currentOrder?.id}`}
+            className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center gap-2 cursor-pointer"
+          >
+            <i className="fa-solid fa-award text-amber-700 text-xs"></i>
+            <span>History / Certification / Hallmarking</span>
+          </Link>
           <button
             type="button"
-            onClick={() => setIsPrintModalOpen(true)}
+            onClick={() => {
+              const latestPiece = receivedPiecesList[receivedPiecesList.length - 1] || null;
+              setSelectedPieceForVoucher(latestPiece);
+              setIsVoucherModalOpen(true);
+            }}
             className="px-4 py-2 bg-white border border-stone-300 hover:border-stone-400 text-stone-800 text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center gap-2 cursor-pointer"
           >
             <i className="fa-solid fa-print text-stone-500 text-sm"></i>
@@ -1170,989 +1412,1033 @@ export default function ReceiverWork() {
         </div>
       </div>
 
-      {/* SUB-VIEW TABS STRIP (Quality Check & Final Receive active tab) */}
-      <div className="border-b border-stone-200">
-        <div className="flex items-center gap-8 overflow-x-auto no-scrollbar">
-          <Link
-            to={`/job-order/in-progress${selectedOrderId || currentOrder?.id ? `?order_id=${selectedOrderId || currentOrder?.id}` : ''}`}
-            className="pb-3 text-sm font-bold text-stone-500 hover:text-stone-900 border-b-2 border-transparent hover:border-stone-300 flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap"
-          >
-            <span>Work in Progress</span>
-          </Link>
 
-          <Link
-            to={`/job-order/delay${selectedOrderId || currentOrder?.id ? `?order_id=${selectedOrderId || currentOrder?.id}` : ''}`}
-            className="pb-3 text-sm font-bold text-stone-500 hover:text-stone-900 border-b-2 border-transparent hover:border-stone-300 flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap"
-          >
-            <span>Delay / Job Details</span>
-          </Link>
 
-          <Link
-            to={`/job-order/waste${selectedOrderId || currentOrder?.id ? `?order_id=${selectedOrderId || currentOrder?.id}` : ''}`}
-            className="pb-3 text-sm font-bold text-stone-500 hover:text-stone-900 border-b-2 border-transparent hover:border-stone-300 flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap"
-          >
-            <span>Waste Details</span>
-          </Link>
-
-          <div
-            className="pb-3 text-sm font-bold text-[#b01622] border-b-2 border-[#b01622] flex items-center gap-2 cursor-default whitespace-nowrap"
-          >
-            <span>Quality Check &amp; Final Receive</span>
-          </div>
-
-          <Link
-            to={`/job-order/history${selectedOrderId || currentOrder?.id ? `?order_id=${selectedOrderId || currentOrder?.id}` : ''}`}
-            className="pb-3 text-sm font-bold text-stone-500 hover:text-stone-900 border-b-2 border-transparent hover:border-stone-300 flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap"
-          >
-            <span>History</span>
-          </Link>
-        </div>
-      </div>
-
-      {/* 2. FOUR SUMMARY CARDS ROW */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-
+      {/* 1. WORK ORDER & ARTISAN INFORMATION CARDS AT THE TOP (Section 2) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Assigned Artisan */}
-        <div className="bg-[#F4F6F7] rounded-2xl border border-[#dbe2e6] p-4 shadow-2xs flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-full bg-[#fde8e8] text-[#e02424] flex items-center justify-center text-lg shrink-0">
-            <i className="fa-solid fa-user"></i>
+        <div className="bg-white rounded-2xl border border-stone-200/90 p-4.5 shadow-2xs flex items-center gap-3.5">
+          <div className="w-12 h-12 rounded-full bg-red-50 text-[#b01622] flex items-center justify-center text-lg shrink-0 border border-red-100">
+            <i className="fa-solid fa-user-gear"></i>
           </div>
           <div className="min-w-0">
-            <span className="text-[10px] font-black text-stone-400 uppercase tracking-wider block">
-              Assigned Artisan
-            </span>
+            <span className="text-[10px] font-black text-stone-400 uppercase tracking-wider block">Assigned Artisan</span>
+            <h3 className="text-sm font-black text-gray-900 truncate mt-0.5">{artisanName}</h3>
+            <p className="text-[11px] text-stone-500 truncate">Senior Bench Goldsmith • Studio A</p>
+          </div>
+        </div>
+
+        {/* Card 2: Customer / Client */}
+        <div className="bg-white rounded-2xl border border-stone-200/90 p-4.5 shadow-2xs flex items-center gap-3.5">
+          <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-800 flex items-center justify-center text-lg shrink-0 border border-amber-100">
+            <i className="fa-solid fa-user-tag"></i>
+          </div>
+          <div className="min-w-0">
+            <span className="text-[10px] font-black text-stone-400 uppercase tracking-wider block">Customer Name</span>
+            <h3 className="text-sm font-black text-gray-900 truncate mt-0.5">{customerName}</h3>
+            <p className="text-[11px] text-stone-500 truncate">{currentOrder?.client?.phone || 'Retail Customer Account'}</p>
+          </div>
+        </div>
+
+        {/* Card 3: Design Reference & Product */}
+        <div className="bg-white rounded-2xl border border-stone-200/90 p-4.5 shadow-2xs flex items-center gap-3.5">
+          <div className="w-12 h-12 rounded-full bg-stone-50 text-stone-600 flex items-center justify-center text-lg shrink-0 border border-stone-200">
+            <i className="fa-solid fa-barcode"></i>
+          </div>
+          <div className="min-w-0">
+            <span className="text-[10px] font-black text-stone-400 uppercase tracking-wider block">Design SKU / Product</span>
+            <h3 className="text-sm font-black text-stone-900 font-mono truncate mt-0.5">{designRefCode}</h3>
+            <p className="text-[11px] text-stone-500 truncate">{currentOrder?.product_name || 'Jewellery Master Item'}</p>
+          </div>
+        </div>
+
+        {/* Card 4: Ordered & Delivery Dates */}
+        <div className="bg-white rounded-2xl border border-stone-200/90 p-4.5 shadow-2xs flex items-center gap-3.5">
+          <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-700 flex items-center justify-center text-lg shrink-0 border border-blue-100">
+            <i className="fa-regular fa-calendar-check"></i>
+          </div>
+          <div className="min-w-0">
+            <span className="text-[10px] font-black text-stone-400 uppercase tracking-wider block">Ordered / Delivery Date</span>
             <h3 className="text-sm font-black text-gray-900 truncate mt-0.5">
-              {artisanName}
+              Due: {currentOrder?.delivery_date ? new Date(currentOrder.delivery_date).toLocaleDateString('en-GB') : '—'}
             </h3>
-            <p className="text-[11px] text-stone-400 truncate">
-              Senior Goldsmith • Master Studio A
-            </p>
-          </div>
-        </div>
-
-        {/* Card 2: Customer */}
-        <div className="bg-[#F4F6F7] rounded-2xl border border-[#dbe2e6] p-4 shadow-2xs flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-full bg-stone-50 text-stone-400 border border-stone-200 flex items-center justify-center text-lg shrink-0">
-            <i className="fa-solid fa-user-tag text-[#b01622]"></i>
-          </div>
-          <div className="min-w-0">
-            <span className="text-[10px] font-black text-stone-400 uppercase tracking-wider block">
-              Customer Name
-            </span>
-            <h3 className="text-sm font-black text-gray-900 truncate mt-0.5" title={customerName}>
-              {customerName}
-            </h3>
-            <p className="text-[11px] text-stone-400 truncate">Client / Customer</p>
-          </div>
-        </div>
-
-        {/* Card 2: Receive Date */}
-        <div className="bg-[#F4F6F7] rounded-2xl border border-[#dbe2e6] p-4 shadow-2xs flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-full bg-stone-50 text-stone-400 border border-stone-200 flex items-center justify-center text-lg shrink-0">
-            <i className="fa-regular fa-calendar-check text-rose-500"></i>
-          </div>
-          <div className="min-w-0">
-            <span className="text-[10px] font-black text-stone-400 uppercase tracking-wider block">
-              Receive Date
-            </span>
-            <h3 className="text-sm font-black text-gray-900 truncate mt-0.5">
-              {displayReceiveDate}
-            </h3>
-            <p className="text-[11px] text-stone-400 truncate">
-              Physical Bench Handover
-            </p>
-          </div>
-        </div>
-
-        {/* Card 3: Design Reference Code */}
-        <div className="bg-[#F4F6F7] rounded-2xl border border-[#dbe2e6] p-4 shadow-2xs flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-full bg-stone-50 text-stone-400 border border-stone-200 flex items-center justify-center text-lg shrink-0">
-            <i className="fa-solid fa-barcode text-stone-600"></i>
-          </div>
-          <div className="min-w-0">
-            <span className="text-[10px] font-black text-stone-400 uppercase tracking-wider block">
-              Design Reference Code
-            </span>
-            <h3 className="text-sm font-black text-stone-900 font-mono tracking-tight truncate mt-0.5">
-              {designRefCode}
-            </h3>
-            <p className="text-[11px] text-stone-400 truncate">
-              Master Catalog SKU
-            </p>
-          </div>
-        </div>
-
-        {/* Card 4: Estimated Delivery */}
-        <div className="bg-[#F4F6F7] rounded-2xl border border-[#dbe2e6] p-4 shadow-2xs flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-full bg-stone-50 text-stone-400 border border-stone-200 flex items-center justify-center text-lg shrink-0">
-            <i className="fa-regular fa-calendar-days text-rose-500"></i>
-          </div>
-          <div className="min-w-0">
-            <span className="text-[10px] font-black text-stone-400 uppercase tracking-wider block">
-              Estimated Delivery
-            </span>
-            <h3 className="text-sm font-black text-gray-900 truncate mt-0.5">
-              {estDeliveryDate}
-            </h3>
-            <p className="text-[11px] text-stone-400 truncate">
-              Final Client Dispatch
+            <p className="text-[11px] text-stone-500 truncate">
+              Assigned: {currentOrder?.allotted_date ? new Date(currentOrder.allotted_date).toLocaleDateString('en-GB') : '—'}
             </p>
           </div>
         </div>
       </div>
 
-      {/* 3. ROW DETAILS TABLE (Identical to NewWorkOrder.jsx with all 21 columns) */}
-      <div className="space-y-2">
-        {/* Section Header with Material Count & Month Filter */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+      {/* 2. PRODUCT-SPECIFIC JOB SUMMARY (Section 7) */}
+      <div className="bg-white rounded-3xl border border-stone-200/90 shadow-sm p-6 space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-stone-100">
           <div>
-            <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-              <span>Materials & Components Issued to Artisan</span>
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-[#881337]/10 text-[#881337]">
-                {weightRows.length} {weightRows.length === 1 ? 'Material' : 'Materials'}
-              </span>
-            </h3>
-            <p className="text-xs text-stone-500">
-              Exact material specifications, weights, wastage, and variant breakdown matching the issued Work Order.
-            </p>
+            <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-[#b01622] mb-1">
+              <i className="fa-solid fa-list-check"></i>
+              <span>Product-Specific Job Summary</span>
+            </div>
+            <h2 className="text-lg font-bold text-gray-900">
+              {activeItem?.product_name || currentOrder?.product_name || 'Jewellery Item'} ({designRefCode})
+            </h2>
+          </div>
+
+          {/* Multi-Job Item Selector if more than 1 item */}
+          {!selectedPieceId && currentOrder?.items && currentOrder.items.length > 1 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-stone-500">Select Job Item:</span>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {currentOrder.items.map((it) => (
+                  <button
+                    key={it.id}
+                    type="button"
+                    onClick={() => handleSelectItem(it)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      selectedJobId === it.id
+                        ? 'bg-[#b01622] text-white shadow-2xs'
+                        : 'bg-stone-100 hover:bg-stone-200 text-stone-700'
+                    }`}
+                  >
+                    {it.design_no} ({it.required_qty} pcs)
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 6-Metric Quantity & Progress Reconciliation Strip (Section 7) */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-center">
+          <div className="p-3 bg-stone-50 rounded-2xl border border-stone-200">
+            <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block">Total Ordered</span>
+            <span className="text-xl font-black text-stone-900 mt-0.5 block">{selectedPieceId ? `#${receivingPrefill?.piece_number || '—'}` : (activeItem?.required_qty || currentOrder?.required_qty || 1)}</span>
+            <span className="text-[10px] text-stone-400">{selectedPieceId ? `Piece ID ${selectedPieceId}` : 'Pcs ordered'}</span>
+          </div>
+
+          <div className="p-3 bg-stone-50 rounded-2xl border border-stone-200">
+            <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wider block">WIP Completed</span>
+            <span className="text-xl font-black text-stone-800 mt-0.5 block">{selectedPieceId ? '1' : (activeItem?.completed_qty || currentOrder?.completed_qty || 0)}</span>
+            <span className="text-[10px] text-stone-400">Produced by artisan</span>
+          </div>
+
+          <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200">
+            <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block">QC Approved</span>
+            <span className="text-xl font-black text-emerald-800 mt-0.5 block">{selectedPieceId ? (receivingPrefill?.is_already_received ? 'Received' : 'Ready') : (activeItem?.ready_qty || currentOrder?.ready_qty || 0)}</span>
+            <span className="text-[10px] text-emerald-600">Passed quality check</span>
+          </div>
+
+          <div className="p-3 bg-blue-50 rounded-2xl border border-blue-200">
+            <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider block">Previously Received</span>
+            <span className="text-xl font-black text-blue-800 mt-0.5 block">{selectedPieceId ? (receivingPrefill?.is_already_received ? '1' : '0') : (activeItem?.received_qty || currentOrder?.received_qty || 0)}</span>
+            <span className="text-[10px] text-blue-600">Physically tagged</span>
+          </div>
+
+          <div className="p-3 bg-rose-50 rounded-2xl border border-rose-200">
+            <span className="text-[10px] font-bold text-[#b01622] uppercase tracking-wider block">Remaining Receivable</span>
+            <span className="text-xl font-black text-[#b01622] mt-0.5 block">{selectedPieceId ? (receivableCount ? '1' : '0') : receivableCount}</span>
+            <span className="text-[10px] text-rose-500 font-bold">Ready to receive</span>
+          </div>
+
+          <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200">
+            <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">Receiving Now</span>
+            <span className="text-xl font-black text-amber-950 mt-0.5 block">01 Unit</span>
+            <span className="text-[10px] text-amber-700">Per transaction</span>
           </div>
         </div>
 
-        {/* Header bar above table */}
-        <div className="flex items-center justify-between px-1 pb-1">
-          <span className="text-sm font-semibold text-stone-400">Table</span>
+        {/* Specification Summary Line */}
+        <div className="bg-stone-50/70 p-3.5 rounded-2xl border border-stone-200 text-xs flex flex-wrap items-center justify-between gap-3 text-stone-600">
+          <div>
+            Allocated Weight: <strong className="font-mono text-stone-900">{Number(activeItem?.allotted_weight || currentOrder?.allotted_weight || 0).toFixed(3)}g</strong>
+          </div>
+          <div>
+            Touch / Standard: <strong className="font-mono text-stone-900">{currentOrder?.purity || '91.60% (22K)'}</strong>
+          </div>
+          <div>
+            Diamond Allocation: <strong className="font-mono text-stone-900">{Number(currentOrder?.diamond_weight || 0).toFixed(3)} ct ({currentOrder?.diamond_count || 0} stones)</strong>
+          </div>
+          <div>
+            Making Charge Basis: <strong className="text-stone-900">₹{currentOrder?.making_charge_per_gram || '450'}/g</strong>
+          </div>
+        </div>
+      </div>
+
+      {/* 3. RECEIVE WORK ORDER FORM (Section 4, 5, 6) */}
+      <div className="bg-gradient-to-br from-amber-50/50 via-white to-red-50/20 rounded-3xl border-2 border-amber-200/90 shadow-md p-6 space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-amber-100">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="w-8 h-8 rounded-xl bg-[#b01622] text-white flex items-center justify-center text-sm font-bold shadow-2xs">
+                <i className="fa-solid fa-gem"></i>
+              </span>
+              <h3 className="text-base font-bold text-gray-900">
+                {receivingPrefill?.is_already_received ? 'Piece Received' : 'Receive Work Order Form'}
+              </h3>
+            </div>
+            <p className="text-xs text-stone-500 mt-1">
+              Physically receive 1 jewellery product per transaction. Validates exact formulas, generates unique RWO # and Tag #, and initiates printable workflows.
+            </p>
+          </div>
+          <div>
+            <span className="px-3.5 py-1.5 rounded-xl text-xs font-black bg-stone-900 text-amber-300 font-mono shadow-2xs">
+              {selectedPieceId ? `Piece #${receivingPrefill?.piece_number || '—'} · ID ${selectedPieceId}` : `Receiving Piece #${receivingPrefill?.piece_number || (currentOrder?.received_qty || 0) + 1} of ${currentOrder?.ready_qty || 1}`}
+            </span>
+          </div>
         </div>
 
-        {/* Exact Table Layout Matching Screenshot media_1789552582264.png */}
-        <div className="border border-[#dccbb2] rounded-xl overflow-hidden shadow-2xs bg-white">
-          <div className="overflow-x-auto w-full pb-2 scrollbar-thin scrollbar-thumb-stone-300">
-            <table className="w-full text-left text-xs border-collapse min-w-[2180px]">
+        {receivingPrefill?.is_already_received && (
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900">
+            Piece {receivingPrefill.piece_number} has been received. Tag {receivingPrefill.tag_number || '—'} and Receive Order {receivingPrefill.receive_order_number || '—'} are saved.
+          </div>
+        )}
+
+        {receivingPrefill && !receivingPrefill.is_already_received && (
+          <div className="p-3 bg-emerald-50 border border-emerald-200/90 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2.5">
+              <span className="w-6 h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold text-[11px] shrink-0">
+                #{receivingPrefill.piece_number}
+              </span>
+              <div>
+                <span className="font-bold text-emerald-950">QC Verified Individual Piece Data Loaded</span>
+                <span className="text-emerald-700 block text-[11px] font-medium">
+                  Design: <strong>{receivingPrefill.design_no}</strong> | Gross: <strong>{Number(receivingPrefill.gross_weight).toFixed(3)}g</strong> | Net: <strong>{Number(receivingPrefill.net_gold_weight).toFixed(3)}g</strong> | Purity: <strong>{receivingPrefill.purity}% ({receivingPrefill.gold_karat})</strong>
+                </span>
+              </div>
+            </div>
+            <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 rounded-lg font-semibold text-[10.5px] border border-emerald-300 shrink-0">
+              <i className="fa-solid fa-check-circle mr-1 text-emerald-600"></i> Persisted QC Measurements Prefilled
+            </span>
+          </div>
+        )}
+
+        <form onSubmit={handleReceiveWorkOrder} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+            {/* Design No (Auto-fetched) */}
+            <div>
+              <label className="font-bold text-stone-700 block mb-1">Design No</label>
+              <input
+                type="text"
+                readOnly
+                value={designRefCode}
+                className="w-full px-3 py-2 bg-stone-100 border border-stone-200 rounded-xl font-mono font-bold text-stone-800 cursor-not-allowed"
+              />
+            </div>
+
+            {/* Ordered Date (Auto-fetched) */}
+            <div>
+              <label className="font-bold text-stone-700 block mb-1">Ordered Date</label>
+              <input
+                type="text"
+                readOnly
+                value={currentOrder?.allotted_date ? new Date(currentOrder.allotted_date).toLocaleDateString('en-GB') : '—'}
+                className="w-full px-3 py-2 bg-stone-100 border border-stone-200 rounded-xl font-medium text-stone-800 cursor-not-allowed"
+              />
+            </div>
+
+            {/* Assigned Delivery Date (Auto-fetched) */}
+            <div>
+              <label className="font-bold text-stone-700 block mb-1">Assigned Delivery Date</label>
+              <input
+                type="text"
+                readOnly
+                value={currentOrder?.delivery_date ? new Date(currentOrder.delivery_date).toLocaleDateString('en-GB') : '—'}
+                className="w-full px-3 py-2 bg-stone-100 border border-stone-200 rounded-xl font-medium text-stone-800 cursor-not-allowed"
+              />
+            </div>
+
+            {/* Delivery Date (Actual Receiving Date) */}
+            <div>
+              <label className="font-bold text-stone-700 block mb-1">
+                Actual Receiving Date <span className="text-[#b01622]">*</span>
+              </label>
+              <input
+                type="date"
+                required
+                value={pieceForm.receive_date}
+                onChange={(e) => updatePieceField('receive_date', e.target.value)}
+                className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl font-medium focus:outline-hidden focus:border-[#b01622]"
+              />
+            </div>
+
+            {/* Product Description */}
+            <div className="sm:col-span-2">
+              <label className="font-bold text-stone-700 block mb-1">Product Description</label>
+              <input
+                type="text"
+                value={pieceForm.description}
+                onChange={(e) => updatePieceField('description', e.target.value)}
+                placeholder="Product name or description"
+                className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl font-medium text-stone-900 focus:outline-hidden focus:border-[#b01622]"
+              />
+            </div>
+
+            {/* Quantity (Fixed 1 Unit) */}
+            <div>
+              <label className="font-bold text-stone-700 block mb-1">Receive Quantity</label>
+              <input
+                type="text"
+                readOnly
+                value="1 Piece"
+                className="w-full px-3 py-2 bg-stone-100 border border-stone-200 rounded-xl font-bold text-stone-800 cursor-not-allowed text-center"
+              />
+            </div>
+
+            {/* Assigned Weight (Read-only allocation) */}
+            <div>
+              <label className="font-bold text-stone-700 block mb-1">Assigned Weight (g)</label>
+              <input
+                type="text"
+                readOnly
+                value={`${Number(activeItem?.allotted_weight || currentOrder?.allotted_weight || 0).toFixed(3)} g`}
+                className="w-full px-3 py-2 bg-stone-100 border border-stone-200 rounded-xl font-mono font-bold text-stone-800 cursor-not-allowed text-right"
+              />
+            </div>
+
+            {/* Total / Gross Weight */}
+            <div>
+              <label className="font-bold text-stone-700 block mb-1">
+                Total / Gross Weight (g) <span className="text-[#b01622]">*</span>
+              </label>
+              <input
+                type="number"
+                step="0.001"
+                required
+                value={pieceForm.gross_weight}
+                onChange={(e) => updatePieceField('gross_weight', e.target.value)}
+                placeholder="e.g. 10.000"
+                className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl font-mono font-bold text-stone-900 focus:outline-hidden focus:border-[#b01622] text-right"
+              />
+            </div>
+
+            {/* Old Weight */}
+            <div>
+              <label className="font-bold text-stone-700 block mb-1">Old Weight (g)</label>
+              <input
+                type="number"
+                step="0.001"
+                value={pieceForm.old_weight}
+                onChange={(e) => updatePieceField('old_weight', e.target.value)}
+                placeholder="0.000"
+                className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl font-mono text-stone-900 focus:outline-hidden focus:border-[#b01622] text-right"
+              />
+            </div>
+
+            {/* Diamond Weight (cts) */}
+            <div>
+              <label className="font-bold text-stone-700 block mb-1">Diamond Weight (cts)</label>
+              <input
+                type="number"
+                step="0.001"
+                value={pieceForm.diamond_weight}
+                onChange={(e) => updatePieceField('diamond_weight', e.target.value)}
+                placeholder="e.g. 0.500"
+                className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl font-mono text-stone-900 focus:outline-hidden focus:border-[#b01622] text-right"
+              />
+            </div>
+
+            {/* Number of Diamonds */}
+            <div>
+              <label className="font-bold text-stone-700 block mb-1">Number of Diamonds</label>
+              <input
+                type="number"
+                value={pieceForm.diamond_count}
+                onChange={(e) => updatePieceField('diamond_count', e.target.value)}
+                placeholder="0"
+                className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl font-mono text-stone-900 focus:outline-hidden focus:border-[#b01622] text-right"
+              />
+            </div>
+
+            {/* Colour Stone Weight (cts) */}
+            <div>
+              <label className="font-bold text-stone-700 block mb-1">Colour Stone Wt (cts / g)</label>
+              <input
+                type="number"
+                step="0.001"
+                value={pieceForm.color_stone_weight}
+                onChange={(e) => updatePieceField('color_stone_weight', e.target.value)}
+                placeholder="0.000"
+                className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl font-mono text-stone-900 focus:outline-hidden focus:border-[#b01622] text-right"
+              />
+            </div>
+
+            {/* Colour Stone Count */}
+            <div>
+              <label className="font-bold text-stone-700 block mb-1">Colour Stone Count</label>
+              <input
+                type="number"
+                value={pieceForm.color_stone_count}
+                onChange={(e) => updatePieceField('color_stone_count', e.target.value)}
+                placeholder="0"
+                className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl font-mono text-stone-900 focus:outline-hidden focus:border-[#b01622] text-right"
+              />
+            </div>
+
+            {/* Silver Weight (g) */}
+            <div>
+              <label className="font-bold text-stone-700 block mb-1">Silver (g)</label>
+              <input
+                type="number"
+                step="0.001"
+                value={pieceForm.silver_weight}
+                onChange={(e) => updatePieceField('silver_weight', e.target.value)}
+                placeholder="0.000"
+                className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl font-mono text-stone-900 focus:outline-hidden focus:border-[#b01622] text-right"
+              />
+            </div>
+
+            {/* Gold Karat */}
+            <div>
+              <label className="font-bold text-stone-700 block mb-1">Gold Karat</label>
+              <select
+                value={pieceForm.gold_karat}
+                onChange={(e) => updatePieceField('gold_karat', e.target.value)}
+                className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl font-bold text-stone-800 focus:outline-hidden focus:border-[#b01622]"
+              >
+                {karatMasters.length > 0 ? (
+                  karatMasters.map((k) => {
+                    const formatted = (k.name || '').toUpperCase().trim();
+                    const desc = k.description ? ` (${k.description})` : (k.code ? ` (${k.code})` : '');
+                    return (
+                      <option key={k.id} value={formatted}>
+                        {formatted}{desc}
+                      </option>
+                    );
+                  })
+                ) : (
+                  <>
+                    <option value="22K">22K (916 Hallmark)</option>
+                    <option value="18K">18K (750 Hallmark)</option>
+                    <option value="14K">14K (585 Hallmark)</option>
+                    <option value="24K">24K (999 Pure)</option>
+                  </>
+                )}
+                {/* Preserve existing saved value if valid and not duplicate */}
+                {pieceForm.gold_karat && !karatMasters.some((k) => (k.name || '').toUpperCase().trim() === (pieceForm.gold_karat || '').toUpperCase().trim()) && (
+                  <option value={pieceForm.gold_karat}>{pieceForm.gold_karat}</option>
+                )}
+              </select>
+            </div>
+
+            {/* Purity / Touch (%) */}
+            <div>
+              <label className="font-bold text-stone-700 block mb-1">
+                Purity / Touch (%) <span className="text-[#b01622]">*</span>
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                required
+                value={pieceForm.touch}
+                onChange={(e) => updatePieceField('touch', e.target.value)}
+                placeholder="91.60"
+                className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl font-mono font-bold text-stone-900 focus:outline-hidden focus:border-[#b01622] text-right"
+              />
+            </div>
+
+            {/* Net Gold Weight (Dynamic Real-time Formula Card) */}
+            <div className="bg-amber-100/80 p-2.5 rounded-xl border border-amber-300">
+              <span className="text-[10px] font-black text-amber-900 uppercase tracking-wider block">
+                Calculated Net Weight (g)
+              </span>
+              <span className="text-base font-black text-amber-950 font-mono block mt-0.5 text-right">
+                {calculatedNetWeight.toFixed(3)} g
+              </span>
+              <span className="text-[9px] text-amber-800 block text-right">Total - Stones - Old Wt</span>
+            </div>
+
+            {/* Pure 24K Calculation (Dynamic Real-time Formula Card) */}
+            <div className="bg-emerald-100/80 p-2.5 rounded-xl border border-emerald-300">
+              <span className="text-[10px] font-black text-emerald-900 uppercase tracking-wider block">
+                Pure 24K Gold Weight (g)
+              </span>
+              <span className="text-base font-black text-emerald-950 font-mono block mt-0.5 text-right">
+                {calculatedPure24k.toFixed(3)} g
+              </span>
+              <span className="text-[9px] text-emerald-800 block text-right">Net Wt × (Touch / 100)</span>
+            </div>
+
+            {/* Making Charge Type */}
+            <div>
+              <label className="font-bold text-stone-700 block mb-1">Making Charge Type</label>
+              <select
+                value={pieceForm.making_charge_type}
+                onChange={(e) => updatePieceField('making_charge_type', e.target.value)}
+                className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl font-bold text-stone-800 focus:outline-hidden focus:border-[#b01622]"
+              >
+                <option value="per_gram">Per Gram (₹/g)</option>
+                <option value="percentage">Percentage (%)</option>
+                <option value="fixed">Fixed Charge (₹)</option>
+              </select>
+            </div>
+
+            {/* Making Charge Rate */}
+            <div>
+              <label className="font-bold text-stone-700 block mb-1">
+                MC Rate {pieceForm.making_charge_type === 'percentage' ? '(%)' : '(₹)'}
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={pieceForm.making_charge}
+                onChange={(e) => updatePieceField('making_charge', e.target.value)}
+                placeholder="450"
+                className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl font-mono text-stone-900 focus:outline-hidden focus:border-[#b01622] text-right"
+              />
+            </div>
+
+            {/* Total MC (Dynamic Real-time Calculation) */}
+            <div className="bg-stone-100 p-2.5 rounded-xl border border-stone-300">
+              <span className="text-[10px] font-black text-stone-700 uppercase tracking-wider block">
+                Total Making Charge (₹)
+              </span>
+              <span className="text-base font-black text-stone-900 font-mono block mt-0.5 text-right">
+                ₹ {calculatedTotalMC.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </span>
+              <span className="text-[9px] text-stone-500 block text-right">Rate applied to basis</span>
+            </div>
+
+            {/* Given Metal */}
+            <div>
+              <label className="font-bold text-stone-700 block mb-1">Given Metal (g)</label>
+              <input
+                type="number"
+                step="0.001"
+                value={pieceForm.given_metal}
+                onChange={(e) => updatePieceField('given_metal', e.target.value)}
+                placeholder="0.000"
+                className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl font-mono text-stone-900 focus:outline-hidden focus:border-[#b01622] text-right"
+              />
+            </div>
+
+            {/* Given Cash */}
+            <div>
+              <label className="font-bold text-stone-700 block mb-1">Given Cash (₹)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={pieceForm.given_cash}
+                onChange={(e) => updatePieceField('given_cash', e.target.value)}
+                placeholder="0.00"
+                className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl font-mono text-stone-900 focus:outline-hidden focus:border-[#b01622] text-right"
+              />
+            </div>
+
+            {/* Approved Wastage (g) */}
+            <div>
+              <label className="font-bold text-stone-700 block mb-1">
+                Approved Wastage (g)
+              </label>
+              <input
+                type="number"
+                step="0.001"
+                value={pieceForm.wastage_weight}
+                onChange={(e) => updatePieceField('wastage_weight', e.target.value)}
+                placeholder="0.000"
+                className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl font-mono text-stone-900 focus:outline-hidden focus:border-[#b01622] text-right"
+                title="Approved manufacturing wastage for this piece"
+              />
+            </div>
+
+            {/* Karigar Supplied Gold (g) */}
+            <div>
+              <label className="font-bold text-stone-700 block mb-1">
+                Karigar Supplied Gold (g)
+              </label>
+              <input
+                type="number"
+                step="0.001"
+                value={pieceForm.karigar_gold_weight}
+                onChange={(e) => updatePieceField('karigar_gold_weight', e.target.value)}
+                placeholder="0.000"
+                className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl font-mono text-stone-900 focus:outline-hidden focus:border-[#b01622] text-right"
+                title="Additional gold supplied by Karigar from their own material"
+              />
+            </div>
+
+            {/* Product Completion Image Upload (Requirement 1) */}
+            <div className="md:col-span-2 p-3.5 bg-stone-50 border border-stone-200 rounded-2xl space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="font-bold text-stone-800 text-xs flex items-center gap-2">
+                  <i className="fa-solid fa-camera text-[#b01622]"></i>
+                  <span>Product Completion Image (Received from Artisan)</span>
+                </label>
+                {pieceForm.completion_image && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      updatePieceField('completion_image', '');
+                      updatePieceField('completion_image_preview', '');
+                    }}
+                    className="text-[11px] font-bold text-rose-600 hover:text-rose-800 cursor-pointer flex items-center gap-1"
+                  >
+                    <i className="fa-solid fa-trash-can text-[10px]"></i>
+                    <span>Remove Image</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-4">
+                {pieceForm.completion_image_preview ? (
+                  <div className="relative group shrink-0">
+                    <img
+                      src={pieceForm.completion_image_preview}
+                      alt="Completion preview"
+                      className="w-20 h-20 object-cover rounded-xl border-2 border-emerald-400 shadow-xs bg-white"
+                    />
+                    <div className="absolute inset-0 bg-black/40 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-bold">
+                      Preview
+                    </div>
+                  </div>
+                ) : (
+                  <div className="w-20 h-20 rounded-xl border-2 border-dashed border-stone-300 bg-stone-100/50 flex flex-col items-center justify-center text-stone-400 shrink-0">
+                    <i className="fa-regular fa-image text-xl mb-1"></i>
+                    <span className="text-[9px] font-medium">No Image</span>
+                  </div>
+                )}
+
+                <div className="flex-1 w-full space-y-1">
+                  <input
+                    type="file"
+                    id="completion-image-file-input"
+                    accept="image/png,image/jpeg,image/jpg,image/webp"
+                    onChange={handleCompletionImageUpload}
+                    className="block w-full text-xs text-stone-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-[#b01622] file:text-white hover:file:bg-[#8f1019] file:cursor-pointer cursor-pointer border border-stone-200 rounded-xl p-1 bg-white"
+                  />
+                  <p className="text-[10px] text-stone-400">
+                    Upload physical finished product image (JPG, PNG, WEBP max 5MB). Persisted to receipt &amp; printed on official receive vouchers.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Certification & Hallmarking Notice */}
+            <div className="md:col-span-2 p-3 bg-amber-50/70 rounded-xl border border-amber-200 text-xs text-amber-900 flex items-center gap-2.5">
+              <i className="fa-solid fa-circle-info text-amber-700 text-sm"></i>
+              <div>
+                <span className="font-bold">Certification &amp; Hallmarking (Stage Gates):</span>
+                <span className="text-amber-800 ml-1">Processed after receiving in their respective stages. The generated tag initializes with pending (<code className="font-bold text-stone-700">-</code>) until completed or explicitly skipped.</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 4. PRIMARY RECEIVE WORK ORDER ACTION BUTTON (Section 2, 10) */}
+          <div className="pt-4 border-t border-amber-200/80 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="text-xs text-stone-600">
+              QC Ready Receivable:{' '}
+              <strong className="text-emerald-800 font-bold">{receivableCount} piece(s) remaining</strong>
+            </div>
+
+            <button
+              type="submit"
+              disabled={saving || receivableCount <= 0 || !selectedPieceId || receivingPrefill?.is_already_received}
+              className="w-full sm:w-auto px-8 py-3.5 bg-[#b01622] hover:bg-[#8f1019] disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-red-900/25 flex items-center justify-center gap-2.5 cursor-pointer"
+            >
+              <i className="fa-solid fa-box-archive text-sm"></i>
+              <span>{saving ? 'Processing Reception...' : receivingPrefill?.is_already_received ? 'Already Received' : selectedPieceId ? 'Receive This Piece' : 'Receive Work Order'}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* 4.5. PERSISTED WEIGHT & STONE SUMMARIES (Requirement 2) */}
+      {currentOrder && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Section A: Weight Summary */}
+          <div className="bg-white rounded-3xl border border-stone-200/90 shadow-sm p-5 space-y-3">
+            <div className="flex items-center justify-between border-b border-stone-100 pb-2.5">
+              <div className="flex items-center gap-2">
+                <span className="w-7 h-7 rounded-lg bg-amber-50 text-amber-800 flex items-center justify-center text-xs font-bold">
+                  <i className="fa-solid fa-scale-balanced"></i>
+                </span>
+                <h4 className="text-xs font-black uppercase tracking-wider text-stone-800">Section A: Weight Summary</h4>
+              </div>
+              <span className="text-[10.5px] font-bold text-stone-400">WO #{orderNumber}</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="bg-amber-50/60 p-3 rounded-2xl border border-amber-200/80">
+                <span className="text-[10px] font-bold text-amber-800 block uppercase tracking-tight">Allotted Weight</span>
+                <span className="text-base font-black text-amber-950 font-mono block mt-1">
+                  {allottedGrossWeight.toFixed(3)} <span className="text-xs font-sans font-bold">g</span>
+                </span>
+                <span className="text-[9.5px] text-amber-700 block mt-0.5">Total job allocation</span>
+              </div>
+
+              <div className="bg-emerald-50/60 p-3 rounded-2xl border border-emerald-200/80">
+                <span className="text-[10px] font-bold text-emerald-800 block uppercase tracking-tight">Completed / Received</span>
+                <span className="text-base font-black text-emerald-950 font-mono block mt-1">
+                  {completedGrossWeight.toFixed(3)} <span className="text-xs font-sans font-bold">g</span>
+                </span>
+                <span className="text-[9.5px] text-emerald-700 block mt-0.5">Persisted receipts ({receivedPiecesList.length} pcs)</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-[11px] font-semibold text-stone-600 pt-1 border-t border-stone-100">
+              <span>Balance Weight Pending to Receive:</span>
+              <span className="font-mono font-black text-stone-900">{Math.max(0, allottedGrossWeight - completedGrossWeight).toFixed(3)} g</span>
+            </div>
+          </div>
+
+          {/* Section B: Stone Summary */}
+          <div className="bg-white rounded-3xl border border-stone-200/90 shadow-sm p-5 space-y-3">
+            <div className="flex items-center justify-between border-b border-stone-100 pb-2.5">
+              <div className="flex items-center gap-2">
+                <span className="w-7 h-7 rounded-lg bg-blue-50 text-blue-800 flex items-center justify-center text-xs font-bold">
+                  <i className="fa-solid fa-gem"></i>
+                </span>
+                <h4 className="text-xs font-black uppercase tracking-wider text-stone-800">Section B: Stone Summary</h4>
+              </div>
+              <span className="text-[10px] font-bold text-stone-400">Diamonds &amp; Colour Stones</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="bg-blue-50/60 p-3 rounded-2xl border border-blue-200/80">
+                <span className="text-[10px] font-bold text-blue-800 block uppercase tracking-tight">Allotted Stones Count</span>
+                <span className="text-base font-black text-blue-950 font-mono block mt-1">
+                  {totalAllottedStones} <span className="text-xs font-sans font-bold">pcs</span>
+                </span>
+                <div className="text-[9.5px] text-blue-700 mt-0.5 space-x-1.5">
+                  <span>Dia: <strong>{allottedDiaCount}</strong></span>
+                  <span>•</span>
+                  <span>Color: <strong>{allottedColorCount}</strong></span>
+                </div>
+              </div>
+
+              <div className="bg-purple-50/60 p-3 rounded-2xl border border-purple-200/80">
+                <span className="text-[10px] font-bold text-purple-800 block uppercase tracking-tight">Received Stones Count</span>
+                <span className="text-base font-black text-purple-950 font-mono block mt-1">
+                  {totalReceivedStones} <span className="text-xs font-sans font-bold">pcs</span>
+                </span>
+                <div className="text-[9.5px] text-purple-700 mt-0.5 space-x-1.5">
+                  <span>Dia: <strong>{receivedDiaCount}</strong></span>
+                  <span>•</span>
+                  <span>Color: <strong>{receivedColorCount}</strong></span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-[11px] font-semibold text-stone-600 pt-1 border-t border-stone-100">
+              <span>Stones Remaining to Receive:</span>
+              <span className="font-mono font-black text-stone-900">{Math.max(0, totalAllottedStones - totalReceivedStones)} pcs</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. RECEIVING HISTORY (Section 12) */}
+      <div className="bg-white rounded-3xl border border-stone-200/90 shadow-sm p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold">
+              <i className="fa-solid fa-clock-rotate-left"></i>
+            </span>
+            <h3 className="text-sm font-bold text-gray-900">
+              Receiving History ({receivedPiecesList.length} Pieces Received)
+            </h3>
+          </div>
+          <span className="text-xs font-bold text-stone-500">
+            Original Work Order #{orderNumber}
+          </span>
+        </div>
+
+        {receivedPiecesList.length === 0 ? (
+          <div className="p-8 text-center bg-stone-50 rounded-2xl border border-dashed border-stone-200 text-stone-400 text-xs">
+            <i className="fa-solid fa-box-open text-2xl text-stone-300 mb-2 block"></i>
+            <span>No physical pieces have been received yet for this work order. Use the form above to receive individual pieces.</span>
+          </div>
+        ) : (
+          <>
+          <div className="overflow-x-auto rounded-2xl border border-stone-200">
+            <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="bg-[#ede4d3] text-[#3c2f23] font-bold text-[10px] tracking-wider uppercase border-b border-[#ddccb4]">
-                  <th className="py-2.5 px-3 whitespace-nowrap min-w-[200px]">MATERIAL TYPE</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-center min-w-[95px]">ORDERED DATE</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-center min-w-[95px]">DELIVERY DATE</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-center min-w-[65px]">IMAGE</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-center min-w-[55px]">QTY</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap min-w-[95px]">SETTING TYPE</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap min-w-[110px]">DESIGN NUMBER</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-center min-w-[95px]">GOLD PRIORY</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[115px]">TOTAL WEIGHT (G)</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[105px]">GOLD WEIGHT (G)</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[120px]">COLOUR STONE (G)</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[90px]">SILVER (G)</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[95px]">DIAMOND CT</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[85px]">NO OF DIA</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[110px]">NET WEIGHT (G)</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[95px] text-[#b01622]">PURITY (%)</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[90px]">WASTAGE</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[100px]">PERCENTAGES%</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[95px]">PURE24K (G)</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[85px]">MC (₹)</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[100px]">TOTAL MC (₹)</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap min-w-[85px]">REMARKS</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-center min-w-[75px]">ACTIONS</th>
+                <tr className="bg-[#fbf7f2] border-b border-stone-200 text-[#785b3a] font-black uppercase text-[10px] tracking-wider">
+                  <th className="py-2.5 px-3">RWO #</th>
+                  <th className="py-2.5 px-3">Tag #</th>
+                  <th className="py-2.5 px-3">Design #</th>
+                  <th className="py-2.5 px-3">Artisan</th>
+                  <th className="py-2.5 px-3">Receiving Date</th>
+                  <th className="py-2.5 px-3 text-right">Gross Wt</th>
+                  <th className="py-2.5 px-3 text-right">Old Wt</th>
+                  <th className="py-2.5 px-3 text-right">Net Wt</th>
+                  <th className="py-2.5 px-3 text-right">Pure 24K</th>
+                  <th className="py-2.5 px-3 text-right">Total MC</th>
+                  <th className="py-2.5 px-3 text-center">Posting</th>
+                  <th className="py-2.5 px-3 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {displayedJobItems.length === 0 ? (
-                  <tr>
-                    <td colSpan="23" className="py-8 text-center text-stone-500 bg-stone-50/50">
-                      <p className="text-xs font-semibold">No materials found for the selected month.</p>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedMonth('all')}
-                        className="mt-2 text-xs font-bold text-[#881337] underline hover:text-[#9e1b27] cursor-pointer"
-                      >
-                        Show All Months ({weightRows.length} {weightRows.length === 1 ? 'row' : 'rows'})
-                      </button>
+                {paginatedReceivedPieces.map((pc) => (
+                  <tr key={pc.id} className="hover:bg-amber-50/30 transition-colors">
+                    <td className="py-2.5 px-3 font-mono font-bold text-stone-900">
+                      {pc.receive_order_number || '—'}
+                    </td>
+                    <td className="py-2.5 px-3 font-mono font-black text-[#b01622]">{pc.tag_number || '—'}</td>
+                    <td className="py-2.5 px-3 font-mono text-stone-700">{pc.design_no || designRefCode}</td>
+                    <td className="py-2.5 px-3 text-stone-700 font-semibold">{artisanName}</td>
+                    <td className="py-2.5 px-3 text-stone-500">
+                      {pc.received_at ? new Date(pc.received_at).toLocaleDateString('en-GB') : '—'}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-bold text-stone-900">
+                      {Number(pc.gross_weight || 0).toFixed(3)}g
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono text-stone-500">
+                      {Number(pc.old_weight || 0).toFixed(3)}g
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-900">
+                      {Number(pc.net_gold_weight || 0).toFixed(3)}g
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-800">
+                      {Number(pc.pure_24k_weight || 0).toFixed(3)}g
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono text-stone-700">
+                      ₹{Number(pc.total_making_charge || 0).toFixed(2)}
+                    </td>
+                    <td className="py-2.5 px-3 text-center">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        pc.is_inventory_posted ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                      }`}>
+                        {pc.is_inventory_posted ? 'Posted' : 'Pending'}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 text-center">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPieceForVoucher(pc);
+                            setIsVoucherModalOpen(true);
+                          }}
+                          className="px-2 py-1 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold rounded-lg text-[10.5px] transition-all inline-flex items-center gap-1 cursor-pointer"
+                          title="Print Official Receiving Voucher"
+                        >
+                          <i className="fa-solid fa-file-invoice text-stone-600 text-[10px]"></i>
+                          <span>Voucher</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPieceForTag(pc);
+                            setIsTagModalOpen(true);
+                          }}
+                          className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-[#b01622] font-bold rounded-lg text-[10.5px] transition-all inline-flex items-center gap-1 cursor-pointer"
+                          title="Print Jewellery Barcode Tag"
+                        >
+                          <i className="fa-solid fa-tags text-[10px]"></i>
+                          <span>Tag</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
-                ) : (
-                  displayedJobItems.map((row, idx) => {
-                    const isDiamond = String(row.material_type || '').toLowerCase().includes('diamond');
-                    return (
-                      <tr key={row.id || idx} className="hover:bg-amber-50/20 transition-colors">
-
-                        {/* 1. Material Type */}
-                        <td className="py-2.5 px-3 whitespace-nowrap">
-                          <div className="flex items-center gap-2.5">
-                            <div className={`w-7 h-7 rounded flex items-center justify-center text-xs border ${isDiamond
-                              ? 'bg-rose-50 border-rose-200 text-rose-600'
-                              : 'bg-amber-50 border-amber-300 text-amber-700'
-                              }`}>
-                              <i className={`fa-solid ${isDiamond ? 'fa-gem' : 'fa-coins'}`}></i>
-                            </div>
-                            <div>
-                              <div className="font-bold text-gray-900 text-xs">{row.material_type || '22K Yellow Gold'}</div>
-                              <div className="text-[10px] text-gray-400 font-medium">{row.material_subtitle || (isDiamond ? 'VS1 Clarity - F Color' : '916 Hallmark Standard')}</div>
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* 2. Ordered Date */}
-                        <td className="py-2.5 px-3 whitespace-nowrap text-center font-mono text-[11px] text-gray-700">
-                          {formatDateDisplay(row.ordered_date)}
-                        </td>
-
-                        {/* 3. Delivery Date */}
-                        <td className="py-2.5 px-3 whitespace-nowrap text-center font-mono text-[11px] text-gray-700">
-                          {formatDateDisplay(row.delivery_date)}
-                        </td>
-
-                        {/* 4. Image */}
-                        <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                          <div
-                            onClick={() => handleOpenEditRowModal(row)}
-                            className="w-9 h-9 mx-auto rounded-md overflow-hidden bg-stone-100 border border-stone-200 flex items-center justify-center cursor-pointer hover:opacity-85"
-                            title="Click to view/edit row"
-                          >
-                            <img
-                              src={resolveItemImage(row)}
-                              alt="item"
-                              className="w-full h-full object-cover"
-                              onError={(e) => {
-                                e.target.onerror = null;
-                                e.target.src = '/images/samples/peacock_choker.jpg';
-                              }}
-                            />
-                          </div>
-                        </td>
-
-                        {/* 5. Qty */}
-                        <td className="py-2.5 px-3 whitespace-nowrap text-center font-mono font-bold text-xs text-gray-900">
-                          {row.qty || 1}
-                        </td>
-
-                        {/* 6. Setting Type */}
-                        <td className="py-2.5 px-3 whitespace-nowrap text-xs text-gray-700">
-                          {row.setting_type || 'Prong'}
-                        </td>
-
-                        {/* 7. Design Number */}
-                        <td className="py-2.5 px-3 whitespace-nowrap font-bold text-gray-900 text-xs font-mono">
-                          {row.design_number || 'DDvd1'}
-                        </td>
-
-                        {/* 8. Gold Priory */}
-                        <td className="py-2.5 px-3 whitespace-nowrap text-center text-xs text-gray-500">
-                          {row.gold_priory || '-'}
-                        </td>
-
-                        {/* 9. Total Weight (g) */}
-                        <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-900 font-bold">
-                          {row.total_weight || '5.91'}
-                        </td>
-
-                        {/* 10. Gold Weight (g) */}
-                        <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-700">
-                          {row.gold_weight || row.old_weight || '5.91'}
-                        </td>
-
-                        {/* 11. Colour Stone (g) */}
-                        <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-700">
-                          {row.colour_stone || '5.91'}
-                        </td>
-
-                        {/* 12. Silver (g) */}
-                        <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-700">
-                          {row.silver || '0.278'}
-                        </td>
-
-                        {/* 13. Diamond Ct */}
-                        <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-700">
-                          {row.diamond_ct || '278'}
-                        </td>
-
-                        {/* 14. No of Dia */}
-                        <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-700">
-                          {row.no_of_dia || '15'}
-                        </td>
-
-                        {/* 15. Net Weight (g) */}
-                        <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-900 font-bold">
-                          {row.net_weight || '2.56'}
-                        </td>
-
-                        {/* 16. Purity (%) - Styled in RED font matching image */}
-                        <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono font-bold text-xs text-[#b01622]">
-                          {row.purity || '2.65'}
-                        </td>
-
-                        {/* 17. Wastage */}
-                        <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-700">
-                          {row.wastage || '9.50'}
-                        </td>
-
-                        {/* 18. Percentages% */}
-                        <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-700">
-                          {row.percentages || '2%'}
-                        </td>
-
-                        {/* 19. Pure24k (g) */}
-                        <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-700">
-                          {row.pure_24k || '8.6'}
-                        </td>
-
-                        {/* 20. MC (₹) */}
-                        <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-700">
-                          {row.mc || '2650'}
-                        </td>
-
-                        {/* 21. Total MC (₹) */}
-                        <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-900 font-semibold">
-                          {row.total_mc || '4586.56'}
-                        </td>
-
-                        {/* 22. Remarks */}
-                        <td className="py-2.5 px-3 whitespace-nowrap text-xs text-gray-500">
-                          {row.remarks || '-'}
-                        </td>
-
-                        {/* 23. Actions */}
-                        <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handleOpenEditRowModal(row)}
-                              className="w-7 h-7 rounded-md hover:bg-stone-100 text-stone-500 hover:text-[#881337] flex items-center justify-center transition-colors cursor-pointer"
-                              title="Edit row details"
-                            >
-                              <i className="fa-solid fa-pencil text-xs"></i>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveRow(row)}
-                              className="w-7 h-7 rounded-md hover:bg-red-50 text-stone-400 hover:text-red-600 flex items-center justify-center transition-colors cursor-pointer"
-                              title="Remove row"
-                            >
-                              <i className="fa-solid fa-trash-can text-xs"></i>
-                            </button>
-                          </div>
-                        </td>
-
-                      </tr>
-                    );
-                  })
-                )}
+                ))}
               </tbody>
-
-              {/* Exact Total Footer Row Matching Screenshot */}
-              <tfoot>
-                <tr className="bg-[#fcfbf9] font-bold text-xs text-stone-900 border-t-2 border-[#ddccb4]">
-                  <td colSpan="4" className="py-3 px-3 uppercase tracking-wider text-stone-900 font-extrabold text-xs">
-                    TOTAL
-                  </td>
-                  <td className="py-3 px-3 text-center font-mono font-bold text-xs text-gray-900">
-                    {totalQty > 0 ? (totalQty === 2 ? '48.905' : totalQty) : '48.905'}
-                  </td>
-                  <td className="py-3 px-3 text-center font-mono text-xs text-gray-600">0.10</td>
-                  <td className="py-3 px-3 text-center font-mono text-xs text-gray-400">-</td>
-                  <td className="py-3 px-3 text-center font-mono text-xs text-gray-400">-</td>
-                  <td className="py-3 px-3 text-right font-mono font-bold text-xs text-gray-900">
-                    {totalTotalWeight > 0 ? totalTotalWeight.toFixed(2) : '6.18'}
-                  </td>
-                  <td className="py-3 px-3 text-right font-mono font-bold text-xs text-gray-900">
-                    {totalGoldWeight > 0 ? totalGoldWeight.toFixed(2) : '6.18'}
-                  </td>
-                  <td className="py-3 px-3 text-right font-mono font-bold text-xs text-gray-900">
-                    {totalColourStone > 0 ? totalColourStone.toFixed(2) : '6.18'}
-                  </td>
-                  <td className="py-3 px-3 text-right font-mono font-bold text-xs text-gray-900">
-                    {totalSilver > 0 ? totalSilver.toFixed(3) : '0.279'}
-                  </td>
-                  <td className="py-3 px-3 text-right font-mono font-bold text-xs text-gray-900">
-                    {totalDiamondCt > 0 ? totalDiamondCt : '279'}
-                  </td>
-                  <td className="py-3 px-3 text-right font-mono font-bold text-xs text-gray-900">
-                    {totalNoOfDia > 0 ? totalNoOfDia : '20'}
-                  </td>
-                  <td className="py-3 px-3 text-right font-mono font-bold text-xs text-gray-900">
-                    {totalNetWeight > 0 ? (totalNetWeight > 10 ? totalNetWeight.toFixed(3) : '47.569') : '47.569'}
-                  </td>
-                  {/* PURITY (%) TOTAL IN BOLD RED */}
-                  <td className="py-3 px-3 text-right font-mono font-extrabold text-xs text-[#b01622]">
-                    {totalPurity > 0 ? (totalPurity > 10 ? totalPurity.toFixed(3) : '36.963') : '36.963'}
-                  </td>
-                  <td className="py-3 px-3 text-right font-mono font-bold text-xs text-gray-900">
-                    {totalWastageVal > 0 ? (totalWastageVal > 50 ? totalWastageVal.toFixed(0) : '1900') : '1900'}
-                  </td>
-                  <td className="py-3 px-3 text-right font-mono text-xs text-gray-400">-</td>
-                  <td className="py-3 px-3 text-right font-mono font-bold text-xs text-gray-900">
-                    {totalPure24k > 0 ? totalPure24k.toFixed(1) : '13.2'}
-                  </td>
-                  <td className="py-3 px-3 text-right font-mono font-bold text-xs text-gray-900">
-                    1900
-                  </td>
-                  <td className="py-3 px-3 text-right font-mono font-bold text-xs text-gray-900">
-                    {totalMcSum > 0 ? totalMcSum.toFixed(1) : '45190.6'}
-                  </td>
-                  <td colSpan="2" className="py-3 px-3 text-center text-gray-400 font-normal">-</td>
-                </tr>
-              </tfoot>
             </table>
           </div>
-        </div>
+          {receivedPiecesList.length > detailItemsPerPage && (
+            <div className="flex items-center justify-between pt-3 text-xs text-stone-600">
+              <span>Showing {(safeReceivedHistoryPage - 1) * detailItemsPerPage + 1}–{Math.min(safeReceivedHistoryPage * detailItemsPerPage, receivedPiecesList.length)} of {receivedPiecesList.length} received pieces</span>
+              <div className="flex items-center gap-2">
+                <button type="button" disabled={safeReceivedHistoryPage <= 1} onClick={() => setReceivedHistoryPage((page) => Math.max(1, page - 1))} className="px-3 py-1.5 border border-stone-200 rounded-lg disabled:opacity-40">Previous</button>
+                <span>Page {safeReceivedHistoryPage} of {receivedHistoryPages}</span>
+                <button type="button" disabled={safeReceivedHistoryPage >= receivedHistoryPages} onClick={() => setReceivedHistoryPage((page) => Math.min(receivedHistoryPages, page + 1))} className="px-3 py-1.5 border border-stone-200 rounded-lg disabled:opacity-40">Next</button>
+              </div>
+            </div>
+          )}
+          </>
+        )}
       </div>
 
-      {/* 4. LOWER SECTION: TWO-COLUMN LAYOUT */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-
-        {/* LEFT / CENTER COLUMN (8 cols) */}
-        <div className="lg:col-span-8 space-y-6">
-
-          {/* Card: Worker Allocation / Used Gold Tracking */}
-          <div className="bg-[#F4F6F7] rounded-2xl border border-[#eed5d1] p-5 shadow-2xs space-y-4">
-            <div className="flex items-center gap-2 text-stone-800">
-              <i className="fa-regular fa-calendar text-[#b01622] text-sm"></i>
-              <h3 className="font-bold text-gray-900 text-sm tracking-tight">
-                Worker Allocation / Used Gold Tracking
-              </h3>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {/* Box 1: Gold Issued to Worker */}
-              <div>
-                <label className="text-xs font-semibold text-stone-600 block mb-1.5">
-                  Gold Issued to Worker (g)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={goldIssued}
-                  onChange={(e) => setGoldIssued(parseFloat(e.target.value) || 0)}
-                  className="w-full px-3.5 py-2.5 bg-white border border-[#eed5d1] focus:border-[#b01622] rounded-xl font-mono text-sm font-bold text-gray-900 shadow-2xs focus:outline-hidden transition-all"
-                />
-              </div>
-
-              {/* Box 2: Gold Used Till Now */}
-              <div>
-                <label className="text-xs font-semibold text-stone-600 block mb-1.5">
-                  Gold Used Till Now (g)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={goldUsed}
-                  onChange={(e) => setGoldUsed(parseFloat(e.target.value) || 0)}
-                  className="w-full px-3.5 py-2.5 bg-white border border-[#eed5d1] focus:border-[#b01622] rounded-xl font-mono text-sm font-bold text-gray-900 shadow-2xs focus:outline-hidden transition-all"
-                />
-              </div>
-
-              {/* Box 3: Pending Gold */}
-              <div>
-                <label className="text-xs font-semibold text-stone-600 block mb-1.5">
-                  Pending Gold
-                </label>
-                <div className="w-full px-3.5 py-2.5 bg-white border border-[#eed5d1] rounded-xl font-mono text-sm font-bold text-emerald-600 shadow-2xs flex items-center justify-between">
-                  <span>{pendingGold.toFixed(2)}</span>
-                  <span className="text-xs text-stone-400 font-sans font-normal">grams</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Blue Info Banner matching screenshot */}
-            <div className="p-3.5 bg-[#f0f7ff] border border-[#d0e4ff] rounded-xl text-[#1e429f] text-xs font-medium flex items-center gap-2.5">
-              <i className="fa-solid fa-circle-info text-[#1a56db] text-sm shrink-0"></i>
-              <span>
-                Total {goldIssued.toFixed(2)} g gold issued to the worker ,{goldUsed.toFixed(2)} g used for work. Pending {pendingGold.toFixed(2)} g.
-              </span>
-            </div>
+      {/* 6. INDIVIDUAL TAGS TABLE AT THE BOTTOM (Section 9.4) */}
+      <div className="bg-white rounded-3xl border border-stone-200/90 shadow-sm p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="w-8 h-8 rounded-xl bg-purple-100 text-purple-800 flex items-center justify-center text-xs font-bold">
+              <i className="fa-solid fa-tags"></i>
+            </span>
+            <h3 className="text-sm font-bold text-gray-900">
+              Individual Physical Tags ({filteredTagsList.length})
+            </h3>
           </div>
 
-          {/* Card: TRACKING TIMELINE */}
-          <div className="bg-[#F4F6F7] rounded-2xl border border-[#eed5d1] p-5 shadow-2xs space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="font-bold text-gray-900 text-xs uppercase tracking-wider">
-                  TRACKING TIMELINE
-                </h3>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-red-50 text-[#b01622] border border-red-200">
-                  {STAGES.find((s) => s.key === currentStageKey)?.label || 'Work in Progress'}
-                </span>
-              </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={tagSearchTerm}
+              onChange={(e) => {
+                setTagSearchTerm(e.target.value);
+                setDetailTagsPage(1);
+              }}
+              placeholder="Search by Tag # or RWO #..."
+              className="px-3 py-1.5 bg-white border border-stone-300 rounded-xl text-xs font-medium text-stone-800 focus:outline-hidden focus:border-[#b01622] w-56"
+            />
+            <Link
+              to={`/job-order/tag-printing?wo=${orderNumber}`}
+              className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold rounded-xl text-xs transition-all flex items-center gap-1.5"
+            >
+              <i className="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
+              <span>Batch Tag Printing</span>
+            </Link>
+          </div>
+        </div>
 
-              <button
-                type="button"
-                onClick={handleAdvanceNextStage}
-                className="text-[11px] font-bold text-[#b01622] hover:text-[#881337] flex items-center gap-1.5 transition-colors cursor-pointer bg-red-50 hover:bg-red-100 px-3 py-1 rounded-xl border border-red-200 shadow-2xs"
-                title="Advance to next production milestone"
-              >
-                <span>Advance Stage</span>
-                <i className="fa-solid fa-arrow-right text-[10px]"></i>
-              </button>
-            </div>
+        {filteredTagsList.length === 0 ? (
+          <div className="p-8 text-center bg-stone-50 rounded-2xl border border-dashed border-stone-200 text-stone-400 text-xs">
+            <span>No tags found matching the search.</span>
+          </div>
+        ) : (
+          <>
+          <div className="overflow-x-auto rounded-2xl border border-stone-200">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-[#fbf7f2] border-b border-stone-200 text-[#785b3a] font-black uppercase text-[10px] tracking-wider">
+                  <th className="py-2.5 px-3">Tag Number</th>
+                  <th className="py-2.5 px-3">Receive WO #</th>
+                  <th className="py-2.5 px-3">Design #</th>
+                  <th className="py-2.5 px-3">Product Description</th>
+                  <th className="py-2.5 px-3 text-center">Gold Karat</th>
+                  <th className="py-2.5 px-3 text-right">G.wt</th>
+                  <th className="py-2.5 px-3">Diamond Details</th>
+                  <th className="py-2.5 px-3 text-right">Total Dia Wt</th>
+                  <th className="py-2.5 px-3 text-center">Certification</th>
+                  <th className="py-2.5 px-3 text-center">Hallmarking</th>
+                  <th className="py-2.5 px-3">Receiving Date</th>
+                  <th className="py-2.5 px-3 text-center">Status</th>
+                  <th className="py-2.5 px-3 text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {paginatedDetailTags.map((pc) => {
+                  const certStatus = (pc.certification_status || '').toLowerCase();
+                  const isCertCompleted = certStatus === 'completed';
+                  const isCertSkipped = certStatus === 'skipped' || certStatus === 'not_required';
 
-            {/* Horizontal Timeline Tracker */}
-            <div className="pt-2 pb-4 overflow-x-auto">
-              <div className="min-w-[550px] flex items-center justify-between relative">
-
-                {/* Connecting background line */}
-                <div className="absolute left-8 right-8 top-3.5 h-0.5 bg-[#eed5d1] -z-0"></div>
-
-                {STAGES.map((s, index) => {
-                  const currentIdx = STAGES.findIndex((st) => st.key === currentStageKey);
-                  const isCompleted = index < currentIdx;
-                  const isCurrent = index === currentIdx;
-
-                  // Dynamic human-readable timestamps
-                  let timestampStr = '-- --';
-                  if (index === 0) {
-                    timestampStr = currentOrder?.created_at
-                      ? new Date(currentOrder.created_at).toLocaleDateString('en-GB')
-                      : '20 Apr 2026';
-                  } else if (index === 1) {
-                    timestampStr = currentOrder?.allotted_date
-                      ? new Date(currentOrder.allotted_date).toLocaleDateString('en-GB')
-                      : '20 Apr 2026';
-                  } else if (index === 2) {
-                    timestampStr = currentOrder?.allotted_date
-                      ? new Date(currentOrder.allotted_date).toLocaleDateString('en-GB')
-                      : '21 Apr 2026';
-                  } else if (index === 3) {
-                    timestampStr = currentOrder?.karigar_submitted_at
-                      ? new Date(currentOrder.karigar_submitted_at).toLocaleDateString('en-GB')
-                      : (currentIdx >= 3 ? 'Completed' : 'Pending');
-                  } else if (index === 4) {
-                    timestampStr = currentOrder?.approved_at
-                      ? new Date(currentOrder.approved_at).toLocaleDateString('en-GB')
-                      : (currentIdx >= 4 ? 'Verified' : 'Pending');
-                  } else if (index === 5) {
-                    timestampStr = currentOrder?.status === 'completed'
-                      ? new Date(currentOrder.updated_at || Date.now()).toLocaleDateString('en-GB')
-                      : (currentIdx >= 5 ? 'Delivered' : 'Pending');
-                  }
+                  const hallStatus = (pc.hallmarking_status || '').toLowerCase();
+                  const isHallCompleted = hallStatus === 'completed';
+                  const isHallSkipped = hallStatus === 'skipped' || hallStatus === 'not_required';
 
                   return (
-                    <div
-                      key={s.key}
-                      onClick={() => handleStageClick(s.key)}
-                      className="flex flex-col items-center text-center relative z-10 cursor-pointer group"
-                      title={`Click to set stage to: ${s.label}`}
-                    >
-                      {/* Step Circle */}
-                      <div
-                        className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all shadow-xs group-hover:scale-110 ${isCompleted
-                          ? 'bg-stone-800 text-white'
-                          : isCurrent
-                            ? 'bg-[#b01622] text-white ring-4 ring-red-100 shadow-sm shadow-red-900/30'
-                            : 'bg-stone-200 text-stone-400 group-hover:bg-stone-300'
-                          }`}
-                      >
-                        {isCompleted ? (
-                          <i className="fa-solid fa-check text-[10px]"></i>
-                        ) : isCurrent ? (
-                          <i className="fa-solid fa-wrench text-[10px]"></i>
+                    <tr key={pc.id} className="hover:bg-amber-50/30 transition-colors">
+                      <td className="py-2.5 px-3 font-mono font-black text-[#b01622]">{pc.tag_number}</td>
+                      <td className="py-2.5 px-3 font-mono text-stone-800">
+                        {pc.receive_order_number || '—'}
+                      </td>
+                      <td className="py-2.5 px-3 font-mono text-stone-700">{pc.design_no || designRefCode}</td>
+                      <td className="py-2.5 px-3 font-semibold text-stone-800">{pc.product_name || currentOrder?.product_name}</td>
+                      <td className="py-2.5 px-3 text-center font-bold text-amber-900">{pc.gold_karat || '22K'}</td>
+                      <td className="py-2.5 px-3 text-right font-mono font-bold text-stone-900">
+                        {Number(pc.gross_weight || 0).toFixed(3)}g
+                      </td>
+                      <td className="py-2.5 px-3 font-mono text-stone-700">
+                        {pc.diamond_details || (pc.diamond_weight > 0 ? `Dia-${Number(pc.diamond_weight).toFixed(2)}/+7/${pc.diamond_count || 1}` : '—')}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono text-stone-700">
+                        {Number(pc.diamond_weight || 0).toFixed(3)} ct
+                      </td>
+                      {/* Certification Column */}
+                      <td className="py-2.5 px-3 text-center">
+                        {isCertSkipped ? (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold text-stone-500 bg-stone-100 border border-stone-200">
+                            Skipped
+                          </span>
+                        ) : isCertCompleted ? (
+                          <span className="font-mono font-bold text-stone-900 text-[11px]">
+                            {pc.certificate_no || 'Completed'}
+                          </span>
                         ) : (
-                          <span className="w-2 h-2 rounded-full bg-stone-300"></span>
+                          <span className="text-stone-400 font-bold">-</span>
                         )}
-                      </div>
-
-                      {/* Step Label */}
-                      <span className={`text-xs font-bold mt-2 block transition-colors ${isCurrent ? 'text-[#b01622]' : 'text-gray-900'
-                        }`}>
-                        {s.short}
-                      </span>
-
-                      {/* Step Timestamp */}
-                      <span className="text-[10px] text-stone-400 block mt-0.5 leading-tight">
-                        {timestampStr}
-                      </span>
-                    </div>
+                      </td>
+                      {/* Hallmarking Column */}
+                      <td className="py-2.5 px-3 text-center">
+                        {isHallSkipped ? (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold text-stone-500 bg-stone-100 border border-stone-200">
+                            Skipped
+                          </span>
+                        ) : isHallCompleted ? (
+                          <span className="font-mono font-bold text-stone-900 text-[11px]">
+                            {pc.huid || 'Completed'}
+                          </span>
+                        ) : (
+                          <span className="text-stone-400 font-bold">-</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3 text-stone-500">
+                        {pc.received_at ? new Date(pc.received_at).toLocaleDateString('en-GB') : '—'}
+                      </td>
+                      <td className="py-2.5 px-3 text-center">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                          Active
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPieceForTag(pc);
+                            setIsTagModalOpen(true);
+                          }}
+                          className="px-2.5 py-1 bg-[#b01622] hover:bg-[#8f1019] text-white font-bold rounded-lg text-[10.5px] transition-all inline-flex items-center gap-1 cursor-pointer"
+                          title="Print Physical Tag"
+                        >
+                          <i className="fa-solid fa-print text-[10px]"></i>
+                          <span>Print Tag</span>
+                        </button>
+                      </td>
+                    </tr>
                   );
                 })}
-              </div>
-            </div>
+              </tbody>
+            </table>
           </div>
-
-          {/* TWO BOTTOM CARDS SIDE-BY-SIDE: QC Checklist & Return Details */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-            {/* Left Card: QC CHECKLIST */}
-            <div className="bg-[#F4F6F7] rounded-2xl border border-[#eed5d1] p-5 shadow-2xs flex flex-col justify-between space-y-4">
-              <div>
-                <h3 className="font-black text-gray-900 text-xs uppercase tracking-wider mb-3">
-                  QC CHECKLIST
-                </h3>
-
-                <div className="space-y-2.5">
-                  {/* Weight Verified */}
-                  <div className="flex items-center justify-between gap-2">
-                    <label className="flex items-center gap-2.5 cursor-pointer text-xs font-bold text-gray-800">
-                      <input
-                        type="checkbox"
-                        checked={qcChecklist.weight_verified}
-                        onChange={(e) =>
-                          setQcChecklist((prev) => ({ ...prev, weight_verified: e.target.checked }))
-                        }
-                        className="w-4 h-4 text-[#b01622] rounded border-stone-300 focus:ring-[#b01622] cursor-pointer"
-                      />
-                      <span>Weight Verified</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={qcChecklist.weight_note}
-                      onChange={(e) =>
-                        setQcChecklist((prev) => ({ ...prev, weight_note: e.target.value }))
-                      }
-                      placeholder="Remarks..."
-                      className="w-28 text-[11px] px-2 py-1 bg-white border border-[#eed5d1] rounded-lg text-stone-700"
-                    />
-                  </div>
-
-                  {/* Stone Count */}
-                  <div className="flex items-center justify-between gap-2">
-                    <label className="flex items-center gap-2.5 cursor-pointer text-xs font-bold text-gray-800">
-                      <input
-                        type="checkbox"
-                        checked={qcChecklist.stone_count}
-                        onChange={(e) =>
-                          setQcChecklist((prev) => ({ ...prev, stone_count: e.target.checked }))
-                        }
-                        className="w-4 h-4 text-[#b01622] rounded border-stone-300 focus:ring-[#b01622] cursor-pointer"
-                      />
-                      <span>Stone Count</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={qcChecklist.stone_note}
-                      onChange={(e) =>
-                        setQcChecklist((prev) => ({ ...prev, stone_note: e.target.value }))
-                      }
-                      placeholder="Remarks..."
-                      className="w-28 text-[11px] px-2 py-1 bg-white border border-[#eed5d1] rounded-lg text-stone-700"
-                    />
-                  </div>
-
-                  {/* Polish */}
-                  <label className="flex items-center gap-2.5 cursor-pointer text-xs font-bold text-gray-800">
-                    <input
-                      type="checkbox"
-                      checked={qcChecklist.polish}
-                      onChange={(e) =>
-                        setQcChecklist((prev) => ({ ...prev, polish: e.target.checked }))
-                      }
-                      className="w-4 h-4 text-[#b01622] rounded border-stone-300 focus:ring-[#b01622] cursor-pointer"
-                    />
-                    <span>Polish</span>
-                  </label>
-
-                  {/* Hallmark */}
-                  <label className="flex items-center gap-2.5 cursor-pointer text-xs font-bold text-gray-800">
-                    <input
-                      type="checkbox"
-                      checked={qcChecklist.hallmark}
-                      onChange={(e) =>
-                        setQcChecklist((prev) => ({ ...prev, hallmark: e.target.checked }))
-                      }
-                      className="w-4 h-4 text-[#b01622] rounded border-stone-300 focus:ring-[#b01622] cursor-pointer"
-                    />
-                    <span>Hallmark</span>
-                  </label>
-
-                  {/* Finish */}
-                  <label className="flex items-center gap-2.5 cursor-pointer text-xs font-bold text-gray-800">
-                    <input
-                      type="checkbox"
-                      checked={qcChecklist.finish}
-                      onChange={(e) =>
-                        setQcChecklist((prev) => ({ ...prev, finish: e.target.checked }))
-                      }
-                      className="w-4 h-4 text-[#b01622] rounded border-stone-300 focus:ring-[#b01622] cursor-pointer"
-                    />
-                    <span>Finish</span>
-                  </label>
-                </div>
-              </div>
-
-              {/* QC Rejection / Return Action */}
-              <div className="pt-4 border-t border-[#eed5d1]">
-                <button
-                  type="button"
-                  disabled={processingAction}
-                  onClick={handleRejectOrReturn}
-                  className="w-full py-2.5 bg-white hover:bg-red-50 text-[#b01622] font-bold rounded-xl text-xs transition-colors cursor-pointer border border-[#b01622] shadow-2xs flex items-center justify-center gap-2"
-                >
-                  <i className="fa-solid fa-arrow-rotate-left text-xs"></i>
-                  <span>Reject / Return to Karigar</span>
-                </button>
+          {filteredTagsList.length > detailItemsPerPage && (
+            <div className="flex items-center justify-between pt-3 text-xs text-stone-600">
+              <span>Showing {(safeDetailTagsPage - 1) * detailItemsPerPage + 1}–{Math.min(safeDetailTagsPage * detailItemsPerPage, filteredTagsList.length)} of {filteredTagsList.length} tags</span>
+              <div className="flex items-center gap-2">
+                <button type="button" disabled={safeDetailTagsPage <= 1} onClick={() => setDetailTagsPage((page) => Math.max(1, page - 1))} className="px-3 py-1.5 border border-stone-200 rounded-lg disabled:opacity-40">Previous</button>
+                <span>Page {safeDetailTagsPage} of {detailTagsPages}</span>
+                <button type="button" disabled={safeDetailTagsPage >= detailTagsPages} onClick={() => setDetailTagsPage((page) => Math.min(detailTagsPages, page + 1))} className="px-3 py-1.5 border border-stone-200 rounded-lg disabled:opacity-40">Next</button>
               </div>
             </div>
-
-            {/* Right Card: RETURN DETAILS (IF ANY) */}
-            <div className="bg-[#F4F6F7] rounded-2xl border border-[#eed5d1] p-5 shadow-2xs space-y-4">
-              <h3 className="font-black text-rose-600 text-xs uppercase tracking-wider">
-                RETURN DETAILS (IF ANY)
-              </h3>
-
-              <div>
-                <label className="text-xs font-bold text-stone-700 block mb-1.5">
-                  Return Reason
-                </label>
-                <select
-                  value={returnReason}
-                  onChange={(e) => setReturnReason(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-[#eed5d1] focus:border-[#b01622] rounded-xl text-xs font-medium text-gray-900 focus:outline-hidden cursor-pointer"
-                >
-                  <option value="">Select Reason</option>
-                  <option value="Weight Discrepancy">Weight Discrepancy</option>
-                  <option value="Finish / Polish Imperfection">Finish / Polish Imperfection</option>
-                  <option value="Stone Missing or Defect">Stone Missing or Defect</option>
-                  <option value="Design Deviation">Design Deviation</option>
-                  <option value="Hallmark Missing">Hallmark Missing</option>
-                  <option value="Delayed Beyond Due Date">Delayed Beyond Due Date</option>
-                  <option value="Customer Customization Change">Customer Customization Change</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-stone-700 block mb-1.5">
-                  Upload Return Photos
-                </label>
-
-                <label className="border-2 border-dashed border-rose-200 hover:border-rose-400 bg-rose-50/20 rounded-xl p-4 flex flex-col items-center justify-center text-center cursor-pointer transition-colors block">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handlePhotoUpload}
-                    className="hidden"
-                  />
-                  {returnPhotoUrl ? (
-                    <div className="space-y-1">
-                      <img
-                        src={returnPhotoUrl}
-                        alt="Return Preview"
-                        className="w-16 h-16 object-cover rounded-lg mx-auto border border-rose-300"
-                      />
-                      <span className="text-[10px] text-emerald-600 font-bold block">
-                        Photo Added (Click to Change)
-                      </span>
-                    </div>
-                  ) : (
-                    <>
-                      <i className="fa-regular fa-image text-rose-400 text-xl mb-1.5"></i>
-                      <span className="text-xs font-semibold text-stone-600 block">
-                        Click to add photo
-                      </span>
-                    </>
-                  )}
-                </label>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* RIGHT COLUMN (4 cols) */}
-        <div className="lg:col-span-4 space-y-6">
-
-          {/* Card: JOB SUMMARY */}
-          <div className="bg-[#F4F6F7] rounded-2xl border border-[#eed5d1] p-5 shadow-2xs space-y-4">
-            <h3 className="font-black text-gray-900 text-xs uppercase tracking-wider">
-              JOB SUMMARY
-            </h3>
-
-            <div className="space-y-2.5 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-stone-400 font-medium">Job ID</span>
-                <span className="font-mono font-bold text-gray-900">
-                  {currentOrder?.design_code || 'RJ-2026-000125'}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <span className="text-stone-400 font-medium">Job Type</span>
-                <span className="font-bold text-gray-900">
-                  {currentOrder?.product_name || 'Gold Necklace'}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <span className="text-stone-400 font-medium">Category</span>
-                <span className="font-semibold text-stone-700">
-                  {currentOrder?.category?.name || 'Necklace'}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <span className="text-stone-400 font-medium">Material</span>
-                <span className="font-semibold text-stone-700">
-                  {currentOrder?.material_type || 'Gold 22K'}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <span className="text-stone-400 font-medium">Weight</span>
-                <span className="font-mono font-bold text-stone-900">
-                  {Number(currentOrder?.allotted_weight || 35.5).toFixed(3)} gm
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <span className="text-stone-400 font-medium">Due Date</span>
-                <span className="font-semibold text-stone-700">
-                  {currentOrder?.delivery_date
-                    ? new Date(currentOrder.delivery_date).toLocaleDateString('en-GB')
-                    : '26 Apr 2026'}
-                </span>
-              </div>
-
-              <div className="pt-3 border-t border-[#eed5d1] flex items-center justify-between">
-                <span className="text-xs font-bold text-stone-500 uppercase">
-                  Total Amount
-                </span>
-                <span className="text-lg font-black text-[#b01622] font-mono">
-                  ₹ {Number(currentOrder?.total_price || 149175).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Card: Stone Count */}
-          <div className="bg-[#F4F6F7] rounded-2xl border border-[#eed5d1] p-5 shadow-2xs space-y-4">
-            <div className="flex items-center gap-2">
-              <i className="fa-solid fa-gem text-rose-500 text-xs"></i>
-              <h3 className="font-black text-gray-900 text-xs uppercase tracking-wider">
-                Stone Count
-              </h3>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-white border border-[#eed5d1] rounded-xl p-3 text-center">
-                <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block">
-                  Allocated
-                </span>
-                <span className="text-xl font-black text-stone-900 font-mono block mt-0.5">
-                  {stoneAllocated}
-                </span>
-              </div>
-
-              <div className="bg-white border border-[#eed5d1] rounded-xl p-3 text-center">
-                <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block">
-                  Received
-                </span>
-                <input
-                  type="number"
-                  min="0"
-                  value={stoneReceived}
-                  onChange={(e) => setStoneReceived(parseInt(e.target.value) || 0)}
-                  className="w-full text-center text-xl font-black text-stone-900 font-mono bg-transparent focus:outline-hidden"
-                />
-              </div>
-            </div>
-
-            <div
-              className={`p-2.5 rounded-xl border flex items-center justify-between text-xs font-bold ${stoneVariance === 0
-                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                : 'bg-rose-50 border-rose-200 text-rose-800'
-                }`}
-            >
-              <span>Variance: {stoneVariance}</span>
-              <span
-                className={`w-2.5 h-2.5 rounded-full ${stoneVariance === 0 ? 'bg-emerald-500' : 'bg-rose-500'
-                  }`}
-              ></span>
-            </div>
-          </div>
-
-          {/* Reception Status Indicator */}
-          <div className="bg-[#F4F6F7] border border-[#eed5d1] rounded-2xl p-4 text-center space-y-1.5 shadow-2xs">
-            <div className="flex items-center justify-center gap-2 text-xs font-bold text-stone-700">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span>Reception & QC Active</span>
-            </div>
-            <p className="text-[11px] text-stone-400">
-              Check all measurements and use the action bar below to finalize or approve.
-            </p>
-          </div>
-        </div>
+          )}
+          </>
+        )}
       </div>
 
-      {/* GLOBAL BOTTOM RECEPTION BAR WITH COMPLETE WORK & RED APPROVE BUTTON */}
-      <div className="bg-[#F4F6F7] rounded-2xl border border-[#eed5d1] shadow-md p-4 px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-red-50 border border-red-200 text-[#b01622] flex items-center justify-center text-base font-bold shadow-2xs">
-            <i className="fa-solid fa-clipboard-check"></i>
-          </div>
-          <div>
-            <h4 className="font-bold text-gray-900 text-xs sm:text-sm">
-              Receive Work Order #{orderNumber}
-
-            </h4>
-            <p className="text-[11px] text-stone-500">
-              Artisan: <span className="text-stone-700 font-semibold">{artisanName}</span> • Total Rows:{' '}
-              <span className="font-bold text-stone-700">{weightRows.length} Material Components</span>
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap">
-          <button
-            type="button"
-            disabled={saving}
-            onClick={handleSaveReceiveWork}
-            className="flex-1 sm:flex-none px-4 py-2.5 bg-white hover:bg-stone-50 text-stone-700 font-bold rounded-xl text-xs border border-stone-300 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-2xs"
-          >
-            <i className="fa-solid fa-floppy-disk text-stone-500"></i>
-            <span>Save Progress</span>
-          </button>
-
-          <button
-            type="button"
-            disabled={processingAction}
-            onClick={handleCompleteWork}
-            className="flex-1 sm:flex-none px-6 py-2.5 bg-[#b01622] hover:bg-[#8f1019] text-white font-bold rounded-xl text-xs sm:text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <i className="fa-solid fa-circle-check text-sm"></i>
-            <span>Approve & Complete Work Order</span>
-          </button>
-        </div>
-      </div>
-
-      {/* 5. PRINT VOUCHER MODAL (Exact match to reference Job Order design) */}
-      {isPrintModalOpen && (
+      {/* 7. PRINTABLE RECEIVING VOUCHER MODAL (Section 10.1) */}
+      {isVoucherModalOpen && selectedPieceForVoucher && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-stone-900/70 backdrop-blur-xs overflow-y-auto animate-in fade-in duration-150">
-          <div className="bg-white rounded-3xl max-w-4xl w-full shadow-2xl border border-stone-200 overflow-hidden my-auto max-h-[95vh] flex flex-col">
-
-            {/* Modal Top Control Bar (Hidden during print) */}
+          <div className="bg-white rounded-3xl max-w-6xl w-full shadow-2xl border border-stone-200 overflow-hidden my-auto max-h-[95vh] flex flex-col">
+            {/* Control Bar */}
             <div className="px-6 py-3.5 bg-stone-50 border-b border-stone-200 flex items-center justify-between no-print">
               <div className="flex items-center gap-2">
-                <i className="fa-solid fa-print text-[#801824] text-base"></i>
+                <i className="fa-solid fa-file-invoice text-[#b01622] text-base"></i>
                 <h3 className="font-bold text-gray-900 text-sm">
-                  Official Job Order Voucher — #{orderNumber}
+                  Receive Order — {selectedPieceForVoucher.receive_order_number || '—'} · Piece #{selectedPieceForVoucher.piece_number || '—'}
                 </h3>
-                <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300">
-                  Ready to Print
-                </span>
               </div>
-
               <div className="flex items-center gap-2.5">
-                {(selectedOrderId || currentOrder?.id) && (
-                  <a
-                    href={`/work-orders/${selectedOrderId || currentOrder?.id}/pdf`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-4 py-2 bg-stone-900 hover:bg-black text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-2 cursor-pointer no-underline"
-                  >
-                    <i className="fa-solid fa-file-pdf text-red-400"></i>
-                    <span>Download Job Order (PDF)</span>
-                  </a>
-                )}
                 <button
                   type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    printElement('job-order-voucher-sheet', `Job Order Voucher #${orderNumber}`);
-                  }}
-                  className="px-4 py-2 bg-[#801824] hover:bg-[#6b1019] text-white rounded-xl text-xs font-bold shadow-md shadow-red-900/20 transition-all flex items-center gap-2 cursor-pointer"
+                  onClick={() => printElement('receiving-voucher-sheet', `Receive Order ${selectedPieceForVoucher.receive_order_number || selectedPieceForVoucher.id}`, { orientation: 'landscape' })}
+                  className="px-4 py-2 bg-[#b01622] hover:bg-[#8f1019] text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-2 cursor-pointer"
                 >
                   <i className="fa-solid fa-print"></i>
-                  <span>Print Document (A4)</span>
+                  <span>Print Receive Order</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => setIsPrintModalOpen(false)}
+                  disabled={!selectedPieceForVoucher.tag_number}
+                  onClick={() => {
+                    if (!selectedPieceForVoucher.tag_number) return;
+                    setSelectedPieceForTag(selectedPieceForVoucher);
+                    setIsTagModalOpen(true);
+                  }}
+                  className="px-4 py-2 bg-stone-900 hover:bg-black disabled:opacity-40 text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  <i className="fa-solid fa-tag"></i>
+                  <span>Print Tag</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsVoucherModalOpen(false)}
                   className="w-8 h-8 rounded-full bg-stone-200 hover:bg-stone-300 text-stone-600 flex items-center justify-center transition-colors cursor-pointer"
                 >
                   <i className="fa-solid fa-xmark text-sm"></i>
@@ -2160,1131 +2446,200 @@ export default function ReceiverWork() {
               </div>
             </div>
 
-            {/* Scrollable Document Container */}
-            <div className="p-4 sm:p-8 overflow-y-auto bg-stone-100/60 flex justify-center">
-
-              {/* PRINTABLE VOUCHER SHEET (Exact replica of Image 2) */}
+            {/* Document Sheet */}
+            <div className="p-6 sm:p-8 overflow-y-auto bg-stone-100/60 flex justify-center">
               <div
-                id="job-order-voucher-sheet"
-                className="bg-white rounded-xl shadow-xl border border-stone-200 p-8 sm:p-10 max-w-[820px] w-full text-stone-800 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif] space-y-4 relative overflow-hidden"
-                style={{ minHeight: '1050px' }}
+                id="receiving-voucher-sheet"
+                className="bg-white border border-stone-200 p-4 w-full text-gray-900 text-xs font-['Inter',sans-serif] space-y-3 relative"
+                style={{ maxWidth: '1120px' }}
               >
-                {/* Diagonal Watermark Across Document */}
-                <div className="voucher-watermark-bg absolute inset-0 flex items-center justify-center pointer-events-none select-none z-0 overflow-hidden">
-                  <span className="text-6xl sm:text-7xl font-black rotate-[-22deg] tracking-widest text-[#801824]/[0.06] font-serif uppercase whitespace-nowrap">
-                    RUDRA JEWELLERS
-                  </span>
-                </div>
+                <WorkOrderPrintHeader
+                  title="RECEIVE ORDER"
+                  number={selectedPieceForVoucher.receive_order_number}
+                  issuedDate={selectedPieceForVoucher.received_at ? new Date(selectedPieceForVoucher.received_at).toLocaleDateString('en-CA') : null}
+                />
 
-                {/* Print specific CSS */}
-                <style>{`
-                  @media print {
-                    .no-print, .print\\:hidden {
-                      display: none !important;
-                    }
-                    html, body {
-                      background: white !important;
-                      margin: 0 !important;
-                      padding: 0 !important;
-                      width: 100% !important;
-                      height: auto !important;
-                      overflow: visible !important;
-                    }
-                    #job-order-voucher-sheet {
-                      display: block !important;
-                      position: static !important;
-                      width: 100% !important;
-                      max-width: 100% !important;
-                      margin: 0 !important;
-                      padding: 24px !important;
-                      box-shadow: none !important;
-                      border: none !important;
-                      border-radius: 0 !important;
-                      background: white !important;
-                      -webkit-print-color-adjust: exact !important;
-                      print-color-adjust: exact !important;
-                    }
-                    .voucher-watermark-bg span {
-                      opacity: 0.08 !important;
-                      display: block !important;
-                      visibility: visible !important;
-                    }
-                  }
-                `}</style>
+                <WorkOrderPrintMetadata items={[
+                  { label: 'Design No.', value: selectedPieceForVoucher.design_no || selectedPieceForVoucher.item?.design_no },
+                  { label: 'Ordered Date', value: selectedPieceForVoucher.ordered_date || selectedPieceForVoucher.work_order?.allotted_date || selectedPieceForVoucher.work_order?.job_order?.order_date },
+                  { label: 'Delivery Date', value: selectedPieceForVoucher.delivery_date || selectedPieceForVoucher.item?.delivery_date || selectedPieceForVoucher.work_order?.delivery_date },
+                  { label: 'Work Order / Job', value: `${selectedPieceForVoucher.work_order?.work_order_number || orderNumber} · ${selectedPieceForVoucher.work_order_item_id || selectedPieceForVoucher.item?.id || '—'}` },
+                  { label: 'Individual Piece / Tag', value: `#${selectedPieceForVoucher.piece_number || '—'} · ${selectedPieceForVoucher.tag_number || '—'}` },
+                ]} />
 
-                {/* 1. HEADER ROW */}
-                <div className="relative z-10 space-y-2">
-                  <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
-                    {/* Left Logo and Company Details */}
-                    <div className="flex items-center gap-4">
-                      {/* Exact Project Brand Logo Image */}
-                      <img
-                        src={companyInfo?.logo_url || '/logo.png'}
-                        alt={companyInfo?.company_name || 'RUDRA JEWELLERS'}
-                        className="h-16 w-auto max-w-[200px] object-contain shrink-0"
-                        onError={(e) => {
-                          e.target.src = '/logo.png';
-                        }}
-                      />
+                {(() => {
+                  const piece = selectedPieceForVoucher;
+                  const completionImage = piece.image_path || piece.completion_image || piece.image || '';
+                  const productImage = completionImage || '/placeholder-jewelry.png';
+                  const displayWeight = (value, unit = 'g') => value == null || value === '' ? '—' : `${Number(value).toFixed(3)} ${unit}`;
+                  const displayCount = (value) => value == null || value === '' ? '—' : String(Number(value));
+                  const metricRows = [
+                    { label: 'Product Name', value: piece.product_name || piece.item?.product_name || piece.product?.name || '—' },
+                    { label: 'Quantity', value: '1 piece' },
+                    { label: 'Total Weight', value: displayWeight(piece.gross_weight) },
+                    { label: 'Old Weight', value: displayWeight(piece.old_weight) },
+                    { label: 'Colour Stone Weight', value: displayWeight(piece.color_stone_weight, 'ct') },
+                    { label: 'Number of Colour Stones', value: displayCount(piece.color_stone_count) },
+                    { label: 'Diamond Weight', value: displayWeight(piece.diamond_weight, 'ct') },
+                    { label: 'Number of Diamonds', value: displayCount(piece.diamond_count) },
+                    { label: 'Silver Weight', value: displayWeight(piece.silver_weight) },
+                    { label: 'Net Gold Weight', value: displayWeight(piece.net_gold_weight), emphasis: 'text-[#881337]' },
+                    { label: 'Purity / Touch', value: piece.purity == null || piece.purity === '' ? '—' : `${Number(piece.purity).toFixed(2)}%${piece.gold_karat ? ` (${piece.gold_karat})` : ''}` },
+                    { label: 'Pure 24K Gold Equivalent Weight', value: displayWeight(piece.pure_24k_weight) },
+                    { label: 'Making Charge Rate (MC)', value: piece.making_charge_per_gram == null ? '—' : `₹${Number(piece.making_charge_per_gram).toFixed(2)} / ${piece.making_charge_type || 'g'}` },
+                    { label: 'Total Making Charge (Total MC)', value: piece.total_making_charge == null ? '—' : `₹${Number(piece.total_making_charge).toFixed(2)}` },
+                    { label: 'Total Number of Stones', value: piece.diamond_count == null && piece.color_stone_count == null ? '—' : String(Number(piece.diamond_count || 0) + Number(piece.color_stone_count || 0)) },
+                    { label: 'Allotted Weight (piece share)', value: displayWeight(piece.allotted_weight) },
+                  ];
 
-                      <div>
-                        <h1 className="text-xl sm:text-2xl font-black text-[#801824] tracking-wider uppercase font-serif leading-none">
-                          {companyInfo?.company_name || 'RUDRA JEWELLERS'}
-                        </h1>
-                        <span className="text-[10px] font-extrabold text-stone-400 uppercase tracking-widest block mt-1">
-                          {companyInfo?.tagline || 'ENTERPRISE ERP SYSTEM'}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Right Job Order & Number Box */}
-                    <div className="text-left sm:text-right shrink-0">
-                      <h2 className="text-2xl sm:text-3xl font-black text-stone-900 uppercase tracking-tight">
-                        JOB ORDER
-                      </h2>
-                      <div className="mt-1 px-3 py-1 bg-stone-100 border border-stone-200 rounded-lg inline-block text-right">
-                        <span className="text-xs font-semibold text-stone-500 mr-1.5">WO ID:</span>
-                        <span className="text-xs font-mono font-black text-[#801824]">{orderNumber}</span>
-                      </div>
-                      <p className="text-[11px] text-stone-500 font-medium mt-1">
-                        Date: {displayReceiveDate}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Company Address & Contact Line (Below logo block) */}
-                  <div className="text-[11px] text-stone-500 leading-tight space-y-0.5">
-                    <p>
-                      Regd. Office: {[companyInfo?.address_line1, companyInfo?.address_line2, companyInfo?.city, companyInfo?.state && `${companyInfo.state} - ${companyInfo?.pincode || ''}`].filter(Boolean).join(', ') || '402, Heritage Plaza, MG Road'}
-                    </p>
-                    <p>
-                      Contact: {companyInfo?.phone || '+91 22 4000 8888'} | {companyInfo?.email || 'erp@rudrajewellers.com'}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Horizontal Maroon Divider Line */}
-                <div className="relative z-10 w-full h-[1.5px] bg-[#801824]"></div>
-
-                {/* 2. ORDER METADATA (EXACTLY 4 COLUMNS matching Image 2) */}
-                <div className="relative z-10 grid grid-cols-2 sm:grid-cols-4 gap-4 py-1">
-                  <div>
-                    <span className="text-[10px] font-black text-stone-400 uppercase tracking-wider block">
-                      ARTISAN NAME
-                    </span>
-                    <span className="text-xs font-black text-stone-900 block mt-0.5 truncate">
-                      {artisanName}
-                    </span>
-                  </div>
-
-                  <div>
-                    <span className="text-[10px] font-black text-stone-400 uppercase tracking-wider block">
-                      ITEM TYPE
-                    </span>
-                    <span className="text-xs font-black text-stone-900 block mt-0.5 truncate">
-                      {currentOrder?.product_name || 'Royal Bridal Necklace'}
-                    </span>
-                  </div>
-
-                  <div>
-                    <span className="text-[10px] font-black text-stone-400 uppercase tracking-wider block">
-                      QUANTITY
-                    </span>
-                    <span className="text-xs font-bold text-stone-900 block mt-0.5">
-                      01 Unit
-                    </span>
-                  </div>
-
-                  <div>
-                    <span className="text-[10px] font-black text-stone-400 uppercase tracking-wider block">
-                      PRIORITY
-                    </span>
-                    <span className="px-2.5 py-0.5 rounded-full bg-[#fee2e2] text-[#dc2626] font-extrabold text-[10px] inline-block mt-0.5">
-                      URGENT (Tier 1)
-                    </span>
-                  </div>
-                </div>
-
-                {/* 3. MATERIAL ALLOCATION TABLE */}
-                <div className="relative z-10 space-y-1.5">
-                  <div className="flex items-center gap-1.5 text-xs font-black text-[#801824] uppercase tracking-wider">
-                    <i className="fa-solid fa-gem text-[10px]"></i>
-                    <span>Material Allocation</span>
-                  </div>
-
-                  <div className="border border-stone-200 rounded-xl overflow-hidden bg-white shadow-2xs">
-                    <table className="w-full text-left border-collapse text-xs">
-                      <thead>
-                        <tr className="bg-[#fcfbf9] border-b border-stone-200 text-stone-700 font-black text-[10px] uppercase tracking-wider">
-                          <th className="py-2.5 px-3.5">Material Type</th>
-                          <th className="py-2.5 px-3.5 text-center">Weight (g) / Qty</th>
-                          <th className="py-2.5 px-3.5 text-center">Carat/Size</th>
-                          <th className="py-2.5 px-3.5 text-center">Clarity/Cut/Color</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-stone-100 text-stone-800 text-[11px] font-medium">
-                        {weightRows.length > 0 ? (
-                          weightRows.map((r, i) => (
-                            <tr key={i} className="hover:bg-stone-50/50">
-                              <td className="py-2.5 px-3.5 font-bold text-gray-900">
-                                {r.material_type}
-                              </td>
-                              <td className="py-2.5 px-3.5 text-center font-mono font-bold">
-                                {r.gold_weight || r.total_weight ? `${Number(r.gold_weight || r.total_weight).toFixed(2)}g` : (r.qty ? `${r.qty} Pcs` : '1 Unit')}
-                              </td>
-                              <td className="py-2.5 px-3.5 text-center font-mono text-stone-600">
-                                {r.total_cts && r.total_cts !== '-' ? `${r.total_cts} ct` : '-'}
-                              </td>
-                              <td className="py-2.5 px-3.5 text-center text-stone-600 font-mono">
-                                {r.diamond_weight || r.material_subtitle || '-'}
-                              </td>
-                            </tr>
-                          ))
-                        ) : (
-                          <>
-                            <tr>
-                              <td className="py-2.5 px-3.5 font-bold text-gray-900">
-                                22K Yellow Gold (BIS Hallmark)
-                              </td>
-                              <td className="py-2.5 px-3.5 text-center font-mono font-bold">124.50g</td>
-                              <td className="py-2.5 px-3.5 text-center font-mono text-stone-500">-</td>
-                              <td className="py-2.5 px-3.5 text-center font-mono text-stone-500">-</td>
-                            </tr>
-                            <tr>
-                              <td className="py-2.5 px-3.5 font-bold text-gray-900">
-                                Round Brilliant Diamonds
-                              </td>
-                              <td className="py-2.5 px-3.5 text-center font-mono font-bold">42 Stones</td>
-                              <td className="py-2.5 px-3.5 text-center font-mono text-stone-600">0.15 ct (Avg)</td>
-                              <td className="py-2.5 px-3.5 text-center font-mono text-stone-600">VVS1 / EX / G-H</td>
-                            </tr>
-                            <tr>
-                              <td className="py-2.5 px-3.5 font-bold text-gray-900">
-                                Marquise Diamonds (Side Accents)
-                              </td>
-                              <td className="py-2.5 px-3.5 text-center font-mono font-bold">12 Stones</td>
-                              <td className="py-2.5 px-3.5 text-center font-mono text-stone-600">0.30 ct (Avg)</td>
-                              <td className="py-2.5 px-3.5 text-center font-mono text-stone-600">VS1 / VG / F-G</td>
-                            </tr>
-                            <tr>
-                              <td className="py-2.5 px-3.5 font-bold text-gray-900">
-                                Natural Burmese Ruby (Center)
-                              </td>
-                              <td className="py-2.5 px-3.5 text-center font-mono font-bold">01 Stone</td>
-                              <td className="py-2.5 px-3.5 text-center font-mono text-stone-600">4.20 ct</td>
-                              <td className="py-2.5 px-3.5 text-center font-mono text-stone-600">Oval / Pigeon Blood</td>
-                            </tr>
-                          </>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* 4. PRODUCTION TIMELINE & DESIGN REFERENCE (2 Columns matching Image 2) */}
-                <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 gap-4">
-
-                  {/* Left: Production Timeline */}
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-1.5 text-xs font-black text-[#801824] uppercase tracking-wider">
-                      <i className="fa-regular fa-calendar text-[10px]"></i>
-                      <span>Production Timeline</span>
-                    </div>
-
-                    <div className="border border-stone-200 rounded-xl overflow-hidden bg-white text-xs divide-y divide-stone-100 shadow-2xs">
-                      <div className="px-3.5 py-2 flex items-center justify-between">
-                        <span className="text-[10.5px] font-bold text-stone-500 uppercase tracking-tight">
-                          EST. START DATE
-                        </span>
-                        <span className="font-bold text-stone-800">
-                          {currentOrder?.allotted_date ? new Date(currentOrder.allotted_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Oct 25, 2023'}
-                        </span>
-                      </div>
-
-                      <div className="px-3.5 py-2 flex items-center justify-between">
-                        <span className="text-[10.5px] font-bold text-stone-500 uppercase tracking-tight">
-                          SENT TO DEPT
-                        </span>
-                        <span className="font-bold text-stone-800">
-                          {displayReceiveDate}
-                        </span>
-                      </div>
-
-                      <div className="px-3.5 py-2 flex items-center justify-between bg-rose-50/20">
-                        <span className="text-[10.5px] font-bold text-stone-500 uppercase tracking-tight">
-                          PROMISED DUE DATE
-                        </span>
-                        <span className="font-black text-[#801824]">
-                          {estDeliveryDate}
-                        </span>
-                      </div>
-
-                      <div className="px-3.5 py-2 flex items-center justify-between bg-rose-50/20">
-                        <span className="text-[10.5px] font-bold text-stone-500 uppercase tracking-tight">
-                          PROMISED DUE DATE
-                        </span>
-                        <span className="font-black text-[#801824]">
-                          {estDeliveryDate}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Right: Design Reference (Wide Spec Box matching Image 2) */}
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-1.5 text-xs font-black text-[#801824] uppercase tracking-wider">
-                      <i className="fa-solid fa-pen-ruler text-[10px]"></i>
-                      <span>Design Reference</span>
-                    </div>
-
-                    <div className="border-2 border-dashed border-stone-300 rounded-xl p-2.5 bg-stone-50/60 flex items-center gap-3 shadow-2xs min-h-[138px]">
-                      <div className="w-28 h-24 rounded-lg overflow-hidden bg-white border border-stone-200 shrink-0 shadow-xs">
-                        <img
-                          src={currentOrder?.image_url || '/images/samples/peacock_choker.jpg'}
-                          alt="Design Spec"
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            e.target.src = '/images/samples/peacock_choker.jpg';
-                          }}
-                        />
-                      </div>
-
-                      <div className="min-w-0 text-[9.5px] font-medium text-stone-600 space-y-1 leading-snug">
-                        <div>
-                          <span className="font-bold text-stone-800 uppercase block text-[9px] text-[#801824]">CUSTOMER DETAILS</span>
-                          <span className="truncate block font-semibold text-stone-700">{customerName} | +91 9876543210</span>
+                  return (
+                    <div className="space-y-3">
+                      {/* Product Completion Image Section */}
+                      {completionImage ? (
+                        <div className="border border-[#d8c8b0] rounded-xl p-3 bg-[#fcfaf7] flex items-center gap-4 my-2 text-xs">
+                          <img
+                            src={completionImage}
+                            alt="Product Completion Image"
+                            className="w-20 h-20 object-contain rounded-lg border border-[#d8c8b0] bg-white shrink-0"
+                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                          />
+                          <div>
+                            <span className="text-[10px] font-black uppercase tracking-wider text-[#881337] block">
+                              Product Completion Image
+                            </span>
+                            <p className="text-xs font-semibold text-stone-800 mt-1">
+                              Verified physical piece received from artisan ({piece.artisan_name || piece.karigar?.name || 'Artisan'}).
+                            </p>
+                            <span className="text-[10px] text-stone-500 font-mono mt-0.5 block">
+                              Piece #{piece.piece_number || '1'} · Tag: {piece.tag_number || '—'} · RWO: {piece.receive_order_number || '—'}
+                            </span>
+                          </div>
                         </div>
-                        <div>
-                          <span className="font-bold text-stone-800 uppercase block text-[9px] text-[#801824]">ORDER SPECIFICATIONS</span>
-                          <span className="line-clamp-2 text-stone-700">
-                            {currentOrder?.product_name || 'Royal Bridal Choker Set'}, 22K Gold ({goldIssued.toFixed(1)}g), Round Brilliant Diamonds & Burmese Rubies.
-                          </span>
-                        </div>
-                        <div>
-                          <span className="font-bold text-stone-800 uppercase block text-[9px] text-[#801824]">PRODUCTION TRACKING</span>
-                          <span className="truncate block text-stone-700">Goldsmith: {artisanName} | Status: In Production</span>
-                        </div>
-                      </div>
+                      ) : null}
+
+                      <div className="w-full overflow-x-auto border border-[#d8c8b0] rounded-lg bg-white my-2 shadow-2xs">
+                        <table className="w-full min-w-[960px] text-left text-[8.5px] border-collapse">
+                          <thead>
+                            <tr className="bg-[#eedfce] text-[#881337] font-bold border-b border-[#d8c8b0] text-[7.5px] uppercase tracking-wider">
+                              <th className="py-1 px-1.5 border border-[#d8c8b0] text-center w-8">S.No</th>
+                              <th className="py-1 px-2 border border-[#d8c8b0] min-w-[90px]">Product / Design</th>
+                              <th className="py-1 px-1.5 border border-[#d8c8b0] text-center w-9">Image</th>
+                              <th className="py-1 px-2 border border-[#d8c8b0] min-w-[95px]">Piece / Tag / Qty</th>
+                              <th className="py-1 px-1.5 border border-[#d8c8b0] text-right whitespace-nowrap">Total Wt</th>
+                              <th className="py-1 px-1.5 border border-[#d8c8b0] text-right whitespace-nowrap">Old Wt</th>
+                              <th className="py-1 px-1.5 border border-[#d8c8b0] text-right whitespace-nowrap">Colour Stone (ct)</th>
+                              <th className="py-1 px-1.5 border border-[#d8c8b0] text-center whitespace-nowrap">Colour Pcs</th>
+                              <th className="py-1 px-1.5 border border-[#d8c8b0] text-right whitespace-nowrap">Diamond (ct)</th>
+                              <th className="py-1 px-1.5 border border-[#d8c8b0] text-center whitespace-nowrap">Diamond Pcs</th>
+                              <th className="py-1 px-1.5 border border-[#d8c8b0] text-right whitespace-nowrap">Silver Wt</th>
+                              <th className="py-1 px-1.5 border border-[#d8c8b0] text-right whitespace-nowrap">Net Gold Wt</th>
+                              <th className="py-1 px-1.5 border border-[#d8c8b0] whitespace-nowrap">Purity / Touch</th>
+                              <th className="py-1 px-1.5 border border-[#d8c8b0] text-right whitespace-nowrap">Pure 24K Wt</th>
+                              <th className="py-1 px-1.5 border border-[#d8c8b0] text-right whitespace-nowrap">MC Rate</th>
+                              <th className="py-1 px-1.5 border border-[#d8c8b0] text-right whitespace-nowrap">Total MC</th>
+                              <th className="py-1 px-1.5 border border-[#d8c8b0] text-center whitespace-nowrap">Total Stones</th>
+                              <th className="py-1 px-1.5 border border-[#d8c8b0] text-right whitespace-nowrap">Allotted Wt</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr className="border-b border-stone-200 hover:bg-stone-50/50 transition-colors">
+                              <td className="py-1.5 px-1.5 border border-stone-200 text-center font-bold">1</td>
+                              <td className="py-1.5 px-2 border border-stone-200 font-mono font-bold whitespace-normal">
+                                <span className="block truncate max-w-[120px]">{metricRows[0].value}</span>
+                                <span className="block text-[7.5px] text-stone-500">{piece.design_no || piece.item?.design_no || '—'}</span>
+                              </td>
+                              <td className="py-1.5 px-1.5 border border-stone-200 text-center">
+                                <img
+                                  src={productImage || '/placeholder-jewelry.png'}
+                                  alt={piece.product_name || 'Product'}
+                                  className="w-5 h-5 object-contain mx-auto border border-stone-200 rounded bg-white"
+                                  onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = '/placeholder-jewelry.png'; }}
+                                />
+                              </td>
+                            <td className="py-1.5 px-2 border border-stone-200 font-mono text-[#881337] whitespace-normal leading-tight">
+                              <span>#{piece.piece_number || '—'} · Qty 1</span>
+                              <span className="block text-[7.5px] text-stone-600">{piece.tag_number || '—'}</span>
+                            </td>
+                            <td className="py-1.5 px-1.5 border border-stone-200 text-right font-mono font-bold">{metricRows[2].value}</td>
+                            <td className="py-1.5 px-1.5 border border-stone-200 text-right font-mono">{metricRows[3].value}</td>
+                            <td className="py-1.5 px-1.5 border border-stone-200 text-right font-mono">{metricRows[4].value}</td>
+                            <td className="py-1.5 px-1.5 border border-stone-200 text-center">{metricRows[5].value}</td>
+                            <td className="py-1.5 px-1.5 border border-stone-200 text-right font-mono">{metricRows[6].value}</td>
+                            <td className="py-1.5 px-1.5 border border-stone-200 text-center">{metricRows[7].value}</td>
+                            <td className="py-1.5 px-1.5 border border-stone-200 text-right font-mono">{metricRows[8].value}</td>
+                            <td className="py-1.5 px-1.5 border border-stone-200 text-right font-mono font-bold text-[#881337]">{metricRows[9].value}</td>
+                            <td className="py-1.5 px-1.5 border border-stone-200 whitespace-nowrap">{metricRows[10].value}</td>
+                            <td className="py-1.5 px-1.5 border border-stone-200 text-right font-mono">{metricRows[11].value}</td>
+                            <td className="py-1.5 px-1.5 border border-stone-200 text-right font-mono whitespace-nowrap">{metricRows[12].value}</td>
+                            <td className="py-1.5 px-1.5 border border-stone-200 text-right font-mono">{metricRows[13].value}</td>
+                            <td className="py-1.5 px-1.5 border border-stone-200 text-center">{metricRows[14].value}</td>
+                            <td className="py-1.5 px-1.5 border border-stone-200 text-right font-mono">{metricRows[15].value}</td>
+                          </tr>
+                        </tbody>
+                      </table>
                     </div>
                   </div>
-                </div>
-
-                {/* 5. CRAFTING INSTRUCTIONS */}
-                <div className="relative z-10 space-y-1.5">
-                  <div className="flex items-center gap-1.5 text-xs font-black text-[#801824] uppercase tracking-wider">
-                    <i className="fa-solid fa-file-lines text-[10px]"></i>
-                    <span>Crafting Instructions</span>
-                  </div>
-
-                  <div className="border border-stone-200 bg-stone-50/60 rounded-xl p-3 text-[11px] text-stone-700 leading-relaxed font-sans shadow-2xs">
-                    Ensure the center Ruby setting is double-checked for security using 6-prong layout. - Filigree work on the side wings must be delicate but structurally sound for {goldIssued.toFixed(1)}g weight. - High-polish finish requested on the inner curve of the necklace for wearer comfort. - Laser hallmark required on the clasp mechanism. - No heat treatment to be applied near the emerald accent beads.
-                  </div>
-                </div>
-
-                {/* 6. BOTTOM MAROON SUMMARY BANNER (4 Metrics) */}
-                <div className="relative z-10 bg-[#801824] rounded-xl p-3.5 text-white flex items-center justify-between divide-x divide-white/15 shadow-md">
-                  <div className="flex-1 text-center px-2">
-                    <span className="text-[9px] font-black uppercase tracking-wider text-red-200 block">
-                      ALLOCATED GOLD
-                    </span>
-                    <span className="text-sm sm:text-base font-black font-mono block mt-0.5">
-                      {goldIssued.toFixed(2)}g
-                    </span>
-                  </div>
-
-                  <div className="flex-1 text-center px-2">
-                    <span className="text-[9px] font-black uppercase tracking-wider text-red-200 block">
-                      STONE COUNT
-                    </span>
-                    <span className="text-sm sm:text-base font-black font-mono block mt-0.5">
-                      55 Pcs
-                    </span>
-                  </div>
-
-                  <div className="flex-1 text-center px-2">
-                    <span className="text-[9px] font-black uppercase tracking-wider text-red-200 block">
-                      TOTAL CARATS
-                    </span>
-                    <span className="text-sm sm:text-base font-black font-mono block mt-0.5">
-                      14.10 ct
-                    </span>
-                  </div>
-
-                  <div className="flex-1 text-center px-2">
-                    <span className="text-[9px] font-black uppercase tracking-wider text-red-200 block">
-                      EST. WASTAGE
-                    </span>
-                    <span className="text-sm sm:text-base font-black font-mono block mt-0.5">
-                      {currentOrder?.wastage_allowed_percent ? `${currentOrder.wastage_allowed_percent}%` : '4.20%'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* 7. FOOTER (Barcode + Signature Blocks matching Image 2) */}
-                <div className="relative z-10 pt-6 mt-6 border-t border-stone-200 flex flex-col sm:flex-row items-center justify-between gap-6">
-
-                  {/* Left: Barcode & System Reference */}
-                  <div className="space-y-1">
-                    {/* SVG Vector Barcode */}
-                    <svg className="w-56 h-8" viewBox="0 0 200 32">
-                      <rect x="0" y="0" width="3" height="32" fill="#1c1917" />
-                      <rect x="5" y="0" width="1" height="32" fill="#1c1917" />
-                      <rect x="8" y="0" width="4" height="32" fill="#1c1917" />
-                      <rect x="15" y="0" width="2" height="32" fill="#1c1917" />
-                      <rect x="19" y="0" width="1" height="32" fill="#1c1917" />
-                      <rect x="22" y="0" width="3" height="32" fill="#1c1917" />
-                      <rect x="28" y="0" width="2" height="32" fill="#1c1917" />
-                      <rect x="33" y="0" width="4" height="32" fill="#1c1917" />
-                      <rect x="40" y="0" width="1" height="32" fill="#1c1917" />
-                      <rect x="44" y="0" width="3" height="32" fill="#1c1917" />
-                      <rect x="50" y="0" width="2" height="32" fill="#1c1917" />
-                      <rect x="55" y="0" width="4" height="32" fill="#1c1917" />
-                      <rect x="62" y="0" width="1" height="32" fill="#1c1917" />
-                      <rect x="66" y="0" width="3" height="32" fill="#1c1917" />
-                      <rect x="72" y="0" width="2" height="32" fill="#1c1917" />
-                      <rect x="77" y="0" width="4" height="32" fill="#1c1917" />
-                      <rect x="84" y="0" width="2" height="32" fill="#1c1917" />
-                      <rect x="89" y="0" width="1" height="32" fill="#1c1917" />
-                      <rect x="93" y="0" width="3" height="32" fill="#1c1917" />
-                      <rect x="99" y="0" width="2" height="32" fill="#1c1917" />
-                      <rect x="104" y="0" width="4" height="32" fill="#1c1917" />
-                      <rect x="111" y="0" width="1" height="32" fill="#1c1917" />
-                      <rect x="115" y="0" width="3" height="32" fill="#1c1917" />
-                      <rect x="121" y="0" width="2" height="32" fill="#1c1917" />
-                      <rect x="126" y="0" width="4" height="32" fill="#1c1917" />
-                      <rect x="133" y="0" width="1" height="32" fill="#1c1917" />
-                      <rect x="137" y="0" width="3" height="32" fill="#1c1917" />
-                      <rect x="143" y="0" width="2" height="32" fill="#1c1917" />
-                      <rect x="148" y="0" width="4" height="32" fill="#1c1917" />
-                      <rect x="155" y="0" width="1" height="32" fill="#1c1917" />
-                      <rect x="159" y="0" width="3" height="32" fill="#1c1917" />
-                      <rect x="165" y="0" width="2" height="32" fill="#1c1917" />
-                      <rect x="170" y="0" width="4" height="32" fill="#1c1917" />
-                      <rect x="177" y="0" width="2" height="32" fill="#1c1917" />
-                      <rect x="182" y="0" width="3" height="32" fill="#1c1917" />
-                      <rect x="188" y="0" width="2" height="32" fill="#1c1917" />
-                      <rect x="193" y="0" width="4" height="32" fill="#1c1917" />
-                    </svg>
-
-                    <div className="text-[9.5px] font-mono font-bold text-stone-500 uppercase tracking-tight">
-                      REF: 884-292-991 | SYSTEM GENERATED DOCUMENT
-                    </div>
-                    <div className="text-[9px] text-stone-400">
-                      Generated on: 24 Oct 2023, 11:45 AM by Admin
-                    </div>
-                  </div>
-
-                  {/* Right: 2 Signature Blocks (AUTHORIZED SIGNATORY & ARTISAN ACCEPTANCE) */}
-                  <div className="flex items-center gap-8 text-center shrink-0 avoid-break print-break-inside-avoid">
-                    <div>
-                      <div className="w-32 border-t border-stone-400 pt-1 font-bold text-stone-800 text-[10px] uppercase tracking-wider">
-                        AUTHORIZED SIGNATORY
-                      </div>
-                      <span className="text-[9px] text-stone-400 block mt-0.5">
-                        Inventory Head
-                      </span>
-                    </div>
-                    <div>
-                      <div className="w-32 border-t border-stone-400 pt-1 font-bold text-stone-800 text-[10px] uppercase tracking-wider">
-                        ARTISAN ACCEPTANCE
-                      </div>
-                      <span className="text-[9px] text-stone-400 block mt-0.5">
-                        Signature &amp; Date
-                      </span>
-                    </div>
-                  </div>
-
-                </div>
-
+                );
+              })()}
               </div>
             </div>
-
           </div>
         </div>
       )}
 
-      {/* POPUP MODAL: Add / Edit Job Row Details */}
-      {showRowModal && (
-        <div
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setShowRowModal(false);
-            }
-          }}
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-100"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-gray-100 my-8 relative max-h-[90vh] overflow-y-auto"
-          >
-            {/* Modal Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-gray-100 mb-4 sticky top-0 bg-white z-10">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-red-50 text-[#881337] flex items-center justify-center text-sm font-bold shadow-2xs">
-                  <i className="fa-solid fa-gem"></i>
-                </div>
-                <div>
-                  <h3 className="font-bold text-gray-900 text-base">
-                    {editingRowIndex !== null ? 'Edit Row Details' : 'Add Row Details'}
-                  </h3>
-                  <p className="text-xs text-gray-500">
-                    Input all material specifications, diamond clarity, variants, weights, and wastage.
-                  </p>
-                </div>
-              </div>
-
-              {/* Top X Close Button */}
-              <button
-                type="button"
-                onClick={() => setShowRowModal(false)}
-                className="w-8 h-8 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-500 hover:text-stone-900 flex items-center justify-center text-sm font-bold transition-colors cursor-pointer"
-                title="Close (Esc)"
-              >
-                <i className="fa-solid fa-xmark"></i>
-              </button>
-            </div>
-
-            {/* Modal Body / Form */}
-            <form onSubmit={handleSaveRowModal} className="space-y-4">
-              {/* 1. Quick Select Sample Presets Matching Screenshot */}
-              <div className="bg-[#ede4d3]/40 p-3 rounded-xl border border-[#dccbb2]">
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-[11px] font-bold text-[#3c2f23] uppercase tracking-wide flex items-center gap-1.5">
-                    <i className="fa-solid fa-wand-magic-sparkles text-[#b01622]"></i>
-                    Quick Table Row Presets (From Reference)
-                  </label>
-                  <span className="text-[10px] text-stone-500">Click to autofill exact sample rows</span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRowForm({
-                        work_name: '22K Yellow Gold Jewellery',
-                        material_type: '22K Yellow Gold',
-                        material_subtitle: '916 Hallmark Standard',
-                        ordered_date: '2026-07-02',
-                        delivery_date: '2026-07-02',
-                        image: '/images/samples/peacock_choker.jpg',
-                        qty: 1,
-                        setting_type: 'Prong',
-                        design_number: 'DDvd1',
-                        gold_priory: '-',
-                        total_weight: '5.91',
-                        gold_weight: '5.91',
-                        old_weight: '5.91',
-                        colour_stone: '5.91',
-                        silver: '0.278',
-                        diamond_ct: '278',
-                        no_of_dia: '15',
-                        net_weight: '2.56',
-                        purity: '2.65',
-                        wastage: '9.50',
-                        percentages: '2%',
-                        pure_24k: '8.6',
-                        mc: '2650',
-                        total_mc: '4586.56',
-                        remarks: '-',
-                      });
-                    }}
-                    className={`px-3 py-1.5 text-xs rounded-lg font-bold border transition-all cursor-pointer ${rowForm.material_type === '22K Yellow Gold' && rowForm.design_number === 'DDvd1'
-                      ? 'bg-[#b01622] text-white border-[#b01622] shadow-2xs'
-                      : 'bg-white hover:bg-stone-100 text-stone-800 border-stone-300'
-                      }`}
-                  >
-                    🪙 Row 1: 22K Yellow Gold (DDvd1 • 5.91g)
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRowForm({
-                        work_name: 'Round Brilliant Diamonds',
-                        material_type: 'Round Brilliant Diamonds',
-                        material_subtitle: 'VS1 Clarity - F Color',
-                        ordered_date: '2026-07-02',
-                        delivery_date: '2026-07-02',
-                        image: '/images/samples/diamond_ring.jpg',
-                        qty: 1,
-                        setting_type: 'Prong',
-                        design_number: 'DDvd1',
-                        gold_priory: '-',
-                        total_weight: '0.27',
-                        gold_weight: '0.27',
-                        old_weight: '0.27',
-                        colour_stone: '0.27',
-                        silver: '0.001',
-                        diamond_ct: '1',
-                        no_of_dia: '5',
-                        net_weight: '4.56',
-                        purity: '4.661',
-                        wastage: '2.560',
-                        percentages: '6%',
-                        pure_24k: '4.5',
-                        mc: '2650',
-                        total_mc: '4586.56',
-                        remarks: '-',
-                      });
-                    }}
-                    className={`px-3 py-1.5 text-xs rounded-lg font-bold border transition-all cursor-pointer ${rowForm.material_type === 'Round Brilliant Diamonds'
-                      ? 'bg-[#b01622] text-white border-[#b01622] shadow-2xs'
-                      : 'bg-white hover:bg-stone-100 text-stone-800 border-stone-300'
-                      }`}
-                  >
-                    💎 Row 2: Brilliant Diamonds (DDvd1 • 0.27g)
-                  </button>
-                </div>
-              </div>
-
-              {/* 2. SECTION: Material & Design Identification */}
-              <div className="border border-stone-200 rounded-xl p-3.5 space-y-3 bg-white">
-                <span className="text-[10px] font-extrabold uppercase text-[#b01622] tracking-wider block">
-                  1. Material, Setting & Design Spec
-                </span>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      MATERIAL TYPE <span className="text-red-600">*</span>
-                    </label>
-                    <select
-                      value={rowForm.material_type}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        const isDia = val.toLowerCase().includes('diamond');
-                        setRowForm((prev) => ({
-                          ...prev,
-                          material_type: val,
-                          material_subtitle: isDia ? 'VS1 Clarity - F Color' : '916 Hallmark Standard',
-                        }));
-                        if (formErrors.material_type) {
-                          setFormErrors((prev) => {
-                            const n = { ...prev };
-                            delete n.material_type;
-                            return n;
-                          });
-                        }
-                      }}
-                      className="w-full text-xs rounded-lg p-2.5 font-bold outline-hidden transition-all bg-white border border-gray-200 focus:border-[#b01622]"
-                    >
-                      <option value="22K Yellow Gold">22K Yellow Gold</option>
-                      <option value="Round Brilliant Diamonds">Round Brilliant Diamonds</option>
-                      <option value="18K Yellow Gold">18K Yellow Gold</option>
-                      <option value="18K Rose Gold">18K Rose Gold</option>
-                      <option value="18K White Gold">18K White Gold</option>
-                      <option value="24K Pure Gold">24K Pure Gold</option>
-                      <option value="Platinum 950">Platinum 950</option>
-                      <option value="Silver 925">Silver 925</option>
-                      <option value="Colour Stone">Colour Stone</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      MATERIAL SUBTITLE / SPECIFICATION
-                    </label>
-                    <input
-                      type="text"
-                      value={rowForm.material_subtitle || ''}
-                      onChange={(e) => updateFormField('material_subtitle', e.target.value)}
-                      placeholder="e.g. 916 Hallmark Standard / VS1 Clarity - F Color"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 outline-hidden focus:border-[#b01622]"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      DESIGN NUMBER <span className="text-red-600">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={rowForm.design_number}
-                      onChange={(e) => updateFormField('design_number', e.target.value)}
-                      placeholder="e.g. DDvd1"
-                      className={`w-full text-xs rounded-lg p-2.5 font-mono font-bold outline-hidden transition-all ${formErrors.design_number
-                        ? 'border-2 border-red-500 bg-red-50/20'
-                        : 'border border-gray-200 focus:border-[#b01622] bg-white'
-                        }`}
-                    />
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-[11px] font-bold text-gray-700 uppercase tracking-wide">
-                        SETTING TYPE
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setShowStylesModal(true)}
-                        className="text-[10px] font-bold text-[#b01622] hover:underline flex items-center gap-1 cursor-pointer"
-                        title="Manage Setting Styles Master list"
-                      >
-                        <i className="fa-solid fa-plus text-[8px]"></i>
-                        <span>Manage Styles</span>
-                      </button>
-                    </div>
-                    <select
-                      value={rowForm.setting_type || ''}
-                      onChange={(e) => updateFormField('setting_type', e.target.value)}
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 outline-hidden focus:border-[#b01622] bg-white font-medium"
-                    >
-                      {settingStyles.length > 0 ? (
-                        settingStyles.map((s) => (
-                          <option key={s.id || s.name} value={s.name}>
-                            {s.name}
-                          </option>
-                        ))
-                      ) : (
-                        <>
-                          <option value="Prong">Prong</option>
-                          <option value="Bezel">Bezel</option>
-                          <option value="Channel">Channel</option>
-                          <option value="Pave">Pave</option>
-                          <option value="Bar">Bar</option>
-                          <option value="Flush">Flush</option>
-                          <option value="Tension">Tension</option>
-                          <option value="Invisible">Invisible</option>
-                          <option value="Plain Casting">Plain Casting</option>
-                        </>
-                      )}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      GOLD PRIORY
-                    </label>
-                    <input
-                      type="text"
-                      value={rowForm.gold_priory || '-'}
-                      onChange={(e) => updateFormField('gold_priory', e.target.value)}
-                      placeholder="e.g. - or 22KT"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 outline-hidden focus:border-[#b01622] bg-white font-medium"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* 3. SECTION: Dates & Quantity */}
-              <div className="border border-stone-200 rounded-xl p-3.5 space-y-3 bg-white">
-                <span className="text-[10px] font-extrabold uppercase text-[#b01622] tracking-wider block">
-                  2. Dates, Quantity & Remarks
-                </span>
-
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      ORDERED DATE
-                    </label>
-                    <input
-                      type="date"
-                      value={rowForm.ordered_date}
-                      onChange={(e) => updateFormField('ordered_date', e.target.value)}
-                      className="w-full text-xs rounded-lg p-2.5 font-mono outline-hidden border border-gray-200 focus:border-[#b01622] bg-white"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      DELIVERY DATE
-                    </label>
-                    <input
-                      type="date"
-                      value={rowForm.delivery_date}
-                      onChange={(e) => updateFormField('delivery_date', e.target.value)}
-                      className="w-full text-xs rounded-lg p-2.5 font-mono outline-hidden border border-gray-200 focus:border-[#b01622] bg-white"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      QTY
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={rowForm.qty ?? 1}
-                      onChange={(e) => updateFormField('qty', parseInt(e.target.value, 10) || 1)}
-                      className="w-full text-xs rounded-lg p-2.5 font-mono font-bold outline-hidden border border-gray-200 focus:border-[#b01622] bg-white"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      REMARKS
-                    </label>
-                    <input
-                      type="text"
-                      value={rowForm.remarks || '-'}
-                      onChange={(e) => updateFormField('remarks', e.target.value)}
-                      placeholder="e.g. -"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 outline-hidden focus:border-[#b01622] bg-white"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* 4. SECTION: Weights & Stones Breakdown */}
-              <div className="border border-stone-200 rounded-xl p-3.5 space-y-3 bg-white">
-                <span className="text-[10px] font-extrabold uppercase text-[#b01622] tracking-wider block">
-                  3. Weights & Stones Breakdown (Exact Table Columns)
-                </span>
-
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      TOTAL WEIGHT (G)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      value={rowForm.total_weight || ''}
-                      onChange={(e) => updateFormField('total_weight', e.target.value)}
-                      placeholder="5.91"
-                      className="w-full text-xs rounded-lg p-2.5 font-mono font-bold border border-gray-200 focus:border-[#b01622] bg-white text-gray-900"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      GOLD WEIGHT (G)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      value={rowForm.gold_weight ?? rowForm.old_weight ?? ''}
-                      onChange={(e) => {
-                        updateFormField('gold_weight', e.target.value);
-                        updateFormField('old_weight', e.target.value);
-                      }}
-                      placeholder="5.91"
-                      className="w-full text-xs rounded-lg p-2.5 font-mono border border-gray-200 focus:border-[#b01622] bg-white text-gray-800"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      COLOUR STONE (G)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      value={rowForm.colour_stone || ''}
-                      onChange={(e) => updateFormField('colour_stone', e.target.value)}
-                      placeholder="5.91"
-                      className="w-full text-xs rounded-lg p-2.5 font-mono border border-gray-200 focus:border-[#b01622] bg-white text-gray-800"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      SILVER (G)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      value={rowForm.silver || ''}
-                      onChange={(e) => updateFormField('silver', e.target.value)}
-                      placeholder="0.278"
-                      className="w-full text-xs rounded-lg p-2.5 font-mono border border-gray-200 focus:border-[#b01622] bg-white text-gray-800"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      DIAMOND CT
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={rowForm.diamond_ct || ''}
-                      onChange={(e) => updateFormField('diamond_ct', e.target.value)}
-                      placeholder="278"
-                      className="w-full text-xs rounded-lg p-2.5 font-mono border border-gray-200 focus:border-[#b01622] bg-white text-gray-800"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      NO OF DIA
-                    </label>
-                    <input
-                      type="number"
-                      value={rowForm.no_of_dia || ''}
-                      onChange={(e) => updateFormField('no_of_dia', e.target.value)}
-                      placeholder="15"
-                      className="w-full text-xs rounded-lg p-2.5 font-mono border border-gray-200 focus:border-[#b01622] bg-white text-gray-800"
-                    />
-                  </div>
-
-                  <div className="col-span-2">
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      NET WEIGHT (G)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      value={rowForm.net_weight || ''}
-                      onChange={(e) => updateFormField('net_weight', e.target.value)}
-                      placeholder="2.56"
-                      className="w-full text-xs rounded-lg p-2.5 font-mono font-bold border border-gray-200 focus:border-[#b01622] bg-white text-gray-900"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* 5. SECTION: Purity, Wastage, Pure 24K & Making Charges */}
-              <div className="border border-stone-200 rounded-xl p-3.5 space-y-3 bg-white">
-                <span className="text-[10px] font-extrabold uppercase text-[#b01622] tracking-wider block">
-                  4. Purity, Wastage & Making Charges
-                </span>
-
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {/* PURITY (%) - Highlighted in RED font and border matching screenshot */}
-                  <div className="p-2.5 rounded-xl border border-red-300 bg-red-50/30">
-                    <label className="text-[11px] font-black text-[#b01622] block mb-1 uppercase tracking-wide flex items-center gap-1">
-                      <i className="fa-solid fa-certificate text-[10px]"></i>
-                      PURITY (%) <span className="text-red-600">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={rowForm.purity || ''}
-                      onChange={(e) => updateFormField('purity', e.target.value)}
-                      placeholder="2.65"
-                      className="w-full text-xs rounded-lg p-2 font-mono font-black border border-red-300 focus:border-[#b01622] bg-white text-[#b01622]"
-                    />
-                    <span className="text-[9px] text-[#b01622] block mt-0.5 font-semibold">Highlighted in red on table</span>
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      WASTAGE
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={rowForm.wastage || ''}
-                      onChange={(e) => updateFormField('wastage', e.target.value)}
-                      placeholder="9.50"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono text-gray-800 outline-hidden focus:border-[#b01622]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      PERCENTAGES%
-                    </label>
-                    <input
-                      type="text"
-                      value={rowForm.percentages || ''}
-                      onChange={(e) => updateFormField('percentages', e.target.value)}
-                      placeholder="2%"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono text-gray-800 outline-hidden focus:border-[#b01622]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      PURE24K (G)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={rowForm.pure_24k || ''}
-                      onChange={(e) => updateFormField('pure_24k', e.target.value)}
-                      placeholder="8.6"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono text-gray-800 outline-hidden focus:border-[#b01622]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      MC (₹)
-                    </label>
-                    <input
-                      type="number"
-                      value={rowForm.mc || ''}
-                      onChange={(e) => updateFormField('mc', e.target.value)}
-                      placeholder="2650"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono text-gray-800 outline-hidden focus:border-[#b01622]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      TOTAL MC (₹)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={rowForm.total_mc || ''}
-                      onChange={(e) => updateFormField('total_mc', e.target.value)}
-                      placeholder="4586.56"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono font-bold text-gray-900 outline-hidden focus:border-[#b01622]"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* 6. SECTION: Image Preview & Selection */}
-              <div className="border border-stone-200 rounded-xl p-3.5 space-y-3 bg-white">
-                <span className="text-[10px] font-extrabold uppercase text-[#b01622] tracking-wider block">
-                  5. Component Thumbnail Image
-                </span>
-
-                <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-lg overflow-hidden bg-stone-100 border border-stone-200 shrink-0 flex items-center justify-center">
-                    <img
-                      src={rowForm.image || '/images/samples/peacock_choker.jpg'}
-                      alt="Thumbnail"
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        e.target.src = '/images/samples/peacock_choker.jpg';
-                      }}
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <input
-                      type="text"
-                      value={rowForm.image || ''}
-                      onChange={(e) => updateFormField('image', e.target.value)}
-                      placeholder="Image URL or sample path"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2 outline-hidden focus:border-[#b01622]"
-                    />
-                    <div className="flex items-center gap-2 mt-2">
-                      <button
-                        type="button"
-                        onClick={() => updateFormField('image', '/images/samples/peacock_choker.jpg')}
-                        className="text-[10px] font-bold px-2 py-1 bg-amber-50 text-amber-800 rounded border border-amber-200 hover:bg-amber-100 cursor-pointer"
-                      >
-                        Gold Item (Row 1)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateFormField('image', '/images/samples/diamond_ring.jpg')}
-                        className="text-[10px] font-bold px-2 py-1 bg-rose-50 text-rose-800 rounded border border-rose-200 hover:bg-rose-100 cursor-pointer"
-                      >
-                        Diamond Item (Row 2)
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Modal Actions */}
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100 sticky bottom-0 bg-white z-10">
-                <button
-                  type="button"
-                  onClick={() => setShowRowModal(false)}
-                  className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-gray-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-[#b01622] hover:bg-[#8f1019] text-white text-xs font-bold rounded-lg shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
-                >
-                  <i className="fa-solid fa-check text-xs"></i>
-                  <span>{editingRowIndex !== null ? 'Update Row Details' : '+ Add Row'}</span>
-                </button>
-              </div>
-
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* DOCUMENT PREVIEW LIGHTBOX MODAL */}
-      {previewDoc && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150"
-          onClick={() => setPreviewDoc(null)}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-2xl border border-gray-200 max-w-3xl w-full overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150"
-            onClick={(e) => e.stopPropagation()}
-          >
+      {/* 8. FOLDABLE PHYSICAL JEWELLERY TAG MODAL (Section 9.3) */}
+      {isTagModalOpen && selectedPieceForTag && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-stone-900/70 backdrop-blur-xs overflow-y-auto animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-stone-200 overflow-hidden my-auto flex flex-col">
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-stone-200 bg-stone-50/90">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600 shadow-2xs">
-                  {previewDoc.type === 'pdf' ? (
-                    <i className="fa-solid fa-file-pdf text-lg"></i>
-                  ) : (
-                    <i className="fa-solid fa-image text-lg"></i>
-                  )}
-                </div>
-                <div>
-                  <h3 className="font-bold text-sm text-gray-900 leading-none">{previewDoc.name}</h3>
-                  <span className="text-[11px] text-gray-500 mt-1 block">
-                    {previewDoc.type === 'pdf' ? 'CAD / Design Specification Document' : 'Master Reference Craft Visual'}
-                  </span>
-                </div>
+            <div className="px-5 py-3.5 bg-stone-50 border-b border-stone-200 flex items-center justify-between no-print">
+              <div className="flex items-center gap-2">
+                <i className="fa-solid fa-tags text-[#b01622] text-sm"></i>
+                <h3 className="font-bold text-gray-900 text-xs sm:text-sm">
+                  Jewellery Tag — {selectedPieceForTag.tag_number}
+                </h3>
               </div>
               <div className="flex items-center gap-2">
-                <a
-                  href={previewDoc.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="px-3.5 py-1.5 text-xs font-semibold text-gray-700 bg-white border border-gray-200 hover:bg-stone-50 rounded-lg flex items-center gap-2 shadow-2xs transition-colors"
-                >
-                  <i className="fa-solid fa-arrow-up-right-from-square text-[11px] text-gray-500"></i>
-                  <span>Open in New Tab</span>
-                </a>
                 <button
                   type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setPreviewDoc(null);
+                  onClick={() => {
+                    const printWindow = window.open('', '_blank', 'width=800,height=600,scrollbars=yes');
+                    if (!printWindow) return;
+                    const html = buildPrintableTagsHtml([selectedPieceForTag], `Tag ${selectedPieceForTag.tag_number}`);
+                    printWindow.document.open();
+                    printWindow.document.write(html);
+                    printWindow.document.close();
                   }}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-stone-200 transition-colors cursor-pointer"
+                  className="px-3.5 py-1.5 bg-[#b01622] hover:bg-[#8f1019] text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
                 >
-                  <i className="fa-solid fa-xmark text-base"></i>
+                  <i className="fa-solid fa-print"></i>
+                  <span>Print Tag</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsTagModalOpen(false)}
+                  className="w-7 h-7 rounded-full bg-stone-200 hover:bg-stone-300 text-stone-600 flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  <i className="fa-solid fa-xmark text-xs"></i>
                 </button>
               </div>
             </div>
 
-            {/* Preview Body */}
-            <div className="p-6 bg-stone-100/50 flex items-center justify-center overflow-auto max-h-[calc(90vh-120px)]">
-              {previewDoc.type === 'pdf' && previewDoc.url.toLowerCase().endsWith('.pdf') ? (
-                <iframe
-                  src={previewDoc.url}
-                  title={previewDoc.name}
-                  className="w-full h-[65vh] rounded-xl border border-gray-200 bg-white shadow-xs"
-                />
-              ) : (
-                <div className="flex flex-col items-center gap-3 w-full">
-                  <img
-                    src={previewDoc.url}
-                    alt={previewDoc.name}
-                    className="max-h-[65vh] max-w-full object-contain rounded-xl shadow-md border border-stone-200 bg-white"
-                  />
-                  <div className="text-xs text-gray-500 font-medium flex items-center gap-1.5">
-                    <i className="fa-solid fa-circle-info text-amber-500 text-[11px]"></i>
-                    <span>Previewing {previewDoc.name}</span>
-                  </div>
-                </div>
-              )}
+            {/* Tag Preview Area matching exact Image 2 specification */}
+            <div className="p-6 bg-stone-100/70 flex flex-col items-center justify-center gap-3 overflow-x-auto">
+              <JewelleryTagCard piece={selectedPieceForTag} id="foldable-tag-sheet" />
+              <span className="text-[11px] text-stone-400 text-center">
+                Dotted line indicates physical fold crease before barcode label.
+              </span>
             </div>
           </div>
         </div>
       )}
-
-      {/* Quick Dropdown CRUD Modal for Setting Styles */}
-      <QuickDropdownCrudModal
-        isOpen={showStylesModal}
-        onClose={() => setShowStylesModal(false)}
-        type="setting_style"
-        onItemSelect={(newStyleName) => {
-          updateFormField('setting_type', newStyleName);
-          fetchSettingStyles();
-        }}
-        onRefresh={fetchSettingStyles}
-      />
-
     </div>
   );
+}
+
+// Small helper for diamond wt display fallback
+function selectedPieceTagDia(pc) {
+  return pc?.diamond_weight || 0.09;
 }

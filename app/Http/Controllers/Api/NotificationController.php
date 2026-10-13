@@ -4,46 +4,82 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\WorkOrderNotification;
-use App\Models\Karigar;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 class NotificationController extends Controller
 {
     /**
-     * Get recent notifications filtered strictly by logged-in user role
+     * Get notifications filtered strictly for the authenticated user.
      */
     public function index(Request $request)
     {
         $user = Auth::user();
-        $query = WorkOrderNotification::with('workOrder:id,work_order_number,product_name,status,current_stage,karigar_name')
-            ->latest('id');
-
-        if ($user && $user->isKarigar()) {
-            $karigarId = $user->karigar?->id ?? Karigar::where('email', $user->email)->orWhere('name', $user->name)->value('id');
-            if ($karigarId) {
-                // Karigars ONLY receive notifications intended for Karigars ('assigned', 'returned', 'rework', 'approved', 'material_issued') matching their assigned karigar_id
-                $karigarTypes = ['assigned', 'returned', 'rework', 'approved', 'material_issued'];
-                $query->where('karigar_id', $karigarId)
-                      ->where(function ($q) use ($karigarTypes) {
-                          $q->whereIn('type', $karigarTypes)
-                            ->orWhere('data->target_role', 'karigar');
-                      });
-            } else {
-                $query->whereRaw('1 = 0');
-            }
-        } else {
-            // Admins / Receptionists / Managers receive notifications from Karigars & workshop updates ('submitted', 'rework_resubmitted', 'progress_update', 'timeline_update', 'delay', 'hold', 'system')
-            $adminTypes = ['submitted', 'rework_resubmitted', 'progress_update', 'timeline_update', 'delay', 'hold', 'system'];
-            $query->where(function ($q) use ($adminTypes) {
-                $q->whereIn('type', $adminTypes)
-                  ->orWhere('data->target_role', 'admin')
-                  ->orWhereNull('karigar_id');
-            });
+        if (!$user) {
+            return response()->json(['status' => 'error', 'message' => 'Unauthorized'], 401);
         }
 
-        $unreadCount = (clone $query)->where('is_read', false)->count();
-        $notifications = $query->limit(20)->get();
+        $query = WorkOrderNotification::with([
+            'workOrder:id,work_order_number,product_name,status,current_stage,karigar_name',
+            'piece:id,work_order_id,piece_number,tag_number,receive_order_number,design_no,gross_weight,is_inventory_posted',
+        ])->latest('id');
+
+        // User scoping: Each user sees their own notifications.
+        // If Super Admin or Admin, also include legacy notifications where user_id was null.
+        if ($user->isSuperAdmin() || in_array(strtolower(str_replace(' ', '_', $user->role ?? '')), ['super_admin', 'admin'])) {
+            $query->where(function ($q) use ($user) {
+                $q->where('user_id', $user->id)
+                  ->orWhereNull('user_id');
+            });
+        } else {
+            $query->where('user_id', $user->id);
+        }
+
+        // Filter by read/unread
+        $filter = $request->query('filter', 'all');
+        if ($filter === 'unread') {
+            $query->where('is_read', false);
+        } elseif ($filter === 'read') {
+            $query->where('is_read', true);
+        }
+
+        // Filter by type
+        if ($request->filled('type')) {
+            $query->where('type', $request->query('type'));
+        }
+
+        // Compute unread count for current user
+        $unreadCountQuery = WorkOrderNotification::where('is_read', false);
+        if ($user->isSuperAdmin() || in_array(strtolower(str_replace(' ', '_', $user->role ?? '')), ['super_admin', 'admin'])) {
+            $unreadCountQuery->where(function ($q) use ($user) {
+                $q->where('user_id', $user->id)
+                  ->orWhereNull('user_id');
+            });
+        } else {
+            $unreadCountQuery->where('user_id', $user->id);
+        }
+        $unreadCount = $unreadCountQuery->count();
+
+        // Pagination or feed limit
+        if ($request->boolean('paginate')) {
+            $perPage = min(100, max(5, (int) $request->query('per_page', 20)));
+            $paginated = $query->paginate($perPage);
+
+            return response()->json([
+                'status' => 'success',
+                'unread_count' => $unreadCount,
+                'data' => $paginated->items(),
+                'pagination' => [
+                    'current_page' => $paginated->currentPage(),
+                    'last_page' => $paginated->lastPage(),
+                    'per_page' => $paginated->perPage(),
+                    'total' => $paginated->total(),
+                ],
+            ]);
+        }
+
+        $limit = min(50, max(1, (int) $request->query('limit', 20)));
+        $notifications = $query->limit($limit)->get();
 
         return response()->json([
             'status' => 'success',
@@ -53,11 +89,49 @@ class NotificationController extends Controller
     }
 
     /**
-     * Mark a specific notification as read
+     * Fast lightweight endpoint for polling unread count.
+     */
+    public function unreadCount(Request $request)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['status' => 'error', 'unread_count' => 0], 401);
+        }
+
+        $query = WorkOrderNotification::where('is_read', false);
+        if ($user->isSuperAdmin() || in_array(strtolower(str_replace(' ', '_', $user->role ?? '')), ['super_admin', 'admin'])) {
+            $query->where(function ($q) use ($user) {
+                $q->where('user_id', $user->id)
+                  ->orWhereNull('user_id');
+            });
+        } else {
+            $query->where('user_id', $user->id);
+        }
+
+        $cnt = $query->count();
+        return response()->json([
+            'status' => 'success',
+            'unread_count' => $cnt,
+            'data' => [
+                'unread_count' => $cnt,
+            ],
+        ]);
+    }
+
+    /**
+     * Mark a specific notification as read.
      */
     public function markAsRead(Request $request, $id)
     {
-        $notification = WorkOrderNotification::findOrFail($id);
+        $user = Auth::user();
+        $query = WorkOrderNotification::where('id', $id);
+
+        // Security check: Must belong to user (or super admin / null legacy)
+        if (!($user->isSuperAdmin() || in_array(strtolower(str_replace(' ', '_', $user->role ?? '')), ['super_admin', 'admin']))) {
+            $query->where('user_id', $user->id);
+        }
+
+        $notification = $query->firstOrFail();
         $notification->update([
             'is_read' => true,
             'read_at' => now(),
@@ -71,42 +145,52 @@ class NotificationController extends Controller
     }
 
     /**
-     * Mark all role-relevant notifications as read
+     * Mark all of the authenticated user's notifications as read.
      */
     public function markAllAsRead(Request $request)
     {
         $user = Auth::user();
         $query = WorkOrderNotification::where('is_read', false);
 
-        if ($user && $user->isKarigar()) {
-            $karigarId = $user->karigar?->id ?? Karigar::where('email', $user->email)->orWhere('name', $user->name)->value('id');
-            if ($karigarId) {
-                $karigarTypes = ['assigned', 'returned', 'rework', 'approved', 'material_issued'];
-                $query->where('karigar_id', $karigarId)
-                      ->where(function ($q) use ($karigarTypes) {
-                          $q->whereIn('type', $karigarTypes)
-                            ->orWhere('data->target_role', 'karigar');
-                      });
-            } else {
-                $query->whereRaw('1 = 0');
-            }
-        } else {
-            $adminTypes = ['submitted', 'rework_resubmitted', 'progress_update', 'timeline_update', 'delay', 'hold', 'system'];
-            $query->where(function ($q) use ($adminTypes) {
-                $q->whereIn('type', $adminTypes)
-                  ->orWhere('data->target_role', 'admin')
-                  ->orWhereNull('karigar_id');
+        if ($user->isSuperAdmin() || in_array(strtolower(str_replace(' ', '_', $user->role ?? '')), ['super_admin', 'admin'])) {
+            $query->where(function ($q) use ($user) {
+                $q->where('user_id', $user->id)
+                  ->orWhereNull('user_id');
             });
+        } else {
+            $query->where('user_id', $user->id);
         }
 
-        $query->update([
+        $count = $query->update([
             'is_read' => true,
             'read_at' => now(),
         ]);
 
         return response()->json([
             'status' => 'success',
-            'message' => 'All role notifications marked as read',
+            'message' => "Marked {$count} notifications as read",
+            'updated_count' => $count,
+        ]);
+    }
+
+    /**
+     * Delete or dismiss a notification for the authenticated user.
+     */
+    public function destroy(Request $request, $id)
+    {
+        $user = Auth::user();
+        $query = WorkOrderNotification::where('id', $id);
+
+        if (!($user->isSuperAdmin() || in_array(strtolower(str_replace(' ', '_', $user->role ?? '')), ['super_admin', 'admin']))) {
+            $query->where('user_id', $user->id);
+        }
+
+        $notification = $query->firstOrFail();
+        $notification->delete();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Notification dismissed',
         ]);
     }
 }

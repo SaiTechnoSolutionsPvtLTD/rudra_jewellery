@@ -21,12 +21,12 @@ export default function InventoryBulkUpload() {
 
   // Sample CSV generator for download
   const downloadSampleCSV = () => {
-    const headers = ['product_name', 'product_code', 'category', 'subcategory', 'gross_wt', 'net_wt', 'purity', 'quantity', 'making_charge', 'wastage'];
+    const headers = ['product_name', 'product_code', 'category', 'subcategory', 'gross_wt', 'net_wt', 'purity', 'quantity', 'wastage'];
     const sampleRows = [
-      ['Antique Gold Necklace 22K', 'RJ-GN-1001', 'Gold', 'Necklace', '45.50', '42.10', '22K (91.6%)', '1', '650', '3.50'],
-      ['Diamond Solitaire Ring 18K', 'RJ-DR-2004', 'Diamond', 'Rings', '6.20', '5.80', '18K (75.0%)', '2', '1200', '4.00'],
-      ['Heritage Temple Kada Bangle', 'RJ-GB-3012', 'Gold', 'Bangles', '32.00', '30.50', '22K (91.6%)', '1', '700', '3.80'],
-      ['Silver Royal Payal Anklet', 'RJ-SP-4009', 'Silver', 'Anklets', '85.00', '84.00', '92.5 Sterling Silver', '5', '150', '2.00'],
+      ['Antique Gold Necklace 22K', 'RJ-GN-1001', 'Gold', 'Necklace', '45.50', '42.10', '22K (91.6%)', '1', '3.50'],
+      ['Diamond Solitaire Ring 18K', 'RJ-DR-2004', 'Diamond', 'Rings', '6.20', '5.80', '18K (75.0%)', '2', '4.00'],
+      ['Heritage Temple Kada Bangle', 'RJ-GB-3012', 'Gold', 'Bangles', '32.00', '30.50', '22K (91.6%)', '1', '3.80'],
+      ['Silver Royal Payal Anklet', 'RJ-SP-4009', 'Silver', 'Anklets', '85.00', '84.00', '92.5 Sterling Silver', '5', '2.00'],
     ];
 
     const csvContent = "data:text/csv;charset=utf-8," 
@@ -130,7 +130,6 @@ export default function InventoryBulkUpload() {
           net_wt: rowObj.net_wt || rowObj.net_weight || rowObj.gross_wt || '0.00',
           purity: rowObj.purity || rowObj.gold_type || '22K',
           quantity: rowObj.quantity || rowObj.qty || rowObj.stock_qty || '1',
-          making_charge: rowObj.making_charge || '650',
           wastage: rowObj.wastage || '3.50',
           isValid: true,
         });

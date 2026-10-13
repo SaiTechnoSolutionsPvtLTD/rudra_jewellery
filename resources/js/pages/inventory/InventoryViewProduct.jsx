@@ -4,6 +4,7 @@ import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
 import { STAMP_OPTIONS, STONE_SIZE_OPTIONS, STONE_COLOR_OPTIONS } from '../../constants/productOptions';
+import { cleanProductName } from '../../utils/formatters';
 
 export default function InventoryViewProduct() {
   const { id } = useParams();
@@ -22,6 +23,7 @@ export default function InventoryViewProduct() {
   const [karigar, setKarigar] = useState(null);
   const [huid, setHuid] = useState('');
   const [movements, setMovements] = useState([]);
+  const [pieceTags, setPieceTags] = useState([]);
 
   // Pagination for stock movements
   const [currentPage, setCurrentPage] = useState(1);
@@ -36,7 +38,6 @@ export default function InventoryViewProduct() {
     gross_wt: '',
     net_wt: '',
     stock_qty: '1',
-    rate: '6850',
     setting_style: '',
     wastage_percent: '3.50',
     making_charge: '650',
@@ -101,6 +102,7 @@ export default function InventoryViewProduct() {
     try {
       setLoading(true);
       const res = await api.get(`/inventory/products/${id}`);
+      const tagsRes = await api.get(`/inventory/products/${id}/tags`).catch(() => ({ data: { data: [] } }));
       const p = res.data.product;
       const attrs = res.data.attributes || {};
       setProduct(p);
@@ -109,6 +111,8 @@ export default function InventoryViewProduct() {
       const effectiveHuid = res.data.huid || attrs.huid || ('H-' + String(p.id).padStart(6, '0'));
       setHuid(effectiveHuid);
       setMovements(res.data.movements || []);
+      setPieceTags((tagsRes.data?.data || []).filter((piece) => Boolean(piece.tag_number)));
+
 
       const rawImgs = res.data.images || [];
       const cleanImgs = rawImgs.filter(
@@ -120,16 +124,18 @@ export default function InventoryViewProduct() {
       setEditForm({
         name: p.name || '',
         product_code: p.product_code || '',
-        purity: attrs.purity || attrs.gold_type || '22K Hallmark Gold',
+        design_no: p.design_no || attrs.design_no || '',
+        purity: attrs.purity || attrs.gold_type || '22K Gold',
         gross_wt: attrs.gross_wt || p.opening_stock_weight || '',
         net_wt: attrs.net_wt || p.opening_fine_weight || '',
         stock_qty: p.current_stock_qty ?? p.opening_stock_qty ?? 1,
-        rate: attrs.sale_rate || attrs.rate || p.opening_stock_rate || '6850',
-        setting_style: attrs.setting_style || attrs.quality || 'VVS1 - E Color Diamonds',
-        wastage_percent: attrs.wastage_percent || attrs.wastage || '3.50',
-        making_charge: attrs.making_charge || '650',
+        setting_style: attrs.setting_style || attrs.quality || '',
+        quality: attrs.quality || attrs.setting_style || '',
+        vendor: attrs.vendor || attrs.vendor_name || '',
+        wastage_percent: attrs.wastage_percent || attrs.wastage || '0.00',
+        making_charge: attrs.making_charge || '0',
         dia_wt_ct: attrs.dia_wt_ct || attrs.diamond_wt || '',
-        stamp: attrs.stamp || attrs.hallmark || '+0',
+        stamp: attrs.stamp || attrs.hallmark || '',
         huid: effectiveHuid,
         size: attrs.size || attrs.ring_size || attrs.bangle_size || '',
         stone_size: attrs.stone_size || '',
@@ -151,13 +157,15 @@ export default function InventoryViewProduct() {
       setSavingEdit(true);
       const updatedAttrs = {
         ...attributes,
+        design_no: editForm.design_no,
         gross_wt: editForm.gross_wt,
         net_wt: editForm.net_wt,
         purity: editForm.purity,
         gold_type: editForm.purity,
-        rate: editForm.rate,
-        sale_rate: editForm.rate,
         setting_style: editForm.setting_style,
+        quality: editForm.quality || editForm.setting_style,
+        vendor: editForm.vendor,
+        vendor_name: editForm.vendor,
         wastage_percent: editForm.wastage_percent,
         making_charge: editForm.making_charge,
         dia_wt_ct: editForm.dia_wt_ct,
@@ -172,6 +180,7 @@ export default function InventoryViewProduct() {
       await api.put(`/inventory/products/${id}`, {
         name: editForm.name,
         product_code: editForm.product_code,
+        design_no: editForm.design_no,
         category_id: product.category_id,
         subcategory_id: product.subcategory_id,
         stock_qty: editForm.stock_qty,
@@ -236,19 +245,34 @@ export default function InventoryViewProduct() {
   }
 
   const currentImage = images[selectedImageIndex] || product.image_url || product.image || '/placeholder-jewelry.png';
-  const grossWt = attributes.gross_wt || product.opening_stock_weight || '48.50';
-  const netWt = attributes.net_wt || product.opening_fine_weight || grossWt;
-  const purity = attributes.purity || attributes.gold_type || '22K Hallmark Gold';
-  const quality = attributes.quality || attributes.setting_style || 'VVS1 - E Color Diamonds';
-  const categoryName = product.category?.name || 'Jewels';
-  const subcategoryName = product.subcategory?.name || 'Bridal Wear';
-  const stockQtyNum = Number(product.current_stock_qty ?? product.opening_stock_qty ?? 0);
+  const stockQtyNum = Number(product.current_stock_qty ?? product.opening_stock_qty ?? 1);
   const quantity = String(stockQtyNum).padStart(2, '0');
 
-  // Exact Rule requested:
-  // stock > 5 => Healthy
-  // 1 <= stock <= 5 => Low Stock
-  // stock <= 0 => Out of Stock
+  // Distinguish single product (per-piece) weights from total stock weight
+  const rawGross = parseFloat(attributes.gross_wt ?? product.opening_stock_weight ?? 0);
+  const rawNet = parseFloat(attributes.net_wt ?? product.opening_fine_weight ?? rawGross);
+  const totalStockWt = parseFloat(attributes.total_stock_weight ?? product.opening_stock_weight ?? (rawGross * stockQtyNum));
+
+  // Determine single product unit weight (if raw attributes was stored as aggregated sum across units, derive per-product weight)
+  const singleGrossWt = attributes.unit_gross_wt
+    ? parseFloat(attributes.unit_gross_wt)
+    : (stockQtyNum > 1 && Math.abs(rawGross - totalStockWt) < 0.1
+        ? Number((rawGross / stockQtyNum).toFixed(3))
+        : rawGross);
+
+  const singleNetWt = attributes.unit_net_wt
+    ? parseFloat(attributes.unit_net_wt)
+    : (stockQtyNum > 1 && rawNet > singleGrossWt
+        ? Number((rawNet / stockQtyNum).toFixed(3))
+        : rawNet);
+
+  const purity = attributes.purity || attributes.gold_type || attributes.karat || attributes.stamp || '22K Gold';
+  const quality = attributes.quality || attributes.setting_style || attributes.stamp || 'Standard';
+  const vendorName = attributes.vendor || attributes.vendor_name || (karigar ? karigar.name : (product.vendor || 'Direct Vendor'));
+  const vendorInitials = vendorName.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase() || 'VN';
+  const categoryName = product.category?.name || attributes.category_name || 'Jewels';
+  const subcategoryName = product.subcategory?.name || attributes.subcategory_name || 'General';
+
   const isHealthy = stockQtyNum > 5;
   const isLow = stockQtyNum >= 1 && stockQtyNum <= 5;
   const statusLabel = isHealthy ? 'Healthy' : (isLow ? 'Low Stock' : 'Out of Stock');
@@ -257,26 +281,14 @@ export default function InventoryViewProduct() {
     : (isLow ? 'bg-amber-50 text-amber-700 border-amber-200/80' : 'bg-rose-50 text-rose-700 border-rose-200/80');
   const statusDotClass = isHealthy ? 'bg-emerald-500' : (isLow ? 'bg-amber-500' : 'bg-rose-500');
 
-  // Valuation calculation
-  const rate = parseFloat(attributes.sale_rate || attributes.rate || product.opening_stock_rate || 6850);
-  const netWtNum = parseFloat(netWt) || parseFloat(grossWt) || 48.5;
-  const diaWtNum = parseFloat(attributes.dia_wt_ct || attributes.diamond_wt || 0);
-  const valuation = attributes.sale_value
-    ? parseFloat(attributes.sale_value)
-    : (netWtNum * rate) + (diaWtNum * 65000);
-  const formattedValuation = valuation > 0
-    ? valuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : '4,85,000.00';
 
-  // Karigar Artisan Details
-  const karigarName = karigar?.name || 'Suraj Karyekar';
-  const karigarInitials = karigarName.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase() || 'SK';
-  const karigarWorkshop = karigar?.workshop_name || 'Mumbai Hub';
+  const karigarName = vendorName;
+  const karigarInitials = vendorInitials;
+  const karigarWorkshop = attributes.vendor_company || karigar?.workshop_name || 'Registered Vendor';
 
-  // Created at date formatted
   const createdDateFormatted = product.created_at
     ? new Date(product.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-    : '14 Oct, 2023';
+    : '—';
 
   // Stock movements pagination calculations
   const totalMovements = movements.length;
@@ -323,18 +335,25 @@ export default function InventoryViewProduct() {
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
-          <button
-            type="button"
-            onClick={() => setShowEditModal(true)}
-            className="px-4 py-2 bg-white hover:bg-stone-50 border border-stone-300 text-stone-700 text-xs font-bold rounded-xl shadow-2xs transition-colors flex items-center gap-2 cursor-pointer"
+          <Link
+            to={`/job-order/new?design_no=${encodeURIComponent(product.design_no || product.product_code || '')}`}
+            className="px-4 py-2 bg-[#b01622] hover:bg-[#8e111a] text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer"
+          >
+            <i className="fa-solid fa-hammer text-xs"></i>
+            <span>Create Job Order</span>
+          </Link>
+
+          <Link
+            to={`/inventory/products/${id}/edit`}
+            className="px-4 py-2 bg-white hover:bg-red-50/40 border-2 border-[#b01622] text-[#b01622] text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center gap-2 cursor-pointer"
           >
             <i className="fa-regular fa-pen-to-square text-xs text-[#b01622]"></i>
             <span>Edit Product</span>
-          </button>
+          </Link>
 
           <Link
             to={`/inventory/products/${id}/jewellery-tag`}
-            className="px-4 py-2 bg-[#8b121e] hover:bg-[#720e17] text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer"
+            className="px-4 py-2 bg-stone-800 hover:bg-stone-900 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer"
           >
             <i className="fa-solid fa-print text-xs"></i>
             <span>Print Tag</span>
@@ -352,7 +371,7 @@ export default function InventoryViewProduct() {
             {/* Header / Breadcrumb inside showcase */}
             <div className="text-center space-y-0.5">
               <h2 className="text-xs font-extrabold text-stone-800 tracking-wider uppercase font-mono">
-                {product.name ? product.name.toUpperCase() : 'NAKSHATRA BRIDAL NECKLACE'}
+                {product.name ? product.name.toUpperCase() : ''}
               </h2>
               <p className="text-[10px] text-stone-400 font-medium">
                 Home &gt; {categoryName} &gt; {subcategoryName}
@@ -384,18 +403,7 @@ export default function InventoryViewProduct() {
               </button>
             </div>
 
-            {/* Sub-banner details under image */}
-            <div className="text-center space-y-1 pt-1">
-              <h3 className="text-sm font-bold text-gray-900">
-                {product.name}
-              </h3>
-              <p className="text-[11px] text-stone-500 font-medium">
-                {purity}, {quality}, Gross {grossWt}g
-              </p>
-              <div className="text-xs font-semibold text-stone-700 pt-0.5">
-                <span>Price: <strong className="text-[#b01622]">₹{formattedValuation}</strong></span>
-              </div>
-            </div>
+
 
             {/* Thumbnail Strip (4 items) */}
             <div className="grid grid-cols-4 gap-2.5 pt-1">
@@ -457,7 +465,16 @@ export default function InventoryViewProduct() {
                   PRODUCT SKU
                 </span>
                 <span className="font-extrabold text-gray-900 text-sm font-mono block">
-                  {product.product_code || 'RJ-G-18294'}
+                  {product.product_code || product.sku || (`SKU-${String(product.id).padStart(5, '0')}`)}
+                </span>
+              </div>
+
+              <div>
+                <span className="block text-[10.5px] font-bold text-stone-400 uppercase tracking-wider mb-1">
+                  DESIGN NO.
+                </span>
+                <span className="font-extrabold text-[#b01622] text-sm font-mono block">
+                  {product.design_no || attributes.design_no || '—'}
                 </span>
               </div>
 
@@ -493,7 +510,7 @@ export default function InventoryViewProduct() {
                   TOTAL WEIGHT
                 </span>
                 <span className="font-bold text-gray-900 text-sm font-mono block">
-                  {grossWt}g
+                  {singleGrossWt}g
                 </span>
               </div>
 
@@ -508,14 +525,25 @@ export default function InventoryViewProduct() {
 
             </div>
 
-            {/* Market Valuation Banner (Soft Yellow/Cream Background) */}
-            <div className="bg-[#fffdf0] px-6 py-4 border-t border-[#f5ebd0] flex items-center justify-between">
+            {/* Stock Weight & Available Units Banner */}
+            <div className="bg-stone-50 px-6 py-4 border-t border-stone-200/80 flex items-center justify-between">
               <div>
-                <span className="block text-[10.5px] font-extrabold text-[#a37920] uppercase tracking-wider">
-                  MARKET VALUATION
+                <span className="block text-[10.5px] font-bold text-stone-500 uppercase tracking-wider">
+                  NET WEIGHT / PURITY
                 </span>
-                <span className="text-2xl font-black text-[#b01622] tracking-tight block mt-0.5 font-mono">
-                  ₹{formattedValuation}
+                <span className="text-xl font-black text-stone-900 tracking-tight block mt-0.5 font-mono">
+                  {singleNetWt}g &bull; {purity}
+                </span>
+              </div>
+              <div className="text-right">
+                <span className="block text-[10.5px] font-bold text-stone-500 uppercase tracking-wider">
+                  STOCK QUANTITY
+                </span>
+                <span className="text-xl font-black text-[#b01622] tracking-tight block mt-0.5 font-mono">
+                  {quantity} Units
+                </span>
+                <span className="text-[11px] font-medium text-stone-500 block">
+                  Total Stock: {totalStockWt}g
                 </span>
               </div>
             </div>
@@ -532,10 +560,26 @@ export default function InventoryViewProduct() {
               </span>
               
               <div className="space-y-3 text-xs">
-                <div className="flex items-center gap-2.5 text-stone-800 font-semibold">
-                  <i className="fa-regular fa-circle-check text-rose-700 text-sm shrink-0"></i>
-                  <span>Certified by BIS India</span>
-                </div>
+                {(attributes.certification_no || product?.certification_no) ? (
+                  <div className="flex items-center gap-2.5 text-blue-700 font-bold bg-blue-50 p-2 rounded-lg border border-blue-100">
+                    <i className="fa-solid fa-award text-blue-600 text-sm shrink-0"></i>
+                    <span>Cert: {attributes.certification_no || product?.certification_no} ({attributes.certification_agency || 'Certified'})</span>
+                  </div>
+                ) : null}
+
+                {(attributes.huid || huid || product?.huid) ? (
+                  <div className="flex items-center gap-2.5 text-emerald-700 font-bold bg-emerald-50 p-2 rounded-lg border border-emerald-100">
+                    <i className="fa-solid fa-[#15803D] fa-shield-halved text-emerald-600 text-sm shrink-0"></i>
+                    <span>HUID: {attributes.huid || huid || product?.huid} ({attributes.hallmark_center || 'BIS Hallmarked'})</span>
+                  </div>
+                ) : null}
+
+                {!attributes.certification_no && !attributes.huid && (
+                  <div className="flex items-center gap-2.5 text-stone-800 font-semibold">
+                    <i className="fa-regular fa-circle-check text-rose-700 text-sm shrink-0"></i>
+                    <span>Certified by BIS India</span>
+                  </div>
+                )}
 
                 <div className="flex items-center gap-2.5 text-stone-800 font-semibold">
                   <i className="fa-regular fa-calendar-check text-stone-500 text-sm shrink-0"></i>
@@ -567,10 +611,10 @@ export default function InventoryViewProduct() {
               </div>
 
               <Link
-                to="/karigars"
+                to="/suppliers"
                 className="w-full py-2 bg-stone-100 hover:bg-stone-200/80 text-stone-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer text-center block"
               >
-                View Full Contract
+                Supplier Management
               </Link>
             </div>
 
@@ -579,6 +623,62 @@ export default function InventoryViewProduct() {
         </div>
 
       </div>
+
+
+      <section className="bg-white rounded-2xl border border-stone-200/90 shadow-2xs overflow-hidden">
+        <div className="p-5 border-b border-stone-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm sm:text-base font-bold text-[#b01622]">Physical Piece Tags</h2>
+            <p className="text-xs text-stone-400 mt-0.5">Tags are issued to individual received pieces linked to this product master.</p>
+          </div>
+          <Link
+            to={`/inventory/products/${id}/jewellery-tag`}
+            className="px-3.5 py-1.5 bg-white border border-stone-300 text-[#b01622] text-xs font-bold rounded-xl flex items-center gap-2"
+          >
+            <i className="fa-solid fa-barcode"></i>
+            Master Label ({product.product_code || product.sku || `SKU-${product.id}`})
+          </Link>
+        </div>
+        {pieceTags.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-stone-50 border-b border-stone-100 text-stone-500 font-bold uppercase text-[10px]">
+                  <th className="py-3 px-5">Physical Tag</th>
+                  <th className="py-3 px-4">Work Order</th>
+                  <th className="py-3 px-4">Piece</th>
+                  <th className="py-3 px-4 text-right">Gross Wt</th>
+                  <th className="py-3 px-4 text-right">Net Gold Wt</th>
+                  <th className="py-3 px-5 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {pieceTags.map((piece) => (
+                  <tr key={piece.id} className="hover:bg-stone-50/70">
+                    <td className="py-3 px-5 font-mono font-bold text-stone-900">{piece.tag_number}</td>
+                    <td className="py-3 px-4 font-mono text-[#b01622]">{piece.work_order?.work_order_number || `WO-${piece.work_order_id}`}</td>
+                    <td className="py-3 px-4">#{piece.piece_number}</td>
+                    <td className="py-3 px-4 text-right font-mono">{piece.gross_weight != null ? `${Number(piece.gross_weight).toFixed(3)}g` : '—'}</td>
+                    <td className="py-3 px-4 text-right font-mono">{piece.net_gold_weight != null ? `${Number(piece.net_gold_weight).toFixed(3)}g` : '—'}</td>
+                    <td className="py-3 px-5 text-right">
+                      <Link
+                        to={`/job-order/tag-printing?tag=${encodeURIComponent(piece.tag_number)}`}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold rounded-lg"
+                        title={`Print ${cleanProductName(piece.product_name, piece.design_no)} tag`}
+                      >
+                        <i className="fa-solid fa-print"></i>
+                        <span>Print</span>
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="px-5 py-8 text-center text-xs text-stone-500">No received physical-piece tags are linked to this product yet. The master label uses the product SKU above.</p>
+        )}
+      </section>
 
       {/* 3. Bottom Full-Width Section: Recent Stock Movements (Matching Image 4 & 5) */}
       <div className="bg-white rounded-2xl border border-stone-200/90 shadow-2xs overflow-hidden">
@@ -704,7 +804,7 @@ export default function InventoryViewProduct() {
             </div>
 
             <form onSubmit={handleSaveEdit} className="space-y-4 pt-4 text-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-stone-600 uppercase mb-1">Product Name</label>
                   <input
@@ -725,9 +825,30 @@ export default function InventoryViewProduct() {
                     required
                   />
                 </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase mb-1">Design No.</label>
+                  <input
+                    type="text"
+                    value={editForm.design_no || ''}
+                    onChange={(e) => setEditForm({ ...editForm, design_no: e.target.value })}
+                    placeholder="e.g. RJ-DES-001"
+                    className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs font-mono focus:outline-hidden focus:border-[#b01622]"
+                  />
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase mb-1">Vendor</label>
+                  <input
+                    type="text"
+                    value={editForm.vendor || ''}
+                    onChange={(e) => setEditForm({ ...editForm, vendor: e.target.value })}
+                    placeholder="Vendor Name"
+                    className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs focus:outline-hidden focus:border-[#b01622]"
+                  />
+                </div>
+
                 <div>
                   <label className="block text-[11px] font-bold text-stone-600 uppercase mb-1">Purity & Standard</label>
                   <input
@@ -742,8 +863,8 @@ export default function InventoryViewProduct() {
                   <label className="block text-[11px] font-bold text-stone-600 uppercase mb-1">Quality / Setting</label>
                   <input
                     type="text"
-                    value={editForm.setting_style}
-                    onChange={(e) => setEditForm({ ...editForm, setting_style: e.target.value })}
+                    value={editForm.quality || editForm.setting_style}
+                    onChange={(e) => setEditForm({ ...editForm, quality: e.target.value, setting_style: e.target.value })}
                     className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs focus:outline-hidden focus:border-[#b01622]"
                   />
                 </div>

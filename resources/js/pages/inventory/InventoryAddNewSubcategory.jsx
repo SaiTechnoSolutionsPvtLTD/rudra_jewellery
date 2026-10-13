@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
@@ -6,77 +6,27 @@ import { useToast } from '../../context/ToastContext';
 export default function InventoryAddNewSubcategory() {
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const categoryScrollRef = useRef(null);
 
-  // 5 Top Categories matching Figma reference design & order: Ornaments, Diamond, Gold, Stone, Silver
-  const categoryDefinitions = [
-    {
-      key: 'ornaments',
-      title: 'Ornaments',
-      icon: 'fa-solid fa-gem',
-      description: 'Luxury ornaments for every occasion',
-      matchTerms: ['ornament', 'ornaments', 'jewellery'],
-      badgeBg: 'bg-[#fce8e8]',
-      iconColor: 'text-[#b01622]',
-    },
-    {
-      key: 'diamond',
-      title: 'Diamond',
-      icon: 'fa-solid fa-certificate',
-      description: 'Elegant designs crafted to perfection',
-      matchTerms: ['diamond'],
-      badgeBg: 'bg-[#fce8e8]',
-      iconColor: 'text-[#b01622]',
-    },
-    {
-      key: 'gold',
-      title: 'Gold',
-      icon: 'fa-solid fa-[#d4af37]',
-      customSvg: (
-        <svg className="w-5 h-5 text-[#b8860b]" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M4 6h16v3H4zM2 11h20v3H2zM4 16h16v3H4z" />
-        </svg>
-      ),
-      description: 'Premium gold for fine craftsmanship',
-      matchTerms: ['gold', 'raw gold'],
-      badgeBg: 'bg-[#fef3c7]',
-      iconColor: 'text-[#d4af37]',
-    },
-    {
-      key: 'stone',
-      title: 'Stone',
-      icon: 'fa-solid fa-cube',
-      description: 'Rare gemstones with lasting brilliance',
-      matchTerms: ['stone', 'gem', 'gemstone'],
-      badgeBg: 'bg-[#fce8e8]',
-      iconColor: 'text-[#b01622]',
-    },
-    {
-      key: 'silver',
-      title: 'Silver',
-      icon: 'fa-solid fa-circle-notch',
-      customSvg: (
-        <svg className="w-5 h-5 text-[#c5a059]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-          <ellipse cx="12" cy="12" rx="8" ry="4" />
-        </svg>
-      ),
-      description: 'Quality silver for timeless creations',
-      matchTerms: ['silver'],
-      badgeBg: 'bg-[#fef3c7]',
-      iconColor: 'text-[#c5a059]',
-    },
-  ];
+  const [categories, setCategories] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [subcategories, setSubcategories] = useState([]);
+  const [selectedSubcategory, setSelectedSubcategory] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
 
-  // Dynamic golden jewelry icon mapper based on subcategory name (Matching Figma Image 2)
+  // Dynamic golden jewelry icon mapper based on subcategory name
   const getSubcategoryIcon = (name = '') => {
     const n = name.toLowerCase();
-    if (n.includes('ring') || n.includes('solitaire')) {
+    if (n.includes('ring') || n.includes('solitaire') || n.includes('band')) {
       return (
         <div className="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-[#c5a059] shrink-0 border border-amber-100">
           <i className="fa-solid fa-ring text-sm"></i>
         </div>
       );
     }
-    if (n.includes('neck') || n.includes('choker') || n.includes('haram')) {
+    if (n.includes('neck') || n.includes('choker') || n.includes('haram') || n.includes('set')) {
       return (
         <div className="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-[#c5a059] shrink-0 border border-amber-100">
           <i className="fa-solid fa-gem text-xs"></i>
@@ -118,61 +68,118 @@ export default function InventoryAddNewSubcategory() {
         </div>
       );
     }
-    if (n.includes('nose')) {
-      return (
-        <div className="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-[#c5a059] shrink-0 border border-amber-100">
-          <i className="fa-solid fa-sparkles text-xs"></i>
-        </div>
-      );
-    }
     return (
       <div className="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-[#c5a059] shrink-0 border border-amber-100">
-        <i className="fa-solid fa-award text-xs"></i>
+        <i className="fa-solid fa-sparkles text-xs"></i>
       </div>
     );
   };
 
-  // Read session immediately so category cards render synchronously
-  const getInitialCategoryKey = () => {
-    try {
-      const saved = sessionStorage.getItem('inventory_selected_category');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        const defs = [
-          { key: 'ornaments', matchTerms: ['ornament', 'ornaments', 'jewellery'] },
-          { key: 'diamond',   matchTerms: ['diamond'] },
-          { key: 'gold',      matchTerms: ['gold', 'raw gold'] },
-          { key: 'stone',     matchTerms: ['stone', 'gem', 'gemstone'] },
-          { key: 'silver',    matchTerms: ['silver'] },
-        ];
-        const matched = defs.find((def) =>
-          def.matchTerms.some(
-            (t) =>
-              (parsed.name || '').toLowerCase().includes(t) ||
-              (parsed.code || '').toLowerCase().includes(t)
-          )
-        );
-        return matched?.key || 'diamond';
-      }
-    } catch (e) {}
-    return 'diamond';
+  // Dynamic visual styling helper for category cards
+  const getCategoryMeta = (cat) => {
+    const name = String(cat.name || '').toLowerCase();
+    const code = String(cat.code || '').toLowerCase();
+
+    if (name.includes('gold') || code.includes('gold')) {
+      return {
+        badgeBg: 'bg-[#fef3c7]',
+        iconColor: 'text-[#d4af37]',
+        defaultDesc: 'Premium gold for fine craftsmanship',
+        customSvg: (
+          <svg className="w-5 h-5 text-[#b8860b]" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M4 6h16v3H4zM2 11h20v3H2zM4 16h16v3H4z" />
+          </svg>
+        ),
+      };
+    }
+
+    if (name.includes('diamond') || code.includes('dia')) {
+      return {
+        badgeBg: 'bg-[#fce8e8]',
+        iconColor: 'text-[#b01622]',
+        icon: 'fa-solid fa-certificate',
+        defaultDesc: 'Elegant designs crafted to perfection',
+      };
+    }
+
+    if (name.includes('silver') || code.includes('slv')) {
+      return {
+        badgeBg: 'bg-[#fef3c7]',
+        iconColor: 'text-[#c5a059]',
+        defaultDesc: 'Quality silver for timeless creations',
+        customSvg: (
+          <svg className="w-5 h-5 text-[#c5a059]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <ellipse cx="12" cy="12" rx="8" ry="4" />
+          </svg>
+        ),
+      };
+    }
+
+    if (name.includes('stone') || name.includes('gem') || code.includes('stn')) {
+      return {
+        badgeBg: 'bg-[#fce8e8]',
+        iconColor: 'text-[#b01622]',
+        icon: 'fa-solid fa-cube',
+        defaultDesc: 'Rare gemstones with lasting brilliance',
+      };
+    }
+
+    if (name.includes('ornament') || code.includes('orn')) {
+      return {
+        badgeBg: 'bg-[#fce8e8]',
+        iconColor: 'text-[#b01622]',
+        icon: 'fa-solid fa-gem',
+        defaultDesc: 'Luxury ornaments for every occasion',
+      };
+    }
+
+    if (name.includes('plat') || code.includes('plt')) {
+      return {
+        badgeBg: 'bg-[#eff6ff]',
+        iconColor: 'text-[#3b82f6]',
+        icon: 'fa-solid fa-award',
+        defaultDesc: 'Pure platinum for contemporary luxury',
+      };
+    }
+
+    return {
+      badgeBg: 'bg-[#fdf2f8]',
+      iconColor: 'text-[#b01622]',
+      icon: 'fa-solid fa-crown',
+      defaultDesc: 'Finest quality handcrafted jewelry collection',
+    };
   };
 
-  const [categories, setCategories] = useState([]);
-  const [allMasterSubcategories, setAllMasterSubcategories] = useState([]);
-  const [selectedCategoryKey, setSelectedCategoryKey] = useState(() => getInitialCategoryKey());
-  const [selectedCategoryObj, setSelectedCategoryObj] = useState(() => {
-    try {
-      const saved = sessionStorage.getItem('inventory_selected_category');
-      return saved ? JSON.parse(saved) : null;
-    } catch { return null; }
-  });
-  const [subcategories, setSubcategories] = useState([]);
-  const [selectedSubcategory, setSelectedSubcategory] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [isCategoryLocked, setIsCategoryLocked] = useState(
-    () => !!sessionStorage.getItem('inventory_selected_category')
-  );
+  const updateScrollButtons = () => {
+    const el = categoryScrollRef.current;
+    if (!el) return;
+    const hasOverflow = el.scrollWidth > el.clientWidth + 5;
+    setCanScrollLeft(el.scrollLeft > 5);
+    setCanScrollRight(hasOverflow && el.scrollLeft < el.scrollWidth - el.clientWidth - 5);
+  };
+
+  useEffect(() => {
+    const el = categoryScrollRef.current;
+    if (el) {
+      updateScrollButtons();
+      el.addEventListener('scroll', updateScrollButtons);
+      window.addEventListener('resize', updateScrollButtons);
+      return () => {
+        el.removeEventListener('scroll', updateScrollButtons);
+        window.removeEventListener('resize', updateScrollButtons);
+      };
+    }
+  }, [categories]);
+
+  const scroll = (direction) => {
+    const el = categoryScrollRef.current;
+    if (!el) return;
+    const scrollAmount = el.clientWidth * 0.8;
+    el.scrollBy({
+      left: direction === 'left' ? -scrollAmount : scrollAmount,
+      behavior: 'smooth',
+    });
+  };
 
   useEffect(() => {
     fetchMasterData();
@@ -181,135 +188,131 @@ export default function InventoryAddNewSubcategory() {
   const fetchMasterData = async () => {
     try {
       setLoading(true);
-      const [catRes, subRes] = await Promise.all([
-        api.get('/inventory/categories'),
-        api.get('/subcategories'),
-      ]);
+      const res = await api.get('/inventory/categories');
+      const cats = Array.isArray(res.data)
+        ? res.data
+        : res.data?.categories || res.data?.data || [];
 
-      const cats = catRes.data || [];
-      const masterSubs = subRes.data || [];
-      setCategories(cats);
-      setAllMasterSubcategories(masterSubs);
+      const activeCats = cats.filter((c) => c.status === 'active');
+      setCategories(activeCats);
 
+      // Determine active category from session
+      let activeCat = null;
       const savedCat = sessionStorage.getItem('inventory_selected_category');
-      let initialKey = selectedCategoryKey || 'diamond';
-      let activeCatObj = selectedCategoryObj;
-
       if (savedCat) {
         try {
           const parsed = JSON.parse(savedCat);
-          activeCatObj = parsed;
-          const matchedDef = categoryDefinitions.find((def) =>
-            def.matchTerms.some((t) => (parsed.name || '').toLowerCase().includes(t) || (parsed.code || '').toLowerCase().includes(t))
-          );
-          if (matchedDef) initialKey = matchedDef.key;
+          if (parsed && parsed.id) {
+            activeCat = activeCats.find((c) => c.id === parsed.id || String(c.id) === String(parsed.id));
+          }
         } catch (e) {}
       }
 
-      filterSubcategoriesForCategory(initialKey, cats, masterSubs, activeCatObj);
+      if (!activeCat && activeCats.length > 0) {
+        activeCat = activeCats.find((c) => (c.name || '').toLowerCase() === 'gold') || activeCats[0];
+      }
+
+      if (activeCat) {
+        setSelectedCategory(activeCat);
+        sessionStorage.setItem('inventory_selected_category', JSON.stringify(activeCat));
+        loadSubcategoriesForCategory(activeCat);
+      } else {
+        setSubcategories([]);
+        setSelectedSubcategory(null);
+      }
     } catch (err) {
-      console.error('Failed to load master subcategories', err);
+      console.error('Failed to load categories', err);
       showToast('Failed to load master categories and subcategories', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  const filterSubcategoriesForCategory = (catKey, allCats = categories, masterSubs = allMasterSubcategories, specificObj = null) => {
-    const def = categoryDefinitions.find((d) => d.key === catKey);
-    const dbCat = specificObj || allCats.find((c) =>
-      def?.matchTerms.some(
-        (t) => (c.name || '').toLowerCase().includes(t) || (c.code || '').toLowerCase().includes(t)
-      )
-    );
+  const loadSubcategoriesForCategory = (cat) => {
+    const subs = (cat.subcategories || []).filter((s) => s.status === 'active');
+    setSubcategories(subs);
 
-    const catObj = dbCat || { id: catKey, name: def?.title || 'Diamond', code: catKey.toUpperCase() };
-    setSelectedCategoryObj(catObj);
-    sessionStorage.setItem('inventory_selected_category', JSON.stringify(catObj));
-
-    const directSubs = catObj.subcategories || [];
-    const masterMatchingSubs = masterSubs.filter((s) => {
-      if (catObj.id && s.category_id === catObj.id) return true;
-      if (catObj.code && s.category?.code === catObj.code) return true;
-      if (catObj.name && s.category?.name && s.category.name.toLowerCase() === catObj.name.toLowerCase()) return true;
-      return false;
-    });
-
-    const mergedMap = new Map();
-    [...directSubs, ...masterMatchingSubs].forEach((sub) => {
-      if (sub && sub.id) {
-        mergedMap.set(sub.id, sub);
-      }
-    });
-
-    const filtered = Array.from(mergedMap.values());
-    setSubcategories(filtered);
-
+    // Check if previously saved subcategory belongs to this category
     const savedSub = sessionStorage.getItem('inventory_selected_subcategory');
+    let matchedSub = null;
     if (savedSub) {
       try {
         const parsedSub = JSON.parse(savedSub);
-        const match = filtered.find((s) => s.id === parsedSub.id || s.name?.toLowerCase() === parsedSub.name?.toLowerCase());
-        if (match) {
-          setSelectedSubcategory(match);
-          return;
+        if (parsedSub && parsedSub.id) {
+          matchedSub = subs.find((s) => s.id === parsedSub.id && s.category_id === cat.id);
         }
       } catch (e) {}
     }
 
-    if (filtered.length > 0) {
-      setSelectedSubcategory(filtered[0]);
+    if (matchedSub) {
+      setSelectedSubcategory(matchedSub);
+    } else if (subs.length > 0) {
+      setSelectedSubcategory(subs[0]);
+      sessionStorage.setItem('inventory_selected_subcategory', JSON.stringify(subs[0]));
     } else {
       setSelectedSubcategory(null);
+      sessionStorage.removeItem('inventory_selected_subcategory');
     }
   };
 
-  const handleSelectCategory = (catDef) => {
-    if (isCategoryLocked) return;
-    setSelectedCategoryKey(catDef.key);
-    filterSubcategoriesForCategory(catDef.key);
+  // Category switching on the Subcategory page (Unlocked and dynamic)
+  const handleSelectCategory = (cat) => {
+    if (selectedCategory?.id === cat.id) return;
+
+    setSelectedCategory(cat);
+    sessionStorage.setItem('inventory_selected_category', JSON.stringify(cat));
+
+    // Clear previous subcategory since category switched
+    sessionStorage.removeItem('inventory_selected_subcategory');
+    loadSubcategoriesForCategory(cat);
+    showToast(`Switched to category "${cat.name}"`, 'info');
   };
 
   const handleSelectSubcategory = (sub) => {
     setSelectedSubcategory(sub);
+    sessionStorage.setItem('inventory_selected_subcategory', JSON.stringify(sub));
   };
 
   const handleProcessUpload = () => {
+    if (!selectedCategory) {
+      showToast('Please select a category', 'warning');
+      return;
+    }
     if (!selectedSubcategory) {
       showToast('Please select a subcategory to proceed', 'warning');
       return;
     }
 
-    sessionStorage.setItem('inventory_selected_category', JSON.stringify(selectedCategoryObj));
+    sessionStorage.setItem('inventory_selected_category', JSON.stringify(selectedCategory));
     sessionStorage.setItem('inventory_selected_subcategory', JSON.stringify(selectedSubcategory));
     navigate('/inventory/add-new/upload');
   };
 
-  const currentCategoryTitle = categoryDefinitions.find((d) => d.key === selectedCategoryKey)?.title || selectedCategoryObj?.name || 'Diamonds';
+  const currentCategoryTitle = selectedCategory?.name || 'Selected Category';
 
   return (
     <div className="w-full pb-16 space-y-6 font-['Inter',-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif] max-w-5xl mx-auto">
       
-      {/* 1. Stepper Header (Matching Figma Image 2) */}
+      {/* 1. Stepper Header */}
       <div className="flex items-center justify-center pt-2 pb-2">
         <div className="flex items-center gap-2 sm:gap-6">
           
-          {/* Step 1: Upload File */}
+          {/* Step 1: Upload File (Complete Red Circle) */}
           <div className="flex flex-col items-center">
             <div className="w-9 h-9 rounded-full bg-[#b01622] text-white flex items-center justify-center text-xs font-bold shadow-xs">
-              1
+              <i className="fa-solid fa-check text-[11px]"></i>
             </div>
             <span className="text-xs font-semibold text-[#b01622] mt-1.5 whitespace-nowrap">Upload File</span>
           </div>
 
-          <div className="w-16 sm:w-28 h-[1.5px] bg-stone-200 -mt-5"></div>
+          <div className="w-16 sm:w-28 h-[1.5px] bg-[#b01622] -mt-5"></div>
 
-          {/* Step 2: Valid Data */}
+          {/* Step 2: Valid Data (Active Red Circle) */}
           <div className="flex flex-col items-center">
-            <div className="w-9 h-9 rounded-full bg-stone-100 text-stone-600 flex items-center justify-center text-xs font-bold border border-stone-200/80">
+            <div className="w-9 h-9 rounded-full bg-[#b01622] text-white flex items-center justify-center text-xs font-bold shadow-xs">
               2
             </div>
-            <span className="text-xs font-semibold text-stone-600 mt-1.5 whitespace-nowrap">Valid Data</span>
+            <span className="text-xs font-semibold text-[#b01622] mt-1.5 whitespace-nowrap">Valid Data</span>
           </div>
 
           <div className="w-16 sm:w-28 h-[1.5px] bg-stone-200 -mt-5"></div>
@@ -325,10 +328,10 @@ export default function InventoryAddNewSubcategory() {
         </div>
       </div>
 
-      {/* 2. Card 1: Select Inventory Category (Matching Figma Image 2) */}
+      {/* 2. Card 1: Select Inventory Category (Interactive & Switchable) */}
       <div className="bg-white rounded-2xl p-6 sm:p-8 border border-stone-200/80 shadow-2xs space-y-6">
         
-        {/* Header with Red Box Icon */}
+        {/* Header with Red Box Icon and scroll arrows if > 5 categories */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-[#b01622] text-white flex items-center justify-center text-base shadow-2xs shrink-0">
@@ -337,80 +340,104 @@ export default function InventoryAddNewSubcategory() {
             <div>
               <h2 className="text-sm font-bold text-gray-900 tracking-tight">Select Inventory Category</h2>
               <p className="text-xs text-stone-400 mt-0.5">
-                {isCategoryLocked
-                  ? 'Category is locked. Go back to change it.'
-                  : 'Choose the category you want to manage from below'}
+                Click any category below to switch and reload corresponding subcategories
               </p>
             </div>
           </div>
-          {isCategoryLocked && (
-            <Link
-              to="/inventory/add-new/category"
-              className="text-xs font-bold text-stone-500 hover:text-[#b01622] flex items-center gap-1.5 transition-colors border border-stone-200/80 px-3 py-1.5 rounded-lg bg-white shadow-2xs"
-            >
-              <i className="fa-solid fa-arrow-left text-[10px]"></i>
-              <span>Change Category</span>
-            </Link>
+
+          {/* Scroll Navigation Arrows when categories > 5 */}
+          {categories.length > 5 && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => scroll('left')}
+                disabled={!canScrollLeft}
+                aria-label="Scroll left"
+                className={`w-8 h-8 rounded-full border flex items-center justify-center text-xs transition-all cursor-pointer ${
+                  canScrollLeft
+                    ? 'border-stone-300 bg-white text-stone-700 hover:bg-stone-50 hover:border-[#b01622] hover:text-[#b01622] shadow-2xs'
+                    : 'border-stone-200 bg-stone-100/60 text-stone-300 cursor-not-allowed'
+                }`}
+              >
+                <i className="fa-solid fa-chevron-left"></i>
+              </button>
+              <button
+                type="button"
+                onClick={() => scroll('right')}
+                disabled={!canScrollRight}
+                aria-label="Scroll right"
+                className={`w-8 h-8 rounded-full border flex items-center justify-center text-xs transition-all cursor-pointer ${
+                  canScrollRight
+                    ? 'border-stone-300 bg-white text-stone-700 hover:bg-stone-50 hover:border-[#b01622] hover:text-[#b01622] shadow-2xs'
+                    : 'border-stone-200 bg-stone-100/60 text-stone-300 cursor-not-allowed'
+                }`}
+              >
+                <i className="fa-solid fa-chevron-right"></i>
+              </button>
+            </div>
           )}
         </div>
 
-        {/* 5 Category Cards Grid (Exact match to Image 1) */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3.5 pt-1">
-          {categoryDefinitions.map((catDef) => {
-            const isSelected = selectedCategoryKey === catDef.key;
-            return (
-              <div
-                key={catDef.key}
-                onClick={() => handleSelectCategory(catDef)}
-                className={`p-4 rounded-2xl border transition-all text-center flex flex-col items-center justify-between min-h-[170px] relative ${
-                  isCategoryLocked
-                    ? isSelected
-                      ? 'bg-[#fff0f2] border-[#b01622] ring-2 ring-red-100/80 shadow-xs cursor-not-allowed'
-                      : 'bg-[#fff7f8]/70 border-stone-200/60 opacity-60 cursor-not-allowed'
-                    : isSelected
-                    ? 'bg-[#fff0f2] border-[#b01622] ring-2 ring-red-100/80 shadow-xs scale-[1.02] cursor-pointer'
-                    : 'bg-[#fff7f8] hover:bg-[#fff0f2] border-stone-200/60 hover:border-rose-200 shadow-2xs cursor-pointer'
-                }`}
-              >
-                {/* Lock indicator badge */}
-                {isCategoryLocked && isSelected && (
-                  <span className="absolute top-2.5 right-2.5 w-5 h-5 rounded-full bg-[#b01622] text-white flex items-center justify-center text-[9px] shadow-2xs">
-                    <i className="fa-solid fa-lock"></i>
-                  </span>
-                )}
+        {/* Categories Viewport (Exactly 5 items visible per view + scrollable if > 5) */}
+        <div className="relative">
+          <div
+            ref={categoryScrollRef}
+            className={`pt-1 pb-2 flex gap-3.5 overflow-x-auto scroll-smooth no-scrollbar ${
+              categories.length <= 5 ? 'sm:grid sm:grid-cols-5' : ''
+            }`}
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          >
+            {categories.map((cat) => {
+              const isSelected = selectedCategory?.id === cat.id;
+              const meta = getCategoryMeta(cat);
+              const desc = cat.description || meta.defaultDesc;
 
-                {/* Circular Icon Badge */}
-                <div className={`w-12 h-12 rounded-full ${catDef.badgeBg} flex items-center justify-center text-base mb-2 shrink-0 shadow-2xs transition-transform ${
-                  isSelected ? 'scale-105' : ''
-                }`}>
-                  {catDef.customSvg ? (
-                    catDef.customSvg
-                  ) : (
-                    <i className={`${catDef.icon} ${catDef.iconColor}`}></i>
-                  )}
-                </div>
-
-                <div className="flex flex-col items-center w-full">
-                  {/* Category Title (Crimson Red Text matching Image 1) */}
-                  <div className="font-bold text-xs sm:text-sm text-[#8b131b]">
-                    {catDef.title}
+              return (
+                <div
+                  key={cat.id}
+                  onClick={() => handleSelectCategory(cat)}
+                  className={`p-4 rounded-2xl border transition-all text-center flex flex-col items-center justify-between min-h-[170px] cursor-pointer ${
+                    categories.length > 5
+                      ? 'min-w-[calc((100%-4*14px)/5)] max-w-[calc((100%-4*14px)/5)] shrink-0'
+                      : 'w-full'
+                  } ${
+                    isSelected
+                      ? 'bg-[#fff0f2] border-[#b01622] ring-2 ring-red-100/80 shadow-xs scale-[1.02]'
+                      : 'bg-[#fff7f8] hover:bg-[#fff0f2] border-stone-200/60 hover:border-rose-200 shadow-2xs'
+                  }`}
+                >
+                  {/* Circular Icon Badge */}
+                  <div
+                    className={`w-12 h-12 rounded-full ${meta.badgeBg} flex items-center justify-center text-base mb-2 shrink-0 shadow-2xs transition-transform ${
+                      isSelected ? 'scale-105' : ''
+                    }`}
+                  >
+                    {meta.customSvg ? (
+                      meta.customSvg
+                    ) : (
+                      <i className={`${meta.icon} ${meta.iconColor}`}></i>
+                    )}
                   </div>
 
-                  {/* Gold/Bronze Underline Accent Bar (Matching Image 1) */}
-                  <div className="w-8 h-[2.5px] bg-[#c5a059] my-2 rounded-full opacity-90"></div>
+                  <div className="flex flex-col items-center w-full">
+                    <div className="font-bold text-xs sm:text-sm text-[#8b131b] truncate max-w-full">
+                      {cat.name}
+                    </div>
 
-                  {/* Description (Dark grey text matching Image 1) */}
-                  <p className="text-[11px] text-stone-700 font-medium leading-tight px-1 text-center">
-                    {catDef.description}
-                  </p>
+                    <div className="w-8 h-[2.5px] bg-[#c5a059] my-2 rounded-full opacity-90"></div>
+
+                    <p className="text-[11px] text-stone-700 font-medium leading-tight px-1 text-center line-clamp-2">
+                      {desc}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       </div>
 
-      {/* 3. Card 2: Subcategory Selection Card Container (Exact soft blush bg-[#faf3f4] matching Image 2) */}
+      {/* 3. Card 2: Subcategory Selection Card Container */}
       <div className="bg-[#faf3f4] rounded-2xl p-6 sm:p-8 border border-stone-200/60 shadow-2xs space-y-6">
         
         {/* Header with Red Outline Icon */}
@@ -421,10 +448,10 @@ export default function InventoryAddNewSubcategory() {
             </div>
             <div>
               <h2 className="text-sm font-bold text-gray-900 tracking-tight">
-                {currentCategoryTitle}
+                {currentCategoryTitle} Subcategories
               </h2>
               <p className="text-xs text-stone-500 mt-0.5 font-medium">
-                Select a {currentCategoryTitle.toLowerCase()} type to manage inventory
+                Select a subcategory type for {currentCategoryTitle.toLowerCase()}
               </p>
             </div>
           </div>
@@ -438,7 +465,7 @@ export default function InventoryAddNewSubcategory() {
           </Link>
         </div>
 
-        {/* Dynamic Subcategories Grid (Matching Image 2 pure white cards) */}
+        {/* Dynamic Subcategories Grid */}
         {loading ? (
           <div className="py-12 text-center text-stone-400 text-xs">
             <i className="fa-solid fa-circle-notch fa-spin text-xl text-[#b01622] mr-2"></i>
@@ -452,7 +479,7 @@ export default function InventoryAddNewSubcategory() {
             <div>
               <p className="text-xs font-bold text-stone-700">No subcategories found for {currentCategoryTitle}</p>
               <p className="text-[11px] text-stone-400 mt-0.5 max-w-sm mx-auto">
-                Subcategories added in Masters will automatically appear here.
+                Subcategories added in Masters for {currentCategoryTitle} will automatically appear here.
               </p>
             </div>
             <Link
@@ -518,7 +545,7 @@ export default function InventoryAddNewSubcategory() {
         <button
           type="button"
           onClick={handleProcessUpload}
-          disabled={!selectedSubcategory}
+          disabled={!selectedCategory || !selectedSubcategory}
           className="px-8 py-2.5 bg-[#b01622] hover:bg-[#8f1019] text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-50"
         >
           <span>Process Upload</span>

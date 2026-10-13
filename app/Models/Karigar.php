@@ -33,6 +33,8 @@ class Karigar extends Model
         'standard_wastage_percent',
         'making_charge_per_gram',
         'current_gold_balance_grams',
+        'karigar_gold_balance_grams',
+        'settlement_balance_grams',
         'status',
         'avatar_url',
         'notes',
@@ -43,7 +45,24 @@ class Karigar extends Model
         'standard_wastage_percent' => 'float',
         'making_charge_per_gram' => 'float',
         'current_gold_balance_grams' => 'float',
+        'karigar_gold_balance_grams' => 'float',
+        'settlement_balance_grams' => 'float',
     ];
+
+    public function getGoldBalanceGramsAttribute()
+    {
+        return (float) ($this->attributes['current_gold_balance_grams'] ?? 0);
+    }
+
+    public function setGoldBalanceGramsAttribute($value)
+    {
+        $this->attributes['current_gold_balance_grams'] = $value;
+    }
+
+    public function materialTransactions()
+    {
+        return $this->hasMany(KarigarMaterialTransaction::class, 'karigar_id')->latest('transaction_date');
+    }
 
     public function user()
     {
@@ -55,8 +74,15 @@ class Karigar extends Model
         return $this->hasMany(WorkOrder::class, 'karigar_id');
     }
 
+    public function activeWorkOrders()
+    {
+        return $this->hasMany(WorkOrder::class, 'karigar_id')
+            ->whereNotIn('status', ['completed', 'cancelled', 'final_received'])
+            ->latest('id');
+    }
+
     /**
-     * Active work order (not completed or cancelled)
+     * Active work order (latest non-completed work order)
      */
     public function activeWorkOrder()
     {
@@ -66,7 +92,7 @@ class Karigar extends Model
     }
 
     /**
-     * Check if karigar is currently assigned to an active work order
+     * Check if karigar currently has active work orders
      */
     public function hasActiveWorkOrder(): bool
     {

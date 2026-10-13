@@ -16,6 +16,43 @@ body, input, select, textarea, button, table, td, th, span, div, p, h1, h2, h3, 
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
+/* ==========================================================================
+   FontAwesome Icon Font Guarantee (Local Assets + Override Protection)
+   ========================================================================== */
+@font-face {
+  font-family: 'Font Awesome 6 Free';
+  font-style: normal;
+  font-weight: 900;
+  font-display: block;
+  src: url('/webfonts/fa-solid-900.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Font Awesome 6 Free';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('/webfonts/fa-regular-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Font Awesome 6 Brands';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('/webfonts/fa-brands-400.woff2') format('woff2');
+}
+
+/* Guarantee that icon elements always retain their font family */
+.fa, .fas, .far, .fab, .fa-solid, .fa-regular, .fa-brands, [class*=" fa-"], [class^="fa-"] {
+  font-family: 'Font Awesome 6 Free', 'Font Awesome 7 Free', 'FontAwesome' !important;
+  font-style: normal !important;
+}
+.fa-regular, .far {
+  font-weight: 400 !important;
+}
+.fa-solid, .fas {
+  font-weight: 900 !important;
+}
+
 /* Hide scrollbar for Chrome, Safari and Opera */
 .sidebar-scroll::-webkit-scrollbar,
 .no-scrollbar::-webkit-scrollbar {
@@ -282,3 +319,159 @@ input[type=number].no-spinners,
     margin: 8mm;
   }
 }
+
+/* ==========================================================================
+   Login Page Styles (Global & Stable)
+   ========================================================================== */
+:root {
+  --gold: #d4af37;
+  --gold-light: #f3d98b;
+  --gold-dark: #a8791f;
+  --black: #0d0b08;
+  --charcoal: #1a1611;
+  --cream: #f8f1e5;
+  --maroon: #3d0c11;
+  --glass-border: rgba(212,175,55,0.35);
+}
+
+.bg-radial-maroon {
+  background: radial-gradient(circle at 20% 20%, var(--maroon), var(--black) 60%);
+}
+
+.sparkle-field {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.sparkle {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  background: var(--gold-light);
+  border-radius: 50%;
+  opacity: 0.7;
+  animation: twinkle 3.5s infinite ease-in-out;
+  box-shadow: 0 0 8px 2px var(--gold-light);
+}
+
+@keyframes twinkle {
+  0%, 100% { opacity: 0.2; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.4); }
+}
+
+.corner-ornament {
+  position: fixed;
+  width: 120px;
+  height: 120px;
+  border: 2px solid var(--gold);
+  opacity: 0.25;
+  z-index: 0;
+}
+.corner-ornament.top-left { top: 30px; left: 30px; border-right: none; border-bottom: none; }
+.corner-ornament.bottom-right { bottom: 30px; right: 30px; border-left: none; border-top: none; }
+
+.login-card {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 420px;
+  min-height: 520px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: linear-gradient(160deg, rgba(26,22,17,0.92), rgba(13,11,8,0.96));
+  border: 1px solid var(--glass-border);
+  border-radius: 18px;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 25px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(212,175,55,0.08) inset;
+  padding: 42px 38px 32px;
+  margin: auto;
+  box-sizing: border-box;
+}
+
+.brand-logo {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--gold-light), var(--gold-dark));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Playfair Display', serif;
+  font-weight: 800;
+  font-size: 26px;
+  color: var(--black);
+  box-shadow: 0 0 25px rgba(212,175,55,0.5);
+}
+
+.brand-name {
+  font-family: 'Playfair Display', serif;
+  font-weight: 700;
+  font-size: 28px;
+  letter-spacing: 1.5px;
+  background: linear-gradient(90deg, var(--gold-light), var(--gold), var(--gold-dark));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.divider-orn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 18px 0 22px;
+  color: var(--gold);
+  opacity: 0.6;
+  font-size: 14px;
+}
+.divider-orn::before, .divider-orn::after {
+  content: "";
+  height: 1px;
+  width: 60px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+}
+
+.form-input {
+  width: 100%;
+  padding: 15px 16px 15px 44px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(212,175,55,0.25);
+  border-radius: 10px;
+  color: var(--cream);
+  font-size: 14.5px;
+  outline: none;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+  box-sizing: border-box;
+}
+.form-input::placeholder { color: rgba(248,241,229,0.35); }
+.form-input:focus {
+  border-color: var(--gold);
+  background: rgba(212,175,55,0.06);
+  box-shadow: 0 0 0 3px rgba(212,175,55,0.12);
+}
+
+.btn-login {
+  width: 100%;
+  padding: 15px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--gold-dark), var(--gold), var(--gold-light));
+  background-size: 200% auto;
+  color: var(--black);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 10px 25px rgba(212,175,55,0.3);
+  box-sizing: border-box;
+}
+.btn-login:hover:not(:disabled) {
+  background-position: right center;
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px rgba(212,175,55,0.45);
+}
+

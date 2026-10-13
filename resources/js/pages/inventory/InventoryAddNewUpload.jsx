@@ -10,68 +10,110 @@ export default function InventoryAddNewUpload() {
   const { showToast } = useToast();
   const fileInputRef = useRef(null);
 
-  // Flow step state: 6 = Item Detail Entry (Component 1), 7 = Paired Component Entry (Component 2+)
+  // Flow step state: 6 = Step 1 (Main Gold Item Entry), 7 = Step 2 (Component Entry)
   const [pageStep, setPageStep] = useState(6);
 
   // Master lists
   const [categoriesList, setCategoriesList] = useState([]);
+  const [componentCategoriesList, setComponentCategoriesList] = useState([]);
   const [subcategoriesList, setSubcategoriesList] = useState([]);
   const [karatsList, setKaratsList] = useState([]);
   const [stampsList, setStampsList] = useState([]);
   const [unitsList, setUnitsList] = useState([]);
+  const [suppliersList, setSuppliersList] = useState([]);
   const [itemsMasterList, setItemsMasterList] = useState([]);
   const [selectedItemMasterId, setSelectedItemMasterId] = useState('');
 
   // Master management modals
-  const [crudModalType, setCrudModalType] = useState(null); // 'karat' | 'stamp' | 'unit'
+  const [crudModalType, setCrudModalType] = useState(null); // 'karat' | 'stamp' | 'unit' | 'item' | 'component_category'
   const [showCrudModal, setShowCrudModal] = useState(false);
 
-  // Context from Page 5
+  // Context from Category Selection
   const [primaryCategory, setPrimaryCategory] = useState(null);
   const [primarySubcategory, setPrimarySubcategory] = useState(null);
 
-  // Added components for current product
+  // Filter stamps dynamically by category
+  const getFilteredStamps = (categoryName) => {
+    if (!stampsList || stampsList.length === 0) return [];
+    const cat = String(categoryName || activeCategory?.name || primaryCategory?.name || '').toLowerCase().trim();
+    if (!cat) return stampsList;
+
+    const filtered = stampsList.filter((st) => {
+      if (!st.applicable_for) return true;
+      const app = String(st.applicable_for).toLowerCase();
+      if (app.includes('all')) return true;
+      if (cat.includes('silver')) return app.includes('silver');
+      if (cat.includes('gold')) return app.includes('gold');
+      if (cat.includes('diamond')) return app.includes('diamond');
+      if (cat.includes('stone') || cat.includes('gem') || cat.includes('pearl') || cat.includes('cz')) {
+        return app.includes('stone') || app.includes('gem');
+      }
+      return app.includes(cat);
+    });
+    return filtered;
+  };
+
+  // Main Product Data (Gold Item saved from Step 1)
+  const [mainProductData, setMainProductData] = useState(null);
+
+  // Added components list for Step 2
   const [addedComponents, setAddedComponents] = useState([]);
 
-  // Form State for current active component form entry
+  // Editing component ID state
+  const [editingComponentTempId, setEditingComponentTempId] = useState(null);
+
+  // Form State for active form entry (Step 1 or Step 2)
   const [activeCategory, setActiveCategory] = useState(null);
   const [activeSubcategory, setActiveSubcategory] = useState(null);
 
   const [formData, setFormData] = useState({
-    item_code: '',
+    item_code: '', // SKU
+    design_no: '', // Separate Design No.
+    stock_qty: '1', // Stock Quantity (min 1)
     item_name: '',
     karat: '22K',
     purity: '91.6',
     gross_wt: '',
     net_wt: '',
     pure_weight: '',
+    stone_weight: '',
     stamp: '916',
-    unit: 'Carat',
-    gold_rate: '',
-    other_rate: '',
-    sale_rate: '',
-    sale_value: '',
+    unit: 'g',
     size: '0.00',
     no_of_pieces: '1',
+    vendor: '',
+    vendor_name: '',
+    vendor_id: '',
+    quality: '',
     description: '',
   });
 
   const [liveRates, setLiveRates] = useState(null);
 
-  // Multi-Image Upload state for current active component
+  // Multi-Image Upload state
   const [images, setImages] = useState([]);
   const [imageError, setImageError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // 1. Fetch Masters & Load Initial Category Context
+  // Helper check for Diamond or Stone categories
+  const isDiamondOrStoneCat = (catName = '') => {
+    const name = (catName || '').toLowerCase();
+    return name.includes('diamond') || name.includes('stone') || name.includes('gem') || name.includes('pearl') || name.includes('cz');
+  };
+
+  const isSilverCategory = (activeCategory?.name || primaryCategory?.name || '').toLowerCase().includes('silver');
+
+  // Fetch Masters & Load Initial Category Context
   const fetchMasters = async () => {
     try {
-      const [catRes, karatRes, stampRes, unitRes, rateRes] = await Promise.all([
+      const [catRes, karatRes, stampRes, unitRes, rateRes, supplierRes, compCatRes] = await Promise.all([
         api.get('/inventory/categories').catch(() => api.get('/categories')),
         api.get('/karats').catch(() => ({ data: [] })),
         api.get('/stamps').catch(() => ({ data: [] })),
         api.get('/units').catch(() => ({ data: [] })),
         api.get('/metal-rates').catch(() => ({ data: null })),
+        api.get('/suppliers').catch(() => ({ data: { data: [] } })),
+        api.get('/component-categories').catch(() => ({ data: [] })),
       ]);
 
       const cats = catRes.data?.categories || catRes.data || [];
@@ -79,6 +121,9 @@ export default function InventoryAddNewUpload() {
       setKaratsList(karatRes.data || []);
       setStampsList(stampRes.data || []);
       setUnitsList(unitRes.data || []);
+      setComponentCategoriesList(compCatRes.data || []);
+      const sups = supplierRes.data?.data || supplierRes.data || [];
+      setSuppliersList(Array.isArray(sups) ? sups : []);
 
       if (rateRes.data) {
         setLiveRates(rateRes.data);
@@ -91,7 +136,6 @@ export default function InventoryAddNewUpload() {
   useEffect(() => {
     fetchMasters();
 
-    // Retrieve session category/subcategory selected on Page 5
     const savedCat = sessionStorage.getItem('inventory_selected_category');
     const savedSub = sessionStorage.getItem('inventory_selected_subcategory');
 
@@ -112,32 +156,23 @@ export default function InventoryAddNewUpload() {
 
       const subName = subObj?.name || catObj?.name || 'Jewelry';
       const defaultCode = generateCode(catObj);
+      const isSil = (catObj?.name || '').toLowerCase().includes('silver');
 
       setFormData((prev) => ({
         ...prev,
         item_code: defaultCode,
         item_name: subName,
+        stamp: isSil ? '925' : '916',
+        karat: isSil ? '925 Silver' : '22K',
+        purity: isSil ? '92.5' : '91.6',
       }));
     } catch (e) {
       navigate('/inventory/add-new/category');
     }
   }, []);
 
-  // Update gold_rate dynamically whenever liveRates or activeCategory changes
-  useEffect(() => {
-    if (liveRates) {
-      const autoRate = getAutoGoldRate(activeCategory?.name || primaryCategory?.name, formData.purity, formData.karat, liveRates);
-      if (autoRate) {
-        setFormData(prev => ({
-          ...prev,
-          gold_rate: prev.gold_rate || autoRate,
-          sale_rate: prev.sale_rate || String(Math.round(parseFloat(autoRate) * 1.08)),
-        }));
-      }
-    }
-  }, [liveRates, activeCategory]);
 
-  // Update subcategories list when active category changes
+
   useEffect(() => {
     if (activeCategory) {
       const subcats = activeCategory.subcategories || [];
@@ -147,18 +182,17 @@ export default function InventoryAddNewUpload() {
     }
   }, [activeCategory]);
 
-  // Fetch items master dynamically when active subcategory changes
   useEffect(() => {
     if (activeSubcategory?.id) {
       api.get('/items', { params: { subcategory_id: activeSubcategory.id } })
         .then((res) => {
           const list = Array.isArray(res.data) ? res.data : (res.data?.data || []);
           setItemsMasterList(list);
-          if (list.length > 0) {
+          if (list.length > 0 && pageStep === 6) {
             setSelectedItemMasterId(list[0].id);
             setFormData(prev => ({
               ...prev,
-              item_name: list[0].name,
+              item_name: prev.item_name || list[0].name,
             }));
           } else {
             setSelectedItemMasterId('');
@@ -170,17 +204,6 @@ export default function InventoryAddNewUpload() {
       setSelectedItemMasterId('');
     }
   }, [activeSubcategory]);
-
-  const handleItemMasterChange = (itemId) => {
-    setSelectedItemMasterId(itemId);
-    const found = itemsMasterList.find((i) => String(i.id) === String(itemId));
-    if (found) {
-      setFormData((prev) => ({
-        ...prev,
-        item_name: found.name,
-      }));
-    }
-  };
 
   const generateCode = (catObj) => {
     const prefix = catObj?.code ? catObj.code.slice(0, 3).toUpperCase() : 'RJ';
@@ -219,6 +242,7 @@ export default function InventoryAddNewUpload() {
     return g22 ? String(g22) : (g24 ? String(g24) : '');
   };
 
+  // Pure 24K Gold Weight = Net Gold Weight * (Purity / 100)
   const computePureWeight = (netWtStr, purityStr) => {
     const net = parseFloat(netWtStr) || 0;
     let purity = parseFloat(purityStr) || 0;
@@ -233,36 +257,36 @@ export default function InventoryAddNewUpload() {
     setFormData((prev) => {
       const updated = { ...prev, [name]: value };
 
-      if (name === 'gross_wt' || name === 'net_wt' || name === 'purity') {
-        const netValue = name === 'net_wt' ? value : (updated.net_wt || updated.gross_wt);
-        const calcPure = computePureWeight(netValue, updated.purity);
-        updated.pure_weight = calcPure;
-      }
-
-      if (name === 'gross_wt' && (!prev.net_wt || prev.net_wt === prev.gross_wt)) {
-        updated.net_wt = value;
-        const calcPure = computePureWeight(value, updated.purity);
-        updated.pure_weight = calcPure;
-      }
-
-      if (name === 'karat') {
-        if (value.includes('24')) updated.purity = '99.9';
-        else if (value.includes('22')) updated.purity = '91.6';
-        else if (value.includes('18')) updated.purity = '75.0';
-        else if (value.includes('14')) updated.purity = '58.5';
-
-        const autoRate = getAutoGoldRate(activeCategory?.name || primaryCategory?.name, updated.purity, value);
-        if (autoRate) {
-          updated.gold_rate = autoRate;
-          updated.sale_rate = String(Math.round(parseFloat(autoRate) * 1.08));
+      if (pageStep === 6) {
+        // Step 1: Main Gold Item
+        if (name === 'gross_wt' || name === 'net_wt' || name === 'purity') {
+          const netValue = name === 'net_wt' ? value : (updated.net_wt || updated.gross_wt);
+          updated.pure_weight = computePureWeight(netValue, updated.purity);
         }
-      }
 
-      if (name === 'gross_wt' || name === 'net_wt' || name === 'gold_rate' || name === 'sale_rate') {
-        const wt = parseFloat(updated.net_wt || updated.gross_wt) || 0;
-        const sRate = parseFloat(updated.sale_rate) || 0;
-        if (wt > 0 && sRate > 0) {
-          updated.sale_value = (wt * sRate).toFixed(2);
+        if (name === 'gross_wt' && (!prev.net_wt || prev.net_wt === prev.gross_wt)) {
+          updated.net_wt = value;
+          updated.pure_weight = computePureWeight(value, updated.purity);
+        }
+
+        if (name === 'karat') {
+          if (value.includes('24')) updated.purity = '99.9';
+          else if (value.includes('22')) updated.purity = '91.6';
+          else if (value.includes('18')) updated.purity = '75.0';
+          else if (value.includes('14')) updated.purity = '58.5';
+
+          const netValue = updated.net_wt || updated.gross_wt;
+          updated.pure_weight = computePureWeight(netValue, updated.purity);
+        }
+      } else {
+        // Step 2: Component Entry
+        const isDiaOrStone = isDiamondOrStoneCat(activeCategory?.name);
+
+        if (!isDiaOrStone) {
+          if (name === 'gross_wt' || name === 'net_wt' || name === 'purity') {
+            const netValue = name === 'net_wt' ? value : (updated.net_wt || updated.gross_wt);
+            updated.pure_weight = computePureWeight(netValue, updated.purity);
+          }
         }
       }
 
@@ -270,7 +294,6 @@ export default function InventoryAddNewUpload() {
     });
   };
 
-  // Handle Multi-Image Upload & Compression
   const handleImageUpload = async (e) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
@@ -308,129 +331,204 @@ export default function InventoryAddNewUpload() {
     setShowCrudModal(true);
   };
 
-  // Main product data captured on Page 6
-  const [mainProductData, setMainProductData] = useState(null);
-
-  // Add current active component to addedComponents array (Page 7)
-  const handleAddComponent = (e) => {
-    e.preventDefault();
-
-    const componentPayload = {
-      id_temp: Date.now() + Math.random(),
-      component_type: `Component ${addedComponents.length + 1}`,
-      category_id: activeCategory?.id,
-      subcategory_id: activeSubcategory?.id,
-      category_name: activeCategory?.name || 'Category',
-      subcategory_name: activeSubcategory?.name || 'Subcategory',
-      item_code: formData.item_code,
-      item_name: formData.item_name || activeSubcategory?.name || activeCategory?.name || 'Component',
-      karat: formData.karat,
-      purity: formData.purity,
-      gross_wt: parseFloat(formData.gross_wt) || 0,
-      net_wt: parseFloat(formData.net_wt) || parseFloat(formData.gross_wt) || 0,
-      pure_weight: parseFloat(formData.pure_weight) || 0,
-      stamp: formData.stamp,
-      unit: formData.unit,
-      gold_rate: formData.gold_rate,
-      other_rate: formData.other_rate,
-      sale_rate: formData.sale_rate,
-      sale_value: formData.sale_value,
-      size: formData.size,
-      no_of_pieces: formData.no_of_pieces,
-      images: [...images],
-      thumb_image: images[0] || '',
-    };
-
-    setAddedComponents((prev) => [...prev, componentPayload]);
-    showToast(`Added component "${componentPayload.item_name}"!`, 'success');
-
-    // Reset component form state for next component entry on Page 7 (preserve uploaded product photos)
-    setImageError(false);
-
-    const defaultCode = generateCode(activeCategory);
-
-    setFormData({
-      item_code: defaultCode,
-      item_name: activeCategory?.name || 'Component',
-      karat: '22K',
-      purity: '91.6',
-      gross_wt: '',
-      net_wt: '',
-      pure_weight: '',
-      stamp: '916',
-      unit: 'Carat',
-      gold_rate: liveRates ? getAutoGoldRate(activeCategory?.name, '916', '22K', liveRates) : '',
-      other_rate: '',
-      sale_rate: '',
-      sale_value: '',
-      size: '0.00',
-      no_of_pieces: '1',
-      description: '',
-    });
-  };
-
+  // Step 1 -> Step 2 transition
   const handlePage6Next = (e) => {
     e.preventDefault();
+
+    const grossWtNum = parseFloat(formData.gross_wt) || 0;
+    if (grossWtNum <= 0) {
+      showToast('Gross weight is required and must be greater than 0', 'error');
+      return;
+    }
+
+    const pureWtNum = parseFloat(formData.pure_weight) || 0;
 
     const mainRecord = {
       category_id: activeCategory?.id,
       subcategory_id: activeSubcategory?.id,
-      category_name: activeCategory?.name || 'Category',
-      subcategory_name: activeSubcategory?.name || 'Subcategory',
+      category_name: activeCategory?.name || 'Gold',
+      subcategory_name: activeSubcategory?.name || 'Main Product',
       item_code: formData.item_code,
+      design_no: formData.design_no,
+      stock_qty: parseInt(formData.stock_qty) || 1,
       item_name: formData.item_name || activeSubcategory?.name || activeCategory?.name || 'Main Product',
       karat: formData.karat,
       purity: formData.purity,
       gross_wt: parseFloat(formData.gross_wt) || 0,
       net_wt: parseFloat(formData.net_wt) || parseFloat(formData.gross_wt) || 0,
-      pure_weight: parseFloat(formData.pure_weight) || 0,
+      pure_weight: pureWtNum,
       stamp: formData.stamp,
       unit: formData.unit,
-      gold_rate: formData.gold_rate,
-      other_rate: formData.other_rate,
-      sale_rate: formData.sale_rate,
-      sale_value: formData.sale_value,
       size: formData.size,
       no_of_pieces: formData.no_of_pieces,
+      vendor: formData.vendor,
+      vendor_name: formData.vendor_name || formData.vendor,
+      vendor_id: formData.vendor_id,
+      quality: formData.quality,
       images: [...images],
       thumb_image: images[0] || '',
     };
 
     setMainProductData(mainRecord);
     setPageStep(7);
-    // Keep uploaded product images intact across continuous pages
     setImageError(false);
 
-    // Reset form for Page 7 components
+    const diaCat = categoriesList.find((c) => isDiamondOrStoneCat(c.name)) || categoriesList[0] || activeCategory;
+    if (diaCat) {
+      setActiveCategory(diaCat);
+      setActiveSubcategory(diaCat.subcategories?.[0] || null);
+    }
+
     setFormData({
-      item_code: generateCode(activeCategory),
-      item_name: activeCategory?.name || 'Component',
-      karat: '22K',
-      purity: '91.6',
+      item_code: generateCode(diaCat),
+      item_name: diaCat?.name || 'Diamond Component',
+      karat: '18K',
+      purity: '75.0',
       gross_wt: '',
       net_wt: '',
       pure_weight: '',
-      stamp: '916',
-      unit: 'Carat',
-      gold_rate: liveRates ? getAutoGoldRate(activeCategory?.name, '916', '22K', liveRates) : '',
-      other_rate: '',
-      sale_rate: '',
-      sale_value: '',
+      stone_weight: '',
+      stamp: '',
+      unit: 'Carats',
       size: '0.00',
       no_of_pieces: '1',
       description: '',
     });
 
-    showToast('Main product saved! Enter component details now.', 'info');
+    showToast('Main gold product saved! Now add component details.', 'info');
+  };
+
+  const handleEditMainGoldItem = () => {
+    setPageStep(6);
+    if (mainProductData) {
+      setActiveCategory(categoriesList.find((c) => String(c.id) === String(mainProductData.category_id)) || primaryCategory);
+      setFormData({
+        item_code: mainProductData.item_code || '',
+        item_name: mainProductData.item_name || '',
+        karat: mainProductData.karat || '22K',
+        purity: mainProductData.purity || '91.6',
+        gross_wt: mainProductData.gross_wt || '',
+        net_wt: mainProductData.net_wt || '',
+        pure_weight: mainProductData.pure_weight || '',
+        stamp: mainProductData.stamp || '916',
+        unit: mainProductData.unit || (unitsList.length > 0 ? unitsList[0].name : 'Grams'),
+        size: mainProductData.size || '0.00',
+        no_of_pieces: mainProductData.no_of_pieces || '1',
+        vendor: mainProductData.vendor || '',
+        vendor_name: mainProductData.vendor_name || '',
+        vendor_id: mainProductData.vendor_id || '',
+        quality: mainProductData.quality || '',
+        description: mainProductData.description || '',
+      });
+      if (mainProductData.images && mainProductData.images.length > 0) {
+        setImages(mainProductData.images);
+      }
+    }
+    showToast('Editing Main Gold Item', 'info');
+  };
+
+  const handleAddComponent = (e) => {
+    e.preventDefault();
+
+    const isDiaOrStone = isDiamondOrStoneCat(activeCategory?.name);
+    const weightVal = isDiaOrStone
+      ? (parseFloat(formData.stone_weight || formData.gross_wt) || 0)
+      : (parseFloat(formData.gross_wt) || 0);
+
+    const weightUnit = isDiaOrStone ? (formData.unit || 'Carats') : (formData.unit || 'g');
+    const compName = activeCategory?.name || 'Component';
+
+    const componentPayload = {
+      id_temp: editingComponentTempId || Date.now() + Math.random(),
+      component_type: isDiaOrStone ? 'Diamond/Stone Component' : 'Metal Component',
+      category_id: activeCategory?.id,
+      subcategory_id: activeSubcategory?.id,
+      category_name: activeCategory?.name || 'Component Category',
+      subcategory_name: activeSubcategory?.name || 'Subcategory',
+      item_code: formData.item_code,
+      item_name: compName,
+      karat: formData.karat,
+      purity: formData.purity,
+      gross_wt: isDiaOrStone ? weightVal : (parseFloat(formData.gross_wt) || 0),
+      net_wt: isDiaOrStone ? weightVal : (parseFloat(formData.net_wt) || parseFloat(formData.gross_wt) || 0),
+      pure_weight: isDiaOrStone ? 0 : (parseFloat(formData.pure_weight) || 0),
+      stone_weight: isDiaOrStone ? weightVal : 0,
+      stamp: formData.stamp,
+      unit: weightUnit,
+      size: formData.size,
+      no_of_pieces: formData.no_of_pieces,
+      images: [...images],
+      thumb_image: images[0] || '',
+    };
+
+    if (editingComponentTempId) {
+      setAddedComponents((prev) =>
+        prev.map((c) => (c.id_temp === editingComponentTempId ? componentPayload : c))
+      );
+      setEditingComponentTempId(null);
+      showToast(`Updated component "${componentPayload.item_name}"!`, 'success');
+    } else {
+      setAddedComponents((prev) => [...prev, componentPayload]);
+      showToast(`Added component "${componentPayload.item_name}"!`, 'success');
+    }
+
+    const defaultCode = generateCode(activeCategory);
+
+    setFormData({
+      item_code: defaultCode,
+      item_name: activeCategory?.name || 'Component',
+      karat: '18K',
+      purity: '75.0',
+      gross_wt: '',
+      net_wt: '',
+      pure_weight: '',
+      stone_weight: '',
+      stamp: '',
+      unit: isDiaOrStone ? 'Carats' : 'g',
+      size: '0.00',
+      no_of_pieces: '1',
+      description: '',
+    });
+  };
+
+  const handleEditComponent = (comp) => {
+    setEditingComponentTempId(comp.id_temp);
+    const catObj = categoriesList.find((c) => String(c.id) === String(comp.category_id)) || activeCategory;
+    if (catObj) {
+      setActiveCategory(catObj);
+      setActiveSubcategory(catObj.subcategories?.find((s) => String(s.id) === String(comp.subcategory_id)) || null);
+    }
+
+    setFormData({
+      item_code: comp.item_code || '',
+      item_name: comp.category_name || comp.item_name || '',
+      karat: comp.karat || '18K',
+      purity: comp.purity || '75.0',
+      gross_wt: comp.gross_wt || '',
+      net_wt: comp.net_wt || '',
+      pure_weight: comp.pure_weight || '',
+      stone_weight: comp.stone_weight || comp.gross_wt || '',
+      stamp: comp.stamp || '916',
+      unit: comp.unit || 'g',
+      size: comp.size || '0.00',
+      no_of_pieces: comp.no_of_pieces || '1',
+      description: comp.description || '',
+    });
+    showToast(`Editing component "${comp.category_name || comp.item_name}"`, 'info');
   };
 
   const handleRemoveComponent = (tempId) => {
     setAddedComponents((prev) => prev.filter((c) => c.id_temp !== tempId));
+    if (editingComponentTempId === tempId) {
+      setEditingComponentTempId(null);
+    }
     showToast('Component removed', 'info');
   };
 
-  // Final Product Save & Upload to Backend
+  // Final Product Save & Upload to Inventory API
   const handleUploadProductToInventory = async () => {
+    if (isSubmitting) return;
+
     const defaultCode = generateCode(activeCategory || primaryCategory);
 
     let primaryComp = mainProductData;
@@ -451,13 +549,27 @@ export default function InventoryAddNewUpload() {
           gross_wt: parseFloat(formData.gross_wt) || 0,
           net_wt: parseFloat(formData.net_wt) || parseFloat(formData.gross_wt) || 0,
           pure_weight: parseFloat(formData.pure_weight) || 0,
-          stamp: formData.stamp || '916',
-          unit: formData.unit || 'Carat',
-          sale_value: parseFloat(formData.sale_value) || 0,
+          vendor: formData.vendor,
+          vendor_name: formData.vendor_name || formData.vendor,
+          vendor_id: formData.vendor_id,
+          quality: formData.quality,
           thumb_image: images[0] || '',
           images: [...images],
         };
       }
+    }
+
+    // Client-side validations
+    const grossWt = parseFloat(primaryComp.gross_wt) || 0;
+    if (grossWt <= 0) {
+      showToast('Gross weight is required and must be greater than 0', 'error');
+      return;
+    }
+
+    const targetCatId = primaryCategory?.id || primaryComp.category_id;
+    if (!targetCatId) {
+      showToast('Please select a valid Category before uploading', 'error');
+      return;
     }
 
     const extraComponents = mainProductData
@@ -465,11 +577,6 @@ export default function InventoryAddNewUpload() {
       : (addedComponents.length > 0 ? addedComponents.slice(1) : []);
 
     const allComponents = [primaryComp, ...extraComponents];
-
-    const totalGross = allComponents.reduce((sum, c) => sum + (parseFloat(c.gross_wt) || 0), 0);
-    const totalNet = allComponents.reduce((sum, c) => sum + (parseFloat(c.net_wt) || 0), 0);
-    const totalPure = allComponents.reduce((sum, c) => sum + (parseFloat(c.pure_weight) || 0), 0);
-    const totalSaleVal = allComponents.reduce((sum, c) => sum + (parseFloat(c.sale_value) || 0), 0);
 
     const catCodeStr = (primaryCategory?.code || primaryComp.category_name || 'PRD').replace(/[^A-Za-z0-9]/g, '').slice(0, 4).toUpperCase();
     const subCodeStr = (primarySubcategory?.code || primaryComp.subcategory_name || 'GEN').replace(/[^A-Za-z0-9]/g, '').slice(0, 4).toUpperCase();
@@ -480,26 +587,29 @@ export default function InventoryAddNewUpload() {
       : `${primaryCategory?.name || primaryComp.category_name || 'Jewelry'} - ${primarySubcategory?.name || primaryComp.subcategory_name || 'Product'}`;
 
     const productRecord = {
-      category_id: primaryCategory?.id || primaryComp.category_id,
-      subcategory_id: primarySubcategory?.id || primaryComp.subcategory_id,
+      category_id: targetCatId,
+      subcategory_id: primarySubcategory?.id || primaryComp.subcategory_id || null,
       category_name: primaryCategory?.name || primaryComp.category_name,
       subcategory_name: primarySubcategory?.name || primaryComp.subcategory_name,
       product_code: primaryComp.item_code || defaultCode,
+      design_no: mainProductData?.design_no || formData.design_no || null,
       sku: generatedSku,
       name: cleanName,
-      gross_wt: totalGross,
-      net_wt: totalNet,
-      pure_weight: totalPure,
+      gross_wt: primaryComp.gross_wt,
+      net_wt: primaryComp.net_wt,
+      pure_weight: primaryComp.pure_weight,
       purity: primaryComp.purity,
       karat: primaryComp.karat,
       stamp: primaryComp.stamp,
       unit: primaryComp.unit,
-      sale_value: totalSaleVal,
-      thumb_image: primaryComp.thumb_image,
-      image: primaryComp.thumb_image,
-      images: primaryComp.images,
+      vendor: primaryComp.vendor || formData.vendor,
+      vendor_name: primaryComp.vendor_name || formData.vendor_name || formData.vendor,
+      vendor_id: primaryComp.vendor_id || formData.vendor_id,
+      quality: primaryComp.quality || formData.quality,
+      thumb_image: primaryComp.thumb_image || images[0] || '',
+      image: primaryComp.thumb_image || images[0] || '',
+      images: primaryComp.images && primaryComp.images.length > 0 ? primaryComp.images : images,
       components: allComponents,
-      stock_qty: 1,
     };
 
     try {
@@ -518,14 +628,18 @@ export default function InventoryAddNewUpload() {
         console.warn('SessionStorage quota bypass:', storageErr);
       }
 
-      showToast(res.data?.message || 'Product and all components uploaded successfully!', 'success');
+      showToast(res.data?.message || 'Product uploaded successfully to inventory!', 'success');
       navigate('/inventory/add-new/complete');
     } catch (err) {
       console.error('Failed to save product to inventory', err);
       let msg = err.response?.data?.message || err.message || 'Failed to upload product';
       if (err.response?.data?.errors && typeof err.response.data.errors === 'object') {
-        const firstErr = Object.values(err.response.data.errors).flat()[0];
-        if (firstErr) msg = firstErr;
+        const errorEntries = Object.entries(err.response.data.errors);
+        if (errorEntries.length > 0) {
+          const [field, fieldErrors] = errorEntries[0];
+          const errorText = Array.isArray(fieldErrors) ? fieldErrors[0] : fieldErrors;
+          msg = `${field.replace('_', ' ').toUpperCase()}: ${errorText}`;
+        }
       }
       showToast(msg, 'error');
     } finally {
@@ -533,7 +647,6 @@ export default function InventoryAddNewUpload() {
     }
   };
 
-  // Reusable Left Side Multi-Image Upload Component matching Figma exact design
   const renderMultiImageUploader = () => (
     <div className="space-y-3">
       <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wider block">
@@ -549,7 +662,6 @@ export default function InventoryAddNewUpload() {
         onChange={handleImageUpload}
       />
 
-      {/* Main Thumbnail Dropzone */}
       <div
         onClick={() => fileInputRef.current?.click()}
         className={`relative border-2 border-dashed rounded-2xl overflow-hidden text-center cursor-pointer transition-all flex flex-col items-center justify-center min-h-[260px] group ${imageError
@@ -588,7 +700,7 @@ export default function InventoryAddNewUpload() {
             </div>
 
             <h4 className="text-sm font-bold text-gray-900 tracking-tight">
-              Drag & Drop Product Images
+              Drag &amp; Drop Product Images
             </h4>
 
             <p className="text-[11px] text-stone-400 mt-1 mb-4">
@@ -616,7 +728,6 @@ export default function InventoryAddNewUpload() {
         </div>
       )}
 
-      {/* Child Images Gallery below Main Dropzone */}
       {images.length > 0 && (
         <div className="space-y-2 pt-2">
           <div className="flex items-center justify-between">
@@ -668,7 +779,6 @@ export default function InventoryAddNewUpload() {
               </div>
             ))}
 
-            {/* Add More slot */}
             <div
               onClick={() => fileInputRef.current?.click()}
               className="border-2 border-dashed border-[#e6c5c5] hover:border-[#b01622] bg-[#f7f0f0] rounded-xl flex flex-col items-center justify-center aspect-square cursor-pointer transition-colors text-stone-500 hover:text-[#b01622]"
@@ -686,7 +796,7 @@ export default function InventoryAddNewUpload() {
   return (
     <div className="w-full pb-20 space-y-6 font-['Inter',-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif] max-w-5xl mx-auto pt-2">
 
-      {/* 1. Exact Stepper Matching Screenshot */}
+      {/* Stepper Header */}
       <div className="flex items-center justify-center pt-2 pb-4">
         <div className="flex items-center gap-4 sm:gap-12">
 
@@ -697,7 +807,7 @@ export default function InventoryAddNewUpload() {
               1
             </div>
             <span className={`text-xs font-bold mt-2 ${pageStep >= 6 ? 'text-[#b01622]' : 'text-stone-500'}`}>
-              Upload File
+              {isSilverCategory ? 'Main Silver Item' : 'Main Gold Item'}
             </span>
           </div>
 
@@ -710,7 +820,7 @@ export default function InventoryAddNewUpload() {
               2
             </div>
             <span className={`text-xs font-bold mt-2 ${pageStep >= 7 ? 'text-[#b01622]' : 'text-stone-500'}`}>
-              Valid Data
+              Component Entry
             </span>
           </div>
 
@@ -727,94 +837,157 @@ export default function InventoryAddNewUpload() {
         </div>
       </div>
 
-      {/* 2. Added Components Queue Table (Matching Image 1) */}
-      {addedComponents.length > 0 && (
-        <div className="bg-stone-50/70 rounded-2xl border border-stone-200/80 shadow-2xs overflow-hidden mb-6 animate-fadeIn">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-stone-200/80 bg-stone-100/50 text-gray-700 font-bold text-center text-xs">
-                  <th className="py-4 px-6 text-center">Product Image</th>
-                  <th className="py-4 px-6 text-center">Category</th>
-                  <th className="py-4 px-6 text-center">Stamp</th>
-                  <th className="py-4 px-6 text-center">Unit</th>
-                  <th className="py-4 px-6 text-center">Pieces</th>
-                  <th className="py-4 px-6 text-center">Weight</th>
-                  <th className="py-4 px-6 text-center">Rate</th>
-                  <th className="py-4 px-3 text-center w-10"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-stone-200/60 bg-white">
-                {addedComponents.map((comp, idx) => {
-                  const img = comp.thumb_image || (comp.images && comp.images[0]) || '/placeholder-jewelry.png';
-                  const catName = comp.category_name || comp.item_name || 'Category';
-                  const stamp = comp.stamp || '+0';
-                  const unit = comp.unit || 'Carat';
-                  const pieces = comp.no_of_pieces || 1;
-                  const weight = (parseFloat(comp.gross_wt) || parseFloat(comp.net_wt) || 0).toFixed(1) + 'g';
-                  const rate = parseFloat(comp.gold_rate || comp.sale_rate || 0).toFixed(2);
+      {/* STEP 2 TOP SUMMARY TABLE & EDITING CONTROLS */}
+      {pageStep === 7 && (
+        <div className="space-y-4 mb-6">
 
-                  return (
-                    <tr key={comp.id_temp || idx} className="hover:bg-stone-50/60 transition-colors text-center text-xs font-medium text-gray-800">
-                      <td className="py-3 px-6 text-center">
-                        <div className="w-10 h-10 rounded-lg overflow-hidden bg-stone-900 shadow-2xs mx-auto border border-stone-200 flex items-center justify-center">
+          <div className="bg-white rounded-3xl border border-stone-200/90 shadow-2xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-[#f8f9fa] text-stone-800 font-bold text-center text-xs border-b border-stone-200">
+                    <th className="py-4 px-4 text-center">Product Image</th>
+                    <th className="py-4 px-4 text-center">Category</th>
+                    <th className="py-4 px-4 text-center">Stamp</th>
+                    <th className="py-4 px-4 text-center">Unit</th>
+                    <th className="py-4 px-4 text-center">Pieces</th>
+                    <th className="py-4 px-4 text-center">Weight</th>
+                    <th className="py-4 px-4 text-center w-28">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100 bg-white">
+                  {/* Row 1: Main Product Details */}
+                  {mainProductData && (
+                    <tr className="hover:bg-stone-50/80 transition-colors text-center text-xs font-medium">
+                      <td className="py-3 px-4 text-center">
+                        {images && images.length > 0 ? (
                           <img
-                            src={img}
-                            alt={catName}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              e.target.onerror = null;
-                              e.target.src = '/placeholder-jewelry.png';
-                            }}
+                            src={images[0]}
+                            alt="Main Product"
+                            className="w-11 h-11 object-cover rounded-xl border border-stone-200 mx-auto shadow-2xs"
                           />
-                        </div>
+                        ) : (
+                          <div className="w-11 h-11 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 flex items-center justify-center font-bold text-xs mx-auto shadow-2xs">
+                            <i className="fa-solid fa-gem"></i>
+                          </div>
+                        )}
                       </td>
-                      <td className="py-3 px-6 text-center text-gray-900 font-medium">
-                        {catName}
+                      <td className="py-3 px-4 text-center text-gray-900 font-bold text-xs">
+                        {mainProductData.item_name || (isSilverCategory ? 'Silver Item' : 'Gold Item')}
                       </td>
-                      <td className="py-3 px-6 text-center text-stone-600 font-mono">
-                        {stamp}
+                      <td className="py-3 px-4 text-center font-semibold text-stone-700">
+                        {mainProductData.stamp || (isSilverCategory ? '925' : '916')}
                       </td>
-                      <td className="py-3 px-6 text-center text-stone-600 font-medium">
-                        {unit}
+                      <td className="py-3 px-4 text-center text-stone-600 font-bold">
+                        {mainProductData.unit || 'Grams'}
                       </td>
-                      <td className="py-3 px-6 text-center text-gray-900 font-bold">
-                        {pieces}
+                      <td className="py-3 px-4 text-center font-black text-gray-900 text-xs">
+                        {mainProductData.no_of_pieces || 1}
                       </td>
-                      <td className="py-3 px-6 text-center font-mono font-semibold text-gray-800">
-                        {weight}
+                      <td className="py-3 px-4 text-center font-mono font-bold text-gray-900">
+                        {parseFloat(mainProductData.pure_weight || mainProductData.gross_wt || 0).toFixed(3)} g
                       </td>
-                      <td className="py-3 px-6 text-center font-mono font-semibold text-stone-700">
-                        {rate}
-                      </td>
-                      <td className="py-3 px-3 text-center">
+                      <td className="py-3 px-4 text-center">
                         <button
                           type="button"
-                          onClick={() => handleRemoveComponent(comp.id_temp)}
-                          className="w-6 h-6 rounded-md bg-stone-100 hover:bg-red-100 text-stone-400 hover:text-red-600 flex items-center justify-center transition-colors cursor-pointer mx-auto"
-                          title="Remove Component"
+                          onClick={handleEditMainGoldItem}
+                          className="w-8 h-8 rounded-xl bg-amber-50 hover:bg-amber-100 text-[#b01622] border border-amber-200 flex items-center justify-center transition-colors cursor-pointer mx-auto"
+                          title="Edit Main Product Details"
                         >
-                          <i className="fa-solid fa-xmark text-xs"></i>
+                          <i className="fa-solid fa-pen-to-square text-xs"></i>
                         </button>
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  )}
+
+                  {/* Component Rows */}
+                  {addedComponents.map((comp, idx) => {
+                    const weightVal = parseFloat(comp.stone_weight || comp.gross_wt || 0).toFixed(3);
+
+                    return (
+                      <tr
+                        key={comp.id_temp || idx}
+                        className={`hover:bg-stone-50/80 transition-colors text-center text-xs font-medium ${
+                          editingComponentTempId === comp.id_temp ? 'bg-amber-50/70 ring-1 ring-amber-300' : ''
+                        }`}
+                      >
+                        <td className="py-3 px-4 text-center">
+                          {images && images.length > 0 ? (
+                            <img
+                              src={images[0]}
+                              alt="Component"
+                              className="w-11 h-11 object-cover rounded-xl border border-stone-200 mx-auto shadow-2xs"
+                            />
+                          ) : (
+                            <div className="w-11 h-11 rounded-xl bg-stone-100 text-stone-700 border border-stone-200 flex items-center justify-center font-bold text-xs mx-auto shadow-2xs">
+                              <i className="fa-regular fa-gem"></i>
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-center text-gray-900 font-semibold">
+                          {comp.category_name || comp.item_name}
+                        </td>
+                        <td className="py-3 px-4 text-center text-stone-700 font-semibold">
+                          {comp.stamp || '-'}
+                        </td>
+                        <td className="py-3 px-4 text-center text-stone-600 font-bold">
+                          {comp.unit || 'Grams'}
+                        </td>
+                        <td className="py-3 px-4 text-center font-black text-gray-900 text-xs">
+                          {comp.no_of_pieces || 1}
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono font-bold text-gray-900">
+                          {weightVal} g
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleEditComponent(comp)}
+                              className="w-8 h-8 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 flex items-center justify-center transition-colors cursor-pointer"
+                              title="Edit Component Details"
+                            >
+                              <i className="fa-solid fa-pen-to-square text-xs"></i>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveComponent(comp.id_temp)}
+                              className="w-8 h-8 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 flex items-center justify-center transition-colors cursor-pointer"
+                              title="Remove Component"
+                            >
+                              <i className="fa-solid fa-trash-can text-xs"></i>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
+
+
         </div>
       )}
 
-      {/* 3. Main Form Card matching exact Screenshot */}
+      {/* MAIN FORM CARD */}
       <div className="bg-white rounded-3xl border border-stone-200/90 shadow-sm overflow-hidden">
 
-        {/* Dark Red Header Banner matching Screenshot */}
+        {/* Header Banner */}
         <div className="bg-[#b01622] text-white px-8 py-5 flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-bold tracking-tight">New Item Upload</h2>
+            <h2 className="text-xl font-bold tracking-tight">
+              {pageStep === 6
+                ? (isSilverCategory ? 'Step 1: Main Silver Product Details' : 'Step 1: Main Gold Product Details')
+                : 'Step 2: Component Entry'}
+            </h2>
             <p className="text-xs text-red-100 font-normal mt-0.5">
-              Efficiently add individual items to the diamond inventory with direct data entry.
+              {pageStep === 6
+                ? (isSilverCategory
+                    ? 'Enter primary silver specs, fine silver weight, vendor, and product media.'
+                    : 'Enter primary product specs, purity, weight details, vendor, and product media.')
+                : 'Add diamond or stone details with unit-based weight specifications.'}
             </p>
           </div>
           <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-xs flex items-center justify-center text-white text-xl">
@@ -822,7 +995,7 @@ export default function InventoryAddNewUpload() {
           </div>
         </div>
 
-        {/* Clean White Inner Form Container */}
+        {/* Form Container */}
         <form onSubmit={pageStep === 6 ? handlePage6Next : handleAddComponent} className="p-8 bg-white space-y-6">
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -832,14 +1005,15 @@ export default function InventoryAddNewUpload() {
               {renderMultiImageUploader()}
             </div>
 
-            {/* Right Column: Form Inputs with Soft Pinkish-Beige Input Boxes (#f7f0f0 background & #e6c5c5 border) */}
+            {/* Right Column: Form Inputs */}
             <div className="lg:col-span-7 space-y-5">
 
               {pageStep === 6 ? (
                 <>
-                  {/* Page 6 Fields: Basic Item Detail Entry */}
-                  {/* Row 1: ITEM NAME (Dropdown from Item Masters) & DESIGN NO */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* STEP 1 FIELDS: MAIN GOLD PRODUCT DETAILS */}
+
+                  {/* Row 1: ITEM NAME, PRODUCT SKU, DESIGN NO, & STOCK QUANTITY */}
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider">
@@ -872,8 +1046,8 @@ export default function InventoryAddNewUpload() {
                           ))
                         ) : (
                           <>
-                            <option value={formData.item_name || activeSubcategory?.name || 'Diamond Ring (Open)'}>
-                              {formData.item_name || activeSubcategory?.name || 'Diamond Ring (Open)'}
+                            <option value={formData.item_name || activeSubcategory?.name || 'Gold Stud'}>
+                              {formData.item_name || activeSubcategory?.name || 'Gold Stud'}
                             </option>
                             <option value="Box Link Chain">Box Link Chain</option>
                             <option value="Antique Temple Necklace">Antique Temple Necklace</option>
@@ -886,25 +1060,57 @@ export default function InventoryAddNewUpload() {
 
                     <div>
                       <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
-                        DESIGN NO
+                        PRODUCT SKU
                       </label>
                       <input
                         type="text"
                         name="item_code"
                         value={formData.item_code}
                         onChange={handleInputChange}
-                        placeholder="RD-DIA-001"
+                        placeholder="RJ-G-18294"
                         className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                        DESIGN NO.
+                      </label>
+                      <input
+                        type="text"
+                        name="design_no"
+                        value={formData.design_no}
+                        onChange={handleInputChange}
+                        placeholder="RJ-DES-001"
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-[#b01622] uppercase tracking-wider mb-1">
+                        STOCK QUANTITY
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        name="stock_qty"
+                        value={formData.stock_qty}
+                        onChange={handleInputChange}
+                        placeholder="1"
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-black text-[#b01622] focus:outline-none focus:bg-white focus:border-[#b01622]"
+                        required
                       />
                     </div>
                   </div>
 
-                  {/* Row 2: KARAT (MASTER), PURITY (NUMERIC), SIZE, NO. OF PIECES */}
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  {/* Row 2: KARAT/GRADE, STAMP, PURITY (%), SIZE, NO. OF PIECES */}
+                  <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider">
-                          KARAT
+                          {isSilverCategory ? 'SILVER GRADE' : 'KARAT'}
                         </label>
                         <button
                           type="button"
@@ -918,24 +1124,61 @@ export default function InventoryAddNewUpload() {
                         name="karat"
                         value={formData.karat}
                         onChange={(e) => {
+                          const val = e.target.value;
+                          setFormData((prev) => {
+                            const updated = { ...prev, karat: val };
+                            if (isSilverCategory) {
+                              if (val.includes('999')) updated.purity = '99.9';
+                              else if (val.includes('925')) updated.purity = '92.5';
+                              else if (val.includes('900')) updated.purity = '90.0';
+                              else if (val.includes('800')) updated.purity = '80.0';
+                            }
+                            return updated;
+                          });
                           handleInputChange(e);
-                          const kVal = e.target.value;
-                          let pVal = '91.6';
-                          if (kVal.includes('24')) pVal = '99.9';
-                          else if (kVal.includes('18')) pVal = '75.0';
-                          else if (kVal.includes('14')) pVal = '58.5';
-                          setFormData((prev) => ({
-                            ...prev,
-                            karat: kVal,
-                            purity: pVal,
-                            pure_weight: computePureWeight(prev.net_wt || prev.gross_wt, pVal),
-                          }));
                         }}
                         className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622] cursor-pointer"
                       >
-                        {karatsList.map((k) => (
-                          <option key={k.id} value={k.name}>
-                            {k.name}
+                        {isSilverCategory ? (
+                          <>
+                            <option value="925 Silver">925 Sterling Silver (92.5%)</option>
+                            <option value="999 Fine Silver">999 Fine Silver (99.9%)</option>
+                            <option value="900 Silver">900 Silver (90.0%)</option>
+                            <option value="800 Silver">800 Silver (80.0%)</option>
+                          </>
+                        ) : (
+                          karatsList.map((k) => (
+                            <option key={k.id} value={k.name}>
+                              {k.name}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider">
+                          STAMP
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenMasterModal('stamp')}
+                          className="text-[10px] text-[#b01622] font-bold hover:underline"
+                        >
+                          + CRUD
+                        </button>
+                      </div>
+                      <select
+                        name="stamp"
+                        value={formData.stamp || ''}
+                        onChange={handleInputChange}
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622] cursor-pointer"
+                      >
+                        <option value="">-- Select Stamp --</option>
+                        {getFilteredStamps(activeCategory?.name || primaryCategory?.name).map((st) => (
+                          <option key={st.id} value={st.name}>
+                            {st.name}
                           </option>
                         ))}
                       </select>
@@ -950,7 +1193,7 @@ export default function InventoryAddNewUpload() {
                         name="purity"
                         value={formData.purity}
                         onChange={handleInputChange}
-                        placeholder="91.6"
+                        placeholder={isSilverCategory ? '92.5' : '91.6'}
                         className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
                       />
                     </div>
@@ -984,11 +1227,11 @@ export default function InventoryAddNewUpload() {
                     </div>
                   </div>
 
-                  {/* Row 3: GROSS WEIGHT, NET WEIGHT, and PURE WEIGHT OF 24K */}
+                  {/* Row 3: GROSS WEIGHT, NET SILVER/GOLD WEIGHT, FINE SILVER / PURE WEIGHT OF 24K */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
                       <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
-                        GROSS WEIGHT
+                        GROSS WEIGHT (g)
                       </label>
                       <input
                         type="number"
@@ -996,14 +1239,14 @@ export default function InventoryAddNewUpload() {
                         name="gross_wt"
                         value={formData.gross_wt}
                         onChange={handleInputChange}
-                        placeholder="0.00g"
+                        placeholder="0.000g"
                         className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
                       />
                     </div>
 
                     <div>
                       <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
-                        NET WEIGHT
+                        {isSilverCategory ? 'NET SILVER WEIGHT (g)' : 'NET GOLD WEIGHT (g)'}
                       </label>
                       <input
                         type="number"
@@ -1011,54 +1254,143 @@ export default function InventoryAddNewUpload() {
                         name="net_wt"
                         value={formData.net_wt}
                         onChange={handleInputChange}
-                        placeholder="0.00g"
+                        placeholder="0.000g"
                         className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
                       />
                     </div>
 
                     <div>
                       <label className="block text-[11px] font-bold text-[#b01622] uppercase tracking-wider mb-1">
-                        PURE WEIGHT OF 24K
+                        {isSilverCategory ? 'FINE SILVER WEIGHT' : 'PURE WEIGHT OF 24K'}
                       </label>
                       <input
                         type="text"
                         name="pure_weight"
-                        value={formData.pure_weight ? `${formData.pure_weight}g` : ''}
-                        placeholder="0.00g"
-                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-black text-[#b01622] focus:outline-none"
+                        value={formData.pure_weight ? `${formData.pure_weight} g` : ''}
+                        placeholder="0.000g"
+                        className="w-full p-3 bg-stone-100 border border-stone-300 rounded-xl text-xs font-mono font-black text-[#b01622] focus:outline-none cursor-not-allowed"
                         readOnly
+                      />
+                    </div>
+                  </div>
+
+
+
+                  {/* Row 5: VENDOR & QUALITY */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider">
+                          VENDOR
+                        </label>
+                        <Link
+                          to="/suppliers"
+                          target="_blank"
+                          className="text-[10px] text-[#b01622] font-bold hover:underline"
+                        >
+                          + SUPPLIERS
+                        </Link>
+                      </div>
+                      <select
+                        name="vendor"
+                        value={formData.vendor}
+                        onChange={(e) => {
+                          const selectedVal = e.target.value;
+                          const foundSup = suppliersList.find((s) => s.name === selectedVal || String(s.id) === selectedVal);
+                          setFormData((prev) => ({
+                            ...prev,
+                            vendor: selectedVal,
+                            vendor_name: foundSup ? foundSup.name : selectedVal,
+                            vendor_id: foundSup ? foundSup.id : '',
+                          }));
+                        }}
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622] cursor-pointer"
+                      >
+                        <option value="">-- Select Vendor --</option>
+                        {suppliersList.length > 0 ? (
+                          suppliersList.map((sup) => (
+                            <option key={sup.id} value={sup.name}>
+                              {sup.name} {sup.company_name ? `(${sup.company_name})` : sup.supplier_code ? `[${sup.supplier_code}]` : ''}
+                            </option>
+                          ))
+                        ) : (
+                          <>
+                            <option value="Kesav">Kesav (Kesav Ornaments)</option>
+                            <option value="Suraj Karyekar">Suraj Karyekar (Mumbai Hub)</option>
+                            <option value="Rajesh Varma">Rajesh Varma (Varma Filigree)</option>
+                          </>
+                        )}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                        QUALITY
+                      </label>
+                      <input
+                        type="text"
+                        name="quality"
+                        value={formData.quality}
+                        onChange={handleInputChange}
+                        placeholder="e.g. VVS1 - E Color / 22K Hallmark"
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
                       />
                     </div>
                   </div>
                 </>
               ) : (
                 <>
-                  {/* Page 7 Fields: Component Detail Entry */}
-                  {/* Row 1: CATEGORY & STAMP */}
+                  {/* STEP 2 FIELDS: COMPONENT ENTRY */}
+
+                  {/* Row 1: CATEGORY & STAMP ONLY (FILTERED FOR DIAMOND & STONE CATEGORIES ONLY) */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
-                        CATEGORY
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider">
+                          CATEGORY
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenMasterModal('component_category')}
+                          className="text-[10px] text-[#b01622] font-bold hover:underline"
+                        >
+                          + CRUD
+                        </button>
+                      </div>
                       <select
                         name="category_id"
-                        value={activeCategory?.id || ''}
+                        value={activeCategory?.id || activeCategory?.name || ''}
                         onChange={(e) => {
-                          const cat = categoriesList.find((c) => String(c.id) === String(e.target.value));
-                          if (cat) {
-                            setActiveCategory(cat);
-                            const sub = cat.subcategories?.[0] || null;
-                            setActiveSubcategory(sub);
-                            setFormData((prev) => ({
-                              ...prev,
-                              item_name: sub?.name || cat.name || 'Component',
-                            }));
+                          const val = e.target.value;
+                          let cat = componentCategoriesList.find((c) => String(c.id) === String(val) || c.name === val);
+                          if (!cat) {
+                            cat = categoriesList.find((c) => String(c.id) === String(val) || c.name === val);
                           }
+                          if (!cat) {
+                            cat = { id: val, name: val };
+                          }
+                          setActiveCategory(cat);
+                          const filteredStamps = getFilteredStamps(cat.name);
+                          const firstStamp = filteredStamps.length > 0 ? filteredStamps[0].name : '';
+                          const isDiaOrStone = isDiamondOrStoneCat(cat.name);
+                          setFormData((prev) => ({
+                            ...prev,
+                            item_name: cat.name,
+                            item_code: generateCode(cat),
+                            unit: isDiaOrStone ? 'Carats' : (unitsList[0]?.name || 'Grams'),
+                            stamp: '',
+                          }));
                         }}
                         className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622] cursor-pointer"
                       >
-                        {categoriesList.map((cat) => (
-                          <option key={cat.id} value={cat.id}>
+                        {(componentCategoriesList && componentCategoriesList.length > 0
+                          ? componentCategoriesList
+                          : (categoriesList.filter((c) => isDiamondOrStoneCat(c.name)).length > 0
+                              ? categoriesList.filter((c) => isDiamondOrStoneCat(c.name))
+                              : categoriesList
+                            )
+                        ).map((cat) => (
+                          <option key={cat.id || cat.name} value={cat.id || cat.name}>
                             {cat.name}
                           </option>
                         ))}
@@ -1080,11 +1412,12 @@ export default function InventoryAddNewUpload() {
                       </div>
                       <select
                         name="stamp"
-                        value={formData.stamp}
+                        value={formData.stamp || ''}
                         onChange={handleInputChange}
                         className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622] cursor-pointer"
                       >
-                        {stampsList.map((st) => (
+                        <option value="">-- Select Stamp --</option>
+                        {getFilteredStamps(activeCategory?.name).map((st) => (
                           <option key={st.id} value={st.name}>
                             {st.name}
                           </option>
@@ -1093,8 +1426,8 @@ export default function InventoryAddNewUpload() {
                     </div>
                   </div>
 
-                  {/* Row 2: UNIT (MASTER), SIZE, NO. OF PIECES */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {/* Row 2: UNIT, NO. OF PIECES, STONE WEIGHT (CT) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider">
@@ -1110,30 +1443,24 @@ export default function InventoryAddNewUpload() {
                       </div>
                       <select
                         name="unit"
-                        value={formData.unit}
+                        value={formData.unit || 'Carats'}
                         onChange={handleInputChange}
                         className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622] cursor-pointer"
                       >
-                        {unitsList.map((u) => (
-                          <option key={u.id} value={u.name}>
-                            {u.name}
-                          </option>
-                        ))}
+                        {unitsList.length > 0 ? (
+                          unitsList.map((u) => (
+                            <option key={u.id} value={u.name}>
+                              {u.name}
+                            </option>
+                          ))
+                        ) : (
+                          <>
+                            <option value="Carats">Carats</option>
+                            <option value="Carat">Carat</option>
+                            <option value="Grams">Grams</option>
+                          </>
+                        )}
                       </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
-                        SIZE
-                      </label>
-                      <input
-                        type="text"
-                        name="size"
-                        value={formData.size}
-                        onChange={handleInputChange}
-                        placeholder="0.00"
-                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
-                      />
                     </div>
 
                     <div>
@@ -1149,97 +1476,26 @@ export default function InventoryAddNewUpload() {
                         className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
                       />
                     </div>
-                  </div>
 
-                  {/* Row 3: GROSS WEIGHT, NET WEIGHT, PURE WEIGHT OF 24K */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
                       <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
-                        GROSS WEIGHT
+                        {isDiamondOrStoneCat(activeCategory?.name) || pageStep !== 6 ? 'STONE WEIGHT (CT)' : 'STONE WEIGHT (g)'}
                       </label>
                       <input
                         type="number"
                         step="0.001"
-                        name="gross_wt"
-                        value={formData.gross_wt}
-                        onChange={handleInputChange}
-                        placeholder="0.00g"
-                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
-                        NET WEIGHT
-                      </label>
-                      <input
-                        type="number"
-                        step="0.001"
-                        name="net_wt"
-                        value={formData.net_wt}
-                        onChange={handleInputChange}
-                        placeholder="0.00g"
-                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-[#b01622] uppercase tracking-wider mb-1">
-                        PURE WEIGHT OF 24K
-                      </label>
-                      <input
-                        type="text"
-                        name="pure_weight"
-                        value={formData.pure_weight ? `${formData.pure_weight}g` : ''}
-                        placeholder="0.00g"
-                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-black text-[#b01622] focus:outline-none"
-                        readOnly
-                      />
-                    </div>
-                  </div>
-
-                  {/* Row 4: RATE, SALE RATE, SALE VALUE */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
-                        RATE
-                      </label>
-                      <input
-                        type="text"
-                        name="gold_rate"
-                        value={formData.gold_rate}
-                        onChange={handleInputChange}
-                        placeholder="Auto Generate"
-                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
-                        SALE RATE
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        name="sale_rate"
-                        value={formData.sale_rate}
-                        onChange={handleInputChange}
-                        placeholder="0.00"
-                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
-                        SALE VALUE
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        name="sale_value"
-                        value={formData.sale_value}
-                        onChange={handleInputChange}
-                        placeholder="0.00"
+                        name="stone_weight"
+                        value={formData.stone_weight || formData.gross_wt}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setFormData((prev) => ({
+                            ...prev,
+                            stone_weight: val,
+                            gross_wt: val,
+                            net_wt: val,
+                          }));
+                        }}
+                        placeholder={isDiamondOrStoneCat(activeCategory?.name) || pageStep !== 6 ? 'e.g. 0.50' : 'e.g. 0.500'}
                         className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
                       />
                     </div>
@@ -1253,7 +1509,7 @@ export default function InventoryAddNewUpload() {
                   type="button"
                   onClick={() => {
                     if (pageStep === 7) {
-                      setPageStep(6);
+                      handleEditMainGoldItem();
                     } else {
                       navigate('/inventory/add-new/subcategory');
                     }
@@ -1270,7 +1526,7 @@ export default function InventoryAddNewUpload() {
                       type="submit"
                       className="w-full sm:w-auto px-10 py-3.5 bg-[#b01622] hover:bg-[#8f1019] text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
                     >
-                      <span>Next</span>
+                      <span>Next to Components</span>
                       <i className="fa-solid fa-arrow-right text-xs"></i>
                     </button>
                   ) : (
@@ -1279,8 +1535,8 @@ export default function InventoryAddNewUpload() {
                         type="submit"
                         className="w-full sm:w-auto px-6 py-3 bg-white border-2 border-[#b01622] text-[#b01622] hover:bg-red-50/50 rounded-xl text-xs font-bold shadow-2xs transition-all flex items-center justify-center gap-2 cursor-pointer"
                       >
-                        <i className="fa-solid fa-plus text-xs"></i>
-                        <span>Add New Item</span>
+                        <i className={`fa-solid ${editingComponentTempId ? 'fa-check' : 'fa-plus'} text-xs`}></i>
+                        <span>{editingComponentTempId ? 'Save Component Edit' : 'Add New Item'}</span>
                       </button>
 
                       <button
@@ -1292,11 +1548,11 @@ export default function InventoryAddNewUpload() {
                         {isSubmitting ? (
                           <>
                             <i className="fa-solid fa-circle-notch fa-spin text-xs"></i>
-                            <span>Uploading...</span>
+                            <span>Uploading Product...</span>
                           </>
                         ) : (
                           <>
-                            <span>Upload New Item</span>
+                            <span>Upload Product to Inventory</span>
                             <i className="fa-solid fa-cloud-arrow-up text-xs"></i>
                           </>
                         )}
@@ -1314,17 +1570,26 @@ export default function InventoryAddNewUpload() {
 
       </div>
 
-      {/* 4. Quick CRUD Master Modal for Item, Karat, Stamp, Unit */}
+      {/* Quick CRUD Master Modal */}
       {showCrudModal && (
         <QuickDropdownCrudModal
           isOpen={showCrudModal}
           onClose={() => setShowCrudModal(false)}
           type={crudModalType}
-          onItemSelect={(val) => {
+          onItemSelect={(val, fullItem) => {
             if (crudModalType === 'item' || crudModalType === 'item_master') setFormData((prev) => ({ ...prev, item_name: val }));
             if (crudModalType === 'karat') setFormData((prev) => ({ ...prev, karat: val }));
             if (crudModalType === 'stamp') setFormData((prev) => ({ ...prev, stamp: val }));
             if (crudModalType === 'unit') setFormData((prev) => ({ ...prev, unit: val }));
+            if (crudModalType === 'component_category') {
+              const catObj = fullItem || { id: val, name: val };
+              setActiveCategory(catObj);
+              setFormData((prev) => ({
+                ...prev,
+                item_name: catObj.name || val,
+                item_code: generateCode(catObj),
+              }));
+            }
           }}
           onRefresh={fetchMasters}
         />

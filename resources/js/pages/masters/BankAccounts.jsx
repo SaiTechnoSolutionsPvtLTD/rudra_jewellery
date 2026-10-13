@@ -78,16 +78,21 @@ export default function BankAccounts() {
         setAccounts(data);
         localStorage.setItem('rudhra_bank_accounts', JSON.stringify(data));
       } else {
-        setAccounts(DEFAULT_BANK_ACCOUNTS);
-        localStorage.setItem('rudhra_bank_accounts', JSON.stringify(DEFAULT_BANK_ACCOUNTS));
+        setAccounts([]);
+        localStorage.removeItem('rudhra_bank_accounts');
       }
     } catch (err) {
-      console.warn('Bank accounts fetch warning, fallback to default:', err);
+      console.warn('Bank accounts fetch warning, fallback to empty:', err);
       const stored = localStorage.getItem('rudhra_bank_accounts');
       if (stored) {
-        try { setAccounts(JSON.parse(stored)); } catch (e) { setAccounts(DEFAULT_BANK_ACCOUNTS); }
+        try {
+          const parsed = JSON.parse(stored);
+          setAccounts(Array.isArray(parsed) ? parsed : []);
+        } catch (e) {
+          setAccounts([]);
+        }
       } else {
-        setAccounts(DEFAULT_BANK_ACCOUNTS);
+        setAccounts([]);
       }
     } finally {
       setLoading(false);

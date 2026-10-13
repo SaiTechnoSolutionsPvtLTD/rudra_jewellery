@@ -50,10 +50,14 @@ export default function DiamondClarities() {
 
   const openAddModal = () => {
     setEditingItem(null);
+    const maxSort = clarities.reduce((max, item) => {
+      const num = parseInt(item.sort_order, 10);
+      return !isNaN(num) && num > max ? num : max;
+    }, 0);
     setFormData({
       name: '',
       code: '',
-      sort_order: clarities.length + 1,
+      sort_order: maxSort + 1,
       description: '',
       status: 'active',
     });
@@ -158,9 +162,14 @@ export default function DiamondClarities() {
           <div className="text-[11px] text-gray-500 mt-1">Configured clarity options</div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200/80 p-4 shadow-2xs">
-          <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Flawless & VVS Grades</div>
+          <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Flawless &amp; VVS Grades</div>
           <div className="text-2xl font-black text-indigo-600">
-            {clarities.filter((c) => ['FL/IF', 'FL', 'IF', 'VVS1', 'VVS2'].includes(c.code)).length}
+            {clarities.filter((c) => {
+              const code = (c.code || '').toUpperCase();
+              const name = (c.name || '').toUpperCase();
+              const targets = ['FL', 'IF', 'VVS1', 'VVS2', 'VVS'];
+              return targets.some((t) => code.includes(t) || name.includes(t));
+            }).length}
           </div>
           <div className="text-[11px] text-gray-500 mt-1">High-end flawless/VVS categories</div>
         </div>

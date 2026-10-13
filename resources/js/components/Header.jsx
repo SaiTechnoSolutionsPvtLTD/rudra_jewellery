@@ -254,13 +254,14 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
     setNotifications(prev => prev.filter(item => item.id !== notif.id));
     setNotifOpen(false);
 
+    if (notif.action_url) {
+      navigate(notif.action_url);
+      return;
+    }
+
     const orderId = notif.data?.order_id || notif.work_order_id;
     if (orderId) {
-      if (user?.role === 'Karigar' || isKarigar) {
-        navigate(`/job-order/in-progress?order_id=${orderId}`);
-      } else {
-        navigate(`/job-order/receive?order_id=${orderId}`);
-      }
+      navigate(`/job-order/in-progress?order_id=${orderId}`);
     }
   };
 
@@ -271,6 +272,8 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
     setIsLoggingOut(false);
     setShowLogoutModal(false);
   };
+
+  const currentAvatar = user?.avatar || user?.avatar_url || user?.karigar?.avatar_url || '/images/samples/arvind_profile.jpg';
 
   return (
     <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0 z-10 print:hidden">
@@ -462,29 +465,83 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
                         }`}
                     >
                       <div
-                        className={`w-8 h-8 rounded-xl shrink-0 flex items-center justify-center text-xs mt-0.5 shadow-2xs ${n.type === 'submitted'
+                        className={`w-8 h-8 rounded-xl shrink-0 flex items-center justify-center text-xs mt-0.5 shadow-2xs overflow-hidden ${
+                          ['qc_submitted', 'submitted'].includes(n.type)
                             ? 'bg-blue-100 text-blue-700'
-                            : n.type === 'rework_resubmitted'
-                              ? 'bg-purple-100 text-purple-700'
-                              : n.type === 'returned'
+                            : ['qc_passed', 'approved', 'piece_received', 'inventory_posted', 'completed'].includes(n.type)
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : ['returned', 'delay', 'stock_shortage'].includes(n.type)
                                 ? 'bg-rose-100 text-rose-700'
-                                : n.type === 'approved'
-                                  ? 'bg-emerald-100 text-emerald-700'
-                                  : 'bg-amber-100 text-amber-700'
-                          }`}
+                                : n.type === 'rework_resubmitted'
+                                  ? 'bg-purple-100 text-purple-700'
+                                  : ['work_order_created', 'job_added'].includes(n.type)
+                                    ? 'bg-indigo-100 text-indigo-700'
+                                    : n.type === 'progress_update'
+                                      ? 'bg-blue-100 text-blue-700'
+                                      : n.type === 'sales_created'
+                                        ? 'bg-green-100 text-green-700'
+                                        : n.type === 'purchase_created'
+                                          ? 'bg-cyan-100 text-cyan-700'
+                                          : n.type === 'system'
+                                            ? 'bg-amber-50 text-amber-900 border border-amber-200'
+                                            : 'bg-amber-100 text-amber-700'
+                        }`}
                       >
-                        <i
-                          className={`fa-solid ${n.type === 'submitted'
-                              ? 'fa-paper-plane'
-                              : n.type === 'rework_resubmitted'
-                                ? 'fa-arrows-rotate'
-                                : n.type === 'returned'
-                                  ? 'fa-rotate-left'
-                                  : n.type === 'approved'
-                                    ? 'fa-check-double'
-                                    : 'fa-bell'
+                        {n.type === 'system' || n.data?.image_url || n.image_url ? (
+                          <>
+                            <img
+                              src={n.data?.image_url || n.image_url || '/logo_emblem.png'}
+                              alt="Logo"
+                              className="w-5 h-5 object-contain"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                                const fb = e.currentTarget.parentElement?.querySelector('.fallback-header-notif-icon');
+                                if (fb) fb.style.display = 'flex';
+                              }}
+                            />
+                            <i className="fallback-header-notif-icon fa-solid fa-bell hidden"></i>
+                          </>
+                        ) : (
+                          <i
+                            className={`fa-solid ${
+                              ['qc_submitted', 'submitted'].includes(n.type)
+                                ? 'fa-paper-plane'
+                                : ['qc_passed', 'approved'].includes(n.type)
+                                  ? 'fa-check-double'
+                                  : n.type === 'returned'
+                                    ? 'fa-rotate-left'
+                                    : n.type === 'rework_resubmitted'
+                                      ? 'fa-arrows-rotate'
+                                      : n.type === 'work_order_created'
+                                        ? 'fa-file-lines'
+                                        : n.type === 'job_added'
+                                          ? 'fa-circle-plus'
+                                          : n.type === 'progress_update'
+                                            ? 'fa-bars-progress'
+                                            : n.type === 'completed'
+                                              ? 'fa-circle-check'
+                                              : n.type === 'assigned'
+                                                ? 'fa-user-tag'
+                                                : n.type === 'ready_for_receive'
+                                                  ? 'fa-truck-ramp-box'
+                                                  : n.type === 'piece_received'
+                                                    ? 'fa-clipboard-check'
+                                                    : n.type === 'certification_completed'
+                                                      ? 'fa-certificate'
+                                                      : n.type === 'hallmarking_completed'
+                                                        ? 'fa-stamp'
+                                                        : n.type === 'inventory_posted'
+                                                          ? 'fa-boxes-stacked'
+                                                          : n.type === 'delay'
+                                                            ? 'fa-clock'
+                                                            : n.type === 'sales_created'
+                                                              ? 'fa-receipt'
+                                                              : n.type === 'purchase_created'
+                                                                ? 'fa-cart-shopping'
+                                                                : 'fa-bell'
                             }`}
-                        ></i>
+                          ></i>
+                        )}
                       </div>
                       <div className="flex-1 text-xs">
                         <div className="flex items-center justify-between gap-2">
@@ -509,6 +566,21 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
                   </div>
                 )}
               </div>
+
+              {/* Panel Footer */}
+              <div className="p-2.5 px-4 bg-stone-50 border-t border-stone-200/80 text-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNotifOpen(false);
+                    navigate('/notifications');
+                  }}
+                  className="text-[11px] font-bold text-[#b01622] hover:underline cursor-pointer inline-flex items-center gap-1"
+                >
+                  <span>View All Notifications History</span>
+                  <i className="fa-solid fa-arrow-right text-[10px]"></i>
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -525,9 +597,9 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
           <span className="text-[#a5141f] font-bold text-xs">{user?.name || 'Arvind'}</span>
           <span className="text-gray-500 font-normal text-xs">({user?.role || 'Super Admin'})</span>
           <i className="fa-solid fa-chevron-down text-[10px] text-gray-700 mx-1"></i>
-          {user?.avatar || user?.karigar?.avatar_url || '/images/samples/arvind_profile.jpg' ? (
+          {currentAvatar ? (
             <img
-              src={user?.avatar || user?.karigar?.avatar_url || '/images/samples/arvind_profile.jpg'}
+              src={currentAvatar}
               alt={user?.name || 'User'}
               className="w-7 h-7 rounded-full object-cover border border-stone-200 shrink-0 shadow-2xs"
               onError={(e) => {

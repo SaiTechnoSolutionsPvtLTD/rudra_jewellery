@@ -50,10 +50,14 @@ export default function DiamondColors() {
 
   const openAddModal = () => {
     setEditingItem(null);
+    const maxSort = colors.reduce((max, item) => {
+      const num = parseInt(item.sort_order, 10);
+      return !isNaN(num) && num > max ? num : max;
+    }, 0);
     setFormData({
       name: '',
       code: '',
-      sort_order: colors.length + 1,
+      sort_order: maxSort + 1,
       description: '',
       status: 'active',
     });

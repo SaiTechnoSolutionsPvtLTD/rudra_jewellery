@@ -4,9 +4,11 @@ import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
+import { WorkOrderPrintHeader, WorkOrderPrintMetadata } from '../../components/WorkOrderPrintLayout';
 
 export const resolveItemImage = (item) => {
   const raw =
+    item?.reference_image ||
     item?.image ||
     item?.image_url ||
     item?.specifications?.image ||
@@ -32,10 +34,6 @@ const SAMPLE_IMAGES = [
 ];
 
 export default function NewWorkOrder({ initialMode }) {
-  const { isKarigar } = useAuth();
-  if (isKarigar) {
-    return <Navigate to="/job-order/in-progress" replace />;
-  }
   const toastCtx = useToast();
   const rawShowToast = toastCtx?.showToast || ((msg) => console.log(msg));
   const toast = {
@@ -74,6 +72,7 @@ export default function NewWorkOrder({ initialMode }) {
 
   const [orders, setOrders] = useState([]);
   const [karigars, setKarigars] = useState([]);
+  const [inventoryProducts, setInventoryProducts] = useState([]);
   const [settingStyles, setSettingStyles] = useState([]);
   const [showStylesModal, setShowStylesModal] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -121,43 +120,144 @@ export default function NewWorkOrder({ initialMode }) {
   };
 
   const defaultRowForm = {
+    work_order_no: '',
+    form_no: '',
+    product_id: null,
+    design_number: '',
+    product_name: '',
+    reference_image: '',
+    reference_image_name: '',
+    reference_image_type: '',
+    design_file: '',
+    design_file_name: '',
+    design_file_type: '',
+    gold_purity: '',
+    gold_karat: '',
+    gold_stamp: '',
+    setting_type: 'Prong',
+    diamond_weight: '',
+    diamond_count: 0,
+    diamond_stamp: '',
+    color_stone_weight: '',
+    color_stone_count: 0,
+    color_stone_stamp: '',
+    diamond_wt_from: '',
+    diamond_wt_to: '',
+    gold_weight: '',
+    gold_wt_from: '',
+    gold_wt_to: '',
+    need_pcs: 1,
+    no_of_diamonds: 0,
+    no_of_colour_stones: 0,
+    total_gross_wt: '',
+    total_dia_cts: '',
+    remark: '-',
+    material_type: '',
+    material_subtitle: '',
     work_name: '',
-    material_type: '22K Yellow Gold',
-    material_subtitle: '916 Hallmark Standard',
     ordered_date: new Date().toISOString().split('T')[0],
     delivery_date: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
     image: '',
     image_name: '',
-    design_file: '',
-    design_file_name: '',
-    design_file_type: '',
-    reference_image: '',
-    reference_image_name: '',
-    reference_image_type: '',
-    design_number: '',
-    variant: 'Necklace',
-    setting_type: 'Prong',
-    diamond_weight: 'VS1',
-    gold_weight: '22.500',
+    variant: '',
     cons_cts: '-',
-    from_cts: '22KT',
-    total_cts: '22.000',
-    cons_wt: '21.340',
-    from_wt: '4.850',
-    to_wt: '2.200',
-    need_pcs: 1,
-    wastage: '0.500',
-    percentages: '2.26%',
-    total_gross_wt: '22.840',
-    total_dia_cts: '0.660',
-    remark: '-',
-    total_weight: '22.500',
+    from_cts: '',
+    total_cts: '',
+    cons_wt: '',
+    from_wt: '',
+    to_wt: '',
+    wastage: '0.000',
+    percentages: '0.00%',
+    total_weight: '',
     old_weight: '0.000',
     qty: 1,
-    gold_priory: '22KT (916)',
+    gold_priory: '',
   };
 
   const [rowForm, setRowForm] = useState(defaultRowForm);
+
+  const updateRowFormAndCalculate = (field, val) => {
+    setRowForm((prev) => {
+      const next = { ...prev, [field]: val };
+      const goldWt = parseFloat(field === 'gold_weight' ? val : next.gold_weight) || 0;
+      const diaWt = parseFloat(field === 'diamond_weight' ? val : next.diamond_weight) || 0;
+      const pcs = parseInt(field === 'need_pcs' ? val : next.need_pcs, 10) || 1;
+
+      next.total_gross_wt = goldWt > 0 ? (goldWt * pcs).toFixed(3) : '';
+      next.total_dia_cts = diaWt > 0 ? (diaWt * pcs).toFixed(3) : '';
+      return next;
+    });
+
+    if (formErrors[field]) {
+      setFormErrors((prev) => {
+        const nextErr = { ...prev };
+        delete nextErr[field];
+        return nextErr;
+      });
+    }
+  };
+
+  const handleDesignNumberChange = async (val) => {
+    updateRowFormAndCalculate('design_number', val);
+    const trimmed = val.trim();
+    if (trimmed.length >= 2) {
+      try {
+        const res = await api.get('/products/lookup-design', { params: { design_number: trimmed } });
+        if (res.data && res.data.found) {
+          const p = res.data;
+          setRowForm((prev) => {
+            const goldWt = (p.gold_weight !== undefined && p.gold_weight !== null && p.gold_weight !== '') ? String(p.gold_weight) : '';
+            const diaWt = (p.diamond_weight !== undefined && p.diamond_weight !== null && p.diamond_weight !== '') ? String(p.diamond_weight) : '';
+            const pcs = parseInt(prev.need_pcs || 1, 10);
+            const goldWtNum = parseFloat(goldWt) || 0;
+            const diaWtNum = parseFloat(diaWt) || 0;
+
+            const isCustomRefImage = prev.reference_image && (
+              prev.reference_image.startsWith('data:') ||
+              (prev.reference_image.includes('/storage/') && !prev.reference_image.includes('/images/samples/'))
+            );
+            const refImgToUse = isCustomRefImage ? prev.reference_image : (p.image_url || '');
+
+            const diaCount = parseInt(p.diamond_count ?? prev.no_of_diamonds ?? 0, 10);
+            const stoneCount = parseInt(p.color_stone_count ?? prev.no_of_colour_stones ?? 0, 10);
+
+            return {
+              ...prev,
+              product_id: p.product_id,
+              product_name: p.product_name || prev.product_name || '',
+              variant: p.product_name || prev.variant || '',
+              gold_purity: p.gold_purity || (p.gold_karat ? `${p.gold_karat}K` : (prev.gold_purity || '')),
+              gold_karat: p.gold_karat || '',
+              gold_stamp: p.gold_stamp || '',
+              setting_type: p.setting_type || prev.setting_type || 'Prong',
+              gold_weight: goldWt,
+              diamond_weight: diaWt,
+              diamond_count: diaCount,
+              no_of_diamonds: diaCount,
+              diamond_stamp: p.diamond_stamp || '',
+              color_stone_weight: p.color_stone_weight || '',
+              color_stone_count: stoneCount,
+              no_of_colour_stones: stoneCount,
+              color_stone_stamp: p.color_stone_stamp || '',
+              reference_image: refImgToUse,
+              image: refImgToUse,
+              total_gross_wt: goldWtNum > 0 ? (goldWtNum * pcs).toFixed(3) : '',
+              total_dia_cts: diaWtNum > 0 ? (diaWtNum * pcs).toFixed(3) : '',
+            };
+          });
+          toast.info(`Product "${p.product_name}" details (Gold: ${p.gold_weight || '0'}g, Dia: ${p.diamond_weight || '0'}ct) fetched from Inventory!`);
+        } else {
+          // Clear product_id if not found to prevent stale linkage
+          setRowForm((prev) => ({
+            ...prev,
+            product_id: null,
+          }));
+        }
+      } catch (err) {
+        // Silently continue
+      }
+    }
+  };
 
   // Document preview lightbox state
   const [previewDoc, setPreviewDoc] = useState(null);
@@ -179,15 +279,14 @@ export default function NewWorkOrder({ initialMode }) {
     setPreviewDoc(doc);
   };
 
-  // Active documents dynamically collected from input form, job items, and order details
+  // Active documents dynamically collected from job items and order details
   const activeDocuments = useMemo(() => {
     const docs = [];
-    const seen = new Set();
+    const seenUrls = new Set();
+    const seenNames = new Set();
 
     const pushDoc = (url, name, type, source) => {
       if (!url || typeof url !== 'string' || !url.trim()) return;
-      if (seen.has(url)) return;
-      seen.add(url);
 
       const isDataUrl = url.startsWith('data:');
       const isPdf = isDataUrl ? url.includes('data:application/pdf') : url.toLowerCase().endsWith('.pdf');
@@ -211,8 +310,18 @@ export default function NewWorkOrder({ initialMode }) {
         }
       }
 
+      // Clean normalized URL and filename for robust deduplication
+      const normUrl = url.replace(/^\//, '').split('?')[0].toLowerCase().trim();
+      const normName = (finalName || '').toLowerCase().trim();
+
+      if (seenUrls.has(normUrl)) return;
+      if (normName && seenNames.has(normName) && !isDataUrl) return;
+
+      seenUrls.add(normUrl);
+      if (normName) seenNames.add(normName);
+
       docs.push({
-        id: `doc-${docs.length + 1}-${url.slice(-15)}`,
+        id: `doc-${docs.length + 1}-${normUrl.slice(-15)}`,
         name: finalName,
         type: finalType,
         url,
@@ -220,29 +329,12 @@ export default function NewWorkOrder({ initialMode }) {
       });
     };
 
-    // 1. Scan current input form (rowForm)
-    if (rowForm?.reference_image) {
-      pushDoc(
-        rowForm.reference_image,
-        rowForm.reference_image_name,
-        rowForm.reference_image_type || 'image',
-        'Reference Image'
-      );
-    }
-    if (rowForm?.design_file) {
-      pushDoc(
-        rowForm.design_file,
-        rowForm.design_file_name,
-        rowForm.design_file_type || (rowForm.design_file.includes('application/pdf') ? 'pdf' : 'image'),
-        'Design File'
-      );
-    }
-    if (rowForm?.image && rowForm.image !== rowForm.design_file && rowForm.image !== rowForm.reference_image) {
-      pushDoc(rowForm.image, rowForm.image_name, 'image', 'Item Photo');
-    }
+    // 1. Scan Table Items (jobItems or selectedOrder.items)
+    const itemsToScan = (jobItems && jobItems.length > 0)
+      ? jobItems
+      : (selectedOrder?.items || []);
 
-    // 2. Scan Table Items (jobItems)
-    (jobItems || []).forEach((item, idx) => {
+    itemsToScan.forEach((item, idx) => {
       const label = item.design_number ? `Design ${item.design_number}` : `Item #${idx + 1}`;
       if (item.reference_image) {
         pushDoc(item.reference_image, item.reference_image_name, item.reference_image_type || 'image', `${label} Reference`);
@@ -255,30 +347,16 @@ export default function NewWorkOrder({ initialMode }) {
       }
     });
 
-    // 3. Scan Selected Order (if viewing existing work order)
-    if (selectedOrder) {
-      (selectedOrder.items || []).forEach((item, idx) => {
-        const label = item.design_number ? `Design ${item.design_number}` : `Item #${idx + 1}`;
-        if (item.reference_image) {
-          pushDoc(item.reference_image, item.reference_image_name, item.reference_image_type || 'image', `${label} Reference`);
-        }
-        if (item.design_file) {
-          pushDoc(item.design_file, item.design_file_name, item.design_file_type, `${label} Design`);
-        }
-        if (item.image && item.image !== item.design_file && item.image !== item.reference_image) {
-          pushDoc(item.image, item.image_name, 'image', `${label} Photo`);
-        }
+    // 2. Scan Standalone Documents on selectedOrder
+    if (selectedOrder && Array.isArray(selectedOrder.documents)) {
+      selectedOrder.documents.forEach((d) => {
+        if (typeof d === 'string') pushDoc(d, null, null, 'Order Document');
+        else if (d?.url) pushDoc(d.url, d.name, d.type, 'Order Document');
       });
-      if (Array.isArray(selectedOrder.documents)) {
-        selectedOrder.documents.forEach((d) => {
-          if (typeof d === 'string') pushDoc(d, null, null, 'Order Document');
-          else if (d?.url) pushDoc(d.url, d.name, d.type, 'Order Document');
-        });
-      }
     }
 
     return docs;
-  }, [rowForm, jobItems, selectedOrder]);
+  }, [jobItems, selectedOrder]);
 
   // Formatting helpers for table
   const formatDateDisplay = (dateStr) => {
@@ -372,6 +450,8 @@ export default function NewWorkOrder({ initialMode }) {
           reference_image: res,
           reference_image_name: file.name,
           reference_image_type: docType,
+          image: res,
+          image_name: file.name,
         }));
         if (toast?.success) toast.success(`Reference image "${file.name}" uploaded successfully.`);
       };
@@ -383,6 +463,41 @@ export default function NewWorkOrder({ initialMode }) {
   // Handle image file upload (backwards compatibility)
   const handleImageFileUpload = (e) => {
     handleDesignFileUpload(e);
+  };
+
+  // Start fresh Work Order creation (clear viewed order data)
+  const handleStartNewWorkOrder = async () => {
+    setSelectedOrder(null);
+    setJobItems([]);
+    setCustomerName('');
+    setWorkerId('');
+    setGoldIssued('0.00');
+    setGoldUsed('0.00');
+    setCraftingInstructions('');
+    setDocuments([]);
+    setTimeline({
+      estimated_start_date: new Date().toISOString().split('T')[0],
+      sent_date: new Date().toISOString().split('T')[0],
+      promised_due_date: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+      priority: 'MEDIUM',
+    });
+    setRowForm(defaultRowForm);
+    setFormErrors({});
+    setEditingRowIndex(null);
+    setViewMode('create');
+
+    if (params.id) {
+      navigate('/job-order/new', { replace: true });
+    }
+
+    try {
+      const noRes = await api.get('/job-orders/generate-number').catch(() => api.get('/work-orders/generate-number'));
+      if (noRes?.data?.job_order_number || noRes?.data?.work_order_number) {
+        setOrderNumber(noRes.data.job_order_number || noRes.data.work_order_number);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch new order number:', err);
+    }
   };
 
   // Load prerequisites
@@ -400,19 +515,28 @@ export default function NewWorkOrder({ initialMode }) {
   useEffect(() => {
     if (targetId) {
       loadOrderDetails(targetId);
+    } else {
+      const queryDesignNo = searchParams.get('design_no');
+      if (queryDesignNo && viewMode === 'create') {
+        handleDesignNumberChange(queryDesignNo);
+        setShowRowModal(true);
+      }
     }
-  }, [targetId]);
+  }, [targetId, searchParams]);
 
   const fetchPrerequisites = async () => {
     try {
-      const [kRes, noRes] = await Promise.all([
+      const [kRes, noRes, prodRes] = await Promise.all([
         api.get('/karigars'),
-        api.get('/work-orders/generate-number').catch(() => null),
+        api.get('/job-orders/generate-number').catch(() => api.get('/work-orders/generate-number')),
+        api.get('/products').catch(() => ({ data: [] })),
       ]);
       const kList = kRes.data.data || [];
       setKarigars(kList);
-      if (noRes?.data?.work_order_number && !targetId) {
-        setOrderNumber(noRes.data.work_order_number);
+      const pList = Array.isArray(prodRes?.data) ? prodRes.data : (prodRes?.data?.data || []);
+      setInventoryProducts(pList);
+      if ((noRes?.data?.job_order_number || noRes?.data?.work_order_number) && !targetId) {
+        setOrderNumber(noRes.data.job_order_number || noRes.data.work_order_number);
       }
     } catch (err) {
       console.warn('Prerequisites fetch warning:', err);
@@ -465,7 +589,8 @@ export default function NewWorkOrder({ initialMode }) {
             material_subtitle: item.material_subtitle || (isDiamond ? 'VS1 Clarity - F Color' : '916 Hallmark Standard'),
             ordered_date: item.ordered_date || order.allotted_date || new Date().toISOString().split('T')[0],
             delivery_date: item.delivery_date || order.delivery_date || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
-            image: item.image || item.image_url || order.image_url || (isDiamond ? '/images/samples/emerald_ring.jpg' : '/images/samples/peacock_choker.jpg'),
+            reference_image: item.reference_image || item.image || item.image_url || null,
+            image: item.reference_image || item.image || item.image_url || order.image_url || (isDiamond ? '/images/samples/emerald_ring.jpg' : '/images/samples/peacock_choker.jpg'),
             design_number: item.design_number || order.design_code || `DG-${4587 + i}`,
             variant: item.variant || order.category?.name || (i === 0 ? 'Necklace' : 'Earrings'),
             setting_type: item.setting_type || (i === 0 ? 'Prong' : 'Bezel'),
@@ -565,10 +690,29 @@ export default function NewWorkOrder({ initialMode }) {
 
   // Open Add Job Modal
   const handleOpenAddRowModal = () => {
-    const nextDesignNum = 'DG-' + Math.floor(4580 + Math.random() * 200);
+    const year = new Date().getFullYear();
+    const autoWoNo = orderNumber || `WO-${year}-${randomCode}`;
+
     setRowForm({
       ...defaultRowForm,
-      design_number: nextDesignNum,
+      work_order_no: autoWoNo,
+      form_no: autoWoNo,
+      design_number: '',
+      product_name: '',
+      gold_purity: '',
+      setting_type: 'Prong',
+      diamond_weight: '',
+      diamond_wt_from: '',
+      diamond_wt_to: '',
+      gold_weight: '',
+      gold_wt_from: '',
+      gold_wt_to: '',
+      need_pcs: 1,
+      no_of_diamonds: 0,
+      no_of_colour_stones: 0,
+      total_gross_wt: '',
+      total_dia_cts: '',
+      remark: '-',
       ordered_date: timeline.estimated_start_date || new Date().toISOString().split('T')[0],
       delivery_date: timeline.promised_due_date || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
     });
@@ -589,70 +733,74 @@ export default function NewWorkOrder({ initialMode }) {
       actualIndex = jobItems.findIndex((j) => j.id === item?.id);
     }
     if (!item) return;
+    const goldWt = parseFloat(item.gold_weight ?? item.total_weight) || 0;
+    const diaWt = parseFloat(item.diamond_weight) || 0;
+    const pcs = parseInt(item.need_pcs ?? item.qty, 10) || 1;
+    const woNo = item.work_order_no || item.form_no || `WO-${new Date().getFullYear()}-0001-01`;
+
     setRowForm({
       ...defaultRowForm,
       ...item,
-      gold_weight: item.gold_weight ?? item.total_weight ?? '',
-      total_weight: item.gold_weight ?? item.total_weight ?? '',
-      need_pcs: item.need_pcs ?? item.qty ?? 1,
+      work_order_no: woNo,
+      form_no: woNo,
+      reference_image: item.reference_image || item.image || '',
+      image: item.reference_image || item.image || '',
+      product_name: item.product_name || item.variant || 'Necklace',
+      gold_purity: item.gold_purity || item.gold_priory || '22K (916)',
+      gold_weight: goldWt.toFixed(3),
+      need_pcs: pcs,
+      no_of_diamonds: item.no_of_diamonds ?? 0,
+      no_of_colour_stones: item.no_of_colour_stones ?? 0,
+      total_gross_wt: (goldWt * pcs).toFixed(3),
+      total_dia_cts: (diaWt * pcs).toFixed(3),
     });
     setFormErrors({});
     setEditingRowIndex(actualIndex !== -1 ? actualIndex : null);
     setShowRowModal(true);
   };
 
-  // Save row from Modal (Add or Edit material row with all 21 data columns)
+  // Save row from Modal (Add or Edit material row with all requested data columns)
   const handleSaveRowModal = (e) => {
     e?.preventDefault();
     const errors = {};
 
-    if (!rowForm.work_name || !String(rowForm.work_name).trim()) {
-      errors.work_name = 'Work Name / Product Name is required.';
+    const woNo = (rowForm.work_order_no || rowForm.form_no || orderNumber || '').trim();
+    if (!woNo) {
+      errors.work_order_no = 'Work Order No is required.';
     }
 
     if (!rowForm.design_number || !String(rowForm.design_number).trim()) {
-      errors.design_number = 'Design Number is required (e.g. DG-4587).';
+      errors.design_number = 'Design Number is required (typing method).';
     }
 
-    if (!rowForm.material_type) {
-      errors.material_type = 'Material Type is required.';
+    if (!rowForm.product_name || !String(rowForm.product_name).trim()) {
+      errors.product_name = 'Product Name is required.';
     }
 
-    if (!rowForm.variant) {
-      errors.variant = 'Variant is required.';
+    if (!rowForm.gold_purity || !String(rowForm.gold_purity).trim()) {
+      errors.gold_purity = 'Gold Purity is required (typing method, e.g. 22K (916)).';
     }
 
     if (!rowForm.setting_type) {
-      errors.setting_type = 'Setting Type is required.';
+      errors.setting_type = 'Setting style selection is required.';
     }
 
-    if (!rowForm.ordered_date) {
-      errors.ordered_date = 'Ordered Date is required.';
-    }
+    const goldWeightNum = parseFloat(rowForm.gold_weight || 0);
+    const diaWeightNum = parseFloat(rowForm.diamond_weight || 0);
+    const needPcsNum = parseInt(rowForm.need_pcs ?? 1, 10);
+    const diaStonesNum = parseInt(rowForm.no_of_diamonds || 0, 10);
+    const colourStonesNum = parseInt(rowForm.no_of_colour_stones || 0, 10);
 
-    if (!rowForm.delivery_date) {
-      errors.delivery_date = 'Delivery Date is required.';
-    } else if (rowForm.ordered_date && rowForm.delivery_date < rowForm.ordered_date) {
-      errors.delivery_date = 'Delivery date cannot be earlier than ordered date.';
-    }
-
-    const goldWeightNum = parseFloat(rowForm.gold_weight || rowForm.total_weight);
-    const needPcsNum = parseInt(rowForm.need_pcs ?? rowForm.qty, 10);
-    const wastageNum = parseFloat(rowForm.wastage);
-    const isStoneOnly =
-      String(rowForm.material_type || '').toLowerCase().includes('diamond') ||
-      String(rowForm.material_type || '').toLowerCase().includes('gemstone');
-
-    if (!isStoneOnly && (isNaN(goldWeightNum) || goldWeightNum <= 0)) {
-      errors.gold_weight = 'Please enter a valid Gold Weight (G) greater than 0.';
+    if (isNaN(goldWeightNum) || goldWeightNum <= 0) {
+      errors.gold_weight = 'Please enter a valid Gold Weight greater than 0.';
     }
 
     if (isNaN(needPcsNum) || needPcsNum < 1) {
-      errors.need_pcs = 'Quantity (Need Pcs) must be at least 1.';
+      errors.need_pcs = 'Needed Pcs must be at least 1.';
     }
 
-    if (!isNaN(wastageNum) && wastageNum < 0) {
-      errors.wastage = 'Wastage cannot be negative.';
+    if (!rowForm.reference_image && !rowForm.design_file && (!rowForm.image || rowForm.image.includes('/samples/'))) {
+      errors.design_file = 'Design Upload Required: Please upload either a Reference Image or a CAD Design file for this row.';
     }
 
     if (Object.keys(errors).length > 0) {
@@ -664,40 +812,45 @@ export default function NewWorkOrder({ initialMode }) {
 
     setFormErrors({});
 
+    const calcTotalGrossWt = (goldWeightNum * needPcsNum).toFixed(3);
+    const calcTotalDiaCts = (diaWeightNum * needPcsNum).toFixed(3);
+
     const cleanedRow = {
       ...rowForm,
       id: rowForm.id || Date.now(),
-      work_name: rowForm.work_name || `${rowForm.variant || 'Jewellery'} - ${rowForm.design_number}`,
-      design_file: rowForm.design_file || rowForm.image || '',
-      design_file_name: rowForm.design_file_name || (rowForm.design_file ? 'Design File' : ''),
-      design_file_type: rowForm.design_file_type || (rowForm.design_file?.includes('application/pdf') ? 'pdf' : 'image'),
-      reference_image: rowForm.reference_image || '',
-      reference_image_name: rowForm.reference_image_name || (rowForm.reference_image ? 'Reference Image' : ''),
-      reference_image_type: rowForm.reference_image_type || 'image',
-      material_type: rowForm.material_type || '22K Yellow Gold',
-      material_subtitle: rowForm.material_subtitle || (isStoneOnly ? 'VS1 Clarity - F Color' : '916 Hallmark Standard'),
-      variant: rowForm.variant || 'Necklace',
+      product_id: rowForm.product_id || null,
+      work_order_no: woNo,
+      form_no: woNo,
+      design_number: rowForm.design_number.trim(),
+      product_name: rowForm.product_name.trim(),
+      variant: rowForm.product_name.trim(),
+      gold_purity: rowForm.gold_purity.trim(),
       setting_type: rowForm.setting_type || 'Prong',
-      diamond_weight: rowForm.diamond_weight || 'VS1',
-      gold_weight: goldWeightNum,
-      total_weight: goldWeightNum,
-      cons_cts: rowForm.cons_cts || '-',
-      from_cts: rowForm.from_cts || '22KT',
-      total_cts: parseFloat(rowForm.total_cts) || goldWeightNum || 0,
-      cons_wt: parseFloat(rowForm.cons_wt) || (goldWeightNum > 0 ? Number((goldWeightNum * 0.95).toFixed(3)) : 0),
-      from_wt: parseFloat(rowForm.from_wt) || 0,
-      to_wt: parseFloat(rowForm.to_wt) || 0,
+      diamond_weight: diaWeightNum > 0 ? diaWeightNum.toFixed(3) : (rowForm.diamond_weight ? String(rowForm.diamond_weight) : ''),
+      diamond_count: diaStonesNum >= 0 ? diaStonesNum : 0,
+      diamond_stamp: rowForm.diamond_stamp || '',
+      color_stone_weight: rowForm.color_stone_weight || '',
+      color_stone_count: colourStonesNum >= 0 ? colourStonesNum : 0,
+      color_stone_stamp: rowForm.color_stone_stamp || '',
+      diamond_wt_from: rowForm.diamond_wt_from || '',
+      diamond_wt_to: rowForm.diamond_wt_to || '',
+      gold_weight: goldWeightNum.toFixed(3),
+      gold_wt_from: rowForm.gold_wt_from || '',
+      gold_wt_to: rowForm.gold_wt_to || '',
       need_pcs: needPcsNum,
       qty: needPcsNum,
-      wastage: wastageNum,
-      percentages: rowForm.percentages || (goldWeightNum > 0 && wastageNum > 0 ? `${((wastageNum / goldWeightNum) * 100).toFixed(2)}%` : '2.26%'),
-      total_gross_wt: parseFloat(rowForm.total_gross_wt) || Number((goldWeightNum + wastageNum).toFixed(3)),
-      total_dia_cts: parseFloat(rowForm.total_dia_cts) || 0,
+      no_of_diamonds: diaStonesNum >= 0 ? diaStonesNum : 0,
+      no_of_colour_stones: colourStonesNum >= 0 ? colourStonesNum : 0,
+      total_gross_wt: calcTotalGrossWt,
+      total_dia_cts: calcTotalDiaCts,
       remark: rowForm.remark || '-',
-      ordered_date: rowForm.ordered_date || new Date().toISOString().split('T')[0],
-      delivery_date: rowForm.delivery_date || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
-      image: rowForm.design_file || rowForm.reference_image || rowForm.image || '/images/samples/peacock_choker.jpg',
-      gold_priory: rowForm.gold_priory || '22KT (916)',
+      reference_image: rowForm.reference_image || rowForm.image || '',
+      reference_image_name: rowForm.reference_image_name || '',
+      design_file: rowForm.design_file || '',
+      design_file_name: rowForm.design_file_name || '',
+      image: rowForm.reference_image || rowForm.image || rowForm.design_file || '',
+      work_name: rowForm.work_name || rowForm.product_name || rowForm.variant || 'Jewellery Piece',
+      material_type: rowForm.material_type || `Gold (${rowForm.gold_purity})`,
     };
 
     try {
@@ -708,22 +861,20 @@ export default function NewWorkOrder({ initialMode }) {
           return next;
         });
         if (toast?.success) toast.success('Row details updated.');
-        else if (toast?.showToast) toast.showToast('Row details updated.', 'success');
       } else {
         setJobItems((prev) => [...prev, cleanedRow]);
-        // Increment gold issued automatically if it's currently 0 or default
         if (goldWeightNum > 0) {
           setGoldIssued((prev) => {
             const curr = parseFloat(prev) || 0;
-            return curr === 0 ? goldWeightNum.toFixed(2) : (curr + goldWeightNum).toFixed(2);
+            return curr === 0 ? (goldWeightNum * needPcsNum).toFixed(2) : (curr + (goldWeightNum * needPcsNum)).toFixed(2);
           });
         }
-        if (toast?.success) toast.success('New row added to work order.');
-        else if (toast?.showToast) toast.showToast('New row added to work order.', 'success');
+        if (toast?.success) toast.success(`New row ${cleanedRow.form_no} added to work order.`);
       }
     } catch (err) {
       console.error('Error saving row:', err);
     } finally {
+      setSelectedMonth('all');
       setShowRowModal(false);
       setEditingRowIndex(null);
       setRowForm(defaultRowForm);
@@ -802,19 +953,39 @@ export default function NewWorkOrder({ initialMode }) {
 
   // Calculations matching all 21 user row columns (dynamically for active month view)
   const activeItemsForTotals = displayedJobItems;
-  const totalGoldWeight = activeItemsForTotals.reduce((acc, row) => acc + (parseFloat(row.gold_weight ?? row.total_weight ?? 0)), 0);
-  const totalOldWeight = activeItemsForTotals.reduce((acc, row) => acc + (parseFloat(row.old_weight || 0)), 0);
   const totalNeedPcs = activeItemsForTotals.reduce((acc, row) => acc + (parseInt(row.need_pcs ?? row.qty ?? 1, 10)), 0);
   const totalQty = totalNeedPcs;
-  const totalWastage = activeItemsForTotals.reduce((acc, row) => acc + (parseFloat(row.wastage || 0)), 0);
+  const totalGoldWeight = activeItemsForTotals.reduce((acc, row) => {
+    const pcs = parseInt(row.need_pcs ?? row.qty ?? 1, 10);
+    const rowGross = parseFloat(row.total_gross_wt);
+    if (!isNaN(rowGross) && rowGross > 0) return acc + rowGross;
+    const perPiece = parseFloat(row.gold_weight ?? row.total_weight ?? 0) || 0;
+    return acc + (perPiece * pcs);
+  }, 0);
+  const totalOldWeight = activeItemsForTotals.reduce((acc, row) => acc + (parseFloat(row.old_weight || 0)), 0);
+  const totalWastage = activeItemsForTotals.reduce((acc, row) => {
+    const pcs = parseInt(row.need_pcs ?? row.qty ?? 1, 10);
+    return acc + ((parseFloat(row.wastage || 0)) * pcs);
+  }, 0);
   const totalWastageWeight = totalWastage;
   const totalConsWt = activeItemsForTotals.reduce((acc, row) => acc + (parseFloat(row.cons_wt || 0)), 0);
-  const totalGrossWt = activeItemsForTotals.reduce((acc, row) => acc + (parseFloat(row.total_gross_wt || 0)), 0);
-  const totalDiaCts = activeItemsForTotals.reduce((acc, row) => acc + (parseFloat(row.total_dia_cts || 0)), 0);
+  const totalGrossWt = totalGoldWeight;
+  const totalDiaCts = activeItemsForTotals.reduce((acc, row) => {
+    const pcs = parseInt(row.need_pcs ?? row.qty ?? 1, 10);
+    const rowDia = parseFloat(row.total_dia_cts);
+    if (!isNaN(rowDia) && rowDia > 0) return acc + rowDia;
+    const perPieceDia = parseFloat(row.diamond_weight || 0) || 0;
+    return acc + (perPieceDia * pcs);
+  }, 0);
   const totalCarats = totalDiaCts;
   const totalCts = activeItemsForTotals.reduce((acc, row) => acc + (parseFloat(row.total_cts || 0)), 0);
   const avgPercentage = totalGoldWeight > 0 ? `${((totalWastage / totalGoldWeight) * 100).toFixed(2)}%` : '4.6%';
-  const totalStonesCount = activeItemsForTotals.reduce((acc, row) => acc + (parseInt(row.need_pcs || row.qty || 1, 10)), 0) * (activeItemsForTotals.length > 0 ? 6 : 0);
+  const totalStonesCount = activeItemsForTotals.reduce((acc, row) => {
+    const pcs = parseInt(row.need_pcs ?? row.qty ?? 1, 10);
+    const diaCount = parseInt(row.no_of_diamonds || 0, 10);
+    const stoneCount = parseInt(row.no_of_colour_stones || 0, 10);
+    return acc + ((diaCount + stoneCount) * pcs);
+  }, 0);
 
   // Worker gold balance calculation
   const goldIssuedNum = parseFloat(goldIssued) || 0;
@@ -824,15 +995,45 @@ export default function NewWorkOrder({ initialMode }) {
   // Financial Breakdown calculations
   const goldValue = Math.round(totalGoldWeight * goldRate22k);
   const makingCharges = Math.round(totalGoldWeight * 650);
-  const stoneCharges = jobItems.length > 0 ? 2500 : 0;
+  const stoneCharges = totalStonesCount > 0 ? (totalStonesCount * 250) : 0;
   const otherCharges = jobItems.length > 0 ? 1625 : 0;
   const totalAmount = jobItems.length > 0 ? (goldValue + makingCharges + stoneCharges + otherCharges) : 0;
 
   // Submit Work Order (Create)
   const handleSaveWorkOrder = async () => {
+    // 1. Validate at least 1 job item added
     if (jobItems.length === 0) {
-      toast.error('Please add at least one job item.');
+      toast.error('Material Row Required: Please add at least one material row details before creating the work order.');
       return;
+    }
+
+    // 2. Validate Artisan / Karigar assignment
+    if (!workerId || !String(workerId).trim()) {
+      toast.error('Artisan Assignment Required: Please select an Assigned Artisan / Karigar before creating the work order.');
+      return;
+    }
+
+    // 3. Validate Delivery Due Date selection
+    if (!timeline.promised_due_date || !String(timeline.promised_due_date).trim()) {
+      toast.error('Date Selection Required: Please select a Promised Due Date for the work order.');
+      return;
+    }
+
+    // 4. Validate Priority selection
+    if (!timeline.priority || !String(timeline.priority).trim()) {
+      toast.error('Priority Selection Required: Please select an Order Priority.');
+      return;
+    }
+
+    // 5. Validate Reference Image or CAD Design upload on all row items
+    for (let i = 0; i < jobItems.length; i++) {
+      const item = jobItems[i];
+      const hasImg = item.reference_image || (item.image && !item.image.includes('/samples/'));
+      const hasCad = item.design_file;
+      if (!hasImg && !hasCad) {
+        toast.error(`Design Image/CAD File Required: Row #${i + 1} (${item.design_number || 'Item'}) requires either a Reference Image or a CAD Design file to be uploaded.`);
+        return;
+      }
     }
 
     try {
@@ -840,16 +1041,11 @@ export default function NewWorkOrder({ initialMode }) {
 
       const assignedWorker = karigars.find((k) => String(k.id) === String(workerId));
 
-      if (assignedWorker && assignedWorker.is_available === false) {
-        toast.error(`Artisan "${assignedWorker.name}" is currently busy with active order ${assignedWorker.current_assigned_order?.work_order_number || 'in progress'}. Artisans cannot take new orders until the current one is completed.`);
-        return;
-      }
-
       const payload = {
         work_order_number: orderNumber,
         product_name: jobItems.length > 1
           ? `${jobItems[0].variant} + ${jobItems.length - 1} More Items`
-          : `${jobItems[0].variant} (${jobItems[0].design_number})`,
+          : jobItems[0].variant,
         karigar_id: workerId || null,
         karigar_name: assignedWorker?.name || null,
         customer_name: customerName.trim() || null,
@@ -858,7 +1054,7 @@ export default function NewWorkOrder({ initialMode }) {
         allotted_weight: totalGoldWeight,
         priority: timeline.priority,
         material_type: jobItems[0]?.material_type || '22K Yellow Gold',
-        image_url: jobItems[0]?.image || '/images/samples/peacock_choker.jpg',
+        image_url: jobItems[0]?.reference_image || jobItems[0]?.design_file || jobItems[0]?.image || '/images/samples/peacock_choker.jpg',
         notes: craftingInstructions,
         items: jobItems,
         worker_allocation: {
@@ -929,8 +1125,8 @@ export default function NewWorkOrder({ initialMode }) {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => setViewMode('create')}
-            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${viewMode === 'create'
+            onClick={handleStartNewWorkOrder}
+            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${viewMode === 'create' && !selectedOrder
                 ? 'bg-[#9e1b27] text-white shadow-2xs'
                 : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
               }`}
@@ -1014,7 +1210,7 @@ export default function NewWorkOrder({ initialMode }) {
               </div>
               <button
                 type="button"
-                onClick={() => setViewMode('create')}
+                onClick={handleStartNewWorkOrder}
                 className="px-4 py-2 bg-[#9e1b27] hover:bg-[#83141f] text-white text-xs font-bold rounded-lg shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer"
               >
                 <i className="fa-solid fa-plus text-xs"></i>
@@ -1023,19 +1219,19 @@ export default function NewWorkOrder({ initialMode }) {
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-gray-200 shadow-2xs overflow-hidden">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-2xs overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-[#f7f8fa] text-[10px] font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200">
-                  <th className="py-3 px-4">WORK ORDER #</th>
-                  <th className="py-3 px-4">CUSTOMER</th>
-                  <th className="py-3 px-4">ARTISAN / WORKER</th>
-                  <th className="py-3 px-4">JOBS / PIECES IN ORDER</th>
-                  <th className="py-3 px-4 text-right">TOTAL GOLD WT</th>
-                  <th className="py-3 px-4">DELIVERY DUE</th>
-                  <th className="py-3 px-4 text-center">PRIORITY</th>
-                  <th className="py-3 px-4 text-center">STAGE / STATUS</th>
-                  <th className="py-3 px-4 text-right">ACTIONS</th>
+                  <th className="py-3 px-4 whitespace-nowrap min-w-[140px]">WORK ORDER #</th>
+                  <th className="py-3 px-4 whitespace-nowrap min-w-[150px]">CUSTOMER</th>
+                  <th className="py-3 px-4 whitespace-nowrap min-w-[150px]">ARTISAN / WORKER</th>
+                  <th className="py-3 px-4 whitespace-nowrap min-w-[180px]">JOBS / PIECES IN ORDER</th>
+                  <th className="py-3 px-4 text-right whitespace-nowrap min-w-[120px]">TOTAL GOLD WT</th>
+                  <th className="py-3 px-4 whitespace-nowrap min-w-[120px]">DELIVERY DUE</th>
+                  <th className="py-3 px-4 text-center whitespace-nowrap min-w-[100px]">PRIORITY</th>
+                  <th className="py-3 px-4 text-center whitespace-nowrap min-w-[130px]">STAGE / STATUS</th>
+                  <th className="py-3 px-4 text-right whitespace-nowrap min-w-[90px]">ACTIONS</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -1062,21 +1258,21 @@ export default function NewWorkOrder({ initialMode }) {
                         className="hover:bg-[#fcf8f8] transition-colors cursor-pointer group"
                       >
                         {/* Order Number */}
-                        <td className="py-3.5 px-4 font-mono font-bold text-[#9e1b27]">
+                        <td className="py-3.5 px-4 font-mono font-bold text-[#9e1b27] whitespace-nowrap">
                           {wo.work_order_number}
                         </td>
 
                         {/* Customer */}
-                        <td className="py-3.5 px-4">
+                        <td className="py-3.5 px-4 whitespace-nowrap">
                           <span className="font-semibold text-gray-900 truncate block max-w-[150px]" title={wo.customer_name || wo.client?.full_name || wo.client?.name || ''}>
                             {wo.customer_name || wo.client?.full_name || wo.client?.name || 'Internal Showroom'}
                           </span>
                         </td>
 
                         {/* Artisan */}
-                        <td className="py-3.5 px-4">
+                        <td className="py-3.5 px-4 whitespace-nowrap">
                           <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full bg-red-50 text-[#9e1b27] font-bold text-[10px] flex items-center justify-center">
+                            <div className="w-6 h-6 rounded-full bg-red-50 text-[#9e1b27] font-bold text-[10px] flex items-center justify-center shrink-0">
                               {(wo.karigar_name || 'A')[0]}
                             </div>
                             <span className="font-semibold text-gray-900">
@@ -1086,9 +1282,9 @@ export default function NewWorkOrder({ initialMode }) {
                         </td>
 
                         {/* Jobs in order */}
-                        <td className="py-3.5 px-4">
+                        <td className="py-3.5 px-4 whitespace-nowrap">
                           <div className="flex items-center gap-2">
-                            <span className="px-2 py-0.5 rounded-full bg-stone-100 text-stone-700 font-bold text-[11px]">
+                            <span className="px-2 py-0.5 rounded-full bg-stone-100 text-stone-700 font-bold text-[11px] shrink-0">
                               {jobsCount} {jobsCount === 1 ? 'Job' : 'Jobs'}
                             </span>
                             <span className="text-gray-600 truncate max-w-[160px]" title={wo.product_name}>
@@ -1098,17 +1294,17 @@ export default function NewWorkOrder({ initialMode }) {
                         </td>
 
                         {/* Total Gold Wt */}
-                        <td className="py-3.5 px-4 text-right font-mono font-bold text-gray-900">
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-gray-900 whitespace-nowrap">
                           {Number(wo.allotted_weight).toFixed(3)}g
                         </td>
 
                         {/* Delivery Due */}
-                        <td className={`py-3.5 px-4 ${wo.is_delayed ? 'text-red-600 font-bold' : 'text-gray-600'}`}>
+                        <td className={`py-3.5 px-4 whitespace-nowrap ${wo.is_delayed ? 'text-red-600 font-bold' : 'text-gray-600'}`}>
                           {wo.delivery_date ? new Date(wo.delivery_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
                         </td>
 
                         {/* Priority */}
-                        <td className="py-3.5 px-4 text-center">
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${wo.priority === 'HIGH' || wo.priority === 'High'
                               ? 'bg-rose-50 text-rose-700'
                               : 'bg-amber-50 text-amber-700'
@@ -1118,14 +1314,14 @@ export default function NewWorkOrder({ initialMode }) {
                         </td>
 
                         {/* Stage */}
-                        <td className="py-3.5 px-4 text-center">
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 capitalize">
                             {(wo.current_stage || wo.status).replace(/_/g, ' ')}
                           </span>
                         </td>
 
                         {/* Action */}
-                        <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
                             onClick={() => loadOrderDetails(wo.id)}
@@ -1164,15 +1360,6 @@ export default function NewWorkOrder({ initialMode }) {
             <div className="flex items-center gap-4">
               {viewMode === 'details' ? (
                 <div className="flex items-center gap-2">
-                  <a
-                    href={`/work-orders/${selectedOrder?.id}/pdf`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3.5 py-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-bold rounded-lg shadow-2xs flex items-center gap-1.5"
-                  >
-                    <i className="fa-solid fa-file-pdf text-red-600"></i>
-                    <span>Download PDF</span>
-                  </a>
                   <button
                     type="button"
                     onClick={() => window.print()}
@@ -1249,24 +1436,23 @@ export default function NewWorkOrder({ initialMode }) {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 pt-1">
                 <div>
                   <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
-                    Assigned Artisan / Karigar
+                    Assigned Artisan / Karigar <span className="text-red-600">*</span>
                   </label>
                   <select
                     value={workerId}
+                    required
                     onChange={(e) => setWorkerId(e.target.value)}
                     className="w-full text-xs font-semibold bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 outline-hidden focus:border-[#b01622] focus:bg-white transition-colors"
                   >
                     <option value="">-- Select Artisan / Karigar --</option>
                     {karigars.map((k) => {
-                      const isBusy = k.is_available === false && String(k.id) !== String(workerId);
+                      const hasActiveJob = k.is_available === false;
                       return (
                         <option
                           key={k.id}
                           value={k.id}
-                          disabled={isBusy}
-                          className={isBusy ? "text-stone-400 bg-stone-100 italic" : ""}
                         >
-                          {k.name} {isBusy ? `— [BUSY: ${k.current_assigned_order?.work_order_number || 'Active Order'}]` : `(${k.specialization || 'Artisan'})`}
+                          {k.name} {hasActiveJob ? `— (Active: ${k.current_assigned_order?.work_order_number || 'In Progress'})` : `(${k.specialization || 'Artisan'})`}
                         </option>
                       );
                     })}
@@ -1289,10 +1475,11 @@ export default function NewWorkOrder({ initialMode }) {
 
                 <div>
                   <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
-                    Promised Due Date
+                    Promised Due Date <span className="text-red-600">*</span>
                   </label>
                   <input
                     type="date"
+                    required
                     value={timeline.promised_due_date}
                     onChange={(e) => setTimeline({ ...timeline, promised_due_date: e.target.value })}
                     className="w-full text-xs font-semibold font-mono bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 outline-hidden focus:border-[#b01622] focus:bg-white transition-colors"
@@ -1301,10 +1488,11 @@ export default function NewWorkOrder({ initialMode }) {
 
                 <div>
                   <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
-                    Order Priority
+                    Order Priority <span className="text-red-600">*</span>
                   </label>
                   <select
                     value={timeline.priority}
+                    required
                     onChange={(e) => setTimeline({ ...timeline, priority: e.target.value })}
                     className="w-full text-xs font-bold bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 outline-hidden focus:border-[#b01622] focus:bg-white transition-colors"
                   >
@@ -1328,7 +1516,11 @@ export default function NewWorkOrder({ initialMode }) {
                 </span>
               </h3>
               <p className="text-xs text-gray-500">
-                {assignedWorker?.name ? `Multiple materials allocated to ${assignedWorker.name} in this work assignment.` : 'Multiple materials allocated in this work order.'}
+                {jobItems.length === 0
+                  ? 'No material rows allocated yet. Click "+ Add Row" below to input specifications.'
+                  : jobItems.length === 1
+                    ? `1 material row allocated in this work order.${assignedWorker?.name ? ` Assigned to ${assignedWorker.name}.` : ''}`
+                    : `${jobItems.length} material rows allocated in this work order.${assignedWorker?.name ? ` Assigned to ${assignedWorker.name}.` : ''}`}
               </p>
             </div>
           </div>
@@ -1367,40 +1559,39 @@ export default function NewWorkOrder({ initialMode }) {
                 </button>
               </div>
 
-              {/* Exact Table Layout Matching Image 1 */}
+              {/* Exact Table Layout with 17 Requested Columns */}
               <div className="border border-[#d8c8b0] rounded-xl overflow-hidden shadow-2xs bg-white">
                 <div className="overflow-x-auto w-full pb-2 scrollbar-thin scrollbar-thumb-stone-300">
-                  <table className="w-full text-left text-xs border-collapse min-w-[2150px]">
+                  <table className="w-full text-left text-xs border-collapse min-w-[2200px]">
                     <thead>
                       <tr className="bg-[#eedfce] text-[#3b3228] font-bold text-[10px] tracking-wider uppercase border-b border-[#ddccb4]">
-                        <th className="py-2.5 px-3 whitespace-nowrap min-w-[210px]">MATERIAL TYPE</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap min-w-[105px]">ORDERED DATE</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap min-w-[105px]">DELIVERY DATE</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-center min-w-[65px]">IMAGE</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap min-w-[125px]">DESIGN NUMBER</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap min-w-[105px]">VARIANT</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap min-w-[105px]">SETTING TYPE</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap min-w-[115px]">DIAMOND WEIGHT</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[110px]">GOLD WEIGHT</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-center min-w-[85px]">CONS CTS</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-center min-w-[85px]">FROM CTS</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[95px]">TOTAL CTS</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[95px]">CONS WT</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[90px]">FROM WT</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[85px]">TO WT</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-center min-w-[80px]">NEED PCS</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[90px]">WASTAGE</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[100px]">PERCENTAGES</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[120px]">TOTAL GROSS WT</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[110px]">TOTAL DIA CTS</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap min-w-[100px]">REMARK</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-center min-w-[50px]">S.NO</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap min-w-[140px]">WORK ORDER NO</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap min-w-[110px]">DESIGN NO</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap min-w-[125px]">PRODUCT NAME</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-center min-w-[90px]">REF IMAGE</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-center min-w-[100px]">CAD DESIGN</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap min-w-[110px]">GOLD PURITY</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap min-w-[105px]">SETTING</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[105px]">DIAMOND WT</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[125px]">DIAMOND WT FROM</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[115px]">DIAMOND WT TO</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[95px]">GOLD WT</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[110px]">GOLD WT FROM</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[100px]">GOLD WT TO</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-center min-w-[90px]">NEEDED PCS</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-center min-w-[125px]">NO OF DIAMONDS</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-center min-w-[135px]">NO OF COLOUR STONES</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[130px]">TOTAL GROSS WT</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[135px]">TOTAL DIAMOND CTS</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap min-w-[120px]">REMARKS</th>
                         <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[85px]">ACTIONS</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-stone-100">
                       {displayedJobItems.length === 0 ? (
                         <tr>
-                          <td colSpan="22" className="py-8 text-center text-stone-500 bg-stone-50/50">
+                          <td colSpan="20" className="py-8 text-center text-stone-500 bg-stone-50/50">
                             <p className="text-xs font-semibold">No materials found for the selected month.</p>
                             <button
                               type="button"
@@ -1413,50 +1604,49 @@ export default function NewWorkOrder({ initialMode }) {
                         </tr>
                       ) : (
                         displayedJobItems.map((row, idx) => {
-                          const isDiamond = String(row.material_type || '').toLowerCase().includes('diamond');
-                          const isGem = String(row.material_type || '').toLowerCase().includes('gem');
+                          const goldWtNum = parseFloat(row.gold_weight || 0);
+                          const diaWtNum = parseFloat(row.diamond_weight || 0);
+                          const pcsNum = parseInt(row.need_pcs ?? 1, 10);
+                          const colourStones = parseInt(row.no_of_colour_stones || 0, 10);
+                          const grossWt = row.total_gross_wt || (goldWtNum * pcsNum).toFixed(3);
+                          const diaCts = row.total_dia_cts || (diaWtNum * pcsNum).toFixed(3);
+
                           return (
                             <tr key={row.id || idx} className="hover:bg-amber-50/20 transition-colors">
 
-                              {/* 1. Material Type */}
-                              <td className="py-2.5 px-3 whitespace-nowrap">
-                                <div className="flex items-center gap-2.5">
-                                  <div className={`w-7 h-7 rounded flex items-center justify-center text-xs border ${isDiamond
-                                      ? 'bg-rose-50 border-rose-200 text-rose-600'
-                                      : isGem
-                                        ? 'bg-purple-50 border-purple-200 text-purple-600'
-                                        : 'bg-amber-50 border-amber-300 text-amber-700'
-                                    }`}>
-                                    <i className={`fa-solid ${isDiamond ? 'fa-gem' : isGem ? 'fa-certificate' : 'fa-coins'}`}></i>
-                                  </div>
-                                  <div>
-                                    <div className="font-bold text-gray-900 text-xs">{row.material_type || '22K Yellow Gold'}</div>
-                                    <div className="text-[10px] text-gray-400 font-medium">{row.material_subtitle || (isDiamond ? 'VS1 Clarity - F Color' : '916 Hallmark Standard')}</div>
-                                  </div>
-                                </div>
+                              {/* 1. S.No (Auto generate) */}
+                              <td className="py-2.5 px-3 text-center font-mono font-bold text-xs text-stone-500">
+                                {idx + 1}
                               </td>
 
-                              {/* 2. Ordered Date */}
-                              <td className="py-2.5 px-3 whitespace-nowrap font-mono text-[11px] text-gray-700">
-                                {formatDateDisplay(row.ordered_date)}
+                              {/* 2. Work Order No (Unique) */}
+                              <td className="py-2.5 px-3 whitespace-nowrap font-mono font-bold text-xs text-[#881337]">
+                                <span className="px-2 py-0.5 rounded bg-rose-50 border border-rose-200">
+                                  {row.work_order_no || row.form_no || `WO-${new Date().getFullYear()}-0001-${idx + 1}`}
+                                </span>
                               </td>
 
-                              {/* 3. Delivery Date */}
-                              <td className="py-2.5 px-3 whitespace-nowrap font-mono text-[11px] text-gray-700">
-                                {formatDateDisplay(row.delivery_date)}
+                              {/* 3. Design No (Typing method) */}
+                              <td className="py-2.5 px-3 whitespace-nowrap font-bold text-gray-900 text-xs font-mono">
+                                {row.design_number || 'DG-4587'}
                               </td>
 
-                              {/* 4. Image */}
+                              {/* 4. Product Name */}
+                              <td className="py-2.5 px-3 whitespace-nowrap font-semibold text-gray-800 text-xs">
+                                {row.product_name || row.variant || 'Necklace'}
+                              </td>
+
+                              {/* 5. Reference Image Upload */}
                               <td className="py-2.5 px-3 text-center whitespace-nowrap">
                                 <div
                                   onClick={() => viewMode === 'create' && handleOpenEditRowModal(idx)}
                                   className={`w-9 h-9 mx-auto rounded-md overflow-hidden bg-stone-100 border border-stone-200 flex items-center justify-center ${viewMode === 'create' ? 'cursor-pointer hover:opacity-85' : ''
                                     }`}
-                                  title={viewMode === 'create' ? 'Click to edit row' : ''}
+                                  title={row.reference_image_name || 'Click to edit row'}
                                 >
                                   <img
                                     src={resolveItemImage(row)}
-                                    alt="item"
+                                    alt="Reference"
                                     className="w-full h-full object-cover"
                                     onError={(e) => {
                                       e.target.onerror = null;
@@ -1466,92 +1656,102 @@ export default function NewWorkOrder({ initialMode }) {
                                 </div>
                               </td>
 
-                              {/* 5. Design Number */}
-                              <td className="py-2.5 px-3 whitespace-nowrap font-bold text-gray-900 text-xs font-mono">
-                                {row.design_number || 'DG-4587'}
+                              {/* 6. CAD Design Upload */}
+                              <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                {row.design_file ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenDocument({ url: row.design_file, name: row.design_file_name || 'CAD Design File', type: row.design_file_type })}
+                                    className="w-8 h-8 mx-auto rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 flex items-center justify-center hover:bg-indigo-100 transition-colors cursor-pointer"
+                                    title={`Preview CAD: ${row.design_file_name || 'Attached File'}`}
+                                  >
+                                    <i className="fa-solid fa-compass-drafting text-xs"></i>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => viewMode === 'create' && handleOpenEditRowModal(idx)}
+                                    className="w-8 h-8 mx-auto rounded-lg bg-stone-50 border border-stone-200 text-stone-400 flex items-center justify-center hover:bg-stone-100 transition-colors cursor-pointer"
+                                    title="Upload CAD Design File"
+                                  >
+                                    <i className="fa-solid fa-upload text-[10px]"></i>
+                                  </button>
+                                )}
                               </td>
 
-                              {/* 6. Variant */}
-                              <td className="py-2.5 px-3 whitespace-nowrap text-xs text-gray-700">
-                                {row.variant || 'Necklace'}
+                              {/* 7. Gold Purity (Typing method) */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-xs font-bold text-amber-800">
+                                {row.gold_purity || row.gold_priory || '22K (916)'}
                               </td>
 
-                              {/* 7. Setting Type */}
-                              <td className="py-2.5 px-3 whitespace-nowrap text-xs text-gray-700">
-                                {row.setting_type || 'Prong'}
+                              {/* 8. Setting (Selecting setting style) */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-xs text-stone-700 font-medium">
+                                <span className="px-2 py-0.5 rounded-full bg-stone-100 border border-stone-200">
+                                  {row.setting_type || 'Prong'}
+                                </span>
                               </td>
 
-                              {/* 8. Diamond Weight */}
-                              <td className="py-2.5 px-3 whitespace-nowrap text-xs text-gray-700 font-medium">
-                                {row.diamond_weight || 'VS1'}
+                              {/* 9. Diamond Wt */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-800">
+                                {formatWeight(row.diamond_weight, '0.500')}
                               </td>
 
-                              {/* 9. Gold Weight */}
+                              {/* 10. Diamond Wt From */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-stone-600">
+                                {formatWeight(row.diamond_wt_from, '0.100')}
+                              </td>
+
+                              {/* 11. Diamond Wt To */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-stone-600">
+                                {formatWeight(row.diamond_wt_to, '0.500')}
+                              </td>
+
+                              {/* 12. Gold Wt */}
                               <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-900 font-bold">
-                                {formatWeight(row.gold_weight ?? row.total_weight)}
+                                {formatWeight(row.gold_weight ?? row.total_weight, '10.000')}
                               </td>
 
-                              {/* 10. Cons Cts */}
-                              <td className="py-2.5 px-3 whitespace-nowrap text-center text-xs text-gray-500">
-                                {row.cons_cts || '-'}
+                              {/* 13. Gold Wt From */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-stone-600">
+                                {formatWeight(row.gold_wt_from ?? row.from_wt, '8.000')}
                               </td>
 
-                              {/* 11. From Cts */}
-                              <td className="py-2.5 px-3 whitespace-nowrap text-center text-xs font-semibold text-gray-800">
-                                {row.from_cts || '22KT'}
+                              {/* 14. Gold Wt To */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-stone-600">
+                                {formatWeight(row.gold_wt_to ?? row.to_wt, '10.000')}
                               </td>
 
-                              {/* 12. Total Cts */}
-                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-800">
-                                {formatWeight(row.total_cts, '-')}
-                              </td>
-
-                              {/* 13. Cons Wt */}
-                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-800">
-                                {formatWeight(row.cons_wt, '-')}
-                              </td>
-
-                              {/* 14. From Wt */}
-                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-800">
-                                {formatWeight(row.from_wt, '-')}
-                              </td>
-
-                              {/* 15. To Wt */}
-                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-800">
-                                {formatWeight(row.to_wt, '-')}
-                              </td>
-
-                              {/* 16. Need Pcs */}
+                              {/* 15. Needed Pcs */}
                               <td className="py-2.5 px-3 whitespace-nowrap text-center font-mono font-bold text-xs text-gray-900">
-                                {row.need_pcs || row.qty || 1}
+                                {pcsNum}
                               </td>
 
-                              {/* 17. Wastage (in red font matching image) */}
-                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono font-bold text-xs text-[#b01622]">
-                                {formatWeight(row.wastage, '0.500')}
+                              {/* 16. No of Diamonds */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-center font-mono font-bold text-xs text-emerald-800">
+                                {parseInt(row.no_of_diamonds || 0, 10)}
                               </td>
 
-                              {/* 18. Percentages */}
-                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-700">
-                                {row.percentages ? (String(row.percentages).includes('%') ? row.percentages : `${row.percentages}%`) : '2.26%'}
+                              {/* 17. No of Colour Stones */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-center font-mono font-bold text-xs text-purple-800">
+                                {colourStones}
                               </td>
 
-                              {/* 19. Total Gross Wt */}
-                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono font-bold text-xs text-gray-900">
-                                {formatWeight(row.total_gross_wt ?? (parseFloat(row.gold_weight || 0) + parseFloat(row.wastage || 0)))}
+                              {/* 18. Total Gross Wt (Total Gold Wt x Needed Pcs) */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono font-bold text-xs text-[#881337]">
+                                {formatWeight(grossWt)}
                               </td>
 
-                              {/* 20. Total Dia Cts */}
-                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-800">
-                                {formatWeight(row.total_dia_cts, '-')}
+                              {/* 19. Total Diamond Cts (Needed Pcs x Diamond Wt) */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono font-bold text-xs text-emerald-700">
+                                {formatWeight(diaCts)}
                               </td>
 
-                              {/* 21. Remark */}
+                              {/* 20. Remarks */}
                               <td className="py-2.5 px-3 whitespace-nowrap text-xs text-gray-500">
                                 {row.remark || '-'}
                               </td>
 
-                              {/* 22. Actions */}
+                              {/* 21. Actions */}
                               <td className="py-2.5 px-3 text-right whitespace-nowrap">
                                 <div className="flex items-center justify-end gap-1.5">
                                   <button
@@ -1580,39 +1780,34 @@ export default function NewWorkOrder({ initialMode }) {
                         }))}
                     </tbody>
 
-                    {/* Exact Total Footer Row Matching Image 1 */}
+                    {/* Total Footer Row */}
                     <tfoot>
                       <tr className="bg-[#fcfbf9] font-bold border-t-2 border-stone-200 text-xs text-gray-900">
                         <td colSpan="8" className="py-3 px-3 uppercase tracking-wider font-black text-xs text-gray-900">
                           TOTAL
                         </td>
-                        <td className="py-3 px-3 text-right font-mono font-black text-xs text-gray-900">
-                          {totalGoldWeight > 0 ? totalGoldWeight.toFixed(3) : '32.500'}
-                        </td>
-                        <td className="py-3 px-3 text-center text-gray-400 font-normal">-</td>
-                        <td className="py-3 px-3 text-center font-mono text-xs text-gray-700">0.279</td>
-                        <td className="py-3 px-3 text-right font-mono text-xs text-gray-900">
-                          {totalCts > 0 ? totalCts.toFixed(3) : '279'}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono text-xs text-gray-900">
-                          {totalConsWt > 0 ? totalConsWt.toFixed(3) : '47.569'}
-                        </td>
-                        <td className="py-3 px-3 text-right text-gray-400 font-normal">-</td>
-                        <td className="py-3 px-3 text-right text-gray-400 font-normal">-</td>
-                        <td className="py-3 px-3 text-center font-mono font-black text-xs text-[#b01622]">
-                          {totalNeedPcs > 0 ? totalNeedPcs : '2'}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono font-black text-xs text-[#b01622]">
-                          {totalWastage > 0 ? totalWastage.toFixed(3) : '1.240'}
-                        </td>
                         <td className="py-3 px-3 text-right font-mono font-bold text-xs text-gray-800">
-                          {avgPercentage}
+                          {activeItemsForTotals.reduce((a, r) => a + (parseFloat(r.diamond_weight || 0)), 0).toFixed(3)}
                         </td>
+                        <td colSpan="2" className="py-3 px-3 text-center text-gray-400 font-normal">-</td>
                         <td className="py-3 px-3 text-right font-mono font-black text-xs text-gray-900">
-                          {totalGrossWt > 0 ? totalGrossWt.toFixed(3) : '45.260'}
+                          {totalGoldWeight.toFixed(3)}
                         </td>
-                        <td className="py-3 px-3 text-right font-mono font-bold text-xs text-gray-900">
-                          {totalDiaCts > 0 ? totalDiaCts.toFixed(3) : '2.650'}
+                        <td colSpan="2" className="py-3 px-3 text-center text-gray-400 font-normal">-</td>
+                        <td className="py-3 px-3 text-center font-mono font-black text-xs text-[#b01622]">
+                          {totalNeedPcs}
+                        </td>
+                        <td className="py-3 px-3 text-center font-mono font-black text-xs text-emerald-800">
+                          {activeItemsForTotals.reduce((a, r) => a + (parseInt(r.no_of_diamonds || 0, 10)), 0)}
+                        </td>
+                        <td className="py-3 px-3 text-center font-mono font-black text-xs text-purple-800">
+                          {activeItemsForTotals.reduce((a, r) => a + (parseInt(r.no_of_colour_stones || 0, 10)), 0)}
+                        </td>
+                        <td className="py-3 px-3 text-right font-mono font-black text-xs text-[#881337]">
+                          {activeItemsForTotals.reduce((a, r) => a + (parseFloat(r.total_gross_wt || 0)), 0).toFixed(3)}
+                        </td>
+                        <td className="py-3 px-3 text-right font-mono font-black text-xs text-emerald-700">
+                          {activeItemsForTotals.reduce((a, r) => a + (parseFloat(r.total_dia_cts || 0)), 0).toFixed(3)}
                         </td>
                         <td colSpan="2" className="py-3 px-3 text-center text-gray-400 font-normal">-</td>
                       </tr>
@@ -1958,43 +2153,12 @@ export default function NewWorkOrder({ initialMode }) {
                   <span className="text-[11px] font-bold text-gray-800 uppercase tracking-wider block">
                     DOCUMENTS {activeDocuments.length > 0 && `(${activeDocuments.length})`}
                   </span>
-                  {activeDocuments.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => designFileInputRef.current?.click()}
-                      className="text-[10px] font-bold text-[#881337] hover:underline cursor-pointer flex items-center gap-1"
-                    >
-                      <i className="fa-solid fa-plus text-[9px]"></i> Add File
-                    </button>
-                  )}
                 </div>
                 <div className="w-full h-px bg-[#ead8ce] mt-2.5 mb-4"></div>
 
                 {activeDocuments.length === 0 ? (
                   <div className="py-4 text-center border border-dashed border-stone-200 rounded-xl bg-stone-50/50 p-3.5">
-                    <div className="w-8 h-8 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-2">
-                      <i className="fa-solid fa-folder-open text-xs"></i>
-                    </div>
-                    <p className="text-xs font-bold text-gray-700">No documents attached yet</p>
-                    <p className="text-[10px] text-gray-500 mt-0.5 mb-3">
-                      Upload design CAD files or reference images to preview them here.
-                    </p>
-                    <div className="flex items-center justify-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => designFileInputRef.current?.click()}
-                        className="px-2.5 py-1 text-[10px] font-bold text-[#881337] bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors flex items-center gap-1 cursor-pointer"
-                      >
-                        <i className="fa-solid fa-plus text-[9px]"></i> Design File
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => refImageInputRef.current?.click()}
-                        className="px-2.5 py-1 text-[10px] font-bold text-[#881337] bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors flex items-center gap-1 cursor-pointer"
-                      >
-                        <i className="fa-solid fa-plus text-[9px]"></i> Ref Image
-                      </button>
-                    </div>
+                    <p className="text-xs font-semibold text-gray-500">- No doc added -</p>
                   </div>
                 ) : (
                   <div className="space-y-3.5">
@@ -2144,8 +2308,8 @@ export default function NewWorkOrder({ initialMode }) {
             onClick={(e) => e.stopPropagation()}
             className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-gray-100 my-8 relative max-h-[90vh] overflow-y-auto"
           >
-            {/* Modal Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-gray-100 mb-4 sticky top-0 bg-white z-10">
+            {/* Modal Header (Scrollable with modal body) */}
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100 mb-4 bg-white">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-red-50 text-[#881337] flex items-center justify-center text-sm font-bold shadow-2xs">
                   <i className="fa-solid fa-gem"></i>
@@ -2155,7 +2319,7 @@ export default function NewWorkOrder({ initialMode }) {
                     {editingRowIndex !== null ? 'Edit Row Details' : 'Add Row Details'}
                   </h3>
                   <p className="text-xs text-gray-500">
-                    Input all material specifications, diamond clarity, variants, weights, and wastage.
+                    Input row specifications: work order no, design no, product name, gold purity, setting style, diamond & gold weights, pcs, and remarks.
                   </p>
                 </div>
               </div>
@@ -2171,278 +2335,84 @@ export default function NewWorkOrder({ initialMode }) {
               </button>
             </div>
 
-            {/* Modal Body / Form */}
+            {/* Modal Body / Form containing ONLY the specified input fields */}
             <form onSubmit={handleSaveRowModal} className="space-y-4">
 
-              <div className="border border-stone-200 rounded-xl p-3.5 bg-white">
-                <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                  CUSTOMER NAME
-                </label>
-                <input
-                  type="text"
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="Enter customer name"
-                  maxLength={255}
-                  className="w-full text-xs rounded-lg p-2.5 border border-gray-200 focus:border-[#881337] outline-hidden"
-                />
-              </div>
-
-              {/* 1. Quick Select Sample Presets matching Image 1 */}
-              <div className="bg-stone-50 p-3 rounded-xl border border-stone-200/90">
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-[11px] font-bold text-gray-700 uppercase tracking-wide">
-                    Quick Sample Presets
-                  </label>
-                  <span className="text-[10px] text-gray-400">Click to fill sample values</span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRowForm((prev) => ({
-                        ...prev,
-                        material_type: '22K Yellow Gold',
-                        material_subtitle: '916 Hallmark Standard',
-                        from_cts: '22KT',
-                        variant: 'Necklace',
-                        setting_type: 'Prong',
-                        diamond_weight: 'VS1',
-                        gold_weight: '22.500',
-                        total_weight: '22.500',
-                        cons_cts: '-',
-                        total_cts: '22.000',
-                        cons_wt: '21.340',
-                        from_wt: '4.850',
-                        to_wt: '2.200',
-                        need_pcs: 1,
-                        qty: 1,
-                        wastage: '0.500',
-                        percentages: '2.26%',
-                        total_gross_wt: '22.840',
-                        total_dia_cts: '0.660',
-                        remark: '-',
-                        image: '/images/samples/peacock_choker.jpg',
-                      }));
-                    }}
-                    className={`px-3 py-1 text-xs rounded-lg font-semibold border transition-all cursor-pointer ${rowForm.material_type === '22K Yellow Gold'
-                        ? 'bg-[#881337] text-white border-[#881337] shadow-2xs'
-                        : 'bg-white hover:bg-stone-100 text-stone-700 border-stone-300'
-                      }`}
-                  >
-                    🪙 22K Gold (DG-4587)
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRowForm((prev) => ({
-                        ...prev,
-                        material_type: 'Round Brilliant Diamonds',
-                        material_subtitle: 'VS1 Clarity - F Color',
-                        from_cts: '18KT',
-                        variant: 'Earrings',
-                        setting_type: 'Bezel',
-                        diamond_weight: 'VVS2',
-                        gold_weight: '8.750',
-                        total_weight: '8.750',
-                        cons_cts: '-',
-                        total_cts: '16.500',
-                        cons_wt: '17.960',
-                        from_wt: '3.970',
-                        to_wt: '1.800',
-                        need_pcs: 1,
-                        qty: 1,
-                        wastage: '0.400',
-                        percentages: '2.43%',
-                        total_gross_wt: '19.210',
-                        total_dia_cts: '0.550',
-                        remark: '-',
-                        image: '/images/samples/emerald_ring.jpg',
-                      }));
-                    }}
-                    className={`px-3 py-1 text-xs rounded-lg font-semibold border transition-all cursor-pointer ${rowForm.material_type === 'Round Brilliant Diamonds'
-                        ? 'bg-[#881337] text-white border-[#881337] shadow-2xs'
-                        : 'bg-white hover:bg-stone-100 text-stone-700 border-stone-300'
-                      }`}
-                  >
-                    💎 Brilliant Diamonds (DG-4588)
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRowForm((prev) => ({
-                        ...prev,
-                        material_type: '18K Rose Gold',
-                        material_subtitle: '750 Hallmark Standard',
-                        from_cts: '18KT',
-                        variant: 'Ring',
-                        setting_type: 'Pave',
-                        diamond_weight: 'VS1',
-                        gold_weight: '14.200',
-                        total_weight: '14.200',
-                        cons_cts: '-',
-                        total_cts: '14.200',
-                        cons_wt: '13.490',
-                        from_wt: '3.200',
-                        to_wt: '1.500',
-                        need_pcs: 1,
-                        qty: 1,
-                        wastage: '0.350',
-                        percentages: '2.46%',
-                        total_gross_wt: '14.550',
-                        total_dia_cts: '0.450',
-                        remark: '-',
-                        image: '/images/samples/peacock_bangle.jpg',
-                      }));
-                    }}
-                    className={`px-3 py-1 text-xs rounded-lg font-semibold border transition-all cursor-pointer ${rowForm.material_type === '18K Rose Gold'
-                        ? 'bg-[#881337] text-white border-[#881337] shadow-2xs'
-                        : 'bg-white hover:bg-stone-100 text-stone-700 border-stone-300'
-                      }`}
-                  >
-                    🪙 18K Rose Gold
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRowForm((prev) => ({
-                        ...prev,
-                        material_type: 'Platinum 950',
-                        material_subtitle: 'Pt 950 Certified',
-                        from_cts: '950 Pt',
-                        variant: 'Ring',
-                        setting_type: 'Prong',
-                        diamond_weight: 'VVS1',
-                        gold_weight: '16.800',
-                        total_weight: '16.800',
-                        total_cts: '16.800',
-                        cons_wt: '15.960',
-                        from_wt: '3.500',
-                        to_wt: '1.600',
-                        need_pcs: 1,
-                        qty: 1,
-                        wastage: '0.380',
-                        percentages: '2.26%',
-                        total_gross_wt: '17.180',
-                        total_dia_cts: '0.750',
-                        remark: '-',
-                      }));
-                    }}
-                    className="px-3 py-1 text-xs rounded-lg font-semibold border bg-white hover:bg-stone-100 text-stone-700 border-stone-300 transition-all cursor-pointer"
-                  >
-                    ⚪ Platinum 950
-                  </button>
-                </div>
-              </div>
-
-              {/* 2. SECTION: Material & Design Identification */}
-              <div className="border border-stone-200 rounded-xl p-3.5 space-y-3">
+              {/* 1. SECTION: Work Order No, Design No & Product Name */}
+              <div className="border border-stone-200 rounded-xl p-3.5 space-y-3 bg-white">
                 <span className="text-[10px] font-extrabold uppercase text-[#881337] tracking-wider block">
-                  1. Material & Design Identification
+                  Work Order Number, Design & Product Details
                 </span>
 
-                {/* Work Name / Product Title Input Box */}
-                <div>
-                  <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                    WORK NAME / PRODUCT NAME <span className="text-red-600">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={rowForm.work_name || ''}
-                    onChange={(e) => updateFormField('work_name', e.target.value)}
-                    placeholder="e.g. Peacock Antique Necklace / Kundan Choker / Royal Kada"
-                    className={`w-full text-xs rounded-lg p-2.5 font-bold outline-hidden transition-all ${formErrors.work_name
-                        ? 'border-2 border-red-500 bg-red-50/20 ring-1 ring-red-400'
-                        : 'border border-gray-200 focus:border-[#881337] bg-white text-gray-900'
-                      }`}
-                  />
-                  {formErrors.work_name && (
-                    <span className="text-[10px] text-red-600 font-bold block mt-1 flex items-center gap-1">
-                      <i className="fa-solid fa-circle-exclamation text-[9px]"></i> {formErrors.work_name}
-                    </span>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      MATERIAL TYPE <span className="text-red-600">*</span>
-                    </label>
-                    <select
-                      value={rowForm.material_type}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        const isDia = val.toLowerCase().includes('diamond');
-                        setRowForm((prev) => ({
-                          ...prev,
-                          material_type: val,
-                          material_subtitle: isDia ? 'VS1 Clarity - F Color' : '916 Hallmark Standard',
-                          from_cts: isDia ? '18KT' : '22KT',
-                        }));
-                        if (formErrors.material_type) {
-                          setFormErrors((prev) => {
-                            const n = { ...prev };
-                            delete n.material_type;
-                            return n;
-                          });
-                        }
-                      }}
-                      className={`w-full text-xs rounded-lg p-2.5 font-bold outline-hidden transition-all bg-white ${formErrors.material_type
-                          ? 'border-2 border-red-500 bg-red-50/20'
-                          : 'border border-gray-200 focus:border-[#881337]'
-                        }`}
-                    >
-                      <option value="22K Yellow Gold">22K Yellow Gold</option>
-                      <option value="Round Brilliant Diamonds">Round Brilliant Diamonds</option>
-                      <option value="18K Yellow Gold">18K Yellow Gold</option>
-                      <option value="18K Rose Gold">18K Rose Gold</option>
-                      <option value="18K White Gold">18K White Gold</option>
-                      <option value="24K Pure Gold">24K Pure Gold</option>
-                      <option value="Platinum 950">Platinum 950</option>
-                      <option value="Silver 925">Silver 925</option>
-                      <option value="Precious Gemstones">Precious Gemstones</option>
-                    </select>
-                    {formErrors.material_type && (
-                      <span className="text-[10px] text-red-600 font-bold block mt-1 flex items-center gap-1">
-                        <i className="fa-solid fa-circle-exclamation text-[9px]"></i> {formErrors.material_type}
-                      </span>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      MATERIAL SUBTITLE / PURITY
-                    </label>
-                    <input
-                      type="text"
-                      value={rowForm.material_subtitle || ''}
-                      onChange={(e) => setRowForm({ ...rowForm, material_subtitle: e.target.value })}
-                      placeholder="e.g. 916 Hallmark Standard / VS1 Clarity - F Color"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 outline-hidden focus:border-[#881337]"
-                    />
-                  </div>
-                </div>
-
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {/* Work Order No (Unique code, auto-generated or manual typing) */}
                   <div>
                     <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      DESIGN NUMBER <span className="text-red-600">*</span>
+                      WORK ORDER NO (UNIQUE) <span className="text-red-600">*</span>
                     </label>
                     <input
                       type="text"
                       required
-                      value={rowForm.design_number}
-                      onChange={(e) => updateFormField('design_number', e.target.value)}
-                      placeholder="e.g. DG-4587"
-                      className={`w-full text-xs rounded-lg p-2.5 font-mono font-bold outline-hidden transition-all ${formErrors.design_number
+                      value={rowForm.work_order_no || rowForm.form_no || ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setRowForm((prev) => ({ ...prev, work_order_no: val, form_no: val }));
+                        if (formErrors.work_order_no) {
+                          setFormErrors((prev) => {
+                            const next = { ...prev };
+                            delete next.work_order_no;
+                            return next;
+                          });
+                        }
+                      }}
+                      placeholder="e.g. WO-2026-0001-01"
+                      className={`w-full text-xs rounded-lg p-2.5 font-mono font-bold outline-hidden transition-all ${
+                        formErrors.work_order_no
                           ? 'border-2 border-red-500 bg-red-50/20 ring-1 ring-red-400'
-                          : 'border border-gray-200 focus:border-[#881337] bg-white'
-                        }`}
+                          : 'border border-gray-200 focus:border-[#881337] bg-white text-[#881337]'
+                      }`}
                     />
+                    {formErrors.work_order_no ? (
+                      <span className="text-[10px] text-red-600 font-bold block mt-1 flex items-center gap-1">
+                        <i className="fa-solid fa-circle-exclamation text-[9px]"></i> {formErrors.work_order_no}
+                      </span>
+                    ) : (
+                      <span className="text-[9.5px] text-stone-400 font-medium block mt-0.5">
+                        * Auto-generated or type manually (must be unique)
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Design No - Typing method */}
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
+                      DESIGN NO (TYPING METHOD) <span className="text-red-600">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      list="inventory-design-options"
+                      required
+                      value={rowForm.design_number || ''}
+                      onChange={(e) => handleDesignNumberChange(e.target.value)}
+                      placeholder="e.g. DG-4587"
+                      className={`w-full text-xs rounded-lg p-2.5 font-mono font-bold outline-hidden transition-all ${
+                        formErrors.design_number
+                          ? 'border-2 border-red-500 bg-red-50/20 ring-1 ring-red-400'
+                          : 'border border-gray-200 focus:border-[#881337] bg-white text-gray-900'
+                      }`}
+                    />
+                    <datalist id="inventory-design-options">
+                      {inventoryProducts.map((p) => {
+                        const dCode = p.design_no || p.product_code;
+                        const pName = p.name || '';
+                        const pWt = p.attributes?.gross_wt || p.opening_stock_weight || '';
+                        return (
+                          <option key={p.id} value={dCode}>
+                            {pName ? `${pName} (${dCode})${pWt ? ` - ${pWt}g` : ''}` : dCode}
+                          </option>
+                        );
+                      })}
+                    </datalist>
                     {formErrors.design_number && (
                       <span className="text-[10px] text-red-600 font-bold block mt-1 flex items-center gap-1">
                         <i className="fa-solid fa-circle-exclamation text-[9px]"></i> {formErrors.design_number}
@@ -2450,39 +2420,68 @@ export default function NewWorkOrder({ initialMode }) {
                     )}
                   </div>
 
+                  {/* Product Name */}
                   <div>
                     <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      VARIANT <span className="text-red-600">*</span>
+                      PRODUCT NAME <span className="text-red-600">*</span>
                     </label>
-                    <select
-                      value={rowForm.variant}
-                      onChange={(e) => updateFormField('variant', e.target.value)}
-                      className={`w-full text-xs rounded-lg p-2.5 outline-hidden transition-all bg-white font-medium ${formErrors.variant ? 'border-2 border-red-500 bg-red-50/20' : 'border border-gray-200 focus:border-[#881337]'
-                        }`}
-                    >
-                      <option value="Necklace">Necklace</option>
-                      <option value="Earrings">Earrings</option>
-                      <option value="Ring">Ring</option>
-                      <option value="Bracelet">Bracelet</option>
-                      <option value="Bangle">Bangle</option>
-                      <option value="Pendant">Pendant</option>
-                      <option value="Chain">Chain</option>
-                      <option value="Choker">Choker</option>
-                      <option value="Kangan">Kangan</option>
-                      <option value="Mangalsutra">Mangalsutra</option>
-                      <option value="Other">Other</option>
-                    </select>
-                    {formErrors.variant && (
+                    <input
+                      type="text"
+                      required
+                      value={rowForm.product_name || ''}
+                      onChange={(e) => updateRowFormAndCalculate('product_name', e.target.value)}
+                      placeholder="e.g. Peacock Choker Necklace"
+                      className={`w-full text-xs rounded-lg p-2.5 font-bold outline-hidden transition-all ${
+                        formErrors.product_name
+                          ? 'border-2 border-red-500 bg-red-50/20 ring-1 ring-red-400'
+                          : 'border border-gray-200 focus:border-[#881337] bg-white text-gray-900'
+                      }`}
+                    />
+                    {formErrors.product_name && (
                       <span className="text-[10px] text-red-600 font-bold block mt-1 flex items-center gap-1">
-                        <i className="fa-solid fa-circle-exclamation text-[9px]"></i> {formErrors.variant}
+                        <i className="fa-solid fa-circle-exclamation text-[9px]"></i> {formErrors.product_name}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. SECTION: Gold Purity & Setting Style */}
+              <div className="border border-stone-200 rounded-xl p-3.5 space-y-3 bg-white">
+                <span className="text-[10px] font-extrabold uppercase text-[#881337] tracking-wider block">
+                  Gold Purity & Setting Style
+                </span>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Gold Purity - Typing method */}
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
+                      GOLD PURITY (TYPING METHOD) <span className="text-red-600">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={rowForm.gold_purity || ''}
+                      onChange={(e) => updateRowFormAndCalculate('gold_purity', e.target.value)}
+                      placeholder="e.g. 22K (916) / 18KT / 24K"
+                      className={`w-full text-xs rounded-lg p-2.5 font-bold outline-hidden transition-all ${
+                        formErrors.gold_purity
+                          ? 'border-2 border-red-500 bg-red-50/20 ring-1 ring-red-400'
+                          : 'border border-gray-200 focus:border-[#881337] bg-white text-amber-900'
+                      }`}
+                    />
+                    {formErrors.gold_purity && (
+                      <span className="text-[10px] text-red-600 font-bold block mt-1 flex items-center gap-1">
+                        <i className="fa-solid fa-circle-exclamation text-[9px]"></i> {formErrors.gold_purity}
                       </span>
                     )}
                   </div>
 
+                  {/* Setting - Dropdown for selecting setting style */}
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="text-[11px] font-bold text-gray-700 uppercase tracking-wide">
-                        SETTING TYPE <span className="text-red-600">*</span>
+                        SETTING <span className="text-red-600">*</span>
                       </label>
                       <button
                         type="button"
@@ -2495,10 +2494,11 @@ export default function NewWorkOrder({ initialMode }) {
                       </button>
                     </div>
                     <select
-                      value={rowForm.setting_type}
-                      onChange={(e) => updateFormField('setting_type', e.target.value)}
-                      className={`w-full text-xs rounded-lg p-2.5 outline-hidden transition-all bg-white font-medium ${formErrors.setting_type ? 'border-2 border-red-500 bg-red-50/20' : 'border border-gray-200 focus:border-[#881337]'
-                        }`}
+                      value={rowForm.setting_type || 'Prong'}
+                      onChange={(e) => updateRowFormAndCalculate('setting_type', e.target.value)}
+                      className={`w-full text-xs rounded-lg p-2.5 outline-hidden transition-all bg-white font-medium ${
+                        formErrors.setting_type ? 'border-2 border-red-500 bg-red-50/20' : 'border border-gray-200 focus:border-[#881337]'
+                      }`}
                     >
                       {settingStyles.length > 0 ? (
                         settingStyles.map((s) => (
@@ -2520,370 +2520,23 @@ export default function NewWorkOrder({ initialMode }) {
                         </>
                       )}
                     </select>
-                    {formErrors.setting_type && (
-                      <span className="text-[10px] text-red-600 font-bold block mt-1 flex items-center gap-1">
-                        <i className="fa-solid fa-circle-exclamation text-[9px]"></i> {formErrors.setting_type}
-                      </span>
-                    )}
                   </div>
                 </div>
               </div>
 
-              {/* 3. SECTION: Dates, Pieces & Diamond Specifications */}
-              <div className="border border-stone-200 rounded-xl p-3.5 space-y-3">
+              {/* 3. SECTION: Reference Image Upload & CAD Design Upload */}
+              <div className="border border-stone-200 rounded-xl p-3.5 space-y-3 bg-white">
                 <span className="text-[10px] font-extrabold uppercase text-[#881337] tracking-wider block">
-                  2. Dates, Quantity & Diamond Grade
+                  Reference Image & CAD Design Uploads
                 </span>
 
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      ORDERED DATE <span className="text-red-600">*</span>
-                    </label>
-                    <input
-                      type="date"
-                      value={rowForm.ordered_date}
-                      onChange={(e) => updateFormField('ordered_date', e.target.value)}
-                      className={`w-full text-xs rounded-lg p-2.5 font-mono outline-hidden transition-all ${formErrors.ordered_date ? 'border-2 border-red-500 bg-red-50/20' : 'border border-gray-200 focus:border-[#881337] bg-white'
-                        }`}
-                    />
-                    {formErrors.ordered_date && (
-                      <span className="text-[10px] text-red-600 font-bold block mt-1">{formErrors.ordered_date}</span>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      DELIVERY DATE <span className="text-red-600">*</span>
-                    </label>
-                    <input
-                      type="date"
-                      value={rowForm.delivery_date}
-                      onChange={(e) => updateFormField('delivery_date', e.target.value)}
-                      className={`w-full text-xs rounded-lg p-2.5 font-mono outline-hidden transition-all ${formErrors.delivery_date ? 'border-2 border-red-500 bg-red-50/20' : 'border border-gray-200 focus:border-[#881337] bg-white'
-                        }`}
-                    />
-                    {formErrors.delivery_date && (
-                      <span className="text-[10px] text-red-600 font-bold block mt-1">{formErrors.delivery_date}</span>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      NEED PCS (QTY) <span className="text-red-600">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      required
-                      value={rowForm.need_pcs ?? rowForm.qty ?? 1}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value, 10);
-                        updateFormField('need_pcs', isNaN(val) ? '' : val);
-                        setRowForm((prev) => ({ ...prev, qty: isNaN(val) ? '' : val }));
-                      }}
-                      className={`w-full text-xs rounded-lg p-2.5 font-mono font-bold outline-hidden transition-all ${formErrors.need_pcs ? 'border-2 border-red-500 bg-red-50/20 ring-1 ring-red-400' : 'border border-gray-200 focus:border-[#881337] bg-white'
-                        }`}
-                    />
-                    {formErrors.need_pcs && (
-                      <span className="text-[10px] text-red-600 font-bold block mt-1">{formErrors.need_pcs}</span>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      DIAMOND WEIGHT / GRADE
-                    </label>
-                    <input
-                      type="text"
-                      value={rowForm.diamond_weight || ''}
-                      onChange={(e) => setRowForm({ ...rowForm, diamond_weight: e.target.value })}
-                      placeholder="e.g. VS1 / VVS2 / 0.50ct"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-medium outline-hidden focus:border-[#881337]"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      FROM CTS (PURITY)
-                    </label>
-                    <select
-                      value={rowForm.from_cts || '22KT'}
-                      onChange={(e) => setRowForm({ ...rowForm, from_cts: e.target.value, gold_priory: `${e.target.value} (916)` })}
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-bold outline-hidden focus:border-[#881337] bg-white"
-                    >
-                      <option value="22KT">22KT</option>
-                      <option value="18KT">18KT</option>
-                      <option value="24KT">24KT</option>
-                      <option value="14KT">14KT</option>
-                      <option value="950 Pt">950 Pt</option>
-                      <option value="925 Ag">925 Ag</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      CONS CTS
-                    </label>
-                    <input
-                      type="text"
-                      value={rowForm.cons_cts || '-'}
-                      onChange={(e) => setRowForm({ ...rowForm, cons_cts: e.target.value })}
-                      placeholder="e.g. -"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono outline-hidden focus:border-[#881337]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      TOTAL CTS
-                    </label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      value={rowForm.total_cts || ''}
-                      onChange={(e) => setRowForm({ ...rowForm, total_cts: e.target.value })}
-                      placeholder="e.g. 22.000"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono outline-hidden focus:border-[#881337]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      TOTAL DIA CTS
-                    </label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      value={rowForm.total_dia_cts || ''}
-                      onChange={(e) => setRowForm({ ...rowForm, total_dia_cts: e.target.value })}
-                      placeholder="e.g. 0.660"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono outline-hidden focus:border-[#881337]"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* 4. SECTION: Weights Breakdown & Wastage */}
-              <div className="border border-stone-200 rounded-xl p-3.5 space-y-3">
-                <span className="text-[10px] font-extrabold uppercase text-[#881337] tracking-wider block">
-                  3. Weight Breakdown & Wastage (Grams)
-                </span>
-
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      GOLD WEIGHT (G) <span className="text-red-600">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      required
-                      value={rowForm.gold_weight ?? rowForm.total_weight ?? ''}
-                      onChange={(e) => {
-                        const gw = e.target.value;
-                        const gwNum = parseFloat(gw) || 0;
-                        const wstNum = parseFloat(rowForm.wastage) || 0;
-                        setRowForm((prev) => ({
-                          ...prev,
-                          gold_weight: gw,
-                          total_weight: gw,
-                          total_gross_wt: gwNum > 0 ? (gwNum + wstNum).toFixed(3) : prev.total_gross_wt,
-                          cons_wt: gwNum > 0 ? (gwNum * 0.95).toFixed(3) : prev.cons_wt,
-                          total_cts: gwNum > 0 ? gw : prev.total_cts,
-                        }));
-                        if (formErrors.gold_weight) {
-                          setFormErrors((prev) => {
-                            const n = { ...prev };
-                            delete n.gold_weight;
-                            return n;
-                          });
-                        }
-                      }}
-                      placeholder="e.g. 22.500"
-                      className={`w-full text-xs rounded-lg p-2.5 font-mono font-black outline-hidden transition-all text-gray-900 ${formErrors.gold_weight
-                          ? 'border-2 border-red-500 bg-red-50/20 ring-1 ring-red-400'
-                          : 'border border-gray-200 focus:border-[#881337] bg-white'
-                        }`}
-                    />
-                    {formErrors.gold_weight && (
-                      <span className="text-[10px] text-red-600 font-bold block mt-1 flex items-center gap-1">
-                        <i className="fa-solid fa-circle-exclamation text-[9px]"></i> {formErrors.gold_weight}
-                      </span>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      CONS WT (G)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      value={rowForm.cons_wt || ''}
-                      onChange={(e) => setRowForm({ ...rowForm, cons_wt: e.target.value })}
-                      placeholder="e.g. 21.340"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono outline-hidden focus:border-[#881337]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      FROM WT (G)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      value={rowForm.from_wt || ''}
-                      onChange={(e) => setRowForm({ ...rowForm, from_wt: e.target.value })}
-                      placeholder="e.g. 4.850"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono outline-hidden focus:border-[#881337]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      TO WT (G)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      value={rowForm.to_wt || ''}
-                      onChange={(e) => setRowForm({ ...rowForm, to_wt: e.target.value })}
-                      placeholder="e.g. 2.200"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono outline-hidden focus:border-[#881337]"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="text-[11px] font-bold text-[#b01622] block mb-1 uppercase tracking-wide">
-                      WASTAGE (G)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      value={rowForm.wastage || ''}
-                      onChange={(e) => {
-                        const wst = e.target.value;
-                        const wstNum = parseFloat(wst) || 0;
-                        const gwNum = parseFloat(rowForm.gold_weight) || 1;
-                        setRowForm((prev) => ({
-                          ...prev,
-                          wastage: wst,
-                          percentages: `${((wstNum / gwNum) * 100).toFixed(2)}%`,
-                          total_gross_wt: ((parseFloat(prev.gold_weight) || 0) + wstNum).toFixed(3),
-                        }));
-                      }}
-                      placeholder="e.g. 0.500"
-                      className="w-full text-xs border border-rose-200 rounded-lg p-2.5 font-mono font-bold text-[#b01622] outline-hidden focus:border-[#881337] bg-rose-50/30"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      PERCENTAGES (%)
-                    </label>
-                    <input
-                      type="text"
-                      value={rowForm.percentages || ''}
-                      onChange={(e) => setRowForm({ ...rowForm, percentages: e.target.value })}
-                      placeholder="e.g. 2.26%"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono outline-hidden focus:border-[#881337]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      TOTAL GROSS WT (G)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      value={rowForm.total_gross_wt || ''}
-                      onChange={(e) => setRowForm({ ...rowForm, total_gross_wt: e.target.value })}
-                      placeholder="e.g. 22.840"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono font-bold outline-hidden focus:border-[#881337]"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* 5. SECTION: Design File & Reference Image Upload */}
-              <div className="border border-stone-200 rounded-xl p-3.5 space-y-3">
-                <span className="text-[10px] font-extrabold uppercase text-[#881337] tracking-wider block">
-                  4. Design File & Reference Image (Uploads & Samples)
-                </span>
-
-                {/* Two side-by-side upload boxes */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* BOX 1: Upload Design File */}
-                  <div className="flex flex-col">
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide flex items-center justify-between">
-                      <span className="flex items-center gap-1">
-                        <i className="fa-solid fa-compass-drafting text-[#881337]"></i>
-                        Design File (CAD / Blueprint / Drawing)
-                      </span>
-                      {rowForm.design_file && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setRowForm((prev) => ({ ...prev, design_file: '', image: prev.reference_image || '' }));
-                          }}
-                          className="text-[10px] text-red-600 hover:underline cursor-pointer font-semibold"
-                        >
-                          Clear
-                        </button>
-                      )}
-                    </label>
-
-                    <div
-                      onClick={() => designFileInputRef.current?.click()}
-                      className="border-2 border-dashed border-stone-300 hover:border-[#881337] rounded-xl p-3 text-center cursor-pointer transition-colors bg-stone-50/60 hover:bg-rose-50/20 group min-h-[110px] flex flex-col items-center justify-center"
-                    >
-                      {rowForm.design_file ? (
-                        <div className="flex items-center gap-3 w-full text-left">
-                          <img
-                            src={rowForm.design_file}
-                            alt="Design file preview"
-                            className="w-14 h-14 object-cover rounded-lg border border-stone-200 shadow-2xs bg-white shrink-0"
-                            onError={(e) => {
-                              // If CAD/PDF non-image, show document icon
-                              e.currentTarget.style.display = 'none';
-                            }}
-                          />
-                          <div className="min-w-0 flex-1">
-                            <span className="text-xs font-bold text-gray-800 block truncate">
-                              {rowForm.design_file_name || 'Design File Attached'}
-                            </span>
-                            <span className="text-[10px] text-emerald-600 font-semibold block flex items-center gap-1 mt-0.5">
-                              <i className="fa-solid fa-circle-check text-[9px]"></i> Ready for job row
-                            </span>
-                            <span className="text-[10px] text-stone-400 block mt-0.5">Click to change file</span>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="py-1">
-                          <div className="w-8 h-8 rounded-full bg-rose-50 text-[#881337] flex items-center justify-center text-xs mx-auto mb-1 group-hover:scale-110 transition-transform">
-                            <i className="fa-solid fa-file-arrow-up"></i>
-                          </div>
-                          <p className="text-xs font-bold text-gray-700">Upload Design File</p>
-                          <p className="text-[10px] text-stone-400 mt-0.5">CAD, Blueprint, Sketch, PNG, JPG</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* BOX 2: Upload Reference Image */}
+                  {/* BOX 1: Upload Reference Image */}
                   <div className="flex flex-col">
                     <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide flex items-center justify-between">
                       <span className="flex items-center gap-1">
                         <i className="fa-solid fa-camera text-[#881337]"></i>
-                        Reference Image (Sample / Photo)
+                        Reference Image Upload
                       </span>
                       {rowForm.reference_image && (
                         <button
@@ -2894,7 +2547,6 @@ export default function NewWorkOrder({ initialMode }) {
                               ...prev,
                               reference_image: '',
                               reference_image_name: '',
-                              reference_image_type: '',
                             }));
                           }}
                           className="text-[10px] text-red-600 hover:underline cursor-pointer font-semibold"
@@ -2906,7 +2558,7 @@ export default function NewWorkOrder({ initialMode }) {
 
                     <div
                       onClick={() => refImageInputRef.current?.click()}
-                      className="border-2 border-dashed border-stone-300 hover:border-[#881337] rounded-xl p-3 text-center cursor-pointer transition-colors bg-stone-50/60 hover:bg-rose-50/20 group min-h-[110px] flex flex-col items-center justify-center"
+                      className="border-2 border-dashed border-stone-300 hover:border-[#881337] rounded-xl p-3 text-center cursor-pointer transition-colors bg-stone-50/60 hover:bg-rose-50/20 group min-h-[105px] flex flex-col items-center justify-center"
                     >
                       {rowForm.reference_image ? (
                         <div className="flex items-center gap-3 w-full text-left">
@@ -2917,12 +2569,12 @@ export default function NewWorkOrder({ initialMode }) {
                           />
                           <div className="min-w-0 flex-1">
                             <span className="text-xs font-bold text-gray-800 block truncate">
-                              {rowForm.reference_image_name || 'Reference Photo Attached'}
+                              {rowForm.reference_image_name || 'Reference Image Attached'}
                             </span>
                             <span className="text-[10px] text-emerald-600 font-semibold block flex items-center gap-1 mt-0.5">
-                              <i className="fa-solid fa-circle-check text-[9px]"></i> Ready for job row
+                              <i className="fa-solid fa-circle-check text-[9px]"></i> Attached for row
                             </span>
-                            <span className="text-[10px] text-stone-400 block mt-0.5">Click to change image</span>
+                            <span className="text-[10px] text-stone-400 block mt-0.5">Click to change</span>
                           </div>
                         </div>
                       ) : (
@@ -2931,75 +2583,318 @@ export default function NewWorkOrder({ initialMode }) {
                             <i className="fa-solid fa-cloud-arrow-up"></i>
                           </div>
                           <p className="text-xs font-bold text-gray-700">Upload Reference Image</p>
-                          <p className="text-[10px] text-stone-400 mt-0.5">Sample photo, customer reference</p>
+                          <p className="text-[10px] text-stone-400 mt-0.5">JPG, PNG, WebP sample photo</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* BOX 2: Upload CAD Design File */}
+                  <div className="flex flex-col">
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <i className="fa-solid fa-compass-drafting text-indigo-700"></i>
+                        CAD Design Upload Column
+                      </span>
+                      {rowForm.design_file && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRowForm((prev) => ({ ...prev, design_file: '', design_file_name: '' }));
+                          }}
+                          className="text-[10px] text-red-600 hover:underline cursor-pointer font-semibold"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </label>
+
+                    <div
+                      onClick={() => designFileInputRef.current?.click()}
+                      className="border-2 border-dashed border-stone-300 hover:border-indigo-600 rounded-xl p-3 text-center cursor-pointer transition-colors bg-stone-50/60 hover:bg-indigo-50/30 group min-h-[105px] flex flex-col items-center justify-center"
+                    >
+                      {rowForm.design_file ? (
+                        <div className="flex items-center gap-3 w-full text-left">
+                          <div className="w-12 h-12 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center text-xl shrink-0 font-bold">
+                            <i className="fa-solid fa-file-code"></i>
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <span className="text-xs font-bold text-gray-800 block truncate">
+                              {rowForm.design_file_name || 'CAD Design Attached'}
+                            </span>
+                            <span className="text-[10px] text-emerald-600 font-semibold block flex items-center gap-1 mt-0.5">
+                              <i className="fa-solid fa-circle-check text-[9px]"></i> Attached for row
+                            </span>
+                            <span className="text-[10px] text-stone-400 block mt-0.5">Click to change CAD file</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="py-1">
+                          <div className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-700 flex items-center justify-center text-xs mx-auto mb-1 group-hover:scale-110 transition-transform">
+                            <i className="fa-solid fa-file-arrow-up"></i>
+                          </div>
+                          <p className="text-xs font-bold text-gray-700">Upload CAD Design File</p>
+                          <p className="text-[10px] text-stone-400 mt-0.5">3DM, STL, OBJ, PDF, Drawings</p>
                         </div>
                       )}
                     </div>
                   </div>
                 </div>
+              </div>
 
-                {/* Preset Samples Selector */}
-                <div className="pt-1">
-                  <span className="text-[10px] font-bold text-stone-500 block mb-1 uppercase tracking-wide">
-                    Or pick from sample jewelry gallery:
-                  </span>
-                  <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
-                    {SAMPLE_IMAGES.map((img, i) => (
-                      <div
-                        key={i}
-                        onClick={() =>
-                          setRowForm((prev) => ({
-                            ...prev,
-                            image: img.url,
-                            image_name: `${img.label}.jpg`,
-                            design_file: prev.design_file || img.url,
-                            design_file_name: prev.design_file_name || `${img.label}_Design.jpg`,
-                            design_file_type: 'image',
-                            reference_image: img.url,
-                            reference_image_name: `${img.label}_Ref.jpg`,
-                            reference_image_type: 'image',
-                          }))
-                        }
-                        className={`rounded-lg border overflow-hidden cursor-pointer p-1 transition-all flex flex-col items-center justify-center ${rowForm.reference_image === img.url || rowForm.design_file === img.url
-                            ? 'border-[#881337] ring-2 ring-[#881337]/30 bg-rose-50'
-                            : 'border-stone-200 hover:border-stone-400 bg-white'
-                          }`}
-                        title={img.label}
-                      >
-                        <img
-                          src={img.url}
-                          alt={img.label}
-                          className="w-full h-11 object-cover rounded bg-stone-100"
-                          onError={(e) => {
-                            e.target.onerror = null;
-                            e.target.src = '/images/samples/peacock_choker.jpg';
-                          }}
-                        />
-                        <span className="text-[9px] text-stone-600 font-medium truncate w-full text-center mt-0.5 block">
-                          {img.label.split(' ')[0]}
-                        </span>
-                      </div>
-                    ))}
+              {/* 4. SECTION: Product Creation Quantity & Order Specifications */}
+              <div className="border border-stone-200 rounded-xl p-3.5 space-y-3 bg-white">
+                <span className="text-[10px] font-extrabold uppercase text-[#881337] tracking-wider block flex items-center gap-1.5">
+                  <i className="fa-solid fa-layer-group text-xs"></i>
+                  Product Creation Quantity &amp; Order Specifications
+                </span>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                  <div className="flex flex-col justify-end">
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide flex items-center gap-1">
+                      NEEDED PCS (PRODUCT QUANTITY) <span className="text-red-600 ml-0.5">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      value={rowForm.need_pcs ?? 1}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/^0+(?=\d)/, '');
+                        const parsed = parseInt(v, 10);
+                        updateRowFormAndCalculate('need_pcs', isNaN(parsed) || parsed < 1 ? 1 : parsed);
+                      }}
+                      className={`w-full text-xs rounded-lg p-2.5 font-mono font-bold outline-hidden transition-all ${
+                        formErrors.need_pcs ? 'border-2 border-red-500 bg-red-50/20' : 'border border-gray-200 focus:border-[#881337] bg-white'
+                      }`}
+                    />
+                    {formErrors.need_pcs && (
+                      <span className="text-[10px] text-red-600 font-bold block mt-1">{formErrors.need_pcs}</span>
+                    )}
+                  </div>
+                  <div className="sm:col-span-2 text-xs text-stone-500 self-center font-medium">
+                    Total product items/units to be manufactured / created for this order row.
                   </div>
                 </div>
               </div>
 
-              {/* 6. SECTION: REMARK / NOTES */}
-              <div>
+              {/* 5. SECTION: Gold Weight Specifications */}
+              <div className="border border-stone-200 rounded-xl p-3.5 space-y-3 bg-white">
+                <span className="text-[10px] font-extrabold uppercase text-[#881337] tracking-wider block flex items-center gap-1.5">
+                  <i className="fa-solid fa-coins text-amber-600 text-xs"></i>
+                  Gold Weight Specifications
+                </span>
+
+                {/* Gold Wt, Gold Wt From, Gold Wt To */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                  <div className="flex flex-col justify-end">
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide min-h-[20px] flex items-end">
+                      GOLD WT (G) <span className="text-red-600 ml-0.5">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      required
+                      value={rowForm.gold_weight || ''}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => updateRowFormAndCalculate('gold_weight', e.target.value.replace(/^0+(?=\d)/, ''))}
+                      placeholder="e.g. 10.000"
+                      className={`w-full text-xs rounded-lg p-2.5 font-mono font-black outline-hidden transition-all text-gray-900 ${
+                        formErrors.gold_weight
+                          ? 'border-2 border-red-500 bg-red-50/20 ring-1 ring-red-400'
+                          : 'border border-gray-200 focus:border-[#881337] bg-white'
+                      }`}
+                    />
+                    {formErrors.gold_weight && (
+                      <span className="text-[10px] text-red-600 font-bold block mt-1 flex items-center gap-1">
+                        <i className="fa-solid fa-circle-exclamation text-[9px]"></i> {formErrors.gold_weight}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col justify-end">
+                    <label className="text-[11px] font-bold text-stone-600 block mb-1 uppercase tracking-wide min-h-[20px] flex items-end">
+                      GOLD WT FROM (G)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={rowForm.gold_wt_from || rowForm.from_wt || ''}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/^0+(?=\d)/, '');
+                        setRowForm({ ...rowForm, gold_wt_from: v, from_wt: v });
+                      }}
+                      placeholder="e.g. 8.000"
+                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono outline-hidden focus:border-[#881337]"
+                    />
+                  </div>
+
+                  <div className="flex flex-col justify-end">
+                    <label className="text-[11px] font-bold text-stone-600 block mb-1 uppercase tracking-wide min-h-[20px] flex items-end">
+                      GOLD WT TO (G)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={rowForm.gold_wt_to || rowForm.to_wt || ''}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/^0+(?=\d)/, '');
+                        setRowForm({ ...rowForm, gold_wt_to: v, to_wt: v });
+                      }}
+                      placeholder="e.g. 10.000"
+                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono outline-hidden focus:border-[#881337]"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 6. SECTION: Diamond & Stone Specifications */}
+              <div className="border border-stone-200 rounded-xl p-3.5 space-y-3 bg-white">
+                <span className="text-[10px] font-extrabold uppercase text-[#881337] tracking-wider block flex items-center gap-1.5">
+                  <i className="fa-solid fa-gem text-blue-600 text-xs"></i>
+                  Diamond &amp; Stone Specifications
+                </span>
+
+                {/* Diamond Wt, Diamond Wt From, Diamond Wt To, No of Diamonds, No of Colour Stones */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+                  <div className="flex flex-col justify-end">
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide min-h-[28px] flex items-end">
+                      DIAMOND WEIGHT (CTS)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={rowForm.diamond_weight || ''}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => updateRowFormAndCalculate('diamond_weight', e.target.value.replace(/^0+(?=\d)/, ''))}
+                      placeholder="e.g. 0.500"
+                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono font-medium outline-hidden focus:border-[#881337]"
+                    />
+                  </div>
+
+                  <div className="flex flex-col justify-end">
+                    <label className="text-[11px] font-bold text-stone-600 block mb-1 uppercase tracking-wide min-h-[28px] flex items-end">
+                      DIAMOND WT FROM
+                    </label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={rowForm.diamond_wt_from || ''}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => setRowForm({ ...rowForm, diamond_wt_from: e.target.value.replace(/^0+(?=\d)/, '') })}
+                      placeholder="e.g. 0.100"
+                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono outline-hidden focus:border-[#881337]"
+                    />
+                  </div>
+
+                  <div className="flex flex-col justify-end">
+                    <label className="text-[11px] font-bold text-stone-600 block mb-1 uppercase tracking-wide min-h-[28px] flex items-end">
+                      DIAMOND WT TO
+                    </label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={rowForm.diamond_wt_to || ''}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => setRowForm({ ...rowForm, diamond_wt_to: e.target.value.replace(/^0+(?=\d)/, '') })}
+                      placeholder="e.g. 0.500"
+                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono outline-hidden focus:border-[#881337]"
+                    />
+                  </div>
+
+                  <div className="flex flex-col justify-end">
+                    <label className="text-[11px] font-bold text-stone-600 block mb-1 uppercase tracking-wide min-h-[28px] flex items-end">
+                      NO OF DIAMONDS
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={rowForm.no_of_diamonds ?? 0}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/^0+(?=\d)/, '');
+                        const parsed = parseInt(v, 10);
+                        setRowForm({ ...rowForm, no_of_diamonds: isNaN(parsed) ? 0 : parsed });
+                      }}
+                      placeholder="e.g. 0"
+                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono font-bold outline-hidden focus:border-[#881337] bg-white text-gray-900"
+                    />
+                  </div>
+
+                  <div className="flex flex-col justify-end">
+                    <label className="text-[11px] font-bold text-stone-600 block mb-1 uppercase tracking-wide min-h-[28px] flex items-end">
+                      NO OF COLOUR STONES
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={rowForm.no_of_colour_stones ?? 0}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/^0+(?=\d)/, '');
+                        const parsed = parseInt(v, 10);
+                        setRowForm({ ...rowForm, no_of_colour_stones: isNaN(parsed) ? 0 : parsed });
+                      }}
+                      placeholder="e.g. 0"
+                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono font-bold outline-hidden focus:border-[#881337] bg-white text-gray-900"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 6. SECTION: Auto Calculated Totals (Total Gross Wt & Total Diamond Cts) */}
+              <div className="bg-rose-50/40 border border-rose-200 rounded-xl p-3.5 space-y-2">
+                <span className="text-[10px] font-extrabold uppercase text-[#881337] tracking-wider block">
+                  Auto Calculated Row Totals
+                </span>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="bg-white p-3 rounded-lg border border-rose-200 shadow-2xs">
+                    <label className="text-[10px] font-bold text-stone-500 uppercase tracking-wider block">
+                      TOTAL GROSS WT (Gold Wt × Needed Pcs)
+                    </label>
+                    <div className="text-sm font-black font-mono text-[#881337] mt-0.5">
+                      {rowForm.total_gross_wt || '0.000'} g
+                    </div>
+                    <span className="text-[10px] text-stone-400">
+                      Calculated: {rowForm.gold_weight || 0}g × {rowForm.need_pcs || 1} pcs
+                    </span>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-lg border border-emerald-200 shadow-2xs">
+                    <label className="text-[10px] font-bold text-stone-500 uppercase tracking-wider block">
+                      TOTAL DIAMOND CTS (Needed Pcs × Dia Wt)
+                    </label>
+                    <div className="text-sm font-black font-mono text-emerald-700 mt-0.5">
+                      {rowForm.total_dia_cts || '0.000'} cts
+                    </div>
+                    <span className="text-[10px] text-stone-400">
+                      Calculated: {rowForm.need_pcs || 1} pcs × {rowForm.diamond_weight || 0} cts
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 7. SECTION: Remarks */}
+              <div className="bg-white p-3.5 rounded-xl border border-stone-200">
                 <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                  REMARK / ARTISAN NOTES
+                  REMARKS
                 </label>
                 <input
                   type="text"
-                  value={rowForm.remark || '-'}
+                  value={rowForm.remark || ''}
                   onChange={(e) => setRowForm({ ...rowForm, remark: e.target.value })}
-                  placeholder="e.g. -"
+                  placeholder="Enter remarks for this work order row"
                   className="w-full text-xs border border-gray-200 rounded-lg p-2.5 outline-hidden focus:border-[#881337]"
                 />
               </div>
 
-              {/* Modal Actions */}
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100 sticky bottom-0 bg-white z-10">
+              {/* Modal Actions (Scrollable naturally with modal body) */}
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100 bg-white">
                 <button
                   type="button"
                   onClick={() => setShowRowModal(false)}
@@ -3108,6 +3003,104 @@ export default function NewWorkOrder({ initialMode }) {
         }}
         onRefresh={fetchSettingStyles}
       />
+
+      {/* Hidden Print Container for Browser Printing */}
+      <div className="hidden print:block font-['Inter',sans-serif] p-4 text-xs text-gray-900 bg-white">
+        <style>{`
+          @page {
+            size: landscape;
+            margin: 8mm;
+          }
+          @media print {
+            body * { visibility: hidden; }
+            #print-work-order-area, #print-work-order-area * { visibility: visible; }
+            #print-work-order-area { position: absolute; left: 0; top: 0; width: 100%; }
+            #print-work-order-area table th, #print-work-order-area table td { white-space: nowrap !important; }
+          }
+        `}</style>
+        <div id="print-work-order-area" className="p-4 space-y-4">
+          <WorkOrderPrintHeader
+            title="WORK ORDER"
+            number={orderNumber || selectedOrder?.work_order_number}
+            issuedDate={timeline.estimated_start_date || selectedOrder?.allotted_date}
+          />
+
+          <WorkOrderPrintMetadata items={[
+            { label: 'Created Date', value: timeline.estimated_start_date || selectedOrder?.allotted_date },
+            { label: 'Delivery Due Date', value: timeline.promised_due_date || selectedOrder?.delivery_date, valueClassName: 'text-[#881337]' },
+            { label: 'Order Priority', value: timeline.priority || 'MEDIUM', valueClassName: 'text-amber-800' },
+            { label: 'Customer Name', value: customerName || selectedOrder?.customer_name || 'Internal Showroom' },
+            { label: 'Assigned Artisan', value: assignedWorker?.name || 'Unassigned' },
+          ]} />
+
+          {/* Print Table matching exact columns & theme */}
+          <div className="w-full overflow-x-auto border border-[#d8c8b0] rounded-lg bg-white my-2 shadow-2xs">
+          <table className="w-full text-left text-[9px] border-collapse border border-[#d8c8b0]">
+            <thead>
+              <tr className="bg-[#eedfce] text-[#881337] font-bold border-b border-[#d8c8b0] text-[8px] uppercase">
+                <th className="py-1.5 px-2 border border-[#d8c8b0] text-center whitespace-nowrap">S.No</th>
+                <th className="py-1.5 px-2 border border-[#d8c8b0] whitespace-nowrap">Design</th>
+                <th className="py-1.5 px-2 border border-[#d8c8b0] text-center whitespace-nowrap">Image</th>
+                <th className="py-1.5 px-2 border border-[#d8c8b0] whitespace-nowrap">Form No</th>
+                <th className="py-1.5 px-2 border border-[#d8c8b0] whitespace-nowrap">Gold Purity</th>
+                <th className="py-1.5 px-2 border border-[#d8c8b0] whitespace-nowrap">Setting</th>
+                <th className="py-1.5 px-2 border border-[#d8c8b0] text-right whitespace-nowrap">Diamond Weight</th>
+                <th className="py-1.5 px-2 border border-[#d8c8b0] text-right whitespace-nowrap">From Cts</th>
+                <th className="py-1.5 px-2 border border-[#d8c8b0] text-right whitespace-nowrap">To Cts</th>
+                <th className="py-1.5 px-2 border border-[#d8c8b0] text-right whitespace-nowrap">Gold Weight</th>
+                <th className="py-1.5 px-2 border border-[#d8c8b0] text-right whitespace-nowrap">From Wt</th>
+                <th className="py-1.5 px-2 border border-[#d8c8b0] text-right whitespace-nowrap">To Wt</th>
+                <th className="py-1.5 px-2 border border-[#d8c8b0] text-center whitespace-nowrap">Need Pcs</th>
+                <th className="py-1.5 px-2 border border-[#d8c8b0] text-center whitespace-nowrap">No of Diamonds</th>
+                <th className="py-1.5 px-2 border border-[#d8c8b0] text-center whitespace-nowrap">Colour Stones</th>
+                <th className="py-1.5 px-2 border border-[#d8c8b0] text-right whitespace-nowrap">Total Gross Wt</th>
+                <th className="py-1.5 px-2 border border-[#d8c8b0] text-right whitespace-nowrap">Total Dia Cts</th>
+                <th className="py-1.5 px-2 border border-[#d8c8b0] whitespace-nowrap">Remarks</th>
+              </tr>
+            </thead>
+            <tbody>
+              {jobItems.map((r, i) => (
+                <tr key={i} className="border-b border-stone-200">
+                  <td className="py-1.5 px-2 border border-stone-200 text-center font-bold whitespace-nowrap">{i + 1}</td>
+                  <td className="py-1.5 px-2 border border-stone-200 font-mono font-bold whitespace-nowrap">{r.design_number}</td>
+                  <td className="py-1.5 px-2 border border-stone-200 text-center whitespace-nowrap">
+                    <img src={resolveItemImage(r)} alt="Thumb" className="w-6 h-6 object-cover mx-auto rounded border border-stone-200" />
+                  </td>
+                  <td className="py-1.5 px-2 border border-stone-200 font-mono font-bold text-[#881337] whitespace-nowrap">{r.form_no}</td>
+                  <td className="py-1.5 px-2 border border-stone-200 whitespace-nowrap">{r.gold_purity}</td>
+                  <td className="py-1.5 px-2 border border-stone-200 whitespace-nowrap">{r.setting_type}</td>
+                  <td className="py-1.5 px-2 border border-stone-200 text-right font-mono whitespace-nowrap">{r.diamond_weight}</td>
+                  <td className="py-1.5 px-2 border border-stone-200 text-right font-mono text-stone-500 whitespace-nowrap">{r.diamond_wt_from}</td>
+                  <td className="py-1.5 px-2 border border-stone-200 text-right font-mono text-stone-500 whitespace-nowrap">{r.diamond_wt_to}</td>
+                  <td className="py-1.5 px-2 border border-stone-200 text-right font-mono font-bold whitespace-nowrap">{r.gold_weight}g</td>
+                  <td className="py-1.5 px-2 border border-stone-200 text-right font-mono text-stone-500 whitespace-nowrap">{r.gold_wt_from}</td>
+                  <td className="py-1.5 px-2 border border-stone-200 text-right font-mono text-stone-500 whitespace-nowrap">{r.gold_wt_to}</td>
+                  <td className="py-1.5 px-2 border border-stone-200 text-center font-bold whitespace-nowrap">{r.need_pcs}</td>
+                  <td className="py-1.5 px-2 border border-stone-200 text-center font-bold text-emerald-800 whitespace-nowrap">{r.no_of_diamonds || 0}</td>
+                  <td className="py-1.5 px-2 border border-stone-200 text-center font-bold text-purple-800 whitespace-nowrap">{r.no_of_colour_stones || 0}</td>
+                  <td className="py-1.5 px-2 border border-stone-200 text-right font-mono font-bold text-[#881337] whitespace-nowrap">{r.total_gross_wt}g</td>
+                  <td className="py-1.5 px-2 border border-stone-200 text-right font-mono font-bold text-emerald-700 whitespace-nowrap">{r.total_dia_cts}ct</td>
+                  <td className="py-1.5 px-2 border border-stone-200 text-gray-500 whitespace-nowrap">{r.remark || '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-[#eedfce] font-bold text-[#3b3228]">
+                <td colSpan="9" className="py-2 px-2 border border-[#d8c8b0] uppercase whitespace-nowrap">TOTAL SUMMARY</td>
+                <td className="py-2 px-2 border border-[#d8c8b0] text-right font-mono whitespace-nowrap">{totalGoldWeight.toFixed(3)}g</td>
+                <td colSpan="2" className="py-2 px-2 border border-[#d8c8b0] whitespace-nowrap"></td>
+                <td className="py-2 px-2 border border-[#d8c8b0] text-center text-[#881337] whitespace-nowrap">{totalNeedPcs}</td>
+                <td className="py-2 px-2 border border-[#d8c8b0] text-center text-emerald-800 whitespace-nowrap">{activeItemsForTotals.reduce((a, r) => a + (parseInt(r.no_of_diamonds || 0, 10)), 0)}</td>
+                <td className="py-2 px-2 border border-[#d8c8b0] text-center text-purple-800 whitespace-nowrap">{activeItemsForTotals.reduce((a, r) => a + (parseInt(r.no_of_colour_stones || 0, 10)), 0)}</td>
+                <td className="py-2 px-2 border border-[#d8c8b0] text-right font-mono text-[#881337] whitespace-nowrap">{totalGrossWt.toFixed(3)}g</td>
+                <td className="py-2 px-2 border border-[#d8c8b0] text-right font-mono text-emerald-700 whitespace-nowrap">{totalDiaCts.toFixed(3)}ct</td>
+                <td className="py-2 px-2 border border-[#d8c8b0] whitespace-nowrap"></td>
+              </tr>
+            </tfoot>
+          </table>
+          </div>
+        </div>
+      </div>
 
     </div>
   );

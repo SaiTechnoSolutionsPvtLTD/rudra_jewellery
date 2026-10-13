@@ -9,10 +9,31 @@ class InventoryMovement extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['product_id', 'invoice_id', 'movement_type', 'quantity', 'weight', 'unit_cost', 'notes', 'created_by'];
-    protected $casts = ['quantity' => 'float', 'weight' => 'float', 'unit_cost' => 'float'];
+    protected $fillable = [
+        'product_id',
+        'raw_material_id',
+        'purchase_entry_id',
+        'material_opening_stock_id',
+        'invoice_id',
+        'movement_type',
+        'quantity',
+        'weight',
+        'unit_cost',
+        'notes',
+        'created_by'
+    ];
+    protected $casts = [
+        'quantity' => 'float',
+        'weight' => 'float',
+        'unit_cost' => 'float',
+        'raw_material_id' => 'integer',
+        'purchase_entry_id' => 'integer',
+        'material_opening_stock_id' => 'integer',
+    ];
 
     public function product() { return $this->belongsTo(Product::class); }
+    public function rawMaterial() { return $this->belongsTo(RawMaterial::class); }
+    public function purchaseEntry() { return $this->belongsTo(PurchaseEntry::class); }
     public function invoice() { return $this->belongsTo(Invoice::class); }
     public function creator() { return $this->belongsTo(User::class, 'created_by'); }
 }

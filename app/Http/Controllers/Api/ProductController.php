@@ -73,6 +73,142 @@ class ProductController extends Controller
         return response()->json(['product_code' => $sku]);
     }
 
+    public function lookupDesign(Request $request)
+    {
+        $designNo = trim($request->input('design_number', ''));
+        if (empty($designNo)) {
+            return response()->json(['found' => false]);
+        }
+
+        // Build query on products table
+        $prodQuery = Product::with(['category', 'subcategory']);
+        if ($request->filled('category_id')) {
+            $prodQuery->where('category_id', $request->input('category_id'));
+        }
+        if ($request->filled('subcategory_id')) {
+            $prodQuery->where('subcategory_id', $request->input('subcategory_id'));
+        }
+
+        $matchingProducts = (clone $prodQuery)->where(function ($q) use ($designNo) {
+            $q->where('product_code', $designNo)
+              ->orWhere('design_no', $designNo)
+              ->orWhere('attributes->design_no', $designNo);
+        })->get();
+
+        // Disambiguate if design number matches across multiple categories without category filter
+        if ($matchingProducts->count() > 1 && !$request->filled('category_id')) {
+            $distinctCatCount = $matchingProducts->pluck('category_id')->unique()->count();
+            if ($distinctCatCount > 1) {
+                return response()->json([
+                    'found' => false,
+                    'ambiguous' => true,
+                    'message' => "Design number '{$designNo}' exists in multiple categories. Please specify the category context.",
+                    'matches' => $matchingProducts->map(fn($p) => [
+                        'product_id' => $p->id,
+                        'name' => $p->name,
+                        'category_id' => $p->category_id,
+                        'category_name' => $p->category?->name,
+                    ]),
+                ], 422);
+            }
+        }
+
+        $product = $matchingProducts->first();
+        if (!$product && !$request->filled('category_id')) {
+            $product = Product::with(['category', 'subcategory'])
+                ->where('product_code', $designNo)
+                ->orWhere('design_no', $designNo)
+                ->orWhere('attributes->design_no', $designNo)
+                ->first();
+        }
+
+        if ($product) {
+            $attrs = is_array($product->attributes) 
+                ? $product->attributes 
+                : (is_string($product->attributes) ? json_decode($product->attributes, true) : []);
+
+            // Extract component details (diamonds, stones, etc.)
+            $components = $attrs['components'] ?? [];
+            $diaWt = $attrs['dia_wt_ct'] ?? $attrs['diamond_wt'] ?? null;
+            $diaCount = $attrs['diamond_count'] ?? $attrs['dia_count'] ?? null;
+            $diaStamp = $attrs['diamond_stamp'] ?? null;
+            $colorStoneWt = $attrs['stone_weight'] ?? $attrs['color_stone_weight'] ?? null;
+            $colorStoneCount = $attrs['stone_count'] ?? $attrs['color_stone_count'] ?? null;
+            $colorStoneStamp = $attrs['color_stone_stamp'] ?? null;
+
+            if (is_array($components)) {
+                foreach ($components as $c) {
+                    $catName = strtolower($c['category_name'] ?? $c['item_name'] ?? '');
+                    if (str_contains($catName, 'diamond') || str_contains($catName, 'dia')) {
+                        if ($diaWt === null && isset($c['gross_wt'])) $diaWt = (float)$c['gross_wt'];
+                        if ($diaCount === null && isset($c['no_of_pieces'])) $diaCount = (int)$c['no_of_pieces'];
+                        if ($diaStamp === null && !empty($c['stamp'])) $diaStamp = $c['stamp'];
+                    } elseif (str_contains($catName, 'stone') || str_contains($catName, 'ruby') || str_contains($catName, 'emerald') || str_contains($catName, 'sapphire')) {
+                        if ($colorStoneWt === null && isset($c['gross_wt'])) $colorStoneWt = (float)$c['gross_wt'];
+                        if ($colorStoneCount === null && isset($c['no_of_pieces'])) $colorStoneCount = (int)$c['no_of_pieces'];
+                        if ($colorStoneStamp === null && !empty($c['stamp'])) $colorStoneStamp = $c['stamp'];
+                    }
+                }
+            }
+
+            $goldWeight = $attrs['net_wt'] ?? $attrs['gold_weight'] ?? $product->opening_fine_weight ?? $product->opening_stock_weight ?? 0;
+            $grossWeight = $attrs['gross_wt'] ?? $product->opening_stock_weight ?? 0;
+            $purity = $attrs['purity'] ?? $attrs['gold_type'] ?? ($product->opening_touch ? "{$product->opening_touch}%" : '22K (916)');
+            $karat = $attrs['karat'] ?? '22K';
+            $goldStamp = $attrs['stamp'] ?? $product->stamp ?? '916';
+            $size = $attrs['size'] ?? null;
+
+            return response()->json([
+                'found' => true,
+                'source' => 'product',
+                'product_id' => $product->id,
+                'product_name' => $product->name,
+                'product_code' => $product->product_code,
+                'design_number' => $product->design_no ?: $product->product_code,
+                'category_id' => $product->category_id,
+                'category_name' => $product->category?->name,
+                'subcategory_id' => $product->subcategory_id,
+                'subcategory_name' => $product->subcategory?->name,
+                'image_url' => $product->image_url,
+                'size' => $size,
+                'gold_purity' => $purity,
+                'gold_karat' => $karat,
+                'gold_stamp' => $goldStamp,
+                'gold_weight' => (float)$goldWeight,
+                'gross_weight' => (float)$grossWeight,
+                'net_gold_weight' => (float)$goldWeight,
+                'diamond_weight' => $diaWt !== null ? (float)$diaWt : null,
+                'diamond_count' => $diaCount !== null ? (int)$diaCount : null,
+                'diamond_stamp' => $diaStamp,
+                'color_stone_weight' => $colorStoneWt !== null ? (float)$colorStoneWt : null,
+                'color_stone_count' => $colorStoneCount !== null ? (int)$colorStoneCount : null,
+                'color_stone_stamp' => $colorStoneStamp,
+                'components' => $components,
+                'setting_type' => $attrs['setting_style'] ?? 'Prong',
+            ]);
+        }
+
+        // Fallback: Search in product_designs table
+        $design = \App\Models\ProductDesign::where('design_no', $designNo)->first();
+        if ($design) {
+            $img = !empty($design->image_path) ? (is_array($design->image_path) ? ($design->image_path[0] ?? null) : $design->image_path) : null;
+            return response()->json([
+                'found' => true,
+                'source' => 'product_design',
+                'product_name' => $design->category ?: 'Jewelry Piece',
+                'design_number' => $design->design_no,
+                'gold_purity' => $design->purity ?? '22K (916)',
+                'setting_type' => $design->setting_style ?? 'Prong',
+                'gold_weight' => (float)($design->net_wt ?? 0),
+                'gross_weight' => (float)($design->gross_wt ?? $design->net_wt ?? 0),
+                'diamond_weight' => (float)($design->dia_wt_ct ?? 0),
+                'image_url' => $img,
+            ]);
+        }
+
+        return response()->json(['found' => false]);
+    }
+
     public function store(Request $request)
     {
         // Handle attributes if sent as JSON string in FormData
@@ -89,6 +225,7 @@ class ProductController extends Controller
             'subcategory_id' => 'nullable|exists:subcategories,id',
             'name' => 'required|string|max:255',
             'product_code' => 'required|string|max:50',
+            'design_no' => 'nullable|string|max:100',
             'attributes' => 'nullable|array',
             'description' => 'nullable|string',
             'opening_stock_qty' => 'nullable|numeric|min:0',
@@ -104,6 +241,10 @@ class ProductController extends Controller
         ]);
 
         $validated['product_code'] = strtoupper(trim($validated['product_code']));
+        $validated['design_no'] = $request->input('design_no', $request->input('attributes.design_no', $validated['product_code']));
+        if (!isset($validated['current_stock_qty'])) {
+            $validated['current_stock_qty'] = (int)($validated['opening_stock_qty'] ?? 0);
+        }
 
         // Handle Main Image file upload
         if ($request->hasFile('image')) {
@@ -130,7 +271,8 @@ class ProductController extends Controller
                 return response()->json([
                     'status' => 'success',
                     'message' => 'Product created successfully',
-                    'product' => $product
+                    'product' => $product,
+                    'data' => $product,
                 ], 201);
             }
         } catch (\Exception $e) {
@@ -172,6 +314,7 @@ class ProductController extends Controller
             'subcategory_id' => 'nullable|exists:subcategories,id',
             'name' => 'required|string|max:255',
             'product_code' => 'required|string|max:50',
+            'design_no' => 'nullable|string|max:100',
             'attributes' => 'nullable|array',
             'description' => 'nullable|string',
             'opening_stock_qty' => 'nullable|numeric|min:0',
@@ -187,6 +330,8 @@ class ProductController extends Controller
         ]);
 
         $validated['product_code'] = strtoupper(trim($validated['product_code']));
+        $product = Product::find($id);
+        $validated['design_no'] = $request->input('design_no', $request->input('attributes.design_no', $product?->design_no ?: $validated['product_code']));
 
         try {
             if (Schema::hasTable('products')) {
@@ -209,11 +354,22 @@ class ProductController extends Controller
 
                     // Handle Thumbnail file upload
                     if ($request->hasFile('thumbnail')) {
-                        if ($product->thumbnail && Storage::disk('public')->exists($product->thumbnail)) {
-                            Storage::disk('public')->delete($product->thumbnail);
-                        }
                         $validated['thumbnail'] = $request->file('thumbnail')->store('products/thumbnails', 'public');
                     }
+
+                    // Maintain reliable deactivation timestamp in attributes to decouple historical snapshots from updated_at
+                    $attrs = $validated['attributes'] ?? $product->attributes ?? [];
+                    if (is_string($attrs)) {
+                        $attrs = json_decode($attrs, true) ?: [];
+                    }
+                    if (($validated['status'] ?? null) === 'inactive') {
+                        if (empty($attrs['deactivated_at'])) {
+                            $attrs['deactivated_at'] = now()->toDateTimeString();
+                        }
+                    } elseif (($validated['status'] ?? null) === 'active') {
+                        unset($attrs['deactivated_at']);
+                    }
+                    $validated['attributes'] = $attrs;
 
                     $product->update($validated);
                     $product->load(['category', 'subcategory']);

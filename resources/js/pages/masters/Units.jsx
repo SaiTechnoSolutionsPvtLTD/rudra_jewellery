@@ -47,10 +47,14 @@ export default function Units() {
 
   const openAddModal = () => {
     setEditingItem(null);
+    const maxSort = units.reduce((max, item) => {
+      const num = parseInt(item.sort_order, 10);
+      return !isNaN(num) && num > max ? num : max;
+    }, 0);
     setFormData({
       name: '',
       code: '',
-      sort_order: (units.length + 1).toString(),
+      sort_order: (maxSort + 1).toString(),
       description: '',
     });
     setIsModalOpen(true);

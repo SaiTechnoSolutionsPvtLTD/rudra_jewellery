@@ -30,9 +30,11 @@ class GoldTypeController extends Controller
             'description' => 'nullable|string',
         ]);
 
-        if (!isset($validated['sort_order'])) {
+        if (!isset($validated['sort_order']) || $validated['sort_order'] === null || $validated['sort_order'] === '') {
             $maxOrder = GoldType::max('sort_order') ?? 0;
             $validated['sort_order'] = $maxOrder + 1;
+        } else {
+            $validated['sort_order'] = (int)$validated['sort_order'];
         }
 
         $goldType = GoldType::create($validated);
@@ -63,6 +65,12 @@ class GoldTypeController extends Controller
             'sort_order' => 'nullable|integer',
             'description' => 'nullable|string',
         ]);
+
+        if (!isset($validated['sort_order']) || $validated['sort_order'] === null || $validated['sort_order'] === '') {
+            $validated['sort_order'] = $goldType->sort_order ?? ((GoldType::max('sort_order') ?? 0) + 1);
+        } else {
+            $validated['sort_order'] = (int)$validated['sort_order'];
+        }
 
         $goldType->update($validated);
 

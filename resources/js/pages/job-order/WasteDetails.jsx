@@ -5,31 +5,18 @@ import api from '../../services/api';
 const formatWeight = (value) => `${Number(value || 0).toFixed(3)} g`;
 const formatCurrency = (value) => `Rs. ${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
-const tabLinks = [
-  { label: 'Work In Progress', path: '/job-order/in-progress' },
-  { label: 'Dealy/ Job Details', path: '/job-order/delay' },
-  { label: 'Waste Details', path: '/job-order/waste', active: true },
-  { label: 'Quality Check & Final Receive', path: '/job-order/quality-check' },
-  { label: 'History', path: '/job-order/history' },
-];
-
-const fallbackRows = [
-  { material_type: 'Gold (22K)', description: 'Gold jewellery', wastage: 1.05, total_weight: 150, rate: 6850 },
-  { material_type: 'Diamond', description: 'Diamond VS1 / F', wastage: 0.02, total_weight: 25, rate: 9500 },
-  { material_type: 'Stone', description: 'Ruby', wastage: 0.06, total_weight: 20, rate: 2500 },
-  { material_type: 'Other (Beads)', description: 'Pearl', wastage: 0.03, total_weight: 5, rate: 1200 },
-];
-
 export default function WasteDetails() {
   const location = useLocation();
   const navigate = useNavigate();
+
   const [order, setOrder] = useState(null);
   const [ongoingOrders, setOngoingOrders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 5;
+  const [searchTerm, setSearchTerm] = useState('');
 
   const [live22k, setLive22k] = useState(0);
+
+  const queryId = new URLSearchParams(location.search).get('order_id');
 
   useEffect(() => {
     api.get('/metal-rates').then((res) => {
@@ -39,18 +26,23 @@ export default function WasteDetails() {
 
   useEffect(() => {
     let mounted = true;
-    const params = new URLSearchParams(location.search);
-    const requestedId = params.get('order_id');
-
     const loadOrder = async () => {
       try {
-        const listResponse = await api.get('/work-orders', { params: { tab: 'ongoing' } });
-        const list = listResponse.data?.data || [];
+        setLoading(true);
+        const listResponse = await api.get('/work-orders', { params: { tab: 'waste' } });
+        let list = listResponse.data?.data || [];
+        if (list.length === 0) {
+          const fallback = await api.get('/work-orders', { params: { tab: 'ongoing' } });
+          list = fallback.data?.data || [];
+        }
         setOngoingOrders(list);
-        const orderId = requestedId || list[0]?.id;
-        if (!orderId) return;
-        const response = await api.get(`/work-orders/${orderId}`);
-        if (mounted) setOrder(response.data?.data || null);
+
+        if (queryId) {
+          const response = await api.get(`/work-orders/${queryId}`);
+          if (mounted) setOrder(response.data?.data || null);
+        } else {
+          setOrder(null);
+        }
       } catch (error) {
         console.error('Failed to load waste details:', error);
       } finally {
@@ -59,10 +51,17 @@ export default function WasteDetails() {
     };
 
     loadOrder();
-    return () => {
-      mounted = false;
-    };
-  }, [location.search]);
+    return () => { mounted = false; };
+  }, [location.search, queryId]);
+
+  const handleSelectRow = (wo) => {
+    navigate(`/job-order/waste?order_id=${wo.id}`);
+  };
+
+  const handleBackToList = () => {
+    setOrder(null);
+    navigate('/job-order/waste');
+  };
 
   const details = useMemo(() => {
     const allottedWeight = Number(order?.allotted_weight || 20.0);
@@ -72,7 +71,7 @@ export default function WasteDetails() {
     const makingChargeRate = Number(order?.making_charge_per_gram || 150);
     const makingCharges = Number(order?.total_making_charges || order?.total_price || 25000);
     const goldRate = Number(live22k || 7230);
-    const wastageValueGold = scrapWeight * goldRate; // e.g. 0.35 * 7230 = 2530.50
+    const wastageValueGold = scrapWeight * goldRate;
 
     const itemsList = Array.isArray(order?.items) && order.items.length > 0
       ? order.items.map((item) => {
@@ -143,69 +142,115 @@ export default function WasteDetails() {
     };
   }, [order, live22k]);
 
-  const totalItems = details.rows.length;
-  const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
+  const filteredOrders = ongoingOrders.filter(wo => {
+    const term = searchTerm.toLowerCase();
+    return (
+      wo.work_order_number?.toLowerCase().includes(term) ||
+      wo.product_name?.toLowerCase().includes(term) ||
+      wo.karigar_name?.toLowerCase().includes(term)
+    );
+  });
+
+  const totalItems = filteredOrders.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
   const safePage = Math.min(currentPage, totalPages);
-  const startRecord = totalItems === 0 ? 0 : (safePage - 1) * itemsPerPage + 1;
-  const endRecord = Math.min(safePage * itemsPerPage, totalItems);
-  const paginatedRows = details.rows.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
+  const startIndex = (safePage - 1) * itemsPerPage;
+  const paginatedOrders = filteredOrders.slice(startIndex, startIndex + itemsPerPage);
 
-  const jobId = order?.design_code || order?.work_order_number || (order?.id ? `RJ-3836-${sprintf('%06d', order.id)}` : 'RJ-3836-000125');
-  const clientId = order?.client?.client_code || (order?.client_id ? `CL-2024-${sprintf('%05d', order.client_id)}` : 'CL-2024-00458');
-  const clientName = order?.customer_name || order?.client?.full_name || order?.client?.name || 'Rajesh Vishwakarma';
-  const karigarName = order?.karigar?.name || order?.karigar_name || 'Manikandan';
-  const receivedDate = order?.allotted_date
-    ? new Date(order.allotted_date).toLocaleDateString('en-GB')
-    : '30/04/2024';
+  const subNavLinks = [
+    { name: 'Work In Progress', path: '/job-order/in-progress' },
+    { name: 'Delay / Job Details', path: '/job-order/delay' },
+    { name: 'Waste Details', path: '/job-order/waste', active: true },
+    { name: 'Quality Check', path: '/job-order/quality-check' },
+    { name: 'Ready', path: '/job-order/ready' },
+    { name: 'Certification', path: '/job-order/certification' },
+    { name: 'Hallmarking', path: '/job-order/hallmarking' },
+    { name: 'History', path: '/job-order/history' }
+  ];
 
-  const otherMaterialWasteVal = details.rows.slice(1).reduce((sum, r) => sum + (r.wastage_val_num || 0), 0);
-  const totalWasteValue = details.wastageValueGold + otherMaterialWasteVal;
-  const switchOrder = (event) => navigate(`/job-order/waste?order_id=${event.target.value}`);
+  const jobId = order?.design_code || order?.work_order_number || (order?.id ? `WO-2026-000${order.id}` : 'WO-2026-0004');
+  const clientId = order?.client?.client_code || (order?.client_id ? `CL-${order.client_id}` : 'CL-1001');
+  const clientName = order?.customer_name || order?.client?.full_name || order?.client?.name || 'Malabar Gold & Diamonds';
+  const karigarName = order?.karigar?.name || order?.karigar_name || 'Amit Varma (Artisan)';
 
-  function sprintf(format, number) {
-    const str = String(number);
-    const padLen = parseInt(format.replace(/%0(\d+)d/, '$1')) || 0;
-    return str.padStart(padLen, '0');
-  }
-
-  if (loading) {
-    return <div className="min-h-[450px] flex items-center justify-center text-sm font-semibold text-stone-500">Loading waste details...</div>;
+  if (loading && !order && ongoingOrders.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[450px] text-stone-400 gap-3 font-['Inter',sans-serif]">
+        <div className="w-10 h-10 border-4 border-[#b01622] border-t-transparent rounded-full animate-spin"></div>
+        <span className="text-sm font-semibold text-stone-600">Loading Waste Details...</span>
+      </div>
+    );
   }
 
   return (
-    <div className="w-full pb-16 space-y-5 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif] text-gray-800">
-      {/* 1. Header Bar & Quick Switcher */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+    <div className="w-full pb-16 space-y-5 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif] text-[#1c1917]">
+      
+      {/* 1. BREADCRUMB & TOP HEADER */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2 text-xs text-stone-400 font-semibold mb-2">
-            <span>Manufacturing</span><span>&gt;</span><span>Job Orders</span><span>&gt;</span><span>Reception</span><span>&gt;</span><span className="text-stone-600">Waste Details</span>
+          {/* Breadcrumb */}
+          <div className="flex items-center gap-1.5 text-[12px] text-stone-500 font-medium mb-1">
+            <span>Manufacturing</span>
+            <i className="fa-solid fa-chevron-right text-[8px] text-stone-400"></i>
+            <span>Job Orders</span>
+            <i className="fa-solid fa-chevron-right text-[8px] text-stone-400"></i>
+            <span>Reception</span>
+            <i className="fa-solid fa-chevron-right text-[8px] text-stone-400"></i>
+            <span className="text-stone-800 font-semibold">Waste Details</span>
           </div>
-          <div className="flex items-center gap-3 flex-wrap">
+
+          {/* Main Title & Search Bar */}
+          <div className="flex items-center gap-4 flex-wrap">
             <h1 className="text-xl sm:text-2xl font-bold text-[#1c1917] tracking-tight">
-              Waste Details - <span className="font-extrabold">{jobId}</span>
+              Waste Details {order ? `- ${jobId}` : ''}
             </h1>
 
-            {/* Quick Switcher dropdown for active orders */}
-            {ongoingOrders.length > 0 && (
-              <select
-                value={order?.id || ''}
-                onChange={switchOrder}
-                className="text-xs bg-white border border-stone-200 rounded-md px-3 py-1.5 text-stone-800 font-semibold shadow-2xs cursor-pointer focus:outline-hidden focus:border-[#b01622]"
-              >
-                {ongoingOrders.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    Switch Job: {o.design_code || o.work_order_number || `ORD-${o.id}`} ({o.product_name || 'Jewelry'})
-                  </option>
-                ))}
-              </select>
+            {!order && (
+              <div className="relative w-full sm:w-80">
+                <i className="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs"></i>
+                <input
+                  type="text"
+                  placeholder="Search Work Order No, Product, Artisan..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-7 py-1.5 bg-white border border-stone-200 rounded-lg text-xs font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622] shadow-2xs"
+                />
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 text-xs"
+                  >
+                    <i className="fa-solid fa-xmark"></i>
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
 
-        {/* Back Button */}
-        <div>
+        {/* Back Buttons */}
+        <div className="flex items-center gap-2">
+          {order && (
+            <button
+              type="button"
+              onClick={handleBackToList}
+              className="px-3.5 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-bold rounded-md shadow-2xs transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <i className="fa-solid fa-list text-[11px] text-stone-600"></i>
+              <span>All Waste Details List</span>
+            </button>
+          )}
+
           <Link
-            to={`/job-order/receive${order?.id ? `?order_id=${order.id}` : ''}`}
+            to="/job-order/receive"
             className="px-3.5 py-1.5 bg-white border border-stone-300 hover:bg-stone-50 text-stone-700 text-xs font-semibold rounded-md shadow-2xs transition-all flex items-center gap-2 cursor-pointer"
           >
             <i className="fa-solid fa-arrow-left text-[11px] text-stone-500"></i>
@@ -214,249 +259,310 @@ export default function WasteDetails() {
         </div>
       </div>
 
-      {/* 2. SUB NAVIGATION TABS */}
-      <div className="border-b border-[#e7e5e4]">
-        <div className="flex items-center gap-8 overflow-x-auto no-scrollbar">
-          {tabLinks.map((tab) => (
-            <Link
-              key={tab.path}
-              to={`${tab.path}${order?.id ? `?order_id=${order.id}` : ''}`}
-              className={`pb-2.5 text-sm font-semibold whitespace-nowrap border-b-2 transition-colors cursor-pointer ${
-                tab.active
-                  ? 'text-[#881337] border-[#b01622] font-bold'
-                  : 'text-stone-600 hover:text-stone-900 border-transparent'
-              }`}
-            >
-              {tab.label}
-            </Link>
-          ))}
+      {/* 2. SUB NAVIGATION TABS MATCHING IMAGE 1 EXACTLY */}
+      <div className="border-b border-[#ebd0cb]">
+        <div className="flex items-center gap-10 overflow-x-auto no-scrollbar">
+          <Link
+            to="/job-order/in-progress"
+            className="pb-3 text-[14px] font-bold text-[#6e2d27] hover:text-[#b01622] border-b-2 border-transparent transition-colors cursor-pointer whitespace-nowrap"
+          >
+            Work In Progress
+          </Link>
+
+          <Link
+            to="/job-order/delay"
+            className="pb-3 text-[14px] font-bold text-[#6e2d27] hover:text-[#b01622] border-b-2 border-transparent transition-colors cursor-pointer whitespace-nowrap"
+          >
+            Delay / Job Details
+          </Link>
+
+          <Link
+            to="/job-order/waste"
+            className="pb-3 text-[14px] font-bold text-[#5c2725] border-b-2 border-[#b01622] whitespace-nowrap cursor-pointer"
+          >
+            Waste Details
+          </Link>
+
+          <Link
+            to="/job-order/quality-check"
+            className="pb-3 text-[14px] font-bold text-[#6e2d27] hover:text-[#b01622] border-b-2 border-transparent transition-colors cursor-pointer whitespace-nowrap"
+          >
+            Quality Check
+          </Link>
+
+          <Link
+            to="/job-order/ready"
+            className="pb-3 text-[14px] font-bold text-[#6e2d27] hover:text-[#b01622] border-b-2 border-transparent transition-colors cursor-pointer whitespace-nowrap"
+          >
+            Ready
+          </Link>
+
+          <Link
+            to="/job-order/certification"
+            className="pb-3 text-[14px] font-bold text-[#6e2d27] hover:text-[#b01622] border-b-2 border-transparent transition-colors cursor-pointer whitespace-nowrap"
+          >
+            Certification
+          </Link>
+
+          <Link
+            to="/job-order/hallmarking"
+            className="pb-3 text-[14px] font-bold text-[#6e2d27] hover:text-[#b01622] border-b-2 border-transparent transition-colors cursor-pointer whitespace-nowrap"
+          >
+            Hallmarking
+          </Link>
+
+          <Link
+            to="/job-order/history"
+            className="pb-3 text-[14px] font-bold text-[#6e2d27] hover:text-[#b01622] border-b-2 border-transparent transition-colors cursor-pointer whitespace-nowrap"
+          >
+            History
+          </Link>
         </div>
       </div>
 
-      {/* 3. TOP INFO CARD (5 Columns) */}
-      <div className="bg-[#F4F6F7] rounded-xl border border-[#eed5d1] p-4 sm:p-5 shadow-2xs grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 sm:gap-6">
-        {[
-          ['Job ID', jobId],
-          ['Client ID', clientId],
-          ['Client Name', clientName],
-          ['Assigned Karigar', karigarName],
-          ['Recieved Date', receivedDate],
-        ].map(([label, value]) => (
-          <div key={label} className="min-w-0">
-            <span className="text-[11px] font-semibold text-stone-500 block mb-1">
-              {label}
-            </span>
-            <span className="text-sm font-bold text-[#1c1917] block truncate" title={value}>
-              {value}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      {/* 4. WASTE SUMMARY & WASTE VALUE CALCULATION CARDS */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        {/* Left Card: Waste Summary */}
-        <section className="lg:col-span-7 bg-[#F4F6F7] rounded-xl border border-[#eed5d1] p-4 sm:p-5 shadow-2xs flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-bold text-[#1c1917]">Waste Summary</h2>
-              <div className="bg-white border border-[#eed5d1] rounded-lg px-3.5 py-1.5 text-xs font-semibold text-stone-700 flex items-center gap-2 shadow-2xs">
-                <span>Wastage Value</span>
-                <span className="font-bold text-[#b01622]">
-                  ₹ {details.wastageValueGold.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4">
-              <div>
-                <label className="text-xs font-semibold text-stone-600 mb-1.5 block">
-                  Total Allocated Weight (gm)
-                </label>
-                <input
-                  type="text"
-                  readOnly
-                  value={details.allottedWeight.toFixed(3)}
-                  className="w-full bg-[#f5f5f4] border border-[#eed5d1] rounded-md px-3 py-2 text-xs font-mono font-semibold text-stone-900 focus:outline-hidden focus:border-[#b01622]"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-stone-600 mb-1.5 block">
-                  Received Weight (gm)
-                </label>
-                <input
-                  type="text"
-                  readOnly
-                  value={details.receivedWeight.toFixed(3)}
-                  className="w-full bg-[#f5f5f4] border border-[#eed5d1] rounded-md px-3 py-2 text-xs font-mono font-semibold text-stone-900 focus:outline-hidden focus:border-[#b01622]"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-stone-600 mb-1.5 block">
-                  Total Wastage (gm)
-                </label>
-                <input
-                  type="text"
-                  readOnly
-                  value={details.scrapWeight.toFixed(3)}
-                  className="w-full bg-[#f5f5f4] border border-[#eed5d1] rounded-md px-3 py-2 text-xs font-mono font-semibold text-stone-900 focus:outline-hidden focus:border-[#b01622]"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-stone-600 mb-1.5 block">
-                  Total Wastage (%)
-                </label>
-                <input
-                  type="text"
-                  readOnly
-                  value={`${details.allowedPercent.toFixed(2)}%`}
-                  className="w-full bg-[#f5f5f4] border border-[#eed5d1] rounded-md px-3 py-2 text-xs font-mono font-semibold text-stone-900 focus:outline-hidden focus:border-[#b01622]"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-stone-600 mb-1.5 block">
-                  Making Charges (gm&amp;pcs)
-                </label>
-                <input
-                  type="text"
-                  readOnly
-                  value={`₹${details.makingChargeRate}/gm`}
-                  className="w-full bg-[#f5f5f4] border border-[#eed5d1] rounded-md px-3 py-2 text-xs font-mono font-semibold text-stone-900 focus:outline-hidden focus:border-[#b01622]"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-stone-600 mb-1.5 block">
-                  Total Making Charges
-                </label>
-                <input
-                  type="text"
-                  readOnly
-                  value={`₹${details.makingCharges.toFixed(2)}`}
-                  className="w-full bg-[#f5f5f4] border border-[#eed5d1] rounded-md px-3 py-2 text-xs font-mono font-semibold text-stone-900 focus:outline-hidden focus:border-[#b01622]"
-                />
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Right Card: Waste Value Calculation */}
-        <section className="lg:col-span-5 bg-[#F4F6F7] rounded-xl border border-[#eed5d1] p-4 sm:p-5 shadow-2xs flex flex-col justify-between">
-          <div>
-            <h2 className="text-base font-bold text-[#1c1917] mb-4">Waste Value Calculation</h2>
-            <div className="space-y-3.5 text-xs">
-              <div className="flex items-center justify-between text-stone-600 py-1 border-b border-dashed border-stone-200">
-                <span>Gold Rate (22K per gm)</span>
-                <span className="font-mono font-bold text-[#1c1917]">₹ {details.goldRate.toLocaleString('en-IN')}</span>
-              </div>
-              <div className="flex items-center justify-between text-stone-600 py-1 border-b border-dashed border-stone-200">
-                <span>Wastage Value (Gold)</span>
-                <span className="font-mono font-bold text-[#1c1917]">₹ {details.wastageValueGold.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-              </div>
-              <div className="flex items-center justify-between text-stone-600 py-1 border-b border-dashed border-stone-200">
-                <span>Other Material Waste Value</span>
-                <span className="font-mono font-bold text-[#1c1917]">₹ {otherMaterialWasteVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-              </div>
-              <div className="flex items-center justify-between text-stone-600 py-1 border-b border-dashed border-stone-200">
-                <span>Making Charges (gm&amp;pcs)</span>
-                <span className="font-mono font-bold text-[#1c1917]">₹ {details.makingChargeRate}/gm</span>
-              </div>
-              <div className="flex items-center justify-between text-stone-600 py-1">
-                <span>Total Making Charges</span>
-                <span className="font-mono font-bold text-[#1c1917]">₹ {details.makingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-              </div>
+      {/* 3. CONDITIONAL RENDER: PRODUCT ROWS TABLE OR SPECIFIC PRODUCT WASTE DETAIL */}
+      {!order ? (
+        <div className="bg-white rounded-2xl border border-stone-200/80 p-5 shadow-2xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-3 border-b border-stone-100 pb-3">
+            <div>
+              <h2 className="text-base font-bold text-[#111827] tracking-tight">
+                Material Scrap &amp; Wastage Job Orders ({filteredOrders.length})
+              </h2>
+              <p className="text-xs text-stone-400 mt-0.5">
+                Click any product row to view detailed waste breakdown &amp; scrap metrics.
+              </p>
             </div>
           </div>
 
-          <div className="bg-[#fff1f2] border border-[#fecdd3] rounded-xl p-4 mt-6 flex items-center justify-between shadow-2xs">
-            <span className="text-sm font-bold text-[#881337]">Total Waste Value</span>
-            <span className="text-xl font-extrabold text-[#b01622]">₹ {totalWasteValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-          </div>
-        </section>
-      </div>
+          {filteredOrders.length === 0 ? (
+            <div className="py-16 text-center text-stone-400">
+              <i className="fa-solid fa-recycle text-4xl text-stone-300 mb-2 block"></i>
+              <p className="font-semibold text-base text-stone-700">No Job Orders Found</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-stone-50 border-b border-stone-100 text-[11px] font-bold text-stone-500 uppercase tracking-wider">
+                    <th className="py-3 px-4">WORK ORDER NO</th>
+                    <th className="py-3 px-4">Product</th>
+                    <th className="py-3 px-4">Aachari / Artisan</th>
+                    <th className="py-3 px-4 text-right">Allotted Wt</th>
+                    <th className="py-3 px-4 text-right">Finished Wt</th>
+                    <th className="py-3 px-4 text-right">Scrap Loss</th>
+                    <th className="py-3 px-4 text-center">Wastage Status</th>
+                    <th className="py-3 px-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100">
+                  {paginatedOrders.map((wo) => {
+                    const scrapWt = Math.max(0, (wo.allotted_weight || 0) - (wo.completed_weight || 0));
+                    const allowedScrap = ((wo.allotted_weight || 0) * (wo.wastage_allowed_percent || 1.75)) / 100;
+                    const isWithin = scrapWt <= (allowedScrap + 0.05);
 
-      {/* 5. WASTE BREAKUP DETAILS TABLE */}
-      <section className="bg-[#F4F6F7] rounded-xl border border-[#eed5d1] overflow-hidden shadow-2xs">
-        <div className="px-5 py-4 border-b border-[#eed5d1]">
-          <h2 className="text-base font-bold text-[#1c1917]">Waste Breakup Details</h2>
+                    return (
+                      <tr
+                        key={wo.id}
+                        onClick={() => handleSelectRow(wo)}
+                        className="hover:bg-stone-50/80 transition-all cursor-pointer group"
+                      >
+                        <td className="py-3.5 px-4 font-mono font-bold text-[#b01622]">
+                          {wo.work_order_number}
+                        </td>
+                        <td className="py-3.5 px-4 font-bold text-stone-900">
+                          {wo.product_name}
+                          <span className="block font-mono text-[10px] text-stone-400 font-normal">
+                            {wo.karat || '22K'} Gold
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-stone-700 font-medium">
+                          {wo.karigar?.name || wo.karigar_name || 'In-House'}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-medium text-stone-700">
+                          {Number(wo.allotted_weight || 0).toFixed(3)}g
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-700">
+                          {Number(wo.completed_weight || 0).toFixed(3)}g
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-[#b01622]">
+                          {scrapWt.toFixed(3)}g
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
+                            isWithin
+                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                              : 'bg-rose-50 text-rose-800 border border-rose-200'
+                          }`}>
+                            {isWithin ? 'Normal Limit' : 'Excess Scrap'}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSelectRow(wo);
+                            }}
+                            className="px-3.5 py-1 bg-[#b01622] hover:bg-[#8f1019] text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs whitespace-nowrap inline-flex items-center gap-1"
+                          >
+                            <span>Waste Details</span>
+                            <i className="fa-solid fa-chevron-right text-[10px]"></i>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Pagination Controls */}
+          {filteredOrders.length > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-stone-100 mt-4">
+              <div className="text-xs text-stone-500 font-medium">
+                Showing <span className="font-bold text-stone-800">{startIndex + 1}</span> to{' '}
+                <span className="font-bold text-stone-800">{Math.min(startIndex + itemsPerPage, totalItems)}</span> of{' '}
+                <span className="font-bold text-stone-800">{totalItems}</span> entries
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={safePage === 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  className="px-2.5 py-1 bg-white border border-stone-200 rounded-md text-xs font-semibold text-stone-700 hover:bg-stone-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-2xs flex items-center gap-1"
+                >
+                  <i className="fa-solid fa-chevron-left text-[10px]"></i>
+                  <span>Previous</span>
+                </button>
+
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter((p) => p === 1 || p === totalPages || Math.abs(p - safePage) <= 1)
+                    .reduce((acc, p, idx, arr) => {
+                      if (idx > 0 && p - arr[idx - 1] > 1) {
+                        acc.push(<span key={`dots-${p}`} className="px-1 text-stone-400 text-xs font-bold">...</span>);
+                      }
+                      acc.push(
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setCurrentPage(p)}
+                          className={`w-7 h-7 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                            p === safePage
+                              ? 'bg-[#b01622] text-white shadow-2xs'
+                              : 'bg-white border border-stone-200 text-stone-700 hover:bg-stone-50'
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      );
+                      return acc;
+                    }, [])}
+                </div>
+
+                <button
+                  type="button"
+                  disabled={safePage === totalPages}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  className="px-2.5 py-1 bg-white border border-stone-200 rounded-md text-xs font-semibold text-stone-700 hover:bg-stone-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-2xs flex items-center gap-1"
+                >
+                  <span>Next</span>
+                  <i className="fa-solid fa-chevron-right text-[10px]"></i>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1100px] text-xs border-collapse">
-            <thead>
-              <tr className="bg-stone-100 text-stone-600 uppercase tracking-wider text-[10px] font-bold border-b border-[#eed5d1]">
-                <th className="text-left px-5 py-3.5">Material Type</th>
-                <th className="text-left px-4 py-3.5">Item / Description</th>
-                <th className="text-center px-4 py-3.5">Wastage (gm/ct/pcs)</th>
-                <th className="text-center px-4 py-3.5">Wastage (%)</th>
-                <th className="text-right px-4 py-3.5">Rate</th>
-                <th className="text-right px-4 py-3.5 text-[#b01622]">Wastage Value</th>
-                <th className="text-right px-4 py-3.5">Making Charges (gm&amp;pcs)</th>
-                <th className="text-right px-5 py-3.5 text-[#b01622]">Total Making Charges</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#eed5d1]/60 bg-white">
-              {paginatedRows.map((row, index) => (
-                <tr key={index} className="hover:bg-stone-50/80 transition-colors">
-                  <td className="px-5 py-4 font-bold text-gray-900">{row.material_type}</td>
-                  <td className="px-4 py-4 text-stone-600 font-medium">{row.description}</td>
-                  <td className="px-4 py-4 text-center font-bold text-stone-800">{row.wastage_str}</td>
-                  <td className="px-4 py-4 text-center font-bold text-stone-800">{row.wastage_pct}</td>
-                  <td className="px-4 py-4 text-right font-bold text-stone-800">{row.rate_str}</td>
-                  <td className="px-4 py-4 text-right font-mono font-bold text-[#b01622]">{row.wastage_val}</td>
-                  <td className="px-4 py-4 text-right font-bold text-stone-800">{row.making_str}</td>
-                  <td className="px-5 py-4 text-right font-mono font-bold text-[#b01622]">{row.total_making_val}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination Controls */}
-        <div className="px-5 py-3.5 border-t border-[#eed5d1] bg-[#F4F6F7] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-stone-500">
-          <div>
-            Showing {startRecord} to {endRecord} of {totalItems} entries
+      ) : (
+        /* SPECIFIC PRODUCT WASTE BREAKDOWN VIEW */
+        <div className="space-y-6">
+          
+          {/* Top Info Bar */}
+          <div className="bg-white rounded-2xl border border-stone-200/80 p-5 shadow-2xs grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+            <div>
+              <span className="text-[11px] font-semibold text-stone-400 block mb-1">Job ID</span>
+              <span className="text-sm font-bold text-stone-900 block">{jobId}</span>
+            </div>
+            <div>
+              <span className="text-[11px] font-semibold text-stone-400 block mb-1">Client ID</span>
+              <span className="text-sm font-bold text-stone-900 block">{clientId}</span>
+            </div>
+            <div>
+              <span className="text-[11px] font-semibold text-stone-400 block mb-1">Client Name</span>
+              <span className="text-sm font-bold text-stone-900 block truncate" title={clientName}>{clientName}</span>
+            </div>
+            <div>
+              <span className="text-[11px] font-semibold text-stone-400 block mb-1">Assigned Karigar</span>
+              <span className="text-sm font-bold text-stone-900 block truncate" title={karigarName}>{karigarName}</span>
+            </div>
+            <div>
+              <span className="text-[11px] font-semibold text-stone-400 block mb-1">Status</span>
+              <span className="text-sm font-bold text-[#b01622] block uppercase">{order?.status || 'In Progress'}</span>
+            </div>
           </div>
 
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-              disabled={safePage <= 1}
-              className="w-7 h-7 rounded-md border border-stone-200 hover:bg-white flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-            >
-              &lt;
-            </button>
-
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
-              <button
-                key={pageNum}
-                type="button"
-                onClick={() => setCurrentPage(pageNum)}
-                className={`w-7 h-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors cursor-pointer ${
-                  safePage === pageNum
-                    ? 'bg-[#b01622] text-white'
-                    : 'border border-stone-200 hover:bg-white text-stone-700'
-                }`}
-              >
-                {pageNum}
-              </button>
-            ))}
-
-            <button
-              type="button"
-              onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-              disabled={safePage >= totalPages}
-              className="w-7 h-7 rounded-md border border-stone-200 hover:bg-white flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-            >
-              &gt;
-            </button>
+          {/* Metric Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white rounded-2xl border border-stone-200/80 p-4 shadow-2xs">
+              <span className="text-[11px] font-semibold text-stone-400 block">Allotted Weight</span>
+              <span className="text-lg font-bold text-stone-900 font-mono block mt-1">{formatWeight(details.allottedWeight)}</span>
+            </div>
+            <div className="bg-white rounded-2xl border border-stone-200/80 p-4 shadow-2xs">
+              <span className="text-[11px] font-semibold text-stone-400 block">Completed Weight</span>
+              <span className="text-lg font-bold text-emerald-700 font-mono block mt-1">{formatWeight(details.receivedWeight)}</span>
+            </div>
+            <div className="bg-white rounded-2xl border border-stone-200/80 p-4 shadow-2xs">
+              <span className="text-[11px] font-semibold text-stone-400 block">Scrap / Loss Weight</span>
+              <span className="text-lg font-bold text-[#b01622] font-mono block mt-1">{formatWeight(details.scrapWeight)}</span>
+            </div>
+            <div className="bg-white rounded-2xl border border-stone-200/80 p-4 shadow-2xs">
+              <span className="text-[11px] font-semibold text-stone-400 block">Scrap Market Value</span>
+              <span className="text-lg font-bold text-[#b01622] font-mono block mt-1">{formatCurrency(details.wastageValueGold)}</span>
+            </div>
           </div>
+
+          {/* Detailed Items Scrap Table */}
+          <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden shadow-2xs p-5 space-y-3">
+            <div>
+              <h3 className="font-bold text-stone-900 text-sm">Material Scrap &amp; Making Charges Breakdown</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-stone-50 border-b border-stone-100 text-[11px] font-bold text-stone-500 uppercase tracking-wider">
+                    <th className="py-3 px-4">Material</th>
+                    <th className="py-3 px-4">Description</th>
+                    <th className="py-3 px-4 text-right">Wastage</th>
+                    <th className="py-3 px-4 text-right">Wastage %</th>
+                    <th className="py-3 px-4 text-right">Metal Rate</th>
+                    <th className="py-3 px-4 text-right">Scrap Value</th>
+                    <th className="py-3 px-4 text-right">Making Rate</th>
+                    <th className="py-3 px-4 text-right">Total Making</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100">
+                  {details.rows.map((row, idx) => (
+                    <tr key={idx} className="hover:bg-stone-50/80 transition-all">
+                      <td className="py-3 px-4 font-bold text-stone-900">{row.material_type}</td>
+                      <td className="py-3 px-4 text-stone-700">{row.description}</td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-[#b01622]">{row.wastage_str}</td>
+                      <td className="py-3 px-4 text-right font-mono text-stone-700">{row.wastage_pct}</td>
+                      <td className="py-3 px-4 text-right font-mono text-stone-700">{row.rate_str}</td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-[#b01622]">{row.wastage_val}</td>
+                      <td className="py-3 px-4 text-right font-mono text-stone-700">{row.making_str}</td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-emerald-700">{row.total_making_val}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
         </div>
-      </section>
+      )}
+
     </div>
   );
 }

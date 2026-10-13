@@ -15,11 +15,6 @@ class ItemController extends Controller
     public function index(Request $request)
     {
         try {
-            // Auto-seed default items for subcategories if table is empty
-            if (Item::count() === 0) {
-                $this->seedDefaultItems();
-            }
-
             $query = Item::with(['category', 'subcategory']);
 
             if ($request->has('category_id') && !empty($request->category_id) && $request->category_id !== 'all') {
@@ -169,57 +164,6 @@ class ItemController extends Controller
             ]);
         } catch (\Exception $e) {
             return response()->json(['message' => 'Failed to delete item: ' . $e->getMessage()], 500);
-        }
-    }
-
-    /**
-     * Helper to seed standard items for existing subcategories.
-     */
-    private function seedDefaultItems()
-    {
-        $subcategories = Subcategory::all();
-        if ($subcategories->isEmpty()) return;
-
-        $templates = [
-            'ring' => ['Solitaire Diamond Ring', 'Traditional Band Ring', 'Cocktail Ring', 'Signet Ring', 'Stackable Ring'],
-            'bangle' => ['Solid Gold Bangle', 'Kada Bracelet Bangle', 'Pipe Bangle', 'Broad Designer Bangle', 'Thin Stack Bangle'],
-            'necklace' => ['Temple Antique Choker', 'Short Pendant Necklace', 'Long Layered Haram', 'Bridal Heavy Necklace', 'Simple Chain Choker'],
-            'earring' => ['Traditional Jhumka', 'Solitaire Stud Earring', 'Chandbali Earring', 'Dangle Drop Earring', 'Hoop Earring'],
-            'chain' => ['Box Link Chain', 'Rope Chain', 'Figaro Chain', 'Curb Link Chain', 'Singapore Chain'],
-            'pendant' => ['Ganesha Temple Pendant', 'Solitaire Diamond Pendant', 'Religious Emblem Pendant', 'Floral Gemstone Pendant'],
-            'bracelet' => ['Charm Bracelet', 'Tennis Diamond Bracelet', 'Flexible Gold Cuff', 'Kada Bangle Bracelet'],
-        ];
-
-        foreach ($subcategories as $sub) {
-            $subNameLower = strtolower($sub->name);
-            $matchedNameList = [];
-
-            foreach ($templates as $key => $itemsList) {
-                if (str_contains($subNameLower, $key)) {
-                    $matchedNameList = $itemsList;
-                    break;
-                }
-            }
-
-            if (empty($matchedNameList)) {
-                $matchedNameList = [
-                    "Standard {$sub->name} Item 1",
-                    "Designer {$sub->name} Item 2",
-                    "Heavy {$sub->name} Item 3",
-                ];
-            }
-
-            foreach ($matchedNameList as $idx => $itemName) {
-                $prefix = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $sub->name), 0, 3));
-                Item::create([
-                    'category_id' => $sub->category_id,
-                    'subcategory_id' => $sub->id,
-                    'name' => $itemName,
-                    'code' => 'ITM-' . $prefix . '-' . sprintf('%02d', $idx + 1),
-                    'description' => "Standard master item for {$sub->name}",
-                    'status' => 'active',
-                ]);
-            }
         }
     }
 }

@@ -136,16 +136,6 @@ class RoleAndUserSeeder extends Seeder
                     'dashboard.view', 'inventory.view', 'workorders.view', 'workorders.create', 'workorders.receive', 'clients.view'
                 ]
             ],
-            [
-                'role_key' => 'karigar',
-                'display_name' => 'Karigar',
-                'department' => 'Manufacturing',
-                'description' => 'Artisan workbench for updating assigned active work and rework.',
-                'permissions' => [
-                    'dashboard.view', 'workorders.view', 'workorders.start', 'workorders.update',
-                    'workorders.complete', 'workorders.submit', 'workorders.rework', 'workorders.resubmit'
-                ]
-            ],
         ];
 
         foreach ($roles as $r) {
@@ -202,22 +192,11 @@ class RoleAndUserSeeder extends Seeder
             ]
         );
 
-        // Karigar Account & Karigar Record
-        $masterKarigarUser = User::updateOrCreate(
-            ['email' => 'masterkarigar.test@rudrajewellers.com'],
-            [
-                'name' => 'Rajesh Varma (Master)',
-                'mobile_number' => '+91 98765 43214',
-                'role' => 'Karigar',
-                'status' => 'active',
-                'password' => Hash::make('admin123'),
-            ]
-        );
-
+        // Karigar Artisan Records (without user logins)
         $masterKarigarRecord = Karigar::updateOrCreate(
             ['karigar_code' => 'K-1001'],
             [
-                'user_id' => $masterKarigarUser->id,
+                'user_id' => null,
                 'name' => 'Rajesh Varma (Master)',
                 'primary_phone' => '+91 98765 43214',
                 'email' => 'masterkarigar.test@rudrajewellers.com',
@@ -230,22 +209,10 @@ class RoleAndUserSeeder extends Seeder
             ]
         );
 
-        // Karigar A Account & Record
-        $karigarAUser = User::updateOrCreate(
-            ['email' => 'karigara.test@rudrajewellers.com'],
-            [
-                'name' => 'Suresh Goldsmith (Karigar A)',
-                'mobile_number' => '+91 98765 43215',
-                'role' => 'Karigar',
-                'status' => 'active',
-                'password' => Hash::make('admin123'),
-            ]
-        );
-
         $karigarARecord = Karigar::updateOrCreate(
             ['karigar_code' => 'K-1002'],
             [
-                'user_id' => $karigarAUser->id,
+                'user_id' => null,
                 'name' => 'Suresh Goldsmith (Karigar A)',
                 'primary_phone' => '+91 98765 43215',
                 'email' => 'karigara.test@rudrajewellers.com',
@@ -258,22 +225,10 @@ class RoleAndUserSeeder extends Seeder
             ]
         );
 
-        // Karigar B Account & Record
-        $karigarBUser = User::updateOrCreate(
-            ['email' => 'karigarb.test@rudrajewellers.com'],
-            [
-                'name' => 'Ramesh Artisan (Karigar B)',
-                'mobile_number' => '+91 98765 43216',
-                'role' => 'Karigar',
-                'status' => 'active',
-                'password' => Hash::make('admin123'),
-            ]
-        );
-
         $karigarBRecord = Karigar::updateOrCreate(
             ['karigar_code' => 'K-1003'],
             [
-                'user_id' => $karigarBUser->id,
+                'user_id' => null,
                 'name' => 'Ramesh Artisan (Karigar B)',
                 'primary_phone' => '+91 98765 43216',
                 'email' => 'karigarb.test@rudrajewellers.com',

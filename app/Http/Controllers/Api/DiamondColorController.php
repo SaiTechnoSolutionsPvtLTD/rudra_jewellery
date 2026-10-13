@@ -30,9 +30,11 @@ class DiamondColorController extends Controller
             'status' => 'nullable|string|in:active,inactive',
         ]);
 
-        if (!isset($validated['sort_order'])) {
+        if (!isset($validated['sort_order']) || $validated['sort_order'] === null || $validated['sort_order'] === '') {
             $maxOrder = DiamondColor::max('sort_order') ?? 0;
             $validated['sort_order'] = $maxOrder + 1;
+        } else {
+            $validated['sort_order'] = (int)$validated['sort_order'];
         }
 
         if (!isset($validated['status'])) {
@@ -67,6 +69,12 @@ class DiamondColorController extends Controller
             'description' => 'nullable|string',
             'status' => 'nullable|string|in:active,inactive',
         ]);
+
+        if (!isset($validated['sort_order']) || $validated['sort_order'] === null || $validated['sort_order'] === '') {
+            $validated['sort_order'] = $diamondColor->sort_order ?? ((DiamondColor::max('sort_order') ?? 0) + 1);
+        } else {
+            $validated['sort_order'] = (int)$validated['sort_order'];
+        }
 
         $diamondColor->update($validated);
 

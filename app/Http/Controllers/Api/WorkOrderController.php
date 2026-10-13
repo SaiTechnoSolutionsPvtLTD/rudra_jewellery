@@ -11,7 +11,10 @@ use App\Models\Client;
 use App\Models\Category;
 use App\Models\Subcategory;
 use App\Models\WorkOrderNotification;
+use App\Models\WorkOrderItem;
+use App\Models\WorkOrderReceivedPiece;
 use App\Models\User;
+use App\Services\NotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
@@ -69,40 +72,82 @@ class WorkOrderController extends Controller
     }
 
     /**
+     * Generate next sequential Job Order number (e.g. JO-2026-0001)
+     */
+    public function generateJobOrderNumber()
+    {
+        $year = date('Y');
+        $latest = \App\Models\JobOrder::withTrashed()
+            ->where('job_order_number', 'like', "JO-{$year}-%")
+            ->orderBy('id', 'desc')
+            ->first();
+
+        if ($latest && preg_match("/JO-{$year}-(\d+)/", $latest->job_order_number, $matches)) {
+            $nextNum = str_pad((int)$matches[1] + 1, 4, '0', STR_PAD_LEFT);
+        } else {
+            $count = \App\Models\JobOrder::withTrashed()->count();
+            $nextNum = str_pad($count + 1, 4, '0', STR_PAD_LEFT);
+        }
+
+        return response()->json([
+            'job_order_number' => "JO-{$year}-{$nextNum}"
+        ]);
+    }
+
+    /**
      * List work orders with tab/filter support
      */
     public function index(Request $request)
     {
-        $query = WorkOrder::with(['karigar', 'product', 'category', 'subcategory', 'client', 'creator']);
+        $query = WorkOrder::with([
+            'jobOrder', 'karigar', 'product', 'category', 'subcategory', 
+            'client', 'creator', 'items', 'receivedPieces', 'delayUpdater',
+            'certificationUpdater', 'hallmarkingUpdater'
+        ]);
 
         // Search filter
         if ($request->filled('search')) {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->where('work_order_number', 'like', "%{$search}%")
+                  ->orWhere('job_number', 'like', "%{$search}%")
                   ->orWhere('product_name', 'like', "%{$search}%")
                   ->orWhere('karigar_name', 'like', "%{$search}%")
-                  ->orWhere('material_type', 'like', "%{$search}%");
+                  ->orWhere('material_type', 'like', "%{$search}%")
+                  ->orWhereHas('items', function($iq) use ($search) {
+                      $iq->where('design_no', 'like', "%{$search}%")
+                         ->orWhere('product_name', 'like', "%{$search}%");
+                  })
+                  ->orWhereHas('jobOrder', function($jq) use ($search) {
+                      $jq->where('job_order_number', 'like', "%{$search}%");
+                  });
             });
         }
 
-        // Server-Side Karigar Authorization: if logged in as Karigar, strictly restrict to their assigned work orders
-        $currentUser = Auth::user();
-        if ($currentUser && $currentUser->isKarigar()) {
-            $userKarigarId = $currentUser->karigar?->id ?? Karigar::where('email', $currentUser->email)->orWhere('name', $currentUser->name)->value('id');
-            if ($userKarigarId) {
-                $query->where('karigar_id', $userKarigarId);
-            }
-        } else {
-            // Artisan / Karigar filter for Admins
-            if ($request->filled('karigar_id') && $request->karigar_id !== 'all') {
-                $query->where('karigar_id', $request->karigar_id);
-            }
+        // Job Order ID filter
+        if ($request->filled('job_order_id') && $request->job_order_id !== 'all') {
+            $query->where('job_order_id', $request->job_order_id);
+        }
+
+        // Artisan / Karigar filter
+        if ($request->filled('karigar_id') && $request->karigar_id !== 'all') {
+            $query->where('karigar_id', $request->karigar_id);
         }
 
         // Category filter
         if ($request->filled('category_id') && $request->category_id !== 'all') {
             $query->where('category_id', $request->category_id);
+        }
+
+        // Delayed only filter flag
+        if ($request->boolean('delayed_only')) {
+            $query->where(function($q) {
+                $q->where('is_delayed', true)
+                  ->orWhere(function($sq) {
+                      $sq->where('delivery_date', '<', Carbon::today()->toDateString())
+                         ->whereNotIn('status', ['completed', 'final_received']);
+                  });
+            });
         }
 
         // Tab views
@@ -115,40 +160,80 @@ class WorkOrderController extends Controller
                 break;
 
             case 'in_progress':
-                $query->whereIn('current_stage', ['work_started', 'work_in_progress', 'received_by_artisan'])
-                      ->whereNotIn('status', ['completed', 'cancelled']);
+                $query->where(function($q) {
+                    $q->whereIn('current_stage', ['work_started', 'work_in_progress', 'received_by_artisan', 'assigned'])
+                      ->orWhere('status', 'in_progress')
+                      ->orWhereRaw('completed_qty < required_qty');
+                })->whereNotIn('status', ['completed', 'cancelled', 'final_received']);
                 break;
 
             case 'delayed':
-                $query->where('delivery_date', '<', $today)
-                      ->whereNotIn('status', ['completed', 'cancelled', 'final_received']);
-                break;
-
-            case 'waste':
-                $query->where('allotted_weight', '>', 0);
+                $query->where(function($q) use ($today) {
+                    $q->where('is_delayed', true)
+                      ->orWhere(function($sq) use ($today) {
+                          $sq->where('delivery_date', '<', $today)
+                             ->whereNotIn('status', ['completed', 'final_received']);
+                      });
+                });
                 break;
 
             case 'quality_check':
                 $query->where(function($q) {
-                    $q->whereIn('current_stage', ['work_completed', 'sent_for_approval', 'quality_check'])
+                    $q->where('qc_pending_qty', '>', 0)
+                      ->orWhereIn('current_stage', ['work_completed', 'sent_for_approval', 'quality_check'])
                       ->orWhere('status', 'pending_approval');
                 })->whereNotIn('status', ['completed', 'cancelled']);
                 break;
 
             case 'ready':
-            case 'final_receive':
                 $query->where(function($q) {
-                    $q->whereIn('status', ['approved', 'ready', 'completed', 'final_received'])
-                      ->orWhereIn('current_stage', ['approved', 'ready', 'final_received'])
-                      ->orWhere('quality_status', 'passed')
-                      ->orWhereHas('timelines', function($t) {
-                          $t->whereIn('stage', ['ready', 'approved', 'final_received']);
-                      });
-                });
+                    $q->where(function($rq) {
+                        $rq->where('ready_qty', '>', 0)
+                           ->whereRaw('received_qty < ready_qty');
+                    })->orWhere(function($rq) {
+                        $rq->where('qc_approved_qty', '>', 0)
+                           ->whereRaw('received_qty < qc_approved_qty');
+                    })->orWhere(function($rq) {
+                        $rq->whereIn('current_stage', ['ready'])
+                           ->whereRaw('received_qty < required_qty');
+                    });
+                })->whereNotIn('status', ['completed', 'cancelled', 'final_received']);
+                break;
+
+            case 'final_receive':
+            case 'receive':
+                $query->where(function($q) {
+                    $q->where('ready_qty', '>', 0)
+                      ->whereRaw('received_qty < ready_qty');
+                })->whereNotIn('status', ['completed', 'cancelled', 'final_received']);
+                break;
+
+            case 'certification':
+                $query->where('received_qty', '>', 0)
+                    ->where(function($q) {
+                        $q->whereNull('certification_status')
+                          ->orWhere('certification_status', 'pending')
+                          ->orWhereRaw('certified_qty < received_qty');
+                    })
+                    ->whereNotIn('status', ['completed', 'cancelled', 'final_received']);
+                break;
+
+            case 'hallmarking':
+                $query->where('received_qty', '>', 0)
+                    ->where(function($q) {
+                        $q->whereIn('certification_status', ['completed', 'skipped', 'not_required'])
+                          ->orWhereRaw('certified_qty >= received_qty');
+                    })
+                    ->where(function($q) {
+                        $q->whereNull('hallmarking_status')
+                          ->orWhere('hallmarking_status', 'pending')
+                          ->orWhereRaw('hallmarked_qty < received_qty');
+                    })
+                    ->whereNotIn('status', ['completed', 'cancelled', 'final_received']);
                 break;
 
             case 'history':
-                // All records
+                $query->whereIn('status', ['completed', 'final_received']);
                 break;
 
             case 'completed_approval':
@@ -163,11 +248,25 @@ class WorkOrderController extends Controller
 
         // Compute delay information dynamically for each order
         $orders->transform(function ($order) use ($today) {
-            $isDelayed = false;
-            $delayDays = 0;
-            if ($order->delivery_date && $order->delivery_date->toDateString() < $today && !in_array($order->status, ['completed', 'final_received'])) {
+            $isDelayed = (bool) $order->is_delayed;
+            $delayDays = (int) ($order->delay_days ?: 0);
+
+            $dDateStr = null;
+            if (!empty($order->delivery_date)) {
+                $dDateStr = is_object($order->delivery_date) 
+                    ? $order->delivery_date->toDateString() 
+                    : (string) $order->delivery_date;
+            }
+
+            if ($dDateStr && substr($dDateStr, 0, 10) < $today && !in_array($order->status, ['completed', 'final_received'])) {
                 $isDelayed = true;
-                $delayDays = Carbon::parse($order->delivery_date)->diffInDays(Carbon::now());
+                if ($delayDays <= 0) {
+                    try {
+                        $delayDays = (int) Carbon::parse($dDateStr)->diffInDays(Carbon::now());
+                    } catch (\Exception $e) {
+                        $delayDays = 0;
+                    }
+                }
             }
             $order->is_delayed = $isDelayed;
             $order->delay_days = $delayDays;
@@ -194,7 +293,11 @@ class WorkOrderController extends Controller
         if (is_array($items) && count($items) > 0) {
             $totalGoldWeight = 0;
             foreach ($items as $itm) {
-                $totalGoldWeight += (float) ($itm['gold_weight'] ?? 0);
+                $rowWeight = (float) ($itm['total_gross_wt'] ?? $itm['total_weight'] ?? $itm['allotted_weight'] ?? 0);
+                if ($rowWeight <= 0) {
+                    $rowWeight = ((float) ($itm['gold_weight'] ?? 0)) * max(1, (int) ($itm['need_pcs'] ?? 1));
+                }
+                $totalGoldWeight += $rowWeight;
             }
             if (!$request->filled('allotted_weight')) {
                 $request->merge(['allotted_weight' => max(0.001, round($totalGoldWeight, 3))]);
@@ -251,93 +354,234 @@ class WorkOrderController extends Controller
             'image_url' => 'nullable|string',
         ]);
 
-        // CRITICAL BUSINESS RULE: If assigning a Karigar, verify they do not have an active work order
-        if (!empty($validated['karigar_id'])) {
-            $activeOrder = WorkOrder::where('karigar_id', $validated['karigar_id'])
-                ->whereNotIn('status', ['completed', 'cancelled', 'final_received'])
-                ->first();
-
-            if ($activeOrder) {
-                $karigar = Karigar::find($validated['karigar_id']);
-                $artisanName = $karigar ? $karigar->name : 'Selected artisan';
-                return response()->json([
-                    'status' => 'error',
-                    'message' => "Assignment Prohibited: Artisan {$artisanName} is currently assigned to active work order {$activeOrder->work_order_number} (Status: " . strtoupper(str_replace('_', ' ', $activeOrder->status)) . "). New assignments are strictly prohibited until the current work reaches COMPLETED.",
-                ], 422);
-            }
-        }
-
         return DB::transaction(function () use ($request, $validated, $items) {
-            // Generate unique Work Order Number if not provided
-            $workOrderNumber = $request->input('work_order_number');
-            if (empty($workOrderNumber)) {
-                $year = date('Y');
-                $count = WorkOrder::withTrashed()->count();
-                $nextNum = str_pad($count + 1, 4, '0', STR_PAD_LEFT);
-                $workOrderNumber = "WO-{$year}-{$nextNum}";
+            $year = date('Y');
+
+            // Generate or fetch Parent Job Order Number (guarantee unique key)
+            $jobOrderNumber = $request->input('job_order_number');
+            if (empty($jobOrderNumber) || \App\Models\JobOrder::withTrashed()->where('job_order_number', $jobOrderNumber)->exists()) {
+                $latestJo = \App\Models\JobOrder::withTrashed()
+                    ->where('job_order_number', 'like', "JO-{$year}-%")
+                    ->orderBy('id', 'desc')
+                    ->first();
+                $num = 1;
+                if ($latestJo && preg_match("/JO-{$year}-(\d+)/", $latestJo->job_order_number, $matches)) {
+                    $num = (int)$matches[1] + 1;
+                } else {
+                    $num = \App\Models\JobOrder::withTrashed()->count() + 1;
+                }
+                do {
+                    $jobOrderNumber = "JO-{$year}-" . str_pad($num++, 4, '0', STR_PAD_LEFT);
+                } while (\App\Models\JobOrder::withTrashed()->where('job_order_number', $jobOrderNumber)->exists());
             }
 
-            // Fetch karigar name
-            $karigarName = null;
-            if (!empty($validated['karigar_id'])) {
-                $k = Karigar::find($validated['karigar_id']);
-                $karigarName = $k ? $k->name : null;
-            }
-
-            // Calculations
-            $allottedWeight = (float) $validated['allotted_weight'];
-            $makingChargePerGram = (float) ($validated['making_charge_per_gram'] ?? 0);
-            $totalMakingCharges = $allottedWeight * $makingChargePerGram;
-
-            // Merge items and details into pricing_details
-            $pricingDetails = $validated['pricing_details'] ?? [];
-            if (is_array($items) && count($items) > 0) {
-                $pricingDetails['items'] = $items;
-            }
-            if ($request->has('worker_allocation')) {
-                $pricingDetails['worker_allocation'] = $request->input('worker_allocation');
-            }
-            if ($request->has('timeline')) {
-                $pricingDetails['timeline'] = $request->input('timeline');
-            }
-            if ($request->has('crafting_instructions')) {
-                $pricingDetails['crafting_instructions'] = $request->input('crafting_instructions');
-            }
-            if ($request->has('material_breakdown')) {
-                $pricingDetails['material_breakdown'] = $request->input('material_breakdown');
-            }
-            if ($request->has('job_summary')) {
-                $pricingDetails['job_summary'] = $request->input('job_summary');
-            }
-            if ($request->has('documents')) {
-                $pricingDetails['documents'] = $request->input('documents');
-            }
-
-            $workOrder = WorkOrder::create([
-                'work_order_number' => $workOrderNumber,
-                'client_id' => $validated['client_id'] ?? null,
-                'customer_name' => $validated['customer_name'] ?? null,
-                'product_id' => $validated['product_id'] ?? null,
+            // Calculate total allotted weight across items or single order
+            $jobItemsList = (is_array($items) && count($items) > 0) ? $items : [[
                 'product_name' => $validated['product_name'],
                 'category_id' => $validated['category_id'] ?? null,
                 'subcategory_id' => $validated['subcategory_id'] ?? null,
                 'karigar_id' => $validated['karigar_id'] ?? null,
-                'karigar_name' => $karigarName,
                 'material_type' => $validated['material_type'] ?? 'Gold 22K (916)',
-                'priority' => $validated['priority'] ?? 'Normal',
-                'allotted_date' => $validated['allotted_date'],
+                'gold_weight' => $validated['allotted_weight'],
+                'making_charge_per_gram' => $validated['making_charge_per_gram'] ?? 0,
+                'wastage_allowed_percent' => $validated['wastage_allowed_percent'] ?? 0,
+                'design_number' => $request->input('design_code', 'DES-' . rand(1000, 9999)),
+                'image' => $validated['image_url'] ?? null,
                 'delivery_date' => $validated['delivery_date'] ?? null,
-                'allotted_weight' => $allottedWeight,
+            ]];
+
+            $totalAllotted = 0;
+            foreach ($jobItemsList as $itm) {
+                $rowGross = (float) ($itm['total_gross_wt'] ?? $itm['total_weight'] ?? 0);
+                if ($rowGross > 0) {
+                    $totalAllotted += $rowGross;
+                } else {
+                    $pcs = max(1, (int) ($itm['need_pcs'] ?? $itm['qty'] ?? 1));
+                    $perPiece = (float) ($itm['gold_weight'] ?? $itm['allotted_weight'] ?? 0);
+                    $totalAllotted += ($perPiece * $pcs);
+                }
+            }
+
+            // Create Parent JobOrder
+            $jobOrder = \App\Models\JobOrder::create([
+                'job_order_number' => $jobOrderNumber,
+                'client_id' => $validated['client_id'] ?? null,
+                'customer_name' => $validated['customer_name'] ?? null,
+                'order_date' => $validated['allotted_date'],
+                'delivery_date' => $validated['delivery_date'] ?? null,
+                'status' => 'ongoing',
+                'total_jobs_count' => count($jobItemsList),
+                'total_allotted_weight' => round($totalAllotted, 3),
+                'total_completed_weight' => 0,
+                'total_pending_weight' => round($totalAllotted, 3),
+                'notes' => $validated['notes'] ?? null,
+                'created_by' => Auth::id() ?? 1,
+            ]);
+
+            $workOrderNumber = $request->input('work_order_number');
+            if (empty($workOrderNumber) || WorkOrder::withTrashed()->where('work_order_number', $workOrderNumber)->exists()) {
+                $latestWo = WorkOrder::withTrashed()
+                    ->where('work_order_number', 'like', "WO-{$year}-%")
+                    ->orderBy('id', 'desc')
+                    ->first();
+                $num = 1;
+                if ($latestWo && preg_match("/WO-{$year}-(\d+)/", $latestWo->work_order_number, $matches)) {
+                    $num = (int)$matches[1] + 1;
+                } else {
+                    $num = WorkOrder::withTrashed()->count() + 1;
+                }
+                do {
+                    $workOrderNumber = "WO-{$year}-" . str_pad($num++, 4, '0', STR_PAD_LEFT);
+                } while (WorkOrder::withTrashed()->where('work_order_number', $workOrderNumber)->exists());
+            }
+
+            $itemKarigarId = $validated['karigar_id'] ?? null;
+            $itemKarigarName = null;
+            if (!empty($itemKarigarId)) {
+                $k = Karigar::find($itemKarigarId);
+                $itemKarigarName = $k ? $k->name : null;
+            }
+
+            // Ensure all items carry the correct work_order_no
+            $totalGoldWeight = 0;
+            $totalMakingCharges = 0;
+            $totalPrice = 0;
+            foreach ($jobItemsList as &$itm) {
+                $itm['work_order_no'] = $workOrderNumber;
+                $w = (float) ($itm['total_gross_wt'] ?? $itm['total_weight'] ?? $itm['allotted_weight'] ?? 0);
+                if ($w <= 0) {
+                    $w = ((float) ($itm['gold_weight'] ?? 0)) * max(1, (int) ($itm['need_pcs'] ?? 1));
+                }
+                $mc = (float) ($itm['making_charge_per_gram'] ?? $validated['making_charge_per_gram'] ?? 0);
+                $totalGoldWeight += $w;
+                $totalMakingCharges += ($w * $mc);
+                $totalPrice += (float) ($itm['total_price'] ?? ($w * $mc));
+            }
+            unset($itm);
+
+            if ($totalGoldWeight <= 0) {
+                $totalGoldWeight = (float) ($validated['allotted_weight'] ?? 10.0);
+            }
+
+            $firstItem = $jobItemsList[0] ?? [];
+            $itemMaterial = $validated['material_type'] ?? ($firstItem['material_type'] ?? 'Gold 22K (916)');
+            $itemProductName = $request->input('product_name') ?: ($firstItem['variant'] ?? $firstItem['product_name'] ?? $validated['product_name']);
+            $imageUrl = $request->input('image_url') ?: ($firstItem['reference_image'] ?? $firstItem['design_file'] ?? $firstItem['image'] ?? $validated['image_url'] ?? null);
+
+            // Clean up any large Base64 strings in image_url, items, and documents to prevent MySQL 2006 max_allowed_packet error
+            $imageUrl = $this->processBase64Data($imageUrl);
+
+            foreach ($jobItemsList as &$itm) {
+                if (!empty($itm['reference_image'])) {
+                    $itm['reference_image'] = $this->processBase64Data($itm['reference_image']);
+                }
+                if (!empty($itm['design_file']) && str_starts_with($itm['design_file'], 'data:')) {
+                    $itm['design_file'] = $this->processBase64Data($itm['design_file']);
+                }
+                if (!empty($itm['image'])) {
+                    $itm['image'] = $this->processBase64Data($itm['image']);
+                }
+                if (!empty($itm['reference_image'])) {
+                    $itm['image'] = $itm['reference_image'];
+                }
+            }
+            unset($itm);
+
+            $documents = $request->input('documents', []);
+            if (is_array($documents)) {
+                foreach ($documents as &$doc) {
+                    if (is_array($doc) && !empty($doc['url'])) {
+                        $doc['url'] = $this->processBase64Data($doc['url']);
+                    } elseif (is_string($doc)) {
+                        $doc = $this->processBase64Data($doc);
+                    }
+                }
+                unset($doc);
+            }
+
+            $pricingDetails = $validated['pricing_details'] ?? [];
+            $pricingDetails['items'] = $jobItemsList;
+            $pricingDetails['documents'] = $documents;
+            $pricingDetails['job_summary'] = $request->input('job_summary', []);
+            $pricingDetails['material_breakdown'] = $request->input('material_breakdown', []);
+            $pricingDetails['worker_allocation'] = $request->input('worker_allocation', []);
+
+            $totalRequiredQty = 0;
+            $totalDiamondCaratsRequired = 0;
+            $totalStonesCountRequired = 0;
+            foreach ($jobItemsList as $itm) {
+                $pcs = max(1, (int)($itm['need_pcs'] ?? $itm['quantity'] ?? $itm['qty'] ?? 1));
+                $totalRequiredQty += $pcs;
+                $diaWt = (float)($itm['diamond_weight'] ?? 0);
+                $stoneCount = (int)($itm['no_of_colour_stones'] ?? $itm['color_stone_count'] ?? 0);
+                $totalDiamondCaratsRequired += ($diaWt * $pcs);
+                $totalStonesCountRequired += ($stoneCount * $pcs);
+            }
+            if ($totalRequiredQty <= 0) $totalRequiredQty = 1;
+
+            // Validate Diamond Stock in RawMaterial vault (cannot be negative)
+            if ($totalDiamondCaratsRequired > 0) {
+                $diamondVault = \App\Models\RawMaterial::where('material_type', 'diamond')->first();
+                $diaBalance = $diamondVault ? (float)$diamondVault->current_balance : 0;
+                if ($diaBalance < $totalDiamondCaratsRequired) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'material_type' => ["Insufficient diamond stock in raw material vault: Required {$totalDiamondCaratsRequired} ct, but available balance is {$diaBalance} ct. Diamond stock cannot become negative."]
+                    ]);
+                }
+            }
+
+            // Validate Colour-Stone Stock in RawMaterial vault (cannot be negative)
+            if ($totalStonesCountRequired > 0) {
+                $stoneVault = \App\Models\RawMaterial::where('material_type', 'stone')->first();
+                $stoneBalance = $stoneVault ? (float)$stoneVault->current_balance : 0;
+                if ($stoneBalance < $totalStonesCountRequired) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'material_type' => ["Insufficient colour-stone stock in raw material vault: Required {$totalStonesCountRequired} units, but available balance is {$stoneBalance} units. Colour-stone stock cannot become negative."]
+                    ]);
+                }
+            }
+
+            $firstDesignNo = $firstItem['design_number'] ?? $firstItem['design_no'] ?? null;
+            $resolvedProductId = $validated['product_id'] ?? ($firstItem['product_id'] ?? null);
+            if (!$resolvedProductId && !empty($firstDesignNo)) {
+                $p = Product::where('design_no', $firstDesignNo)->orWhere('product_code', $firstDesignNo)->first();
+                $resolvedProductId = $p?->id;
+            }
+
+            $workOrder = WorkOrder::create([
+                'job_order_id' => $jobOrder->id,
+                'job_number' => $jobOrderNumber,
+                'work_order_number' => $workOrderNumber,
+                'client_id' => $validated['client_id'] ?? null,
+                'customer_name' => $validated['customer_name'] ?? null,
+                'product_id' => $resolvedProductId,
+                'product_name' => $itemProductName,
+                'category_id' => $validated['category_id'] ?? null,
+                'subcategory_id' => $validated['subcategory_id'] ?? null,
+                'karigar_id' => $itemKarigarId,
+                'karigar_name' => $itemKarigarName,
+                'material_type' => $itemMaterial,
+                'priority' => $validated['priority'] ?? 'Normal',
+                'required_qty' => $totalRequiredQty,
+                'completed_qty' => 0,
+                'qc_pending_qty' => 0,
+                'qc_approved_qty' => 0,
+                'rework_qty' => 0,
+                'ready_qty' => 0,
+                'received_qty' => 0,
+                'allotted_date' => $validated['allotted_date'],
+                'delivery_date' => $firstItem['delivery_date'] ?? $validated['delivery_date'] ?? null,
+                'allotted_weight' => round($totalGoldWeight, 3),
                 'completed_weight' => 0,
-                'pending_weight' => $allottedWeight, // initially full weight is pending
-                'expected_return_weight' => $allottedWeight,
-                'wastage_allowed_percent' => (float) ($validated['wastage_allowed_percent'] ?? 0),
+                'pending_weight' => round($totalGoldWeight, 3),
+                'expected_return_weight' => round($totalGoldWeight, 3),
+                'wastage_allowed_percent' => (float) ($firstItem['wastage_allowed_percent'] ?? $validated['wastage_allowed_percent'] ?? 0),
                 'wastage_weight' => 0,
-                'making_charge_per_gram' => $makingChargePerGram,
-                'total_making_charges' => $totalMakingCharges,
-                'total_price' => (float) ($request->input('total_price') ?? $totalMakingCharges),
-                'current_stage' => !empty($validated['karigar_id']) ? 'assigned' : 'created',
-                'status' => !empty($validated['karigar_id']) ? 'assigned' : 'ongoing',
+                'making_charge_per_gram' => (float) ($validated['making_charge_per_gram'] ?? 0),
+                'total_making_charges' => round($totalMakingCharges, 2),
+                'total_price' => round($totalPrice, 2),
+                'current_stage' => !empty($itemKarigarId) ? 'assigned' : 'created',
+                'status' => !empty($itemKarigarId) ? 'assigned' : 'ongoing',
                 'checklist' => $validated['checklist'] ?? [
                     'product_received' => false,
                     'weight_verified' => false,
@@ -349,75 +593,88 @@ class WorkOrderController extends Controller
                 ],
                 'stone_details' => $validated['stone_details'] ?? [],
                 'pricing_details' => $pricingDetails,
-                'design_code' => $request->input('design_code', 'DES-' . rand(1000, 9999)),
-                'image_url' => $validated['image_url'] ?? null,
+                'design_code' => $firstItem['design_number'] ?? $request->input('design_code', 'DES-' . rand(1000, 9999)),
+                'image_url' => $imageUrl,
                 'notes' => $validated['notes'] ?? null,
                 'created_by' => Auth::id() ?? 1,
             ]);
 
-            // Initial Timeline Event
+            // Persist individual jobs as WorkOrderItem records
+            foreach ($jobItemsList as $jIdx => $jItm) {
+                $jDesignNo = $jItm['design_number'] ?? $jItm['design_no'] ?? ($workOrder->design_code ?: 'DES-' . (rand(1000, 9999) + $jIdx));
+                $jReqQty = max(1, (int)($jItm['need_pcs'] ?? $jItm['quantity'] ?? $jItm['qty'] ?? 1));
+                $jWeight = (float) ($jItm['gold_weight'] ?? $jItm['allotted_weight'] ?? 0);
+                $jMc = (float) ($jItm['making_charge_per_gram'] ?? $validated['making_charge_per_gram'] ?? 0);
+
+                $jProdId = $jItm['product_id'] ?? null;
+                if (!$jProdId && !empty($jDesignNo)) {
+                    $p = Product::where('design_no', $jDesignNo)->orWhere('product_code', $jDesignNo)->first();
+                    $jProdId = $p?->id;
+                }
+
+                WorkOrderItem::create([
+                    'work_order_id' => $workOrder->id,
+                    'job_order_id' => $jobOrder->id,
+                    'product_id' => $jProdId,
+                    'design_no' => $jDesignNo,
+                    'product_name' => $jItm['product_name'] ?? $jItm['variant'] ?? ($jItm['name'] ?? $workOrder->product_name),
+                    'category_id' => $jItm['category_id'] ?? $workOrder->category_id,
+                    'subcategory_id' => $jItm['subcategory_id'] ?? $workOrder->subcategory_id,
+                    'item_code' => $jDesignNo,
+                    'required_qty' => $jReqQty,
+                    'completed_qty' => 0,
+                    'qc_pending_qty' => 0,
+                    'qc_approved_qty' => 0,
+                    'rework_qty' => 0,
+                    'ready_qty' => 0,
+                    'received_qty' => 0,
+                    'allotted_weight' => round($jWeight, 3),
+                    'completed_weight' => 0,
+                    'making_charge_per_gram' => $jMc,
+                    'total_making_charges' => round($jWeight * $jMc, 2),
+                    'stone_details' => $jItm['stone_details'] ?? null,
+                    'pricing_details' => $jItm,
+                    'status' => 'pending',
+                ]);
+            }
+
+            // Initial Timeline Events
             WorkOrderTimeline::create([
                 'work_order_id' => $workOrder->id,
                 'stage' => 'created',
-                'stage_label' => 'Work Order Created',
+                'stage_label' => "Work Order Created ({$workOrderNumber})",
                 'completed_weight_at_step' => 0,
-                'pending_weight_at_step' => $allottedWeight,
+                'pending_weight_at_step' => round($totalGoldWeight, 3),
                 'status' => 'completed',
-                'notes' => 'Work Order created and material allocated.',
+                'notes' => "Work Order {$workOrderNumber} with " . count($jobItemsList) . " jobs (Total Qty: {$totalRequiredQty}) created under Job Order {$jobOrderNumber}.",
                 'user_id' => Auth::id() ?? 1,
                 'action_by_name' => Auth::user()?->name ?? 'Admin',
                 'created_at' => now(),
             ]);
 
-            if (!empty($validated['karigar_id'])) {
+            if (!empty($itemKarigarId)) {
                 WorkOrderTimeline::create([
                     'work_order_id' => $workOrder->id,
                     'stage' => 'assigned',
-                    'stage_label' => "Assigned to Artisan ({$karigarName})",
+                    'stage_label' => "Assigned to Artisan ({$itemKarigarName})",
                     'completed_weight_at_step' => 0,
-                    'pending_weight_at_step' => $allottedWeight,
+                    'pending_weight_at_step' => round($totalGoldWeight, 3),
                     'status' => 'completed',
-                    'notes' => "Work order assigned to {$karigarName}.",
+                    'notes' => "Work Order {$workOrderNumber} assigned to artisan {$itemKarigarName}.",
                     'user_id' => Auth::id() ?? 1,
                     'action_by_name' => Auth::user()?->name ?? 'Admin',
                     'created_at' => now()->addSecond(),
                 ]);
+
+                // Dispatch business notifications
+                NotificationService::notifyWorkOrderCreated($workOrder, Auth::id());
+                if (!empty($itemKarigarId)) {
+                    NotificationService::notifyWorkOrderAssigned($workOrder, Auth::id());
+                }
             }
 
-            // Send notification for Karigar Work Order assignment
-            if ($workOrder->karigar_id) {
-                WorkOrderNotification::create([
-                    'work_order_id' => $workOrder->id,
-                    'karigar_id' => $workOrder->karigar_id,
-                    'type' => 'assigned',
-                    'title' => "Work Order Assigned: {$workOrder->work_order_number}",
-                    'message' => "Work Order {$workOrder->work_order_number} ({$workOrder->product_name}) assigned to Karigar {$workOrder->karigar_name}.",
-                    'data' => [
-                        'order_id' => $workOrder->id,
-                        'work_order_number' => $workOrder->work_order_number,
-                        'product_name' => $workOrder->product_name,
-                        'allotted_weight' => $workOrder->allotted_weight,
-                        'status' => $workOrder->status,
-                        'target_role' => 'karigar',
-                    ],
-                    'is_read' => false,
-                ]);
-            }
-
-            // Sync Karigar Gold Balance on Bench
-            $this->syncKarigarGoldBalance($workOrder->karigar_id);
-
-            // Debit Raw Material inventory balance (ONLY Rudhra-supplied metals: Gold, Silver, Platinum)
-            $matStr = strtolower(($validated['material_type'] ?? '') . ' ' . ($validated['product_name'] ?? ''));
-            
-            // BUSINESS RULE: Loose colour stone allocation prohibited, but company-supplied metals (Gold, Silver, Platinum) and certified Diamonds can be allocated to work orders
-            if ((isset($validated['material_type']) && in_array(strtolower($validated['material_type']), ['stone', 'colour stone', 'color stone', 'loose stone', 'colour_stone'])) ||
-                ($request->filled('allocate_stone') && $request->boolean('allocate_stone'))) {
-                throw \Illuminate\Validation\ValidationException::withMessages([
-                    'material_type' => 'Loose Stone Allocation Prohibited: Karigars procure loose colour stones independently. Company-supplied metals (Gold, Silver, Platinum) and certified Diamonds can be allocated to work orders.'
-                ]);
-            }
-
+            // Debit Raw Material inventory vault for full allotted weight (Gold balance can be negative)
+            $matStr = strtolower(($itemMaterial) . ' ' . ($itemProductName));
             $debitMatType = 'gold';
             if (str_contains($matStr, 'silver')) {
                 $debitMatType = 'silver';
@@ -427,45 +684,73 @@ class WorkOrderController extends Controller
                 $debitMatType = 'diamond';
             }
 
-            $rawRec = \App\Models\RawMaterial::where('material_type', $debitMatType)->first();
-            if ($rawRec) {
-                $availableVault = floatval($rawRec->current_balance);
-                $checkWeight = ($rawRec->unit === 'kg' && $allottedWeight > 50) ? ($allottedWeight / 1000.0) : $allottedWeight;
-
-                if ($availableVault < $checkWeight) {
-                    throw \Illuminate\Validation\ValidationException::withMessages([
-                        'allotted_weight' => "Insufficient raw {$debitMatType} in vault. Available: {$rawRec->current_balance} {$rawRec->unit}, Required: {$checkWeight} {$rawRec->unit}."
-                    ]);
+            try {
+                \App\Models\RawMaterial::debitAllocation($debitMatType, $totalGoldWeight);
+                if ($totalDiamondCaratsRequired > 0 && $debitMatType !== 'diamond') {
+                    \App\Models\RawMaterial::debitAllocation('diamond', $totalDiamondCaratsRequired);
                 }
+                if ($totalStonesCountRequired > 0) {
+                    \App\Models\RawMaterial::debitAllocation('stone', $totalStonesCountRequired);
+                }
+                \App\Models\RawMaterial::recalculateAllocations();
+            } catch (\Exception $e) {
+                // Continue gracefully
             }
 
-            \App\Models\RawMaterial::debitAllocation($debitMatType, $allottedWeight);
+            if (!empty($itemKarigarId)) {
+                $this->syncKarigarGoldBalance($itemKarigarId);
+            }
+
+            // Update Parent Job Order totals & status
+            $jobOrder->updateDerivedStatus();
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Work Order created successfully.',
-                'data' => $workOrder->load(['karigar', 'product', 'category', 'subcategory', 'client', 'timelines'])
+                'job_order' => $jobOrder->load('jobs'),
+                'data' => $workOrder->load(['karigar', 'product', 'category', 'subcategory', 'client', 'timelines', 'jobOrder'])
             ], 201);
         });
     }
 
     /**
-     * Synchronize a Karigar's current_gold_balance_grams based on active assigned work orders.
+     * Synchronize a Karigar's material balances:
+     * - current_gold_balance_grams: Actual company-owned physical gold on bench (>= 0).
+     *   Formula: Sum of (allotted_weight + additional_allocated_weight - completed_weight - wastage_weight - returned_weight) for non-completed orders.
+     * - karigar_gold_balance_grams: Karigar-owned gold contributions.
+     * - settlement_balance_grams: Signed balance (+ = karigar holds company gold, - = company owes karigar).
      */
-    protected function syncKarigarGoldBalance($karigarId)
+    public function syncKarigarGoldBalance($karigarId)
     {
         if (!$karigarId) return;
 
         $karigar = Karigar::find($karigarId);
         if (!$karigar) return;
 
-        // Sum pending weight for all non-completed/non-cancelled active work orders for this karigar
-        $activePendingWeight = (float) WorkOrder::where('karigar_id', $karigarId)
+        // Sum pending company-owned gold for active work orders
+        $activeOrders = WorkOrder::where('karigar_id', $karigarId)
             ->whereNotIn('status', ['completed', 'cancelled', 'final_received', 'delivered'])
-            ->selectRaw('SUM(GREATEST(0, allotted_weight - completed_weight)) as pending')
-            ->value('pending');
+            ->get();
 
-        $karigar->current_gold_balance_grams = round((float) $activePendingWeight, 3);
+        $benchBalance = 0.0;
+        foreach ($activeOrders as $wo) {
+            $allotted = (float)$wo->allotted_weight + (float)($wo->additional_allocated_weight ?? 0);
+            $completed = (float)$wo->completed_weight;
+            $wastage = (float)$wo->wastage_weight;
+            $returned = (float)($wo->returned_weight ?? 0);
+            $pending = max(0.0, round($allotted - $completed - $wastage - $returned, 3));
+            $benchBalance += $pending;
+        }
+
+        // Karigar-owned gold contributions across all work orders
+        $totalKarigarGold = (float) WorkOrder::where('karigar_id', $karigarId)->sum('karigar_gold_weight');
+
+        // Signed settlement balance: Company gold on bench - Karigar-owned gold
+        $settlementBalance = round($benchBalance - $totalKarigarGold, 3);
+
+        $karigar->current_gold_balance_grams = round($benchBalance, 3);
+        $karigar->karigar_gold_balance_grams = round($totalKarigarGold, 3);
+        $karigar->settlement_balance_grams = $settlementBalance;
         $karigar->save();
     }
 
@@ -476,20 +761,9 @@ class WorkOrderController extends Controller
     {
         $order = WorkOrder::with([
             'karigar', 'product', 'category', 'subcategory', 'client',
-            'creator', 'qualityChecker', 'approver', 'timelines'
+            'creator', 'qualityChecker', 'approver', 'timelines',
+            'items', 'receivedPieces', 'delayUpdater', 'certificationUpdater', 'hallmarkingUpdater'
         ])->findOrFail($id);
-
-        // Server-Side Authorization: Karigar can only access their assigned work order
-        $currentUser = Auth::user();
-        if ($currentUser && $currentUser->isKarigar()) {
-            $userKarigarId = $currentUser->karigar?->id ?? Karigar::where('email', $currentUser->email)->orWhere('name', $currentUser->name)->value('id');
-            if ($userKarigarId && $order->karigar_id && (int)$order->karigar_id !== (int)$userKarigarId) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Access Denied: You are not authorized to view this work order.'
-                ], 403);
-            }
-        }
 
         return response()->json([
             'status' => 'success',
@@ -582,17 +856,18 @@ class WorkOrderController extends Controller
             if (in_array($newStage, ['work_completed', 'sent_for_approval', 'quality_check'])) {
                 $order->status = 'pending_approval';
                 $order->quality_status = 'pending';
-                $this->creditWorkOrderToInventory($order);
             } elseif ($newStage === 'approved') {
                 $order->status = 'approved';
                 $order->quality_status = 'passed';
-                $this->creditWorkOrderToInventory($order);
             } elseif ($newStage === 'ready') {
                 $order->status = 'ready';
-                $this->creditWorkOrderToInventory($order);
             } elseif (in_array($newStage, ['delivered', 'final_received'])) {
-                $order->status = 'completed';
-                $this->creditWorkOrderToInventory($order);
+                if ($order->receivedPieces()->exists()) {
+                    $this->syncInventoryPosting($order);
+                } else {
+                    $order->status = 'completed';
+                    $this->creditWorkOrderToInventory($order);
+                }
             }
 
             // Log timeline step
@@ -643,27 +918,24 @@ class WorkOrderController extends Controller
         $order = WorkOrder::findOrFail($id);
 
         $alreadyApproved = $order->quality_status === 'passed'
-            || in_array($order->status, ['completed', 'approved', 'final_received'])
+            || in_array($order->status, ['completed', 'approved', 'ready', 'final_received'])
             || $order->timelines()->where('stage', 'approved')->exists();
 
         if ($alreadyApproved) {
-            $order->status = 'completed';
-            $order->quality_status = 'passed';
-            if ($order->isDirty()) {
-                $order->save();
-            }
-
             return response()->json([
                 'status' => 'success',
-                'message' => 'Work order is already approved and completed.',
+                'message' => 'Work order is already approved.',
                 'data' => $order->load(['karigar', 'product', 'category', 'timelines'])
             ]);
         }
 
         return DB::transaction(function () use ($request, $order) {
-            $order->status = 'completed'; // Final state must be COMPLETED
-            $order->current_stage = 'approved';
+            $order->status = 'ready';
+            $order->current_stage = 'ready';
             $order->quality_status = 'passed';
+            $order->ready_qty = max((int)$order->ready_qty, max((int)$order->completed_qty, (int)$order->required_qty));
+            $order->qc_approved_qty = $order->ready_qty;
+            $order->qc_pending_qty = 0;
             $order->quality_notes = $request->input('quality_notes', 'Quality check passed and approved.');
             $order->quality_checked_by = Auth::id() ?? 1;
             $order->quality_checked_at = now();
@@ -671,10 +943,20 @@ class WorkOrderController extends Controller
             $order->approved_at = now();
             $order->save();
 
+            // Mark unreceived pieces as ready/passed
+            self::ensurePiecesInitialized($order);
+            foreach ($order->receivedPieces()->whereNull('received_at')->get() as $p) {
+                $p->status = 'ready';
+                $p->qc_status = 'passed';
+                $p->qc_checked_at = now();
+                $p->qc_checked_by = Auth::id() ?? 1;
+                $p->save();
+            }
+
             WorkOrderTimeline::create([
                 'work_order_id' => $order->id,
                 'stage' => 'approved',
-                'stage_label' => 'Quality Check Approved',
+                'stage_label' => 'Quality Check Approved — Ready for Receiving',
                 'completed_weight_at_step' => $order->completed_weight,
                 'pending_weight_at_step' => $order->pending_weight,
                 'status' => 'completed',
@@ -684,45 +966,18 @@ class WorkOrderController extends Controller
                 'created_at' => now(),
             ]);
 
-            WorkOrderTimeline::create([
-                'work_order_id' => $order->id,
-                'stage' => 'final_received',
-                'stage_label' => 'Work Order Completed & Archived to History',
-                'completed_weight_at_step' => $order->completed_weight,
-                'pending_weight_at_step' => 0,
-                'status' => 'completed',
-                'notes' => 'Work order marked COMPLETED by Admin. Artisan is now available for new assignments.',
-                'user_id' => Auth::id() ?? 1,
-                'action_by_name' => Auth::user()?->name ?? 'Admin',
-                'created_at' => now(),
-            ]);
-
-            // Top Bar Notification
-            WorkOrderNotification::create([
-                'work_order_id' => $order->id,
-                'karigar_id' => $order->karigar_id,
-                'type' => 'approved',
-                'title' => "Work Order Approved: {$order->work_order_number}",
-                'message' => "Work order {$order->work_order_number} ({$order->product_name}) was approved and completed by Admin.",
-                'data' => [
-                    'order_id' => $order->id,
-                    'work_order_number' => $order->work_order_number,
-                    'status' => 'completed',
-                    'target_role' => 'karigar',
-                ],
-                'is_read' => false,
-            ]);
-
             // Sync Karigar Gold Balance on Bench
             $this->syncKarigarGoldBalance($order->karigar_id);
 
-            // Reflect completed product in Inventory count
-            $this->creditWorkOrderToInventory($order);
+            // Update parent JobOrder derived status if present
+            if ($order->jobOrder) {
+                $order->jobOrder->updateDerivedStatus();
+            }
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Work order approved and marked COMPLETED. Karigar is now available for new work.',
-                'data' => $order->load(['karigar', 'product', 'category', 'timelines'])
+                'message' => 'Work order approved and marked COMPLETED.',
+                'data' => $order->load(['karigar', 'product', 'category', 'timelines', 'jobOrder'])
             ]);
         });
     }
@@ -758,6 +1013,10 @@ class WorkOrderController extends Controller
         ];
         $order->save();
 
+        if ($order->jobOrder) {
+            $order->jobOrder->updateDerivedStatus();
+        }
+
         WorkOrderTimeline::create([
             'work_order_id' => $order->id,
             'stage' => 'reworking',
@@ -771,22 +1030,8 @@ class WorkOrderController extends Controller
             'created_at' => now(),
         ]);
 
-        // Top Bar Notification for Karigar
-        WorkOrderNotification::create([
-            'work_order_id' => $order->id,
-            'karigar_id' => $order->karigar_id,
-            'type' => 'returned',
-            'title' => "Rework Required: {$order->work_order_number}",
-            'message' => "Admin returned {$order->work_order_number} for rework (Cycle #{$order->return_count}). Reason: {$request->return_reason}",
-            'data' => [
-                'order_id' => $order->id,
-                'work_order_number' => $order->work_order_number,
-                'return_reason' => $request->return_reason,
-                'return_count' => $order->return_count,
-                'target_role' => 'karigar',
-            ],
-            'is_read' => false,
-        ]);
+        // Dispatch rework notification
+        NotificationService::notifyQcReworkReturned($order, null, null, $request->return_reason ?? 'Rework required', 1, Auth::id());
 
         return response()->json([
             'status' => 'success',
@@ -802,17 +1047,6 @@ class WorkOrderController extends Controller
     {
         $order = WorkOrder::findOrFail($id);
         $currentUser = Auth::user();
-
-        // Server-Side Authorization: Karigar can only update their own assigned work
-        if ($currentUser && $currentUser->isKarigar()) {
-            $userKarigarId = $currentUser->karigar?->id ?? Karigar::where('email', $currentUser->email)->orWhere('name', $currentUser->name)->value('id');
-            if ($userKarigarId && $order->karigar_id && (int)$order->karigar_id !== (int)$userKarigarId) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Unauthorized. You can only update work orders assigned to you.'
-                ], 403);
-            }
-        }
 
         if (in_array($order->status, ['completed', 'cancelled', 'final_received'])) {
             return response()->json([
@@ -903,9 +1137,6 @@ class WorkOrderController extends Controller
                 $order->karigar_submitted_at = now();
                 $order->save();
 
-                // Reflect completed product in Inventory count
-                $this->creditWorkOrderToInventory($order);
-
                 $timelineEvent = $isRework ? 'Corrected Work Resubmitted for Approval' : 'Work Completed & Submitted for Review';
                 WorkOrderTimeline::create([
                     'work_order_id' => $order->id,
@@ -920,23 +1151,12 @@ class WorkOrderController extends Controller
                     'created_at' => now(),
                 ]);
 
-                // Create Top Bar Notification for Admin
-                WorkOrderNotification::create([
-                    'work_order_id' => $order->id,
-                    'karigar_id' => $order->karigar_id,
-                    'type' => $isRework ? 'rework_resubmitted' : 'submitted',
-                    'title' => $isRework ? "Rework Resubmitted: {$order->work_order_number}" : "Work Submitted: {$order->work_order_number}",
-                    'message' => "Artisan {$order->karigar_name} has " . ($isRework ? "resubmitted corrected work" : "submitted work") . " for {$order->product_name} ({$order->completed_weight}g completed).",
-                    'data' => [
-                        'order_id' => $order->id,
-                        'work_order_number' => $order->work_order_number,
-                        'product_name' => $order->product_name,
-                        'karigar_name' => $order->karigar_name,
-                        'status' => $newStatus,
-                        'target_role' => 'admin',
-                    ],
-                    'is_read' => false,
-                ]);
+                // Dispatch notification
+                if ($isRework) {
+                    NotificationService::notifyQcReworkResubmitted($order, null, null, 1, Auth::id());
+                } else {
+                    NotificationService::notifyQcSubmitted($order, null, null, 1, Auth::id());
+                }
 
                 $msg = $isRework ? 'Corrected work order resubmitted for admin approval!' : 'Work order submitted for admin approval!';
             } else {
@@ -961,32 +1181,33 @@ class WorkOrderController extends Controller
                     'created_at' => now(),
                 ]);
 
-                // Create Top Bar Notification for Admin on Work Progress Update
-                WorkOrderNotification::create([
-                    'work_order_id' => $order->id,
-                    'karigar_id' => $order->karigar_id,
-                    'type' => 'progress_update',
-                    'title' => "Work Order Updated: {$order->work_order_number}",
-                    'message' => "Karigar {$order->karigar_name} updated Work Order #{$order->work_order_number}",
-                    'data' => [
-                        'order_id' => $order->id,
-                        'work_order_number' => $order->work_order_number,
-                        'karigar_name' => $order->karigar_name,
-                        'status' => $order->status,
-                        'target_role' => 'admin',
-                    ],
-                    'is_read' => false,
-                ]);
+                // Dispatch progress notification
+                $firstItem = $order->items()->first();
+                if ($firstItem) {
+                    NotificationService::notifyProductionProgress($order, $firstItem, 1, Auth::id());
+                }
 
                 $msg = 'Work progress saved successfully.';
+            }
+
+            if ($order->jobOrder) {
+                $order->jobOrder->updateDerivedStatus();
             }
 
             return response()->json([
                 'status' => 'success',
                 'message' => $msg,
-                'data' => $order->load(['karigar', 'product', 'category', 'subcategory', 'timelines'])
+                'data' => $order->load(['karigar', 'product', 'category', 'subcategory', 'timelines', 'jobOrder'])
             ]);
         });
+    }
+
+    /**
+     * Alias for karigarUpdate for Manager Work Workbench
+     */
+    public function managerUpdate(Request $request, $id)
+    {
+        return $this->karigarUpdate($request, $id);
     }
 
     /**
@@ -1063,21 +1284,10 @@ class WorkOrderController extends Controller
             'created_at' => now(),
         ]);
 
-        WorkOrderNotification::create([
-            'work_order_id' => $order->id,
-            'karigar_id' => $order->karigar_id,
-            'type' => 'timeline_update',
-            'title' => "Timeline Updated: {$order->work_order_number}",
-            'message' => "Karigar " . ($order->karigar_name ?: 'Artisan') . " updated timeline on Work Order #{$order->work_order_number}",
-            'data' => [
-                'order_id' => $order->id,
-                'work_order_number' => $order->work_order_number,
-                'karigar_name' => $order->karigar_name,
-                'status' => $order->status,
-                'target_role' => 'admin',
-            ],
-            'is_read' => false,
-        ]);
+        $firstItem = $order->items()->first();
+        if ($firstItem) {
+            NotificationService::notifyProductionProgress($order, $firstItem, 1, Auth::id());
+        }
 
         return response()->json([
             'status' => 'success',
@@ -1192,28 +1402,2633 @@ class WorkOrderController extends Controller
             'created_at' => now(),
         ]);
 
-        // Send notification
-        WorkOrderNotification::create([
-            'work_order_id' => $order->id,
-            'karigar_id' => $order->karigar_id,
-            'type' => 'delay',
-            'title' => "Order {$order->work_order_number}: {$validated['delay_status']}",
-            'message' => "Order {$order->work_order_number} marked as {$validated['delay_status']} due to '{$validated['delay_reason']}'. New completion target: {$toDate}.",
-            'data' => [
-                'order_id' => $order->id,
-                'work_order_number' => $order->work_order_number,
-                'delay_reason' => $validated['delay_reason'],
-                'delay_days' => $validated['delay_days'],
-                'expected_date' => $toDate,
-                'target_role' => 'admin',
-            ],
-            'is_read' => false,
-        ]);
+        // Dispatch delay notification
+        NotificationService::notifyWorkOrderDelayed($order, $validated['delay_reason'], (int)$validated['delay_days'], Auth::id());
 
         return response()->json([
             'status' => 'success',
             'message' => 'Delay / Hold details updated successfully.',
             'data' => $order->load(['karigar', 'product', 'category', 'subcategory', 'client', 'timelines'])
+        ]);
+    }
+
+    /**
+     * Authorize user for manager/supervisor/admin operations
+     */
+    protected function authorizeAction()
+    {
+        $user = Auth::user();
+        if (!$user) {
+            abort(401, 'Unauthenticated');
+        }
+        if ($user->isSuperAdmin()) {
+            return true;
+        }
+        $role = strtolower(str_replace(' ', '_', $user->role ?? ''));
+        if (in_array($role, ['admin', 'super_admin', 'manager', 'supervisor', 'staff'])) {
+            return true;
+        }
+        abort(403, 'Unauthorized access to Work Order operations.');
+    }
+
+    /**
+     * Manager/Supervisor updates work progress, partial completion, delay, and queues units for QC
+     */
+    public function wipUpdate(Request $request, $id)
+    {
+        $this->authorizeAction();
+
+        $validated = $request->validate([
+            'completed_now' => 'nullable|integer|min:0',
+            'quantity' => 'nullable|integer|min:0',
+            'work_order_item_id' => 'nullable|exists:work_order_items,id',
+            'actual_weight' => 'nullable|numeric|min:0',
+            'completed_weight' => 'nullable|numeric|min:0',
+            'old_weight' => 'nullable|numeric|min:0',
+            'new_gold_weight' => 'nullable|numeric|min:0',
+            'purity' => 'nullable|numeric|min:0',
+            'colour_stone' => 'nullable|numeric|min:0',
+            'silver' => 'nullable|numeric|min:0',
+            'diamond' => 'nullable|numeric|min:0',
+            'no_of_diamonds' => 'nullable|integer|min:0',
+            'remarks' => 'nullable|string',
+            'delay' => 'nullable', // boolean or 'yes'/'no'
+            'delay_reason' => 'nullable|string',
+            'delay_remarks' => 'nullable|string',
+            'delay_days' => 'nullable|integer|min:0',
+            'expected_delivery_date' => 'nullable|date',
+        ]);
+
+        return DB::transaction(function () use ($request, $validated, $id) {
+            $order = WorkOrder::lockForUpdate()->findOrFail($id);
+
+            $completedNow = (int)($request->input('completed_now') ?? $request->input('quantity') ?? $request->input('completed_qty') ?? 0);
+            $pendingProduction = max(0, (int)$order->required_qty - (int)$order->completed_qty);
+            $maxAllowed = (int)$order->rework_qty + $pendingProduction;
+
+            if ($completedNow > $maxAllowed) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => "Completed Now ({$completedNow}) cannot exceed remaining production and rework quantity ({$maxAllowed})."
+                ], 422);
+            }
+
+            // Item resolution
+            $item = null;
+            if (!empty($validated['work_order_item_id'])) {
+                $item = WorkOrderItem::lockForUpdate()->where('work_order_id', $order->id)->find($validated['work_order_item_id']);
+                if ($item) {
+                    $itemPending = max(0, (int)$item->required_qty - (int)$item->completed_qty);
+                    $itemMaxAllowed = (int)$item->rework_qty + $itemPending;
+                    if ($completedNow > $itemMaxAllowed) {
+                        return response()->json([
+                            'status' => 'error',
+                            'message' => "Completed Now ({$completedNow}) exceeds job item remaining quantity ({$itemMaxAllowed})."
+                        ], 422);
+                    }
+                }
+            }
+
+            if ($completedNow > 0) {
+                $reworkToClearOrder = min((int)$order->rework_qty, $completedNow);
+                $newQtyForOrder = $completedNow - $reworkToClearOrder;
+
+                $order->rework_qty = max(0, (int)$order->rework_qty - $reworkToClearOrder);
+                $order->completed_qty = (int)$order->completed_qty + $newQtyForOrder;
+                $order->qc_pending_qty = (int)$order->qc_pending_qty + $completedNow;
+
+                if ($item) {
+                    $reworkToClearItem = min((int)$item->rework_qty, $completedNow);
+                    $newQtyForItem = $completedNow - $reworkToClearItem;
+
+                    $item->rework_qty = max(0, (int)$item->rework_qty - $reworkToClearItem);
+                    $item->completed_qty = (int)$item->completed_qty + $newQtyForItem;
+                    $item->qc_pending_qty = (int)$item->qc_pending_qty + $completedNow;
+                    $item->status = 'in_progress';
+                    $item->save();
+                }
+
+                $addWeight = (float)($validated['actual_weight'] ?? $validated['completed_weight'] ?? $validated['new_gold_weight'] ?? 0);
+                $weightPerPiece = $addWeight > 0 ? round($addWeight / max(1, $completedNow), 3) : null;
+                $purityVal = (float)($validated['purity'] ?? 91.60);
+                $oldWeightVal = (float)($validated['old_weight'] ?? 0);
+                $diaVal = (float)($validated['diamond'] ?? 0);
+                $diaCountVal = (int)($validated['no_of_diamonds'] ?? 0);
+                $colorStoneVal = (float)($validated['colour_stone'] ?? 0);
+                $silverVal = (float)($validated['silver'] ?? 0);
+
+                $targetPieces = collect();
+                if ($request->filled('piece_id')) {
+                    $foundP = WorkOrderReceivedPiece::where('work_order_id', $order->id)->find($request->piece_id);
+                    if ($foundP) {
+                        $targetPieces->push($foundP);
+                    }
+                }
+
+                // If more pieces are needed, prioritize reusing existing rework/rejected pieces
+                $neededToFulfill = $completedNow - $targetPieces->count();
+                if ($neededToFulfill > 0) {
+                    $reworkPiecesQuery = WorkOrderReceivedPiece::where('work_order_id', $order->id)
+                        ->where(function ($q) {
+                            $q->where('status', 'rework')
+                              ->orWhere('qc_status', 'rejected')
+                              ->orWhere('qc_status', 'rework');
+                        })
+                        ->whereNotIn('id', $targetPieces->pluck('id'));
+                    if ($item) {
+                        $reworkPiecesQuery->where('work_order_item_id', $item->id);
+                    }
+                    $reworkToReuse = $reworkPiecesQuery->orderBy('piece_number', 'asc')->take($neededToFulfill)->get();
+                    foreach ($reworkToReuse as $rp) {
+                        $targetPieces->push($rp);
+                    }
+                }
+
+                // Next, reuse any existing unreceived pieces in 'in_progress' or uninspected state
+                $neededStill = $completedNow - $targetPieces->count();
+                if ($neededStill > 0) {
+                    $inProgQuery = WorkOrderReceivedPiece::where('work_order_id', $order->id)
+                        ->whereNull('received_at')
+                        ->where(function ($q) {
+                            $q->where('status', 'in_progress')
+                              ->orWhereNull('qc_status');
+                        })
+                        ->whereNotIn('id', $targetPieces->pluck('id'));
+                    if ($item) {
+                        $inProgQuery->where('work_order_item_id', $item->id);
+                    }
+                    $inProgToReuse = $inProgQuery->orderBy('piece_number', 'asc')->take($neededStill)->get();
+                    foreach ($inProgToReuse as $ip) {
+                        $targetPieces->push($ip);
+                    }
+                }
+
+                // Only create brand new piece records if total pieces for scope is strictly below required_qty
+                $existingPieceRows = WorkOrderReceivedPiece::where('work_order_id', $order->id);
+                if ($item) {
+                    $existingPieceRows->where('work_order_item_id', $item->id);
+                }
+                $existingCountForScope = $existingPieceRows->count();
+                $maxAllowedForScope = $item ? (int)$item->required_qty : (int)$order->required_qty;
+
+                $stillNeeded = $completedNow - $targetPieces->count();
+                $existingTotalCount = WorkOrderReceivedPiece::where('work_order_id', $order->id)->count();
+                for ($pIdx = 0; $pIdx < $stillNeeded; $pIdx++) {
+                    if ($existingCountForScope >= $maxAllowedForScope) {
+                        break;
+                    }
+                    $pieceNum = $existingTotalCount + 1 + $pIdx;
+                    $newPiece = WorkOrderReceivedPiece::create([
+                        'work_order_id' => $order->id,
+                        'work_order_item_id' => $item?->id,
+                        'piece_number' => $pieceNum,
+                        'design_no' => $item?->design_no ?: $order->design_code ?: ('DES-' . str_pad($order->id, 4, '0', STR_PAD_LEFT)),
+                        'product_id' => $item?->product_id ?: $order->product_id,
+                        'product_name' => self::cleanProductName($item?->product_name ?: $order->product_name, $item?->design_no ?: $order->design_code),
+                        'client_id' => $order->client_id,
+                        'karigar_id' => $order->karigar_id,
+                        'status' => 'in_progress',
+                        'qc_status' => 'pending',
+                        'certification_status' => 'pending',
+                        'hallmarking_status' => 'pending',
+                        'is_inventory_posted' => false,
+                    ]);
+                    $targetPieces->push($newPiece);
+                    $existingCountForScope++;
+                }
+
+                foreach ($targetPieces as $tp) {
+                    $pieceGross = $weightPerPiece ?: ((float)$tp->gross_weight ?: ((float)$tp->allotted_weight ?: 0));
+                    $pieceNet = (float)($validated['new_gold_weight'] ?? round(max(0, $pieceGross - ($diaVal * 0.2) - ($colorStoneVal * 0.2) - $oldWeightVal), 3));
+                    if ($pieceNet <= 0) $pieceNet = $pieceGross;
+
+                    $tp->gross_weight = $pieceGross;
+                    $tp->net_gold_weight = $pieceNet;
+                    $tp->old_weight = $oldWeightVal;
+                    $tp->purity = $purityVal;
+                    $tp->diamond_weight = $diaVal;
+                    $tp->diamond_count = $diaCountVal;
+                    $tp->color_stone_weight = $colorStoneVal;
+                    $tp->silver_weight = $silverVal;
+                    $tp->status = 'qc_pending';
+                    $tp->qc_status = 'pending';
+                    $tp->qc_checked_at = null;
+                    $tp->qc_checked_by = null;
+                    $tp->qc_notes = $validated['remarks'] ?? null;
+                    $tp->qc_submission_data = [
+                        'work_order_number' => $order->work_order_number,
+                        'work_order_item_id' => $tp->work_order_item_id ?: $item?->id,
+                        'piece_number' => $tp->piece_number,
+                        'piece_id' => $tp->id,
+                        'product_id' => $tp->product_id ?: $item?->product_id ?: $order->product_id,
+                        'product_name' => $tp->product_name ?: $item?->product_name ?: $order->product_name,
+                        'design_no' => $tp->design_no ?: $item?->design_no ?: $order->design_code,
+                        'allotted_weight' => (float)($tp->item?->allotted_weight ?: $item?->allotted_weight ?: $order->allotted_weight),
+                        'completed_weight' => $pieceGross,
+                        'gross_weight' => $pieceGross,
+                        'net_gold_weight' => $pieceNet,
+                        'old_weight' => $oldWeightVal,
+                        'purity' => $purityVal,
+                        'gold_karat' => $tp->gold_karat ?: ($order->karat ?: '22K'),
+                        'diamond_weight' => $diaVal,
+                        'diamond_count' => $diaCountVal,
+                        'color_stone_weight' => $colorStoneVal,
+                        'silver_weight' => $silverVal,
+                        'remarks' => $validated['remarks'] ?? null,
+                        'submitted_at' => now()->toDateTimeString(),
+                        'submitted_by' => Auth::id() ?? 1,
+                    ];
+                    $tp->save();
+                }
+            }
+
+            // Weight updates
+            $addWeight = (float)($validated['actual_weight'] ?? $validated['completed_weight'] ?? $validated['new_gold_weight'] ?? 0);
+            if ($addWeight > 0) {
+                $order->completed_weight = round((float)$order->completed_weight + $addWeight, 3);
+                $order->pending_weight = max(0, round((float)$order->allotted_weight - (float)$order->completed_weight, 3));
+                if ($item) {
+                    $item->completed_weight = round((float)$item->completed_weight + $addWeight, 3);
+                    $item->save();
+                }
+
+                $pricing = $order->pricing_details ?? [];
+                if (!empty($pricing['items']) && is_array($pricing['items'])) {
+                    foreach ($pricing['items'] as &$pItm) {
+                        if (($item && ($pItm['id'] ?? null) == $item->id) || ($pItm['design_number'] ?? $pItm['design_no'] ?? '') == ($item->design_no ?? $order->design_code)) {
+                            $pItm['completed_weight'] = round((float)($pItm['completed_weight'] ?? 0) + $addWeight, 3);
+                            $pItm['completed_qty'] = $item ? $item->completed_qty : $order->completed_qty;
+                        }
+                    }
+                    unset($pItm);
+                    $order->pricing_details = $pricing;
+                }
+            }
+
+            // Delay handling
+            $isDelay = false;
+            if (isset($validated['delay'])) {
+                $dVal = $validated['delay'];
+                $isDelay = ($dVal === true || $dVal === 1 || $dVal === '1' || strtolower((string)$dVal) === 'yes');
+            }
+            if ($isDelay || !empty($validated['delay_reason'])) {
+                $order->is_delayed = true;
+                $order->delay_days = (int)($validated['delay_days'] ?? 1);
+                $order->delay_reason = $validated['delay_reason'] ?? 'Production delay';
+                $order->delay_remarks = $validated['delay_remarks'] ?? $validated['remarks'] ?? null;
+                $order->delay_updated_by = Auth::id() ?? 1;
+                $order->delay_updated_at = now();
+
+                if (!empty($validated['expected_delivery_date'])) {
+                    $order->delivery_date = $validated['expected_delivery_date'];
+                }
+
+                // Add to delay_history
+                $pricing = $order->pricing_details ?? [];
+                $existingHist = $pricing['delay_history'] ?? [];
+                array_unshift($existingHist, [
+                    'id' => 'delay_' . time() . '_' . rand(100, 999),
+                    'status' => 'Delayed',
+                    'reason' => $order->delay_reason,
+                    'delay_days' => $order->delay_days,
+                    'from_date' => $order->allotted_date ? Carbon::parse($order->allotted_date)->format('d M Y') : now()->format('d M Y'),
+                    'to_date' => $order->delivery_date ? Carbon::parse($order->delivery_date)->format('d M Y') : now()->addDays($order->delay_days)->format('d M Y'),
+                    'remarks' => $order->delay_remarks,
+                    'updated_by' => Auth::user()?->name ?? 'Manager',
+                    'created_at' => now()->toDateTimeString(),
+                ]);
+                $pricing['delay_history'] = $existingHist;
+                $order->pricing_details = $pricing;
+            }
+
+            if (!empty($validated['remarks'])) {
+                $order->notes = $validated['remarks'];
+            }
+
+            // Update status & current stage
+            if ($completedNow > 0) {
+                if ($order->completed_qty >= $order->required_qty) {
+                    $order->current_stage = 'quality_check';
+                    $order->status = 'pending_approval';
+                } else {
+                    $order->current_stage = 'work_in_progress';
+                    $order->status = 'in_progress';
+                }
+            }
+
+            $order->save();
+
+            // Timeline log
+            WorkOrderTimeline::create([
+                'work_order_id' => $order->id,
+                'stage' => $order->current_stage ?: 'work_in_progress',
+                'stage_label' => $completedNow > 0 ? "Completed {$completedNow} Unit(s) — Sent to QC" : "Work Progress Updated",
+                'completed_weight_at_step' => $order->completed_weight,
+                'pending_weight_at_step' => $order->pending_weight,
+                'status' => 'completed',
+                'notes' => ($completedNow > 0 ? "Completed {$completedNow} pcs (Total Completed: {$order->completed_qty}/{$order->required_qty}, QC Pending: {$order->qc_pending_qty}). " : "") . ($validated['remarks'] ?? ''),
+                'user_id' => Auth::id() ?? 1,
+                'action_by_name' => Auth::user()?->name ?? 'Manager',
+                'created_at' => now(),
+            ]);
+
+            if ($order->jobOrder) {
+                $order->jobOrder->updateDerivedStatus();
+            }
+
+            // Dispatch production and QC notifications
+            if ($completedNow > 0) {
+                if ($item) {
+                    NotificationService::notifyProductionProgress($order, $item, $completedNow, Auth::id());
+                }
+                NotificationService::notifyQcSubmitted($order, $item, null, $completedNow, Auth::id());
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'message' => $completedNow > 0 ? "Successfully recorded {$completedNow} completed unit(s) and queued for QC." : "Work update saved.",
+                'data' => $order->fresh(['items', 'receivedPieces', 'karigar', 'product', 'timelines', 'delayUpdater'])
+            ]);
+        });
+    }
+
+    /**
+     * Get operations list for a work order
+     */
+    public function getOperations(Request $request, $id)
+    {
+        $this->authorizeAction();
+
+        $order = WorkOrder::findOrFail($id);
+        $query = \App\Models\WorkOrderOperation::where('work_order_id', $order->id);
+
+        if ($request->filled('work_order_item_id')) {
+            $query->where('work_order_item_id', $request->work_order_item_id);
+        }
+
+        $operations = $query->orderBy('created_at', 'asc')->get();
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $operations,
+        ]);
+    }
+
+    /**
+     * Record manufacturing operation for a work order / item
+     */
+    public function recordOperation(Request $request, $id)
+    {
+        $this->authorizeAction();
+
+        $validated = $request->validate([
+            'work_order_item_id' => 'nullable|exists:work_order_items,id',
+            'operation_name' => 'required|string|max:100',
+            'status' => 'required|in:pending,in_progress,completed,on_hold',
+            'processed_qty' => 'nullable|integer|min:0',
+            'weight_measurement' => 'nullable|numeric|min:0',
+            'assigned_staff' => 'nullable|string|max:255',
+            'remarks' => 'nullable|string',
+            'started_at' => 'nullable|date',
+            'completed_at' => 'nullable|date',
+        ]);
+
+        return DB::transaction(function () use ($validated, $id) {
+            $order = WorkOrder::lockForUpdate()->findOrFail($id);
+
+            $item = null;
+            if (!empty($validated['work_order_item_id'])) {
+                $item = WorkOrderItem::lockForUpdate()->where('work_order_id', $order->id)->find($validated['work_order_item_id']);
+            }
+
+            $operation = \App\Models\WorkOrderOperation::where('work_order_id', $order->id)
+                ->where('work_order_item_id', $item?->id)
+                ->where('operation_name', $validated['operation_name'])
+                ->first();
+
+            if ($operation) {
+                $operation->update([
+                    'status' => $validated['status'],
+                    'processed_qty' => $validated['processed_qty'] ?? $operation->processed_qty,
+                    'weight_measurement' => $validated['weight_measurement'] ?? $operation->weight_measurement,
+                    'assigned_staff' => $validated['assigned_staff'] ?? $operation->assigned_staff,
+                    'remarks' => $validated['remarks'] ?? $operation->remarks,
+                    'started_at' => $validated['started_at'] ?? ($validated['status'] === 'in_progress' ? now() : $operation->started_at),
+                    'completed_at' => $validated['completed_at'] ?? ($validated['status'] === 'completed' ? now() : $operation->completed_at),
+                ]);
+            } else {
+                $operation = \App\Models\WorkOrderOperation::create([
+                    'work_order_id' => $order->id,
+                    'work_order_item_id' => $item?->id,
+                    'operation_name' => $validated['operation_name'],
+                    'status' => $validated['status'],
+                    'processed_qty' => $validated['processed_qty'] ?? 0,
+                    'weight_measurement' => $validated['weight_measurement'] ?? 0,
+                    'assigned_staff' => $validated['assigned_staff'] ?? null,
+                    'remarks' => $validated['remarks'] ?? null,
+                    'started_at' => $validated['started_at'] ?? ($validated['status'] === 'in_progress' ? now() : null),
+                    'completed_at' => $validated['completed_at'] ?? ($validated['status'] === 'completed' ? now() : null),
+                    'created_by' => Auth::id() ?? 1,
+                ]);
+            }
+
+            WorkOrderTimeline::create([
+                'work_order_id' => $order->id,
+                'stage' => 'work_in_progress',
+                'stage_label' => "Operation '{$validated['operation_name']}' set to " . strtoupper(str_replace('_', ' ', $validated['status'])),
+                'completed_weight_at_step' => $order->completed_weight,
+                'pending_weight_at_step' => $order->pending_weight,
+                'status' => 'in_progress',
+                'notes' => $validated['remarks'] ?? "Recorded manufacturing operation: {$validated['operation_name']} ({$validated['status']})",
+                'user_id' => Auth::id() ?? 1,
+                'action_by_name' => Auth::user()?->name ?? 'Manager',
+                'created_at' => now(),
+            ]);
+
+            $allOperations = \App\Models\WorkOrderOperation::where('work_order_id', $order->id)->get();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => "Operation '{$validated['operation_name']}' recorded successfully.",
+                'data' => $operation,
+                'operations' => $allOperations,
+            ]);
+        });
+    }
+
+    /**
+     * Batch submit selected completed products / items to Quality Check
+     */
+    public function batchSubmitQc(Request $request)
+    {
+        $this->authorizeAction();
+
+        $validated = $request->validate([
+            'items' => 'required|array|min:1',
+            'items.*.work_order_id' => 'required|exists:work_orders,id',
+            'items.*.work_order_item_id' => 'nullable|exists:work_order_items,id',
+            'items.*.completed_now' => 'nullable|integer|min:0',
+            'items.*.actual_weight' => 'nullable|numeric|min:0',
+            'items.*.remarks' => 'nullable|string',
+        ]);
+
+        return DB::transaction(function () use ($validated) {
+            $submittedItemsCount = 0;
+            $updatedOrders = [];
+
+            foreach ($validated['items'] as $itemData) {
+                $order = WorkOrder::lockForUpdate()->findOrFail($itemData['work_order_id']);
+                $completedNow = max(1, (int)($itemData['completed_now'] ?? 1));
+                $addWeight = (float)($itemData['actual_weight'] ?? 0);
+
+                $item = null;
+                if (!empty($itemData['work_order_item_id'])) {
+                    $item = WorkOrderItem::lockForUpdate()->where('work_order_id', $order->id)->find($itemData['work_order_item_id']);
+                }
+
+                if ($item) {
+                    $reworkToClear = min((int)$item->rework_qty, $completedNow);
+                    $item->rework_qty = max(0, (int)$item->rework_qty - $reworkToClear);
+
+                    // Check if completed_qty already covers completedNow
+                    if ((int)$item->completed_qty < $completedNow) {
+                        $needed = $completedNow - (int)$item->completed_qty;
+                        $item->completed_qty = (int)$item->completed_qty + $needed;
+                    }
+
+                    if ((int)$item->qc_pending_qty < $completedNow) {
+                        $item->qc_pending_qty = $completedNow;
+                    }
+
+                    if ($addWeight > 0 && (float)$item->completed_weight == 0) {
+                        $item->completed_weight = round((float)$addWeight, 3);
+                    }
+                    $item->status = 'in_progress';
+                    $item->save();
+                }
+
+                $reworkToClearOrder = min((int)$order->rework_qty, $completedNow);
+                $order->rework_qty = max(0, (int)$order->rework_qty - $reworkToClearOrder);
+
+                if ((int)$order->completed_qty < $completedNow) {
+                    $neededOrder = $completedNow - (int)$order->completed_qty;
+                    $order->completed_qty = (int)$order->completed_qty + $neededOrder;
+                }
+
+                if ((int)$order->qc_pending_qty < $completedNow) {
+                    $order->qc_pending_qty = $completedNow;
+                }
+
+                if ($addWeight > 0 && (float)$order->completed_weight == 0) {
+                    $order->completed_weight = round((float)$addWeight, 3);
+                    $order->pending_weight = max(0, round((float)$order->allotted_weight - (float)$order->completed_weight, 3));
+                }
+                $order->current_stage = 'quality_check';
+                $order->status = 'pending_approval';
+                $order->karigar_submitted_at = now();
+                $order->save();
+
+                // Initialize pieces and record individual piece QC submission data
+                self::ensurePiecesInitialized($order);
+
+                $targetPieces = collect();
+                if (!empty($itemData['piece_id'])) {
+                    $foundP = WorkOrderReceivedPiece::where('work_order_id', $order->id)->find($itemData['piece_id']);
+                    if ($foundP) $targetPieces->push($foundP);
+                }
+                if ($targetPieces->isEmpty()) {
+                    $pq = WorkOrderReceivedPiece::where('work_order_id', $order->id)
+                        ->whereNull('received_at')
+                        ->where(function ($q) {
+                            $q->whereIn('status', ['in_progress', 'rework'])
+                              ->orWhereNull('qc_status')
+                              ->orWhere('qc_status', 'pending');
+                        });
+                    if ($item) $pq->where('work_order_item_id', $item->id);
+                    $targetPieces = $pq->orderBy('piece_number', 'asc')->take($completedNow)->get();
+                }
+
+                $weightPerPiece = $addWeight > 0 ? round($addWeight / max(1, $completedNow), 3) : null;
+
+                foreach ($targetPieces as $tp) {
+                    $pieceGross = $weightPerPiece ?: ((float)$tp->gross_weight ?: ((float)$tp->allotted_weight ?: 0));
+                    $tp->gross_weight = $pieceGross;
+                    $tp->net_gold_weight = $pieceGross;
+                    $tp->status = 'qc_pending';
+                    $tp->qc_status = 'pending';
+                    $tp->qc_notes = $itemData['remarks'] ?? null;
+                    $tp->qc_submission_data = [
+                        'work_order_number' => $order->work_order_number,
+                        'work_order_item_id' => $tp->work_order_item_id ?: $item?->id,
+                        'piece_number' => $tp->piece_number,
+                        'piece_id' => $tp->id,
+                        'product_id' => $tp->product_id ?: $item?->product_id ?: $order->product_id,
+                        'product_name' => $tp->product_name ?: $item?->product_name ?: $order->product_name,
+                        'design_no' => $tp->design_no ?: $item?->design_no ?: $order->design_code,
+                        'allotted_weight' => (float)($tp->item?->allotted_weight ?: $item?->allotted_weight ?: $order->allotted_weight),
+                        'completed_weight' => $pieceGross,
+                        'gross_weight' => $pieceGross,
+                        'net_gold_weight' => $pieceGross,
+                        'remarks' => $itemData['remarks'] ?? null,
+                        'submitted_at' => now()->toDateTimeString(),
+                        'submitted_by' => Auth::id() ?? 1,
+                    ];
+                    $tp->save();
+                }
+
+                WorkOrderTimeline::create([
+                    'work_order_id' => $order->id,
+                    'stage' => 'sent_for_approval',
+                    'stage_label' => "Partial Production Submitted to QC ({$completedNow} pc(s))",
+                    'completed_weight_at_step' => $order->completed_weight,
+                    'pending_weight_at_step' => $order->pending_weight,
+                    'status' => 'submitted',
+                    'notes' => $itemData['remarks'] ?? "Submitted {$completedNow} piece(s) to Quality Check.",
+                    'user_id' => Auth::id() ?? 1,
+                    'action_by_name' => Auth::user()?->name ?? 'Artisan',
+                    'created_at' => now(),
+                ]);
+
+                if ($order->jobOrder) {
+                    $order->jobOrder->updateDerivedStatus();
+                }
+
+                // Dispatch QC submission notification
+                NotificationService::notifyQcSubmitted($order, $item, null, $completedNow, Auth::id());
+
+                $submittedItemsCount += $completedNow;
+                $updatedOrders[] = $order->work_order_number;
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'message' => "Successfully submitted {$submittedItemsCount} product item(s) to Quality Check!",
+                'submitted_count' => $submittedItemsCount,
+                'orders_count' => count(array_unique($updatedOrders)),
+            ]);
+        });
+    }
+
+    /**
+     * Quality Check decision: Pass units to Ready, or return units for Rework
+     */
+    public function qcAction(Request $request, $id)
+    {
+        $this->authorizeAction();
+
+        if ($request->has('qc_action') && !$request->has('action')) {
+            $request->merge(['action' => $request->input('qc_action')]);
+        }
+
+        $validated = $request->validate([
+            'action' => 'required|in:pass,approve,rework,partial,update_remarks',
+            'approved_qty' => 'nullable|integer|min:0',
+            'rework_qty' => 'nullable|integer|min:0',
+            'quantity' => 'nullable|integer|min:0',
+            'piece_id' => 'nullable|exists:work_order_received_pieces,id',
+            'reason' => 'nullable|string',
+            'notes' => 'nullable|string',
+            'remarks' => 'nullable|string',
+            'work_order_item_id' => 'nullable|exists:work_order_items,id',
+        ]);
+
+        return DB::transaction(function () use ($request, $validated, $id) {
+            $order = WorkOrder::lockForUpdate()->findOrFail($id);
+
+            $qcPiece = null;
+            if ($request->filled('piece_id') && $validated['action'] !== 'update_remarks') {
+                $qcPiece = WorkOrderReceivedPiece::where('work_order_id', $order->id)
+                    ->lockForUpdate()
+                    ->find($request->input('piece_id'));
+                if (!$qcPiece) {
+                    return response()->json(['status' => 'error', 'message' => 'Specified piece does not belong to this Work Order.'], 422);
+                }
+                if (!empty($validated['work_order_item_id']) && (int)$qcPiece->work_order_item_id !== (int)$validated['work_order_item_id']) {
+                    return response()->json(['status' => 'error', 'message' => 'Specified piece does not belong to the selected job item.'], 422);
+                }
+                if (!empty($qcPiece->received_at) || ($qcPiece->qc_status === 'passed' && $qcPiece->status === 'ready')) {
+                    return response()->json(['status' => 'error', 'message' => 'This piece is no longer awaiting Quality Check.'], 422);
+                }
+            }
+
+            if ($validated['action'] === 'update_remarks') {
+                $noteText = $validated['notes'] ?? $validated['remarks'] ?? '';
+                $order->quality_notes = $noteText;
+                $order->save();
+
+                if ($request->filled('piece_id')) {
+                    $remarksPiece = WorkOrderReceivedPiece::where('work_order_id', $order->id)
+                        ->lockForUpdate()
+                        ->findOrFail($request->input('piece_id'));
+                    $remarksPiece->qc_notes = $noteText;
+                    $remarksPiece->save();
+                }
+
+                if (!empty($validated['work_order_item_id'])) {
+                    $item = WorkOrderItem::lockForUpdate()->where('work_order_id', $order->id)->find($validated['work_order_item_id']);
+                    if ($item) {
+                        $item->remarks = $noteText;
+                        $item->save();
+                    }
+                }
+
+                return response()->json([
+                    'status' => 'success',
+                    'message' => 'QC inspection remarks updated successfully.',
+                    'data' => $order->fresh(['items', 'client', 'karigar']),
+                ]);
+            }
+
+            $action = ($validated['action'] === 'approve') ? 'pass' : $validated['action'];
+            $passQty = (int)($validated['approved_qty'] ?? $request->input('pass_qty') ?? ($action === 'pass' ? ($validated['quantity'] ?? 0) : 0));
+            $reworkQty = (int)($validated['rework_qty'] ?? ($action === 'rework' ? ($validated['quantity'] ?? 0) : 0));
+
+            if ($action === 'pass' && $reworkQty == 0) {
+                $passQty = $passQty > 0 ? $passQty : max(1, (int)$order->qc_pending_qty);
+            } elseif ($action === 'rework' && $passQty == 0) {
+                $reworkQty = $reworkQty > 0 ? $reworkQty : max(1, (int)$order->qc_pending_qty);
+            }
+
+            $totalInspected = $passQty + $reworkQty;
+            if ($qcPiece && $totalInspected !== 1) {
+                return response()->json(['status' => 'error', 'message' => 'A piece-specific QC decision must apply to exactly one piece.'], 422);
+            }
+            if ($totalInspected <= 0) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Please specify a quantity for QC inspection.'
+                ], 422);
+            }
+
+            $isReworkPiece = $qcPiece && in_array($qcPiece->qc_status, ['rejected', 'rework']);
+            if ($isReworkPiece) {
+                if ($totalInspected > (int)$order->rework_qty) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => "Inspected rework quantity ({$totalInspected}) exceeds quantity awaiting rework resolution ({$order->rework_qty})."
+                    ], 422);
+                }
+            } else {
+                if ($totalInspected > $order->qc_pending_qty) {
+                    $availQc = max($order->qc_pending_qty, max($order->completed_qty, $order->required_qty) - ($order->qc_approved_qty + $order->rework_qty));
+                    if ($totalInspected > $availQc) {
+                        return response()->json([
+                            'status' => 'error',
+                            'message' => "Inspected quantity ({$totalInspected}) exceeds quantity awaiting QC ({$availQc})."
+                        ], 422);
+                    }
+                    $order->qc_pending_qty = $availQc;
+                }
+            }
+
+            $item = null;
+            if (!empty($validated['work_order_item_id'])) {
+                $item = WorkOrderItem::lockForUpdate()->where('work_order_id', $order->id)->find($validated['work_order_item_id']);
+            }
+
+            // Apply Pass
+            if ($passQty > 0) {
+                if ($isReworkPiece) {
+                    $order->rework_qty = max(0, (int)$order->rework_qty - $passQty);
+                } else {
+                    $order->qc_pending_qty = max(0, (int)$order->qc_pending_qty - $passQty);
+                }
+                $order->qc_approved_qty = (int)$order->qc_approved_qty + $passQty;
+                $order->ready_qty = (int)$order->ready_qty + $passQty;
+
+                if ($item) {
+                    if ($isReworkPiece) {
+                        $item->rework_qty = max(0, (int)$item->rework_qty - $passQty);
+                    } else {
+                        $item->qc_pending_qty = max(0, (int)$item->qc_pending_qty - $passQty);
+                    }
+                    $item->qc_approved_qty = (int)$item->qc_approved_qty + $passQty;
+                    $item->ready_qty = (int)$item->ready_qty + $passQty;
+                    $item->save();
+                }
+
+                // Apply Pass to individual pieces
+                $passPieces = collect();
+                if ($qcPiece) {
+                    $passPieces->push($qcPiece);
+                }
+                if ($passPieces->isEmpty()) {
+                    $pq = WorkOrderReceivedPiece::where('work_order_id', $order->id)
+                        ->whereNull('received_at')
+                        ->where(function ($q) {
+                            $q->where('qc_status', 'pending')
+                              ->orWhere('status', 'qc_pending')
+                              ->orWhereNull('qc_status');
+                        });
+                    if ($item) $pq->where('work_order_item_id', $item->id);
+                    $passPieces = $pq->orderBy('piece_number', 'asc')->take($passQty)->get();
+                }
+                foreach ($passPieces as $pp) {
+                    $pp->qc_status = 'passed';
+                    $pp->status = 'ready';
+                    $pp->qc_notes = $validated['notes'] ?? 'QC Passed';
+                    $pp->qc_checked_at = now();
+                    $pp->qc_checked_by = Auth::id() ?? 1;
+                    $pp->save();
+                }
+            }
+
+            // Apply Rework
+            if ($reworkQty > 0) {
+                $order->qc_pending_qty = max(0, (int)$order->qc_pending_qty - $reworkQty);
+                $order->rework_qty = (int)$order->rework_qty + $reworkQty;
+                $order->return_count = ($order->return_count ?? 0) + 1;
+                $order->return_reason = $validated['reason'] ?? $validated['notes'] ?? 'QC Failed: rework required';
+                $order->returned_by = Auth::user()?->name ?? 'QC Inspector';
+                $order->return_date = now()->toDateString();
+
+                if ($item) {
+                    $item->qc_pending_qty = max(0, (int)$item->qc_pending_qty - $reworkQty);
+                    $item->rework_qty = (int)$item->rework_qty + $reworkQty;
+                    $item->save();
+                }
+
+                // Apply Rework to individual pieces
+                $reworkPieces = collect();
+                if ($qcPiece) {
+                    $reworkPieces->push($qcPiece);
+                }
+                if ($reworkPieces->isEmpty()) {
+                    $rq = WorkOrderReceivedPiece::where('work_order_id', $order->id)
+                        ->whereNull('received_at')
+                        ->where(function ($q) {
+                            $q->where('qc_status', 'pending')
+                              ->orWhere('status', 'qc_pending')
+                              ->orWhereNull('qc_status');
+                        });
+                    if ($item) $rq->where('work_order_item_id', $item->id);
+                    $reworkPieces = $rq->orderBy('piece_number', 'asc')->take($reworkQty)->get();
+                }
+                foreach ($reworkPieces as $rp) {
+                    $rp->qc_status = 'rejected';
+                    $rp->status = 'rework';
+                    $rp->qc_notes = $order->return_reason;
+                    $rp->qc_checked_at = now();
+                    $rp->qc_checked_by = Auth::id() ?? 1;
+                    $rp->save();
+                }
+            }
+
+            // Stage updates
+            if ($reworkQty > 0 && $passQty == 0) {
+                $order->current_stage = 'rework';
+                $order->status = 'returned';
+                $order->quality_status = 'returned';
+            } elseif ($order->ready_qty > 0) {
+                $order->current_stage = 'ready';
+                $order->status = 'ready';
+                $order->quality_status = 'passed';
+            }
+
+            $order->quality_checked_by = Auth::id() ?? 1;
+            $order->quality_checked_at = now();
+            $order->quality_notes = $validated['notes'] ?? ($passQty > 0 ? 'QC Passed' : 'Rework required');
+            $order->save();
+
+            // Timeline log
+            $stageLabel = ($passQty > 0 && $reworkQty > 0) 
+                ? "QC Partial: {$passQty} Passed, {$reworkQty} Rework"
+                : ($passQty > 0 ? "QC Passed: {$passQty} Unit(s) Approved" : "QC Rejected: {$reworkQty} Unit(s) sent for Rework");
+
+            WorkOrderTimeline::create([
+                'work_order_id' => $order->id,
+                'stage' => $reworkQty > 0 ? 'reworking' : 'quality_check',
+                'stage_label' => $stageLabel,
+                'completed_weight_at_step' => $order->completed_weight,
+                'pending_weight_at_step' => $order->pending_weight,
+                'status' => 'completed',
+                'notes' => $order->quality_notes . ($reworkQty > 0 ? " (Reason: {$order->return_reason})" : ''),
+                'user_id' => Auth::id() ?? 1,
+                'action_by_name' => Auth::user()?->name ?? 'QC Inspector',
+                'created_at' => now(),
+            ]);
+
+            if ($order->jobOrder) {
+                $order->jobOrder->updateDerivedStatus();
+            }
+
+            // Dispatch QC decision notifications
+            if ($passQty > 0) {
+                NotificationService::notifyQcPassed($order, $item, null, $passQty, Auth::id());
+                NotificationService::notifyReadyForReceiving($order, $item, null, $passQty, Auth::id());
+            }
+            if ($reworkQty > 0) {
+                NotificationService::notifyQcReworkReturned($order, $item, null, $order->return_reason ?? 'QC Failed', $reworkQty, Auth::id());
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'message' => "QC completed successfully. Approved: {$passQty}, Rework: {$reworkQty}.",
+                'data' => $order->fresh(['items', 'receivedPieces', 'karigar', 'product', 'timelines'])
+            ]);
+        });
+    }
+
+    /**
+     * Authoritative backend service method to check and perform final inventory posting for received pieces
+     */
+    public function syncInventoryPosting(WorkOrder $order, ?WorkOrderItem $item = null)
+    {
+        return DB::transaction(function () use ($order, $item) {
+            $order = WorkOrder::lockForUpdate()->find($order->id);
+            if (!$order) {
+                return 0;
+            }
+
+            // Fetch unposted received pieces
+            $unpostedPieces = WorkOrderReceivedPiece::where('work_order_id', $order->id)
+                ->where('is_inventory_posted', false)
+                ->whereNotNull('received_at')
+                ->lockForUpdate()
+                ->get()
+                ->filter(fn ($piece) => $piece->isEligibleForInventory())
+                ->values();
+
+            if ($unpostedPieces->isEmpty()) {
+                // Check if order is complete
+                if ($order->finalized_qty >= $order->required_qty && $order->received_qty >= $order->required_qty) {
+                    if (!in_array($order->status, ['completed', 'cancelled'])) {
+                        $order->status = 'completed';
+                        $order->current_stage = 'completed';
+                        $order->save();
+                    }
+                }
+                return 0;
+            }
+
+            $postedCount = 0;
+            foreach ($unpostedPieces as $piece) {
+                if ($piece->is_inventory_posted) {
+                    continue;
+                }
+
+                $designNo = $piece->design_no ?: $order->design_code ?: 'DES-' . str_pad($order->id, 4, '0', STR_PAD_LEFT);
+                $rawProductName = $piece->product_name ?: $order->product_name ?: 'Jewellery Product';
+                $productName = self::cleanProductName($rawProductName, $designNo);
+                $grossWeight = (float)$piece->gross_weight;
+                $pure24kWeight = (float)$piece->pure_24k_weight;
+                $purity = (float)$piece->purity;
+
+                $product = null;
+                if (!empty($piece->product_id)) {
+                    $product = Product::find($piece->product_id);
+                }
+                if (!$product && $piece->work_order_item_id) {
+                    $woItem = WorkOrderItem::find($piece->work_order_item_id);
+                    if ($woItem && $woItem->product_id) {
+                        $product = Product::find($woItem->product_id);
+                    }
+                }
+                // Only fall back to parent order product if this is a single-job work order
+                if (!$product && $order->items()->count() <= 1 && !empty($order->product_id)) {
+                    $product = Product::find($order->product_id);
+                }
+                if (!$product && !empty($designNo)) {
+                    $product = Product::where('design_no', $designNo)
+                        ->orWhere('product_code', $designNo)
+                        ->first();
+                }
+                if (!$product && !empty($productName)) {
+                    $product = Product::where('name', $productName)->first();
+                }
+
+                if ($product) {
+                    $product = Product::lockForUpdate()->find($product->id);
+                }
+
+                if ($product) {
+                    // Concurrency & idempotency guard: Do not duplicate if this piece tag was already posted in InventoryMovement
+                    $alreadyMoved = \App\Models\InventoryMovement::where('product_id', $product->id)
+                        ->where('notes', 'like', "%(Tag: {$piece->tag_number})%")
+                        ->exists();
+
+                    if ($alreadyMoved) {
+                        $piece->is_inventory_posted = true;
+                        $piece->posted_at = now();
+                        $piece->posted_by = Auth::id() ?? 1;
+                        $piece->save();
+                        continue;
+                    }
+
+                    $product->current_stock_qty = (int)($product->current_stock_qty ?? 0) + 1;
+                    $product->opening_stock_weight = round((float)($product->opening_stock_weight ?? 0) + $grossWeight, 3);
+                    $product->opening_fine_weight = round((float)($product->opening_fine_weight ?? 0) + $pure24kWeight, 3);
+
+                    // Synchronize product attributes (per-product gross weight, net weight, pieces, stones, tags)
+                    $attrs = is_array($product->attributes) ? $product->attributes : (json_decode($product->attributes ?? '[]', true) ?: []);
+                    $attrs['unit_gross_wt'] = round($grossWeight, 3);
+                    $attrs['unit_net_wt'] = round((float)$piece->net_gold_weight, 3);
+                    $attrs['gross_wt'] = round($grossWeight, 3);
+                    $attrs['net_wt'] = round((float)$piece->net_gold_weight, 3);
+                    $attrs['total_stock_weight'] = round((float)$product->opening_stock_weight, 3);
+                    $attrs['purity'] = (string)($piece->purity ?? $attrs['purity'] ?? '91.6');
+                    $attrs['gold_karat'] = (string)($piece->gold_karat ?? $attrs['gold_karat'] ?? '22K');
+                    $attrs['no_of_pieces'] = (string)$product->current_stock_qty;
+                    if (!empty($piece->diamond_weight) && (float)$piece->diamond_weight > 0) {
+                        $attrs['dia_wt_ct'] = round((float)($attrs['dia_wt_ct'] ?? 0) + (float)$piece->diamond_weight, 3);
+                        $attrs['diamond_count'] = (int)($attrs['diamond_count'] ?? 0) + (int)($piece->diamond_count ?? 0);
+                    }
+                    if (!empty($piece->color_stone_weight) && (float)$piece->color_stone_weight > 0) {
+                        $attrs['stone_weight'] = round((float)($attrs['stone_weight'] ?? 0) + (float)$piece->color_stone_weight, 3);
+                        $attrs['stone_count'] = (int)($attrs['stone_count'] ?? 0) + (int)($piece->color_stone_count ?? 0);
+                    }
+                    if ($piece->tag_number) {
+                        $tags = is_array($attrs['tags'] ?? null) ? $attrs['tags'] : [];
+                        if (!in_array($piece->tag_number, $tags)) {
+                            $tags[] = $piece->tag_number;
+                        }
+                        $attrs['tags'] = $tags;
+                        $attrs['last_tag_number'] = $piece->tag_number;
+                    }
+                    $product->attributes = $attrs;
+                    $product->save();
+                } else {
+                    $catId = $order->category_id;
+                    $subcatId = $order->subcategory_id;
+                    if (empty($catId) || !Category::where('id', $catId)->exists()) {
+                        $firstCat = Category::first();
+                        $catId = $firstCat ? $firstCat->id : Category::create(['name' => 'Jewellery', 'code' => 'JWL', 'status' => 'active'])->id;
+                    }
+                    $product = Product::create([
+                        'category_id' => $catId,
+                        'subcategory_id' => $subcatId,
+                        'name' => $productName,
+                        'product_code' => $designNo,
+                        'design_no' => $designNo,
+                        'current_stock_qty' => 1,
+                        'opening_stock_weight' => round($grossWeight, 3),
+                        'opening_touch' => round($purity, 2),
+                        'opening_fine_weight' => round($pure24kWeight, 3),
+                        'status' => 'active',
+                    ]);
+                }
+
+                if (!$piece->product_id) {
+                    $piece->product_id = $product->id;
+                }
+
+                try {
+                    \App\Models\InventoryMovement::create([
+                        'product_id' => $product->id,
+                        'movement_type' => 'receipt',
+                        'quantity' => 1,
+                        'weight' => round($grossWeight, 3),
+                        'notes' => "Finalized Inventory Posting (Tag: {$piece->tag_number}) from Work Order {$order->work_order_number} (Job: {$designNo})",
+                        'created_by' => Auth::id() ?? 1,
+                    ]);
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::warning('Inventory movement log notice: ' . $e->getMessage());
+                }
+
+                $piece->is_inventory_posted = true;
+                $piece->posted_at = now();
+                $piece->posted_by = Auth::id() ?? 1;
+                $piece->save();
+
+                NotificationService::notifyInventoryPosted($order, $piece, $product, Auth::id());
+
+                $postedCount++;
+            }
+
+            // Update finalized_qty
+            $totalPosted = WorkOrderReceivedPiece::where('work_order_id', $order->id)
+                ->where('is_inventory_posted', true)
+                ->count();
+
+            $order->finalized_qty = $totalPosted;
+
+            if ($order->items()->exists()) {
+                foreach ($order->items as $it) {
+                    $itemPosted = WorkOrderReceivedPiece::where('work_order_item_id', $it->id)
+                        ->where('is_inventory_posted', true)
+                        ->count();
+                    $it->finalized_qty = $itemPosted;
+                    if ($it->finalized_qty >= $it->required_qty && $it->received_qty >= $it->required_qty) {
+                        $it->status = 'completed';
+                    }
+                    $it->save();
+                }
+            }
+
+            // Evaluate overall Work Order completion status strictly against all completion rules
+            $reqQty = max(1, (int)$order->required_qty);
+            $isAllReceived = ((int)$order->received_qty >= $reqQty);
+            $isAllFinalized = ((int)$order->finalized_qty >= $reqQty);
+            $noQcPending = ((int)$order->qc_pending_qty === 0);
+            $noReworkPending = ((int)$order->rework_qty === 0);
+
+            $certStatus = strtolower($order->certification_status ?? 'pending');
+            $certOK = in_array($certStatus, ['completed', 'skipped', 'not_required']);
+
+            $hallStatus = strtolower($order->hallmarking_status ?? 'pending');
+            $hallOK = in_array($hallStatus, ['completed', 'skipped', 'not_required']);
+
+            if ($isAllReceived && $isAllFinalized && $noQcPending && $noReworkPending && $certOK && $hallOK) {
+                $order->status = 'completed';
+                $order->current_stage = 'completed';
+                NotificationService::notifyWorkOrderCompleted($order, Auth::id());
+            } elseif ($isAllReceived) {
+                if (!$certOK) {
+                    $order->status = 'received';
+                    $order->current_stage = 'certification';
+                } elseif (!$hallOK) {
+                    $order->status = 'received';
+                    $order->current_stage = 'hallmarking';
+                } else {
+                    $order->status = 'ready';
+                    $order->current_stage = 'ready';
+                }
+            } else {
+                if ($order->received_qty > 0) {
+                    $order->status = 'partially_received';
+                    $order->current_stage = 'partially_received';
+                }
+            }
+            $order->save();
+
+            if ($order->karigar_id) {
+                $this->syncKarigarGoldBalance($order->karigar_id);
+            }
+
+            return $postedCount;
+        });
+    }
+
+    /**
+     * API endpoint to explicitly finalize inventory for a Work Order
+     */
+    public function finalizeInventory(Request $request, $id)
+    {
+        $this->authorizeAction();
+
+        $order = WorkOrder::findOrFail($id);
+        $postedCount = $this->syncInventoryPosting($order);
+
+        $freshOrder = $order->fresh(['items', 'receivedPieces', 'karigar', 'product', 'timelines']);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => $postedCount > 0 
+                ? "Successfully posted {$postedCount} received piece(s) to Store Inventory." 
+                : "No pending eligible pieces to post for this Work Order.",
+            'posted_count' => $postedCount,
+            'data' => $freshOrder,
+            'order' => $freshOrder,
+        ]);
+    }
+
+    /**
+     * Certification Action: Add certification or Skip
+     */
+    public function certificationAction(Request $request, $id)
+    {
+        $this->authorizeAction();
+
+        $validated = $request->validate([
+            'work_order_item_id' => 'nullable|exists:work_order_items,id',
+            'work_order_received_piece_id' => 'nullable|exists:work_order_received_pieces,id',
+            'piece_id' => 'nullable|exists:work_order_received_pieces,id',
+            'tag_number' => 'nullable|string|max:50',
+            'action' => 'nullable|in:add,skip,not_required',
+            'certification_no' => 'nullable|string|max:255',
+            'agency' => 'nullable|string|max:255',
+            'certification_agency' => 'nullable|string|max:255',
+            'details' => 'nullable|string',
+            'move_to_hallmarking' => 'nullable|boolean',
+        ]);
+
+        $order = WorkOrder::findOrFail($id);
+        $action = $validated['action'] ?? ($request->boolean('move_to_hallmarking') ? 'add' : 'add');
+        
+        $item = null;
+        if (!empty($validated['work_order_item_id'])) {
+            $item = WorkOrderItem::where('work_order_id', $order->id)->find($validated['work_order_item_id']);
+        }
+
+        $certStatus = in_array($action, ['skip', 'not_required']) ? 'skipped' : 'completed';
+        $agency = $validated['certification_agency'] ?? $validated['agency'] ?? 'BIS Certified';
+        $certNo = ($certStatus === 'skipped') ? null : ($validated['certification_no'] ?? null);
+
+        if ($item) {
+            $pricing = $item->pricing_details ?? [];
+            $pricing['certification_no'] = $certNo;
+            $pricing['certification_agency'] = ($certStatus === 'skipped') ? null : $agency;
+            $pricing['certification_status'] = $certStatus;
+            $item->pricing_details = $pricing;
+            $item->save();
+        }
+
+        $order->certification_status = $certStatus;
+        $order->certification_details = [
+            'action' => $action,
+            'work_order_item_id' => $item?->id,
+            'certification_no' => $certNo,
+            'agency' => ($certStatus === 'skipped') ? null : $agency,
+            'details' => $validated['details'] ?? null,
+            'updated_by' => Auth::user()?->name ?? 'Admin',
+            'updated_at' => now()->toDateTimeString(),
+        ];
+        $order->certification_updated_by = Auth::id() ?? 1;
+        $order->certification_updated_at = now();
+        $order->certified_qty = max((int)$order->certified_qty, max((int)$order->ready_qty, (int)$order->received_qty));
+
+        $pricing = $order->pricing_details ?? [];
+        $pricing['certification_no'] = $certNo;
+        $pricing['certification_agency'] = ($certStatus === 'skipped') ? null : $agency;
+        $pricing['certification_status'] = $order->certification_status;
+        $order->pricing_details = $pricing;
+
+        $order->save();
+
+        $targetPiece = null;
+        if (!empty($validated['work_order_received_piece_id'])) {
+            $targetPiece = WorkOrderReceivedPiece::where('work_order_id', $order->id)->find($validated['work_order_received_piece_id']);
+        } elseif (!empty($validated['piece_id'])) {
+            $targetPiece = WorkOrderReceivedPiece::where('work_order_id', $order->id)->find($validated['piece_id']);
+        } elseif (!empty($validated['tag_number'])) {
+            $targetPiece = WorkOrderReceivedPiece::where('work_order_id', $order->id)->where('tag_number', $validated['tag_number'])->first();
+        }
+
+        if ($targetPiece && empty($targetPiece->received_at)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => "Piece #{$targetPiece->piece_number} must be physically received before proceeding to certification."
+            ], 422);
+        }
+
+        // Propagate certification status to the exact physical received piece(s)
+        $piecesQuery = WorkOrderReceivedPiece::where('work_order_id', $order->id);
+        if (!empty($validated['work_order_received_piece_id'])) {
+            $piecesQuery->where('id', $validated['work_order_received_piece_id']);
+        } elseif (!empty($validated['piece_id'])) {
+            $piecesQuery->where('id', $validated['piece_id']);
+        } elseif (!empty($validated['tag_number'])) {
+            $piecesQuery->where('tag_number', $validated['tag_number']);
+        } elseif ($item) {
+            $piecesQuery->where('work_order_item_id', $item->id);
+        }
+
+        $hasSpecificPiece = !empty($validated['work_order_received_piece_id']) || !empty($validated['piece_id']) || !empty($validated['tag_number']);
+        if (!$hasSpecificPiece) {
+            if ($action === 'add') {
+                $piecesQuery->whereNotNull('received_at');
+            }
+            $pendingCount = (clone $piecesQuery)->where('certification_status', 'pending')->count();
+            if ($pendingCount > 0) {
+                $piecesQuery->where('certification_status', 'pending');
+            }
+        }
+
+        $piecesQuery->update([
+            'certification_status' => $certStatus,
+            'certificate_no' => $certNo,
+            'certification_agency' => ($certStatus === 'skipped') ? null : $agency,
+            'certified_at' => now(),
+            'certified_by' => Auth::id() ?? 1,
+        ]);
+
+        $actualCertified = WorkOrderReceivedPiece::where('work_order_id', $order->id)
+            ->whereIn('certification_status', ['completed', 'skipped', 'not_required'])
+            ->count();
+        $order->certified_qty = max((int)$order->certified_qty, $actualCertified);
+        if ($hasSpecificPiece) {
+            $order->certification_status = ($order->certified_qty >= $order->required_qty) ? $certStatus : 'in_progress';
+        } else {
+            $order->certification_status = $certStatus;
+        }
+        $order->save();
+
+        WorkOrderTimeline::create([
+            'work_order_id' => $order->id,
+            'stage' => 'certification',
+            'stage_label' => ($certStatus === 'skipped') ? 'Certification Skipped' : 'Certification Completed',
+            'completed_weight_at_step' => $order->completed_weight,
+            'pending_weight_at_step' => $order->pending_weight,
+            'status' => 'completed',
+            'notes' => ($certStatus === 'skipped') 
+                ? 'Certification step explicitly marked as skipped / not required.' 
+                : "Certificate No: " . ($certNo ?? 'N/A') . " (" . ($agency ?? 'BIS') . ").",
+            'user_id' => Auth::id() ?? 1,
+            'action_by_name' => Auth::user()?->name ?? 'Admin',
+            'created_at' => now(),
+        ]);
+
+        // Attempt inventory finalization if physical receiving was already recorded
+        $this->syncInventoryPosting($order);
+
+        if ($certStatus !== 'skipped') {
+            NotificationService::notifyCertificationCompleted($order, null, $certNo ?? '', Auth::id());
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => ($certStatus === 'skipped') ? 'Certification skipped.' : 'Certification details recorded successfully.',
+            'data' => $order->fresh(['karigar', 'product', 'items', 'receivedPieces', 'timelines'])
+        ]);
+    }
+
+    /**
+     * Hallmarking Action: Add HUID/Hallmark or Skip
+     */
+    public function hallmarkingAction(Request $request, $id)
+    {
+        $this->authorizeAction();
+
+        $validated = $request->validate([
+            'work_order_item_id' => 'nullable|exists:work_order_items,id',
+            'work_order_received_piece_id' => 'nullable|exists:work_order_received_pieces,id',
+            'piece_id' => 'nullable|exists:work_order_received_pieces,id',
+            'tag_number' => 'nullable|string|max:50',
+            'action' => 'nullable|in:add,skip,not_required',
+            'huid' => 'nullable|string|max:50',
+            'huid_number' => 'nullable|string|max:50',
+            'hallmark_center' => 'nullable|string|max:255',
+            'center_name' => 'nullable|string|max:255',
+            'details' => 'nullable|string',
+        ]);
+
+        $order = WorkOrder::findOrFail($id);
+        $action = $validated['action'] ?? 'add';
+        $hallStatus = in_array($action, ['skip', 'not_required']) ? 'skipped' : 'completed';
+
+        // Target piece resolution and receiving validation
+        $targetPiece = null;
+        if (!empty($validated['work_order_received_piece_id'])) {
+            $targetPiece = WorkOrderReceivedPiece::where('work_order_id', $order->id)->find($validated['work_order_received_piece_id']);
+        } elseif (!empty($validated['piece_id'])) {
+            $targetPiece = WorkOrderReceivedPiece::where('work_order_id', $order->id)->find($validated['piece_id']);
+        } elseif (!empty($validated['tag_number'])) {
+            $targetPiece = WorkOrderReceivedPiece::where('work_order_id', $order->id)->where('tag_number', $validated['tag_number'])->first();
+        }
+
+        if ($targetPiece) {
+            if (empty($targetPiece->received_at)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => "Piece #{$targetPiece->piece_number} must be physically received before proceeding to hallmarking."
+                ], 422);
+            }
+
+            $pieceCertStatus = strtolower($targetPiece->certification_status ?? '');
+            if (!in_array($pieceCertStatus, ['completed', 'skipped', 'not_required'])) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'certification_status' => ["Piece #{$targetPiece->piece_number} certification must be completed, skipped, or marked not required before proceeding to hallmarking."]
+                ]);
+            }
+        } else {
+            // Whole-order hallmarking: enforce that order certification is completed, skipped, or not required
+            $certStatus = strtolower($order->certification_status ?? '');
+            if (!in_array($certStatus, ['completed', 'skipped', 'not_required', 'in_progress'])) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'certification_status' => ['Certification must be completed, skipped, or marked not required before proceeding to hallmarking.']
+                ]);
+            }
+        }
+
+        $huid = $validated['huid'] ?? $validated['huid_number'] ?? null;
+        $hallmarkCenter = $validated['hallmark_center'] ?? $validated['center_name'] ?? null;
+
+        if ($action === 'add' && empty($huid)) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'huid' => ['HUID / Hallmark reference number is required to complete hallmarking.']
+            ]);
+        }
+
+        $item = null;
+        if (!empty($validated['work_order_item_id'])) {
+            $item = WorkOrderItem::where('work_order_id', $order->id)->find($validated['work_order_item_id']);
+        }
+
+        if ($item) {
+            $pricing = $item->pricing_details ?? [];
+            $pricing['huid'] = ($hallStatus === 'skipped') ? null : $huid;
+            $pricing['hallmark_center'] = $hallmarkCenter;
+            $pricing['hallmarking_status'] = $hallStatus;
+            $item->pricing_details = $pricing;
+            $item->save();
+        }
+
+        $order->hallmarking_status = $hallStatus;
+        $order->hallmarking_details = [
+            'action' => $action,
+            'work_order_item_id' => $item?->id,
+            'huid' => ($hallStatus === 'skipped') ? null : $huid,
+            'hallmark_center' => $hallmarkCenter,
+            'details' => $validated['details'] ?? null,
+            'updated_by' => Auth::user()?->name ?? 'Admin',
+            'updated_at' => now()->toDateTimeString(),
+        ];
+        $order->hallmarking_updated_by = Auth::id() ?? 1;
+        $order->hallmarking_updated_at = now();
+        $order->hallmarked_qty = max((int)$order->hallmarked_qty, max((int)$order->ready_qty, (int)$order->received_qty));
+
+        $pricing = $order->pricing_details ?? [];
+        $pricing['huid'] = ($hallStatus === 'skipped') ? null : $huid;
+        $pricing['hallmark_center'] = $hallmarkCenter;
+        $pricing['hallmarking_status'] = $order->hallmarking_status;
+        $order->pricing_details = $pricing;
+
+        $order->save();
+
+        // Propagate hallmarking status to the exact physical received piece(s)
+        $piecesQuery = WorkOrderReceivedPiece::where('work_order_id', $order->id);
+        if (!empty($validated['work_order_received_piece_id'])) {
+            $piecesQuery->where('id', $validated['work_order_received_piece_id']);
+        } elseif (!empty($validated['piece_id'])) {
+            $piecesQuery->where('id', $validated['piece_id']);
+        } elseif (!empty($validated['tag_number'])) {
+            $piecesQuery->where('tag_number', $validated['tag_number']);
+        } elseif ($item) {
+            $piecesQuery->where('work_order_item_id', $item->id);
+        }
+
+        $hasSpecificPiece = !empty($validated['work_order_received_piece_id']) || !empty($validated['piece_id']) || !empty($validated['tag_number']);
+        if (!$hasSpecificPiece) {
+            if ($action === 'add') {
+                $piecesQuery->whereNotNull('received_at');
+            }
+            $pendingCount = (clone $piecesQuery)->where('hallmarking_status', 'pending')->count();
+            if ($pendingCount > 0) {
+                $piecesQuery->where('hallmarking_status', 'pending');
+            }
+        }
+
+        $piecesQuery->update([
+            'hallmarking_status' => $hallStatus,
+            'huid' => ($hallStatus === 'skipped') ? null : $huid,
+            'hallmarked_at' => now(),
+            'hallmarked_by' => Auth::id() ?? 1,
+        ]);
+
+        $actualHallmarked = WorkOrderReceivedPiece::where('work_order_id', $order->id)
+            ->whereIn('hallmarking_status', ['completed', 'skipped', 'not_required'])
+            ->count();
+        $order->hallmarked_qty = max((int)$order->hallmarked_qty, $actualHallmarked);
+        if ($hasSpecificPiece) {
+            $order->hallmarking_status = ($order->hallmarked_qty >= $order->required_qty) ? $hallStatus : 'in_progress';
+        } else {
+            $order->hallmarking_status = $hallStatus;
+        }
+        $order->save();
+
+        WorkOrderTimeline::create([
+            'work_order_id' => $order->id,
+            'stage' => 'hallmarking',
+            'stage_label' => ($hallStatus === 'skipped') ? 'Hallmarking Skipped' : 'Hallmarking & HUID Completed',
+            'completed_weight_at_step' => $order->completed_weight,
+            'pending_weight_at_step' => $order->pending_weight,
+            'status' => 'completed',
+            'notes' => ($hallStatus === 'skipped') 
+                ? 'Hallmarking step explicitly marked as skipped / not required.' 
+                : "HUID: " . ($huid ?? 'N/A') . " (Center: " . ($validated['hallmark_center'] ?? 'BIS') . ").",
+            'user_id' => Auth::id() ?? 1,
+            'action_by_name' => Auth::user()?->name ?? 'Admin',
+            'created_at' => now(),
+        ]);
+
+        // Attempt inventory finalization if physical receiving was already recorded
+        $this->syncInventoryPosting($order);
+
+        if ($hallStatus !== 'skipped') {
+            NotificationService::notifyHallmarkingCompleted($order, null, $huid, Auth::id());
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => ($hallStatus === 'skipped') ? 'Hallmarking skipped.' : 'Hallmarking recorded successfully.',
+            'data' => $order->fresh(['karigar', 'product', 'items', 'receivedPieces', 'timelines'])
+        ]);
+    }
+
+    /**
+     * Receive single physical piece individually with unique Tag Number (Without premature inventory posting)
+     */
+    public function receivePiece(Request $request, $id)
+    {
+        $this->authorizeAction();
+
+        // Harmonize field names
+        if ($request->has('weight') && !$request->has('gross_weight')) {
+            $request->merge(['gross_weight' => $request->input('weight')]);
+        }
+        if ($request->has('weight') && !$request->has('net_gold_weight')) {
+            $request->merge(['net_gold_weight' => $request->input('weight')]);
+        }
+        if ($request->has('gold_weight') && !$request->has('net_gold_weight')) {
+            $request->merge(['net_gold_weight' => $request->input('gold_weight')]);
+        }
+        if ($request->has('touch') && !$request->has('purity')) {
+            $request->merge(['purity' => $request->input('touch')]);
+        }
+        if ($request->has('making_charge') && !$request->has('making_charge_per_gram')) {
+            $request->merge(['making_charge_per_gram' => $request->input('making_charge')]);
+        }
+
+        $validated = $request->validate([
+            'work_order_item_id' => 'nullable|exists:work_order_items,id',
+            'gross_weight' => 'required|numeric|min:0.001',
+            'old_weight' => 'nullable|numeric|min:0',
+            'net_gold_weight' => 'nullable|numeric|min:0',
+            'purity' => 'nullable|numeric|min:1|max:100', // e.g. 91.60
+            'gold_karat' => 'nullable|string|max:20',
+            'silver_weight' => 'nullable|numeric|min:0',
+            'diamond_weight' => 'nullable|numeric|min:0',
+            'diamond_count' => 'nullable|integer|min:0',
+            'diamond_stamp' => 'nullable|string|max:50',
+            'stamp' => 'nullable|string|max:50',
+            'diamond_details' => 'nullable|string|max:100',
+            'color_stone_weight' => 'nullable|numeric|min:0',
+            'color_stone_count' => 'nullable|integer|min:0',
+            'making_charge_type' => 'nullable|string|in:per_gram,percentage,fixed',
+            'making_charge_per_gram' => 'nullable|numeric|min:0',
+            'total_making_charge' => 'nullable|numeric|min:0',
+            'given_metal_qty' => 'nullable|numeric|min:0',
+            'given_cash' => 'nullable|numeric|min:0',
+            'wastage_weight' => 'nullable|numeric|min:0',
+            'karigar_gold_weight' => 'nullable|numeric|min:0',
+            'returned_gold_weight' => 'nullable|numeric|min:0',
+            'huid' => 'nullable|string|max:50',
+            'certificate_no' => 'nullable|string|max:50',
+            'description' => 'nullable|string',
+            'image' => 'nullable',
+            'completion_image' => 'nullable',
+            'delivery_date' => 'nullable|date',
+        ]);
+
+        // Process completion image file upload if uploaded as file
+        if ($request->hasFile('image') || $request->hasFile('completion_image')) {
+            $file = $request->file('image') ?? $request->file('completion_image');
+            $extension = $file->getClientOriginalExtension() ?: 'jpg';
+            $filename = 'completion_' . time() . '_' . \Illuminate\Support\Str::random(10) . '.' . $extension;
+            $file->storeAs('public/work_orders', $filename);
+            $validated['image'] = asset("storage/work_orders/{$filename}");
+        } elseif ($request->filled('completion_image') && empty($validated['image'])) {
+            $validated['image'] = $request->input('completion_image');
+        }
+
+        return DB::transaction(function () use ($request, $validated, $id) {
+            $order = WorkOrder::lockForUpdate()->findOrFail($id);
+
+            // Item resolution
+            $item = null;
+            if (!empty($validated['work_order_item_id'])) {
+                $item = WorkOrderItem::lockForUpdate()->where('work_order_id', $order->id)->find($validated['work_order_item_id']);
+            }
+            if (!$item && !$request->filled('piece_id') && $order->items()->exists()) {
+                $item = $order->items()->whereRaw('received_qty < ready_qty')->first() ?: $order->items()->first();
+            }
+
+            // Check if receivable
+            $receivable = max(0, (int)$order->ready_qty - (int)$order->received_qty);
+            if ($receivable <= 0 && !$request->filled('piece_id')) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'No ready pieces pending for receiving on this Work Order.'
+                ], 422);
+            }
+
+            $grossWeight = (float)$validated['gross_weight'];
+            $oldWeight = (float)($validated['old_weight'] ?? 0);
+            $diamondWeightCt = (float)($validated['diamond_weight'] ?? 0);
+            $diamondWeightGrams = round($diamondWeightCt * 0.2, 3);
+            
+            // Colour stone weight: in jewellery formula 1 ct = 0.2g if entered in carats
+            $colorStoneWeight = (float)($validated['color_stone_weight'] ?? 0);
+            $colorStoneGrams = round($colorStoneWeight * 0.2, 3);
+            if ($colorStoneGrams > $grossWeight) {
+                $colorStoneGrams = $colorStoneWeight;
+            }
+
+            // Formula: Net Weight = Total Weight - (Diamond Wt * 0.2) - (Colour Stone Wt * 0.2) - Old Weight
+            $calculatedNet = round($grossWeight - $diamondWeightGrams - $colorStoneGrams - $oldWeight, 3);
+            
+            // If explicit net_gold_weight was provided and is positive, accept it
+            if ($request->filled('net_gold_weight') && (float)$request->input('net_gold_weight') > 0) {
+                $calculatedNet = (float)$request->input('net_gold_weight');
+            }
+
+            if ($calculatedNet <= 0) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Calculated Net Gold Weight must be greater than zero. Please verify Gross Weight, Stone weights, and Old Weight.'
+                ], 422);
+            }
+            $netGoldWeight = $calculatedNet;
+
+            $purity = (float)($validated['purity'] ?? 91.60);
+            
+            // Dynamic Pure 24K Calculation: Net Gold * Touch / 100
+            $pure24kWeight = round(($netGoldWeight * ($purity / 100)), 3);
+
+            // Target piece resolution: reuse existing piece record if already in DB
+            $targetPiece = null;
+            if ($request->filled('piece_id')) {
+                $targetPiece = WorkOrderReceivedPiece::where('work_order_id', $order->id)->lockForUpdate()->find($request->piece_id);
+                if (!$targetPiece) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Specified piece not found in this Work Order.'
+                    ], 404);
+                }
+                if (!empty($targetPiece->received_at)) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => "Piece #{$targetPiece->piece_number} has already been received (Tag: {$targetPiece->tag_number})."
+                    ], 422);
+                }
+                if ($targetPiece->qc_status !== 'passed' && $targetPiece->status !== 'ready') {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => "Piece #{$targetPiece->piece_number} has not passed Quality Check (Current QC status: {$targetPiece->qc_status})."
+                    ], 422);
+                }
+                if ($targetPiece->work_order_item_id) {
+                    if ($item && (int)$item->id !== (int)$targetPiece->work_order_item_id) {
+                        return response()->json(['status' => 'error', 'message' => 'Selected job item does not match the receiving piece.'], 422);
+                    }
+                    $item = WorkOrderItem::lockForUpdate()->where('work_order_id', $order->id)->find($targetPiece->work_order_item_id);
+                }
+            }
+
+            if (!$targetPiece) {
+                // Find next ready unreceived piece
+                $targetPiece = WorkOrderReceivedPiece::where('work_order_id', $order->id)
+                    ->where(function ($q) {
+                        $q->where('qc_status', 'passed')->orWhere('status', 'ready');
+                    })
+                    ->whereNull('received_at')
+                    ->orderBy('piece_number', 'asc')
+                    ->lockForUpdate()
+                    ->first();
+            }
+
+            $receiveOrderNumber = $targetPiece?->receive_order_number ?: WorkOrderReceivedPiece::generateReceiveOrderNumber();
+            $tagNumber = $targetPiece?->tag_number ?: WorkOrderReceivedPiece::generateTagNumber();
+            $pieceNumber = $targetPiece?->piece_number ?: ((int)$order->received_qty + 1);
+
+            $designNo = $item?->design_no ?: $order->design_code ?: 'DES-' . str_pad($order->id, 4, '0', STR_PAD_LEFT);
+            $rawProductName = $item?->product_name ?: $order->product_name ?: 'Jewellery Product';
+            $productName = self::cleanProductName($rawProductName, $designNo);
+
+            // Making Charge calculation
+            $mcType = $validated['making_charge_type'] ?? 'per_gram';
+            $mcRate = (float)($validated['making_charge_per_gram'] ?? $order->making_charge_per_gram ?? 0);
+            if ($request->filled('total_making_charge') && (float)$request->input('total_making_charge') > 0) {
+                $totalMakingCharge = round((float)$request->input('total_making_charge'), 2);
+            } else {
+                if ($mcType === 'per_gram') {
+                    $totalMakingCharge = round($mcRate * $netGoldWeight, 2);
+                } elseif ($mcType === 'percentage') {
+                    $goldRate = 7200;
+                    $totalMakingCharge = round(($mcRate / 100) * ($netGoldWeight * $goldRate), 2);
+                } else {
+                    $totalMakingCharge = round($mcRate, 2);
+                }
+            }
+
+            // Resolve Product and dynamic stamp / diamond count from inventory product details
+            $resolvedProduct = $item?->product ?: ($order->product ?: Product::where('design_no', $designNo)->first());
+            $resolvedAttributes = is_array($resolvedProduct?->attributes) 
+                ? $resolvedProduct->attributes 
+                : (is_string($resolvedProduct?->attributes) ? json_decode($resolvedProduct->attributes, true) : []);
+
+            $dynamicStamp = $validated['diamond_stamp'] ?? $validated['stamp'] ?? null;
+            if (!$dynamicStamp) {
+                $dynamicStamp = $resolvedAttributes['stamp'] ?? $resolvedProduct?->stamp ?? $resolvedAttributes['diamond_stamp'] ?? null;
+            }
+            if (!$dynamicStamp && !empty($resolvedAttributes['components']) && is_array($resolvedAttributes['components'])) {
+                foreach ($resolvedAttributes['components'] as $comp) {
+                    $name = strtolower($comp['category_name'] ?? $comp['item_name'] ?? '');
+                    if ((str_contains($name, 'diamond') || str_contains($name, 'dia')) && !empty($comp['stamp'])) {
+                        $dynamicStamp = $comp['stamp'];
+                        break;
+                    }
+                }
+            }
+            $cleanStamp = $dynamicStamp ? ltrim($dynamicStamp, '+') : '0';
+
+            $diaCount = isset($validated['diamond_count']) && $validated['diamond_count'] !== '' 
+                ? (int)$validated['diamond_count'] 
+                : 0;
+            if ($diaCount === 0) {
+                if (isset($resolvedAttributes['diamond_count'])) {
+                    $diaCount = (int)$resolvedAttributes['diamond_count'];
+                } elseif (isset($resolvedAttributes['dia_count'])) {
+                    $diaCount = (int)$resolvedAttributes['dia_count'];
+                } elseif (isset($resolvedAttributes['stone_count'])) {
+                    $diaCount = (int)$resolvedAttributes['stone_count'];
+                } elseif (!empty($resolvedAttributes['components']) && is_array($resolvedAttributes['components'])) {
+                    foreach ($resolvedAttributes['components'] as $comp) {
+                        $name = strtolower($comp['category_name'] ?? $comp['item_name'] ?? '');
+                        if (str_contains($name, 'diamond') || str_contains($name, 'dia')) {
+                            $diaCount = (int)($comp['no_of_pieces'] ?? $comp['quantity'] ?? 0);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Dynamic diamond details format: Dia-0.00/+stamp/count
+            $diamondDetails = $validated['diamond_details'] ?? null;
+            if (!$diamondDetails) {
+                $diaWtFloat = (float)$diamondWeightCt;
+                $formattedDiaWt = ($diaWtFloat == round($diaWtFloat, 1) && $diaWtFloat != 0) 
+                    ? (string)$diaWtFloat 
+                    : number_format($diamondWeightCt, 2);
+                $diamondDetails = "Dia-{$formattedDiaWt}/+{$cleanStamp}/{$diaCount}";
+            }
+
+            $piecePayload = [
+                'work_order_id' => $order->id,
+                'work_order_item_id' => $item?->id,
+                'receive_order_number' => $receiveOrderNumber,
+                'tag_number' => $tagNumber,
+                'piece_number' => $pieceNumber,
+                'design_no' => $designNo,
+                'product_id' => $resolvedProduct?->id ?: $targetPiece?->product_id,
+                'product_name' => $productName,
+                'client_id' => $order->client_id,
+                'karigar_id' => $order->karigar_id,
+                'gross_weight' => round($grossWeight, 3),
+                'old_weight' => isset($validated['old_weight']) ? round((float)$validated['old_weight'], 3) : null,
+                'net_gold_weight' => round($netGoldWeight, 3),
+                'purity' => round($purity, 2),
+                'gold_karat' => $validated['gold_karat'] ?? '22K',
+                'pure_24k_weight' => round($pure24kWeight, 3),
+                'silver_weight' => round((float)($validated['silver_weight'] ?? 0), 3),
+                'diamond_weight' => round($diamondWeightCt, 3),
+                'diamond_count' => $diaCount,
+                'diamond_details' => $diamondDetails,
+                'color_stone_weight' => round($colorStoneWeight, 3),
+                'color_stone_count' => (int)($validated['color_stone_count'] ?? 0),
+                'making_charge_type' => $mcType,
+                'making_charge_per_gram' => round($mcRate, 2),
+                'total_making_charge' => round($totalMakingCharge, 2),
+                'given_metal_qty' => round((float)($validated['given_metal_qty'] ?? 0), 3),
+                'given_cash' => round((float)($validated['given_cash'] ?? 0), 2),
+                'huid' => !empty($validated['huid']) 
+                    ? $validated['huid'] 
+                    : (($targetPiece && $targetPiece->hallmarking_status === 'completed') ? $targetPiece->huid : null),
+                'certificate_no' => !empty($validated['certificate_no']) 
+                    ? $validated['certificate_no'] 
+                    : (($targetPiece && $targetPiece->certification_status === 'completed') ? $targetPiece->certificate_no : null),
+                'certification_status' => !empty($validated['certificate_no'])
+                    ? 'completed'
+                    : (($targetPiece && !in_array($targetPiece->certification_status, ['pending', null], true)) 
+                        ? $targetPiece->certification_status 
+                        : (in_array(strtolower($order->certification_status ?? ''), ['skipped', 'not_required'], true) ? $order->certification_status : 'pending')),
+                'hallmarking_status' => !empty($validated['huid'])
+                    ? 'completed'
+                    : (($targetPiece && !in_array($targetPiece->hallmarking_status, ['pending', null], true)) 
+                        ? $targetPiece->hallmarking_status 
+                        : (in_array(strtolower($order->hallmarking_status ?? ''), ['skipped', 'not_required'], true) ? $order->hallmarking_status : 'pending')),
+                'description' => $validated['description'] ?? null,
+                'image_path' => $this->processBase64Data($validated['image'] ?? null) ?: $targetPiece?->image_path,
+                'status' => 'received',
+                'is_inventory_posted' => false,
+                'posted_at' => null,
+                'posted_by' => null,
+                'received_at' => $validated['delivery_date'] ?? now(),
+                'received_by' => Auth::id() ?? 1,
+            ];
+
+            if ($targetPiece) {
+                $targetPiece->update($piecePayload);
+                $receivedPiece = $targetPiece;
+            } else {
+                $receivedPiece = WorkOrderReceivedPiece::create($piecePayload);
+            }
+
+            // Update work order quantities
+            $order->received_qty = (int)$order->received_qty + 1;
+            if ($item) {
+                $item->received_qty = (int)$item->received_qty + 1;
+                $item->save();
+            }
+
+            // Update completed and reconciliation weights
+            $recGross = (float)$grossWeight;
+            $order->completed_weight = round((float)$order->completed_weight + $recGross, 3);
+
+            if (isset($validated['wastage_weight']) && (float)$validated['wastage_weight'] > 0) {
+                $order->wastage_weight = round((float)$order->wastage_weight + (float)$validated['wastage_weight'], 3);
+            }
+            if (isset($validated['karigar_gold_weight']) && (float)$validated['karigar_gold_weight'] > 0) {
+                $order->karigar_gold_weight = round((float)$order->karigar_gold_weight + (float)$validated['karigar_gold_weight'], 3);
+            }
+            if (isset($validated['returned_gold_weight']) && (float)$validated['returned_gold_weight'] > 0) {
+                $order->returned_weight = round((float)$order->returned_weight + (float)$validated['returned_gold_weight'], 3);
+            }
+
+            $order->pending_weight = max(0.0, round(
+                (float)$order->allotted_weight + (float)($order->additional_allocated_weight ?? 0)
+                - (float)$order->completed_weight
+                - (float)$order->wastage_weight
+                - (float)$order->returned_weight,
+                3
+            ));
+
+            // Status progression based on pieces and downstream gates (Image 4 fix)
+            if ($order->received_qty < $order->required_qty) {
+                $order->status = 'partially_received';
+                $order->current_stage = 'partially_received';
+            } else {
+                // All required pieces have completed receiving
+                $certStatus = strtolower($order->certification_status ?? 'pending');
+                $certDone = in_array($certStatus, ['completed', 'skipped', 'not_required']) || ((int)$order->certified_qty >= (int)$order->required_qty);
+                $hallStatus = strtolower($order->hallmarking_status ?? 'pending');
+                $hallDone = in_array($hallStatus, ['completed', 'skipped', 'not_required']) || ((int)$order->hallmarked_qty >= (int)$order->required_qty);
+
+                if ($certDone && $hallDone) {
+                    $order->status = ($order->finalized_qty >= $order->required_qty) ? 'completed' : 'ready';
+                    $order->current_stage = ($order->finalized_qty >= $order->required_qty) ? 'completed' : 'ready';
+                } elseif (!$certDone) {
+                    $order->status = 'received';
+                    $order->current_stage = 'certification';
+                } else {
+                    $order->status = 'received';
+                    $order->current_stage = 'hallmarking';
+                }
+            }
+            $order->save();
+
+            // Record transaction in KarigarMaterialTransaction ledger
+            try {
+                \App\Models\KarigarMaterialTransaction::create([
+                    'karigar_id' => $order->karigar_id,
+                    'work_order_id' => $order->id,
+                    'transaction_type' => 'finished_received',
+                    'transaction_date' => now(),
+                    'weight' => $recGross,
+                    'company_gold_weight' => $recGross,
+                    'karigar_gold_weight' => (float)($validated['karigar_gold_weight'] ?? 0),
+                    'signed_change' => -$recGross,
+                    'settlement_balance_after' => 0,
+                    'bench_balance_after' => $order->pending_weight,
+                    'reason' => "Received piece #{$pieceNumber} (Tag: {$tagNumber}) for WO {$order->work_order_number}",
+                    'created_by' => Auth::id() ?? 1,
+                    'action_by_name' => Auth::user()?->name ?? 'Receiver',
+                ]);
+
+                if (isset($validated['wastage_weight']) && (float)$validated['wastage_weight'] > 0) {
+                    \App\Models\KarigarMaterialTransaction::create([
+                        'karigar_id' => $order->karigar_id,
+                        'work_order_id' => $order->id,
+                        'transaction_type' => 'approved_wastage',
+                        'transaction_date' => now(),
+                        'weight' => (float)$validated['wastage_weight'],
+                        'company_gold_weight' => (float)$validated['wastage_weight'],
+                        'karigar_gold_weight' => 0,
+                        'signed_change' => -(float)$validated['wastage_weight'],
+                        'settlement_balance_after' => 0,
+                        'bench_balance_after' => $order->pending_weight,
+                        'reason' => "Approved wastage of {$validated['wastage_weight']}g upon receiving piece #{$pieceNumber}",
+                        'created_by' => Auth::id() ?? 1,
+                        'action_by_name' => Auth::user()?->name ?? 'Receiver',
+                    ]);
+                }
+            } catch (\Exception $e) {
+                // Continue
+            }
+
+            // Recalculate Karigar Bench Balance
+            $this->syncKarigarGoldBalance($order->karigar_id);
+
+            // Audit Timeline Log
+            WorkOrderTimeline::create([
+                'work_order_id' => $order->id,
+                'stage' => 'physical_receiving',
+                'stage_label' => "Physical Piece #{$pieceNumber} Received ({$receiveOrderNumber} / {$tagNumber})",
+                'completed_weight_at_step' => $order->completed_weight,
+                'pending_weight_at_step' => max(0, round($order->allotted_weight - $order->completed_weight, 3)),
+                'status' => 'completed',
+                'notes' => "Physically received piece #{$pieceNumber} (RWO: {$receiveOrderNumber}, Tag: {$tagNumber}, Design: {$designNo}, Gross: {$grossWeight}g, Net: {$netGoldWeight}g, Pure 24K: {$pure24kWeight}g). Pending final inventory posting.",
+                'user_id' => Auth::id() ?? 1,
+                'action_by_name' => Auth::user()?->name ?? 'Store Manager',
+                'created_at' => now(),
+            ]);
+
+            if ($order->jobOrder) {
+                $order->jobOrder->updateDerivedStatus();
+            }
+
+            // Trigger syncInventoryPosting if piece has already been covered by certification & hallmarking gates
+            $this->syncInventoryPosting($order);
+
+            $loadedPiece = $receivedPiece->fresh(['product', 'item.product', 'client', 'karigar', 'receiver', 'workOrder.jobOrder', 'workOrder.items.product']);
+            $freshOrder = $order->fresh(['items', 'receivedPieces', 'karigar', 'product', 'timelines']);
+
+            // Dispatch receiving notification
+            NotificationService::notifyPieceReceived($order, $loadedPiece, Auth::id());
+
+            return response()->json([
+                'status' => 'success',
+                'message' => "Piece #{$pieceNumber} physically received with RWO #{$receiveOrderNumber} and Tag #{$tagNumber}.",
+                'receive_order_number' => $receiveOrderNumber,
+                'tag_number' => $tagNumber,
+                'piece' => $loadedPiece,
+                'order' => $freshOrder,
+                'data' => [
+                    'receive_order_number' => $receiveOrderNumber,
+                    'tag_number' => $tagNumber,
+                    'piece' => $loadedPiece,
+                    'received_piece' => $loadedPiece,
+                    'order' => $freshOrder,
+                ],
+            ]);
+        });
+    }
+
+    /**
+     * Backward-compatible alias for receive / final-receive
+     */
+    public function finalReceive(Request $request, $id)
+    {
+        if ($request->filled('gross_weight') || $request->filled('net_gold_weight')) {
+            return $this->receivePiece($request, $id);
+        }
+
+        $order = WorkOrder::findOrFail($id);
+        $this->syncInventoryPosting($order);
+
+        $freshOrder = $order->fresh(['karigar', 'product', 'items', 'receivedPieces', 'timelines']);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Inventory finalization check completed.',
+            'data' => $freshOrder
+        ]);
+    }
+
+    /**
+     * Backward-compatible alias for /receive endpoint
+     */
+    public function receive(Request $request, $id)
+    {
+        return $this->receivePiece($request, $id);
+    }
+
+    /**
+     * Search and fetch receivable production information for Receive Order page
+     */
+    public function searchReceiving(Request $request)
+    {
+        $query = WorkOrder::with([
+            'jobOrder', 'karigar', 'product', 'category', 'subcategory', 
+            'client', 'creator', 'items', 'receivedPieces'
+        ])
+        ->where('ready_qty', '>', 0)
+        ->whereRaw('received_qty < ready_qty');
+
+        if ($request->filled('work_order_number')) {
+            $won = $request->work_order_number;
+            $query->where('work_order_number', 'like', "%{$won}%");
+        }
+
+        if ($request->filled('receive_order_number')) {
+            $ron = $request->receive_order_number;
+            $query->whereHas('receivedPieces', function ($rq) use ($ron) {
+                $rq->where('receive_order_number', 'like', "%{$ron}%");
+            });
+        }
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('work_order_number', 'like', "%{$search}%")
+                  ->orWhere('karigar_name', 'like', "%{$search}%")
+                  ->orWhere('product_name', 'like', "%{$search}%")
+                  ->orWhereHas('items', function ($iq) use ($search) {
+                      $iq->where('design_no', 'like', "%{$search}%");
+                  })
+                  ->orWhereHas('receivedPieces', function ($rq) use ($search) {
+                      $rq->where('receive_order_number', 'like', "%{$search}%")
+                        ->orWhere('tag_number', 'like', "%{$search}%");
+                  });
+            });
+        }
+
+        $orders = $query->latest()->get();
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $orders,
+            'total' => $orders->count(),
+        ]);
+    }
+
+    /**
+     * Authoritative helper to ensure all physical pieces are initialized for a Work Order
+     */
+    public static function ensurePiecesInitialized(WorkOrder $order): void
+    {
+        $items = $order->items()->get();
+        if ($items->isNotEmpty()) {
+            foreach ($items as $item) {
+                $required = max(1, (int)$item->required_qty);
+                $existingPieces = WorkOrderReceivedPiece::where('work_order_item_id', $item->id)->orderBy('piece_number')->get();
+                $existingCount = $existingPieces->count();
+                if ($existingCount < $required) {
+                    for ($p = $existingCount + 1; $p <= $required; $p++) {
+                        WorkOrderReceivedPiece::create([
+                            'work_order_id' => $order->id,
+                            'work_order_item_id' => $item->id,
+                            'piece_number' => $p,
+                            'design_no' => $item->design_no ?: $order->design_code ?: ('DES-' . str_pad($order->id, 4, '0', STR_PAD_LEFT)),
+                            'product_id' => $item->product_id ?: $order->product_id,
+                            'product_name' => self::cleanProductName($item->product_name ?: $order->product_name, $item->design_no ?: $order->design_code),
+                            'client_id' => $order->client_id,
+                            'karigar_id' => $order->karigar_id,
+                            'gross_weight' => $item->completed_weight ? round((float)$item->completed_weight / $required, 3) : ($item->allotted_weight ? round((float)$item->allotted_weight / $required, 3) : null),
+                            'status' => 'in_progress',
+                            'qc_status' => 'pending',
+                            'certification_status' => 'pending',
+                            'hallmarking_status' => 'pending',
+                            'is_inventory_posted' => false,
+                        ]);
+                    }
+                }
+            }
+        } else {
+            $required = max(1, (int)$order->required_qty);
+            $existingPieces = WorkOrderReceivedPiece::where('work_order_id', $order->id)->whereNull('work_order_item_id')->orderBy('piece_number')->get();
+            $existingCount = $existingPieces->count();
+            if ($existingCount < $required) {
+                for ($p = $existingCount + 1; $p <= $required; $p++) {
+                    WorkOrderReceivedPiece::create([
+                        'work_order_id' => $order->id,
+                        'work_order_item_id' => null,
+                        'piece_number' => $p,
+                        'design_no' => $order->design_code ?: ('DES-' . str_pad($order->id, 4, '0', STR_PAD_LEFT)),
+                        'product_id' => $order->product_id,
+                        'product_name' => self::cleanProductName($order->product_name, $order->design_code),
+                        'client_id' => $order->client_id,
+                        'karigar_id' => $order->karigar_id,
+                        'gross_weight' => $order->completed_weight ? round((float)$order->completed_weight / $required, 3) : ($order->allotted_weight ? round((float)$order->allotted_weight / $required, 3) : null),
+                        'status' => 'in_progress',
+                        'qc_status' => 'pending',
+                        'certification_status' => 'pending',
+                        'hallmarking_status' => 'pending',
+                        'is_inventory_posted' => false,
+                    ]);
+                }
+            }
+        }
+    }
+
+    /**
+     * Get individual physical pieces that have passed QC and are awaiting physical receiving
+     */
+    public function readyPieces(Request $request)
+    {
+        $this->authorizeAction();
+
+        // Reconcile legacy aggregate QC counters into stable piece rows when their item counters
+        // prove approval but the older flow did not persist the per-piece ready state.
+        $legacyOrders = WorkOrder::where('ready_qty', '>', 0)
+            ->whereRaw('received_qty < ready_qty')
+            ->whereNotIn('status', ['completed', 'cancelled', 'final_received'])
+            ->get();
+
+        foreach ($legacyOrders as $lo) {
+            self::ensurePiecesInitialized($lo);
+            $items = WorkOrderItem::where('work_order_id', $lo->id)->get();
+            $scopes = $items->isNotEmpty()
+                ? $items->map(fn ($item) => [
+                    'item_id' => $item->id,
+                    'approved_qty' => max((int)$item->qc_approved_qty, (int)$item->ready_qty),
+                    'completed_qty' => (int)$item->completed_qty,
+                ])
+                : collect([[
+                    'item_id' => null,
+                    'approved_qty' => max((int)$lo->qc_approved_qty, (int)$lo->ready_qty),
+                    'completed_qty' => (int)$lo->completed_qty,
+                ]]);
+
+            foreach ($scopes as $scope) {
+                $pieceQuery = WorkOrderReceivedPiece::where('work_order_id', $lo->id);
+                $scope['item_id'] === null
+                    ? $pieceQuery->whereNull('work_order_item_id')
+                    : $pieceQuery->where('work_order_item_id', $scope['item_id']);
+
+                $approvedPieceCount = (clone $pieceQuery)
+                    ->where(function ($approvedQuery) {
+                        $approvedQuery->where('qc_status', 'passed')
+                            ->orWhere('status', 'ready')
+                            ->orWhereNotNull('received_at');
+                    })
+                    ->count();
+                $missingApprovedPieces = max(0, (int)$scope['approved_qty'] - $approvedPieceCount);
+                if ($missingApprovedPieces === 0) {
+                    continue;
+                }
+
+                $candidates = (clone $pieceQuery)
+                    ->whereNull('received_at')
+                    ->where(function ($candidateQuery) {
+                        $candidateQuery->whereNull('qc_status')->orWhere('qc_status', 'pending');
+                    })
+                    ->whereNotIn('status', ['rework', 'qc_rework', 'rejected', 'received'])
+                    ->when($scope['completed_qty'] > 0, fn ($candidateQuery) => $candidateQuery->where('piece_number', '<=', $scope['completed_qty']))
+                    ->orderBy('piece_number')
+                    ->limit($missingApprovedPieces)
+                    ->get();
+
+                foreach ($candidates as $piece) {
+                    $piece->qc_status = 'passed';
+                    $piece->status = 'ready';
+                    $piece->qc_checked_at = $piece->qc_checked_at ?: now();
+                    $piece->save();
+                }
+            }
+        }
+
+        $query = WorkOrderReceivedPiece::whereHas('workOrder')
+            ->with([
+                'workOrder.client', 'workOrder.karigar', 'workOrder.product', 'workOrder.jobOrder',
+                'item', 'product', 'karigar', 'client', 'qcChecker'
+            ])
+            ->where(function ($readyQuery) {
+                $readyQuery->where('qc_status', 'passed')
+                    ->orWhere('status', 'ready');
+            })
+            ->whereNull('received_at');
+
+        if ($request->filled('work_order_id')) {
+            $query->where('work_order_id', $request->work_order_id);
+        }
+
+        if ($request->filled('search')) {
+            $s = $request->search;
+            $query->where(function ($sq) use ($s) {
+                $sq->where('design_no', 'like', "%{$s}%")
+                   ->orWhere('product_name', 'like', "%{$s}%")
+                   ->orWhereHas('workOrder', function ($woq) use ($s) {
+                       $woq->where('work_order_number', 'like', "%{$s}%");
+                   });
+            });
+        }
+
+        $pieces = $query->orderBy('work_order_id', 'desc')->orderBy('piece_number', 'asc')->get();
+
+        $data = $pieces->map(function ($piece) {
+            $wo = $piece->workOrder;
+            $item = $piece->item;
+            $product = $piece->product ?: $item?->product ?: $wo?->product;
+            $designNo = $piece->design_no ?: $piece->item?->design_no ?: $wo?->design_code;
+            $requiredQty = max(1, (int)($item?->required_qty ?? $wo?->required_qty ?? 1));
+            $jobAllottedWeight = $item?->allotted_weight ?? $wo?->allotted_weight;
+            return [
+                'id' => $piece->id,
+                'piece_id' => $piece->id,
+                'piece_number' => $piece->piece_number,
+                'work_order_id' => $piece->work_order_id,
+                'work_order_item_id' => $piece->work_order_item_id,
+                'ordered_date' => $wo?->allotted_date ?: $wo?->jobOrder?->order_date,
+                'delivery_date' => $item?->delivery_date ?? $wo?->delivery_date,
+                'work_order_number' => $wo?->work_order_number,
+                'work_order_item' => $item,
+                'product' => $product,
+                'design_no' => $designNo,
+                'product_id' => $piece->product_id ?: $piece->item?->product_id ?: $wo?->product_id,
+                'product_name' => $piece->product_name ?: $piece->item?->product_name ?: $wo?->product_name,
+                'artisan_name' => $piece->karigar?->name ?: $wo?->karigar_name ?: 'In-House Artisan',
+                'client_name' => $piece->client?->name ?: $wo?->client?->name ?: '—',
+                'gross_weight' => (float)$piece->gross_weight,
+                'net_gold_weight' => (float)$piece->net_gold_weight,
+                'allotted_weight' => $jobAllottedWeight !== null ? round((float)$jobAllottedWeight / $requiredQty, 3) : null,
+                'job_allotted_weight' => $jobAllottedWeight !== null ? (float)$jobAllottedWeight : null,
+                'job_required_qty' => $requiredQty,
+                'image_url' => $product?->thumbnail_url ?: $product?->image_url ?: $wo?->reference_image,
+                'diamond_weight' => (float)$piece->diamond_weight,
+                'diamond_count' => (int)$piece->diamond_count,
+                'color_stone_weight' => (float)$piece->color_stone_weight,
+                'purity' => (float)$piece->purity ?: 91.60,
+                'gold_karat' => $piece->gold_karat ?: '22K',
+                'qc_status' => $piece->qc_status,
+                'status' => $piece->status,
+                'qc_checked_at' => $piece->qc_checked_at?->toDateTimeString(),
+                'qc_notes' => $piece->qc_notes,
+                'qc_submission_data' => $piece->qc_submission_data,
+                'certification_status' => $piece->certification_status ?: $wo?->certification_status ?: 'pending',
+                'hallmarking_status' => $piece->hallmarking_status ?: $wo?->hallmarking_status ?: 'pending',
+                'is_inventory_posted' => (bool)$piece->is_inventory_posted,
+            ];
+        });
+
+        return response()->json([
+            'status' => 'success',
+            'count' => $data->count(),
+            'data' => $data,
+        ]);
+    }
+
+    /**
+     * Authoritative API endpoint to fetch prefilled data for Receive Work Order form
+     * Loads persisted piece-specific QC measurements & related product/job metadata
+     */
+    public function receivingData(Request $request, $id)
+    {
+        $this->authorizeAction();
+
+        $order = WorkOrder::with(['items.product', 'jobOrder', 'client', 'karigar', 'product'])->findOrFail($id);
+        self::ensurePiecesInitialized($order);
+
+        $piece = null;
+        if ($request->filled('piece_id')) {
+            $piece = WorkOrderReceivedPiece::where('work_order_id', $order->id)->find($request->piece_id);
+            if (!$piece) {
+                return response()->json(['status' => 'error', 'message' => 'Specified piece was not found in this Work Order.'], 404);
+            }
+            if (!empty($piece->received_at)) {
+                return response()->json(['status' => 'error', 'message' => 'This piece has already been received.'], 422);
+            }
+        } else {
+            $piece = WorkOrderReceivedPiece::where('work_order_id', $order->id)
+                ->where(function ($q) {
+                    $q->where('qc_status', 'passed')
+                      ->orWhere('status', 'ready');
+                })
+                ->whereNull('received_at')
+                ->orderBy('piece_number', 'asc')
+                ->first();
+        }
+
+        if (!$piece) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'No receivable piece found for this Work Order.'
+            ], 404);
+        }
+
+        if ($piece->qc_status !== 'passed' && $piece->status !== 'ready' && empty($piece->received_at)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => "Piece #{$piece->piece_number} has not passed Quality Check (Current QC status: {$piece->qc_status})."
+            ], 422);
+        }
+
+        if (!empty($piece->work_order_item_id) && $piece->work_order_id !== $order->id) {
+            return response()->json(['status' => 'error', 'message' => 'Specified piece does not belong to this Work Order.'], 422);
+        }
+
+        $item = $piece->work_order_item_id ? WorkOrderItem::find($piece->work_order_item_id) : $order->items->first();
+        $product = $piece->product_id ? Product::find($piece->product_id) : ($item?->product ?: $order->product);
+        $qcData = $piece->qc_submission_data ?: [];
+
+        $productAttributes = is_array($product?->attributes) 
+            ? $product->attributes 
+            : (is_string($product?->attributes) ? json_decode($product->attributes, true) : []);
+
+        $hasPhysicalReceipt = !empty($piece->received_at);
+        $snapshotValue = function (string $field, $pieceValue) use ($qcData, $hasPhysicalReceipt) {
+            if (!$hasPhysicalReceipt && array_key_exists($field, $qcData) && $qcData[$field] !== null && $qcData[$field] !== '') {
+                return $qcData[$field];
+            }
+            return $pieceValue;
+        };
+
+        $dynamicStamp = $productAttributes['stamp'] ?? $product?->stamp ?? $productAttributes['diamond_stamp'] ?? $order->stamp ?? '0';
+        $cleanStamp = ltrim((string)$dynamicStamp, '+');
+
+        $diaCountValue = $snapshotValue('diamond_count', $piece->diamond_count);
+        $diaWeightValue = $snapshotValue('diamond_weight', $piece->diamond_weight);
+        $hasQcDiamondCount = !$hasPhysicalReceipt && array_key_exists('diamond_count', $qcData);
+        $hasQcDiamondWeight = !$hasPhysicalReceipt && array_key_exists('diamond_weight', $qcData);
+        $diaCount = $hasPhysicalReceipt
+            ? (int)$piece->diamond_count
+            : ($hasQcDiamondCount
+                ? (int)$qcData['diamond_count']
+                : (int)($diaCountValue ?: ($productAttributes['diamond_count'] ?? $productAttributes['dia_count'] ?? $order->diamond_count ?? 0)));
+        $diaWt = $hasPhysicalReceipt
+            ? (float)$piece->diamond_weight
+            : ($hasQcDiamondWeight
+                ? (float)$qcData['diamond_weight']
+                : (float)($diaWeightValue ?: ($productAttributes['dia_wt_ct'] ?? $productAttributes['diamond_weight'] ?? $order->diamond_weight ?? 0)));
+        $diaDetails = (!$hasPhysicalReceipt && !empty($qcData['diamond_details']))
+            ? $qcData['diamond_details']
+            : ($piece->diamond_details ?: "Dia-" . number_format($diaWt, 2) . "/+{$cleanStamp}/{$diaCount}");
+
+        $savedGrossWeight = $snapshotValue('gross_weight', $piece->gross_weight);
+        if (!$hasPhysicalReceipt && (float)$savedGrossWeight <= 0) {
+            $savedGrossWeight = $qcData['completed_weight'] ?? $savedGrossWeight;
+        }
+        $grossWeight = $savedGrossWeight !== null ? (float)$savedGrossWeight : null;
+        $oldWeight = (float)($snapshotValue('old_weight', $piece->old_weight) ?? 0);
+        $stoneWeight = (float)($snapshotValue('color_stone_weight', $piece->color_stone_weight) ?? $order->stone_weight ?? 0);
+        $stoneCount = (int)($snapshotValue('color_stone_count', $piece->color_stone_count) ?? 0);
+        $silverWeight = (float)($snapshotValue('silver_weight', $piece->silver_weight) ?? 0);
+        $savedPurity = $snapshotValue('purity', $piece->purity) ?? $order->purity;
+        $purity = $savedPurity !== null ? (float)$savedPurity : null;
+        $goldKarat = $snapshotValue('gold_karat', $piece->gold_karat) ?: $order->karat;
+
+        $savedNetGold = $snapshotValue('net_gold_weight', $piece->net_gold_weight);
+        $netGold = (float)($savedNetGold ?? 0);
+        if ($netGold <= 0 && $grossWeight !== null) {
+            $netGold = round(max(0, $grossWeight - ($diaWt * 0.2) - ($stoneWeight * 0.2) - $oldWeight), 3);
+        }
+
+        $savedAllottedWeight = $piece->item?->allotted_weight ?? $item?->allotted_weight ?? null;
+        $jobAllottedWeight = $savedAllottedWeight !== null ? (float)$savedAllottedWeight : null;
+        $pieceCount = max(1, (int)($item?->required_qty ?? $order->required_qty ?? 1));
+        $allottedWeight = $jobAllottedWeight !== null ? round($jobAllottedWeight / $pieceCount, 3) : null;
+        $orderedDate = $order->allotted_date ?: $order->jobOrder?->order_date;
+        $deliveryDate = $item?->delivery_date ?? $item?->pricing_details['delivery_date'] ?? $order->delivery_date;
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'work_order' => $order,
+                'work_order_item' => $item,
+                'piece' => $piece,
+                'product' => $product,
+                'qc_submission' => $qcData,
+                'prefilled' => [
+                    'piece_id' => $piece->id,
+                    'piece_number' => $piece->piece_number,
+                    'work_order_id' => $order->id,
+                    'work_order_number' => $order->work_order_number,
+                    'ordered_date' => $orderedDate ? Carbon::parse($orderedDate)->toDateString() : null,
+                    'delivery_date' => $deliveryDate ? Carbon::parse($deliveryDate)->toDateString() : null,
+                    'work_order_item_id' => $item?->id,
+                    'product_id' => $product?->id,
+                    'product_code' => $product?->product_code,
+                    'product_name' => $piece->product_name ?: $item?->product_name ?: $order->product_name,
+                    'design_no' => $piece->design_no ?: $item?->design_no ?: $order->design_code,
+                    'category_id' => $order->category_id,
+                    'subcategory_id' => $order->subcategory_id,
+                    'allotted_weight' => $allottedWeight,
+                    'job_allotted_weight' => $jobAllottedWeight,
+                    'job_required_qty' => $pieceCount,
+                    'production_weight' => $grossWeight,
+                    'gross_weight' => $grossWeight,
+                    'net_gold_weight' => $netGold > 0 ? $netGold : null,
+                    'old_weight' => $oldWeight,
+                    'purity' => $purity,
+                    'gold_karat' => $goldKarat,
+                    'diamond_weight' => $diaWt,
+                    'diamond_count' => $diaCount,
+                    'diamond_stamp' => "+{$cleanStamp}",
+                    'diamond_details' => $diaDetails,
+                    'color_stone_weight' => $stoneWeight,
+                    'color_stone_count' => $stoneCount,
+                    'silver_weight' => $silverWeight,
+                    'remarks' => $piece->qc_notes ?: ($qcData['remarks'] ?? $order->quality_notes),
+                    'image_path' => $piece->image_path ?: $order->reference_image,
+                    'product_image_url' => $product?->thumbnail_url ?: $product?->image_url,
+                    'work_order_item' => $item,
+                    'product' => $product,
+                    'work_order' => $order,
+                    'receive_date' => now()->toDateString(),
+                    'making_charge_type' => $piece->making_charge_type ?: 'per_gram',
+                    'making_charge' => $piece->making_charge_per_gram ?? $order->making_charge_per_gram,
+                    'is_already_received' => !empty($piece->received_at),
+                    'receive_order_number' => $piece->receive_order_number,
+                    'tag_number' => $piece->tag_number,
+                ]
+            ]
+        ]);
+    }
+
+    /**
+     * Get all physical pieces for a Work Order with full lifecycle status
+     */
+    public function getPieces(Request $request, $id)
+    {
+        $this->authorizeAction();
+
+        $order = WorkOrder::findOrFail($id);
+        self::ensurePiecesInitialized($order);
+
+        $pieces = WorkOrderReceivedPiece::where('work_order_id', $order->id)
+            ->with(['product', 'karigar', 'receiver', 'certifier', 'hallmarker', 'qcChecker'])
+            ->orderBy('piece_number', 'asc')
+            ->get();
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $pieces,
+        ]);
+    }
+
+    /**
+     * Search and list received piece tags for Tag Printing page
+     */
+    public function getTags(Request $request)
+    {
+        DB::transaction(function () {
+            $receivedPiecesWithoutTags = WorkOrderReceivedPiece::whereNotNull('received_at')
+                ->where(function ($tagQuery) {
+                    $tagQuery->whereNull('tag_number')->orWhere('tag_number', '');
+                })
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($receivedPiecesWithoutTags as $piece) {
+                if (!$piece->tag_number) {
+                    $piece->tag_number = WorkOrderReceivedPiece::generateTagNumber();
+                    $piece->save();
+                }
+            }
+        });
+
+        $query = WorkOrderReceivedPiece::whereHas('workOrder')
+            ->with(['workOrder.jobOrder', 'item.product', 'product', 'client', 'karigar', 'receiver'])
+            ->whereNotNull('tag_number')
+            ->where('tag_number', '!=', '');
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('tag_number', 'like', "%{$search}%")
+                  ->orWhere('receive_order_number', 'like', "%{$search}%")
+                  ->orWhere('design_no', 'like', "%{$search}%")
+                  ->orWhere('product_name', 'like', "%{$search}%")
+                  ->orWhere('huid', 'like', "%{$search}%")
+                  ->orWhere('certificate_no', 'like', "%{$search}%")
+                  ->orWhereHas('workOrder', function ($wq) use ($search) {
+                      $wq->where('work_order_number', 'like', "%{$search}%");
+                  });
+            });
+        }
+
+        if ($request->filled('receive_order_number')) {
+            $query->where('receive_order_number', 'like', "%{$request->receive_order_number}%");
+        }
+
+        if ($request->filled('work_order_number')) {
+            $won = $request->work_order_number;
+            $query->whereHas('workOrder', function ($wq) use ($won) {
+                $wq->where('work_order_number', 'like', "%{$won}%");
+            });
+        }
+
+        if ($request->filled('tag_number')) {
+            $query->where('tag_number', 'like', "%{$request->tag_number}%");
+        }
+
+        $pieces = $query->latest('received_at')->get();
+        $pieces->transform(function ($piece) {
+            $piece->product_name = self::cleanProductName($piece->product_name, $piece->design_no);
+            
+            // Attach dynamic product details if present
+            $product = $piece->product ?: ($piece->design_no ? Product::where('design_no', $piece->design_no)->first() : null);
+            $attrs = is_array($product?->attributes) 
+                ? $product->attributes 
+                : (is_string($product?->attributes) ? json_decode($product->attributes, true) : []);
+
+            $stamp = $piece->diamond_stamp ?? $attrs['stamp'] ?? $product?->stamp ?? $attrs['diamond_stamp'] ?? null;
+            if (!$stamp && !empty($attrs['components']) && is_array($attrs['components'])) {
+                foreach ($attrs['components'] as $comp) {
+                    $name = strtolower($comp['category_name'] ?? $comp['item_name'] ?? '');
+                    if ((str_contains($name, 'diamond') || str_contains($name, 'dia')) && !empty($comp['stamp'])) {
+                        $stamp = $comp['stamp'];
+                        break;
+                    }
+                }
+            }
+            $cleanStamp = $stamp ? ltrim($stamp, '+') : '0';
+
+            $count = (int)($piece->diamond_count ?? 0);
+            if ($count === 0) {
+                if (isset($attrs['diamond_count'])) $count = (int)$attrs['diamond_count'];
+                elseif (isset($attrs['dia_count'])) $count = (int)$attrs['dia_count'];
+                elseif (isset($attrs['stone_count'])) $count = (int)$attrs['stone_count'];
+                elseif (!empty($attrs['components']) && is_array($attrs['components'])) {
+                    foreach ($attrs['components'] as $comp) {
+                        $name = strtolower($comp['category_name'] ?? $comp['item_name'] ?? '');
+                        if (str_contains($name, 'diamond') || str_contains($name, 'dia')) {
+                            $count = (int)($comp['no_of_pieces'] ?? $comp['quantity'] ?? 0);
+                            break;
+                        }
+                    }
+                }
+            }
+            // Authoritative stage statuses & true values for Tag Generation tables
+            $rawCertStatus = strtolower($piece->certification_status ?? '');
+            if (in_array($rawCertStatus, ['skipped', 'not_required'])) {
+                $piece->certification_status = 'skipped';
+                $piece->certificate_no = null;
+            } elseif ($rawCertStatus === 'completed') {
+                $piece->certification_status = 'completed';
+                $piece->certificate_no = $piece->certificate_no ?: ($piece->workOrder?->pricing_details['certification_no'] ?? null);
+            } else {
+                $piece->certification_status = 'pending';
+                $piece->certificate_no = null;
+            }
+
+            $rawHallStatus = strtolower($piece->hallmarking_status ?? '');
+            if (in_array($rawHallStatus, ['skipped', 'not_required'])) {
+                $piece->hallmarking_status = 'skipped';
+                $piece->huid = null;
+            } elseif ($rawHallStatus === 'completed') {
+                $piece->hallmarking_status = 'completed';
+                $piece->huid = $piece->huid ?: ($piece->workOrder?->pricing_details['huid'] ?? null);
+            } else {
+                $piece->hallmarking_status = 'pending';
+                $piece->huid = null;
+            }
+
+            $piece->dynamic_stamp = $cleanStamp;
+            $piece->dynamic_dia_count = $count;
+            return $piece;
+        });
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $pieces,
+            'total' => $pieces->count(),
+        ]);
+    }
+
+    /**
+     * Return all tags for a product for Inventory Product View
+     */
+    public function getProductTags($productId)
+    {
+        $product = Product::find($productId);
+        $attrs = is_array($product?->attributes) 
+            ? $product->attributes 
+            : (is_string($product?->attributes) ? json_decode($product->attributes, true) : []);
+        $knownTags = is_array($attrs['tags'] ?? null) ? $attrs['tags'] : [];
+
+        $pieces = WorkOrderReceivedPiece::whereHas('workOrder')
+            ->with(['workOrder.jobOrder', 'item.product', 'product', 'karigar', 'receiver'])
+            ->where(function ($q) use ($productId, $product, $knownTags) {
+                $q->where('product_id', $productId);
+                if ($product && !empty($product->design_no)) {
+                    $q->orWhere('design_no', $product->design_no);
+                }
+                if ($product && !empty($product->product_code)) {
+                    $q->orWhere('design_no', $product->product_code);
+                }
+                if (!empty($knownTags)) {
+                    $q->orWhereIn('tag_number', $knownTags);
+                }
+            })
+            ->whereNotNull('tag_number')
+            ->latest('received_at')
+            ->get();
+
+        $pieces->transform(function ($piece) {
+            $piece->product_name = self::cleanProductName($piece->product_name, $piece->design_no);
+            $product = $piece->product ?: Product::find($piece->product_id);
+            $attrs = is_array($product?->attributes) 
+                ? $product->attributes 
+                : (is_string($product?->attributes) ? json_decode($product->attributes, true) : []);
+
+            $stamp = $piece->diamond_stamp ?? $attrs['stamp'] ?? $product?->stamp ?? $attrs['diamond_stamp'] ?? null;
+            if (!$stamp && !empty($attrs['components']) && is_array($attrs['components'])) {
+                foreach ($attrs['components'] as $comp) {
+                    $name = strtolower($comp['category_name'] ?? $comp['item_name'] ?? '');
+                    if ((str_contains($name, 'diamond') || str_contains($name, 'dia')) && !empty($comp['stamp'])) {
+                        $stamp = $comp['stamp'];
+                        break;
+                    }
+                }
+            }
+            $piece->dynamic_stamp = $stamp ? ltrim($stamp, '+') : '0';
+
+            $count = (int)($piece->diamond_count ?? 0);
+            if ($count === 0 && isset($attrs['diamond_count'])) $count = (int)$attrs['diamond_count'];
+            $piece->dynamic_dia_count = $count;
+
+            // Authoritative stage statuses & true values for Tag Generation tables
+            $rawCertStatus = strtolower($piece->certification_status ?? '');
+            if (in_array($rawCertStatus, ['skipped', 'not_required'])) {
+                $piece->certification_status = 'skipped';
+                $piece->certificate_no = null;
+            } elseif ($rawCertStatus === 'completed') {
+                $piece->certification_status = 'completed';
+                $piece->certificate_no = $piece->certificate_no ?: ($piece->workOrder?->pricing_details['certification_no'] ?? null);
+            } else {
+                $piece->certification_status = 'pending';
+                $piece->certificate_no = null;
+            }
+
+            $rawHallStatus = strtolower($piece->hallmarking_status ?? '');
+            if (in_array($rawHallStatus, ['skipped', 'not_required'])) {
+                $piece->hallmarking_status = 'skipped';
+                $piece->huid = null;
+            } elseif ($rawHallStatus === 'completed') {
+                $piece->hallmarking_status = 'completed';
+                $piece->huid = $piece->huid ?: ($piece->workOrder?->pricing_details['huid'] ?? null);
+            } else {
+                $piece->hallmarking_status = 'pending';
+                $piece->huid = null;
+            }
+
+            return $piece;
+        });
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $pieces,
+            'total' => $pieces->count(),
+        ]);
+    }
+
+    /**
+     * Get delayed work orders only for Delay page
+     */
+    public function delays(?Request $request = null)
+    {
+        $request = $request ?? request();
+        $today = Carbon::today()->toDateString();
+        $query = WorkOrder::with([
+            'jobOrder', 'karigar', 'product', 'category', 'subcategory', 
+            'client', 'creator', 'items', 'delayUpdater'
+        ])
+        ->where(function($q) use ($today) {
+            $q->where('is_delayed', true)
+              ->orWhere(function($sq) use ($today) {
+                  $sq->where('delivery_date', '<', $today)
+                     ->whereNotIn('status', ['completed', 'final_received']);
+              });
+        });
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('work_order_number', 'like', "%{$search}%")
+                  ->orWhere('karigar_name', 'like', "%{$search}%")
+                  ->orWhere('delay_reason', 'like', "%{$search}%");
+            });
+        }
+
+        $orders = $query->latest()->get();
+
+        $orders->transform(function ($order) use ($today) {
+            $delayDays = (int) ($order->delay_days ?: 0);
+            $dDateStr = null;
+            if (!empty($order->delivery_date)) {
+                $dDateStr = is_object($order->delivery_date) 
+                    ? $order->delivery_date->toDateString() 
+                    : (string) $order->delivery_date;
+            }
+
+            if ($dDateStr && substr($dDateStr, 0, 10) < $today && $delayDays <= 0) {
+                try {
+                    $delayDays = (int) Carbon::parse($dDateStr)->diffInDays(Carbon::now());
+                } catch (\Exception $e) {
+                    $delayDays = 0;
+                }
+            }
+            $order->is_delayed = true;
+            $order->delay_days = $delayDays;
+            return $order;
+        });
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $orders,
+            'total' => $orders->count(),
         ]);
     }
 
@@ -1224,12 +4039,8 @@ class WorkOrderController extends Controller
     {
         $order = WorkOrder::findOrFail($id);
 
-        if ($order->quality_status === 'passed' || in_array($order->status, ['completed', 'approved', 'final_received'])) {
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Work order is already completed and approved.',
-                'data' => $order->load(['karigar', 'product', 'timelines'])
-            ]);
+        if ($order->ready_qty <= 0) {
+            $order->ready_qty = $order->completed_qty ?: $order->required_qty;
         }
 
         $order->status = 'ready';
@@ -1244,59 +4055,151 @@ class WorkOrderController extends Controller
                 'completed_weight_at_step' => $order->completed_weight,
                 'pending_weight_at_step' => $order->pending_weight,
                 'status' => 'completed',
-                'notes' => $request->input('notes', 'Finished item ready for delivery / final receiving.'),
+                'notes' => $request->input('notes', 'Finished item ready for delivery / receiving.'),
                 'user_id' => Auth::id() ?? 1,
                 'action_by_name' => Auth::user()?->name ?? 'Admin',
                 'created_at' => now(),
             ]);
         }
 
-        $this->syncKarigarGoldBalance($order->karigar_id);
-
-        // Reflect completed product in Inventory count
-        $this->creditWorkOrderToInventory($order);
-
         return response()->json([
             'status' => 'success',
             'message' => 'Work order marked as Ready.',
-            'data' => $order->load(['karigar', 'product', 'timelines'])
+            'data' => $order->load(['karigar', 'product', 'items', 'receivedPieces', 'timelines'])
         ]);
     }
 
     /**
-     * Final Receive / Delivery completion
+     * Update certification details for a work order (backward compatible)
      */
-    public function finalReceive(Request $request, $id)
+    public function updateCertification(Request $request, $id)
     {
-        $order = WorkOrder::findOrFail($id);
+        return $this->certificationAction($request, $id);
+    }
 
-        $order->status = 'completed';
-        $order->current_stage = 'final_received';
-        $order->save();
+    /**
+     * Update hallmarking details for a work order (backward compatible)
+     */
+    public function updateHallmarking(Request $request, $id)
+    {
+        return $this->hallmarkingAction($request, $id);
+    }
 
-        WorkOrderTimeline::create([
-            'work_order_id' => $order->id,
-            'stage' => 'final_received',
-            'stage_label' => 'Final Receive Completed',
-            'completed_weight_at_step' => $order->completed_weight,
-            'pending_weight_at_step' => 0,
-            'status' => 'completed',
-            'notes' => $request->input('notes', 'Final receiving completed and logged to History.'),
-            'user_id' => Auth::id() ?? 1,
-            'action_by_name' => Auth::user()?->name ?? 'Store Manager',
-            'created_at' => now(),
+    /**
+     * Update certification details for a specific received piece
+     */
+    public function updatePieceCertification(Request $request, $id)
+    {
+        $this->authorizeAction();
+
+        $validated = $request->validate([
+            'action' => 'nullable|in:add,skip,not_required',
+            'certification_no' => 'nullable|string|max:255',
+            'agency' => 'nullable|string|max:255',
+            'certification_agency' => 'nullable|string|max:255',
         ]);
 
-        $this->syncKarigarGoldBalance($order->karigar_id);
+        $piece = WorkOrderReceivedPiece::findOrFail($id);
+        $action = $validated['action'] ?? 'add';
+        $certStatus = in_array($action, ['skip', 'not_required']) ? 'skipped' : 'completed';
+        $agency = $validated['certification_agency'] ?? $validated['agency'] ?? 'BIS Certified';
+        $certNo = ($certStatus === 'skipped') ? null : ($validated['certification_no'] ?? null);
 
-        // Reflect completed product in Inventory count
-        $this->creditWorkOrderToInventory($order);
+        $piece->update([
+            'certification_status' => $certStatus,
+            'certificate_no' => $certNo,
+            'certification_agency' => ($certStatus === 'skipped') ? null : $agency,
+            'certified_at' => now(),
+            'certified_by' => Auth::id() ?? 1,
+        ]);
+
+        if ($piece->workOrder) {
+            $order = $piece->workOrder;
+            $allPieces = $order->receivedPieces;
+            $allDone = $allPieces->every(fn($p) => in_array($p->certification_status, ['completed', 'skipped', 'not_required']));
+            if ($allDone && count($allPieces) > 0) {
+                $hasCompleted = $allPieces->contains(fn($p) => $p->certification_status === 'completed');
+                $order->certification_status = $hasCompleted ? 'completed' : 'skipped';
+                $order->certified_qty = max((int)$order->certified_qty, $allPieces->count());
+                $order->save();
+            }
+            $this->syncInventoryPosting($order);
+        }
 
         return response()->json([
             'status' => 'success',
-            'message' => 'Final receive completed and logged to history.',
-            'data' => $order->load(['karigar', 'product', 'timelines'])
+            'message' => ($certStatus === 'skipped') ? 'Piece certification marked as skipped.' : 'Piece certification details saved.',
+            'piece' => $piece->fresh(['workOrder', 'product'])
         ]);
+    }
+
+    /**
+     * Update hallmarking details for a specific received piece
+     */
+    public function updatePieceHallmarking(Request $request, $id)
+    {
+        $this->authorizeAction();
+
+        $validated = $request->validate([
+            'action' => 'nullable|in:add,skip,not_required',
+            'huid' => 'nullable|string|max:50',
+            'huid_number' => 'nullable|string|max:50',
+            'hallmark_center' => 'nullable|string|max:255',
+        ]);
+
+        $piece = WorkOrderReceivedPiece::findOrFail($id);
+        
+        // Enforce piece-level certification dependency
+        $certStatus = strtolower($piece->certification_status ?? 'pending');
+        if (!in_array($certStatus, ['completed', 'skipped', 'not_required'])) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'certification_status' => ['Certification must be completed or skipped for this piece before hallmarking.']
+            ]);
+        }
+
+        $action = $validated['action'] ?? 'add';
+        $hallStatus = in_array($action, ['skip', 'not_required']) ? 'skipped' : 'completed';
+        $huid = $validated['huid'] ?? $validated['huid_number'] ?? null;
+
+        if ($action === 'add' && empty($huid)) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'huid' => ['HUID / Hallmark reference number is required to complete hallmarking.']
+            ]);
+        }
+
+        $piece->update([
+            'hallmarking_status' => $hallStatus,
+            'huid' => ($hallStatus === 'skipped') ? null : $huid,
+            'hallmarked_at' => now(),
+            'hallmarked_by' => Auth::id() ?? 1,
+        ]);
+
+        if ($piece->workOrder) {
+            $order = $piece->workOrder;
+            $allPieces = $order->receivedPieces;
+            $allDone = $allPieces->every(fn($p) => in_array($p->hallmarking_status, ['completed', 'skipped', 'not_required']));
+            if ($allDone && count($allPieces) > 0) {
+                $hasCompleted = $allPieces->contains(fn($p) => $p->hallmarking_status === 'completed');
+                $order->hallmarking_status = $hasCompleted ? 'completed' : 'skipped';
+                $order->hallmarked_qty = max((int)$order->hallmarked_qty, $allPieces->count());
+                $order->save();
+            }
+            $this->syncInventoryPosting($order);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => ($hallStatus === 'skipped') ? 'Piece hallmarking marked as skipped.' : 'Piece hallmarking details saved.',
+            'piece' => $piece->fresh(['workOrder', 'product'])
+        ]);
+    }
+
+    /**
+     * Move work order directly to ready phase
+     */
+    public function moveToReady(Request $request, $id)
+    {
+        return $this->markReady($request, $id);
     }
 
     /**
@@ -1307,7 +4210,7 @@ class WorkOrderController extends Controller
     {
         $today = Carbon::today()->toDateString();
         $page = (int) $request->input('page', 1);
-        $perPage = (int) $request->input('per_page', 4);
+        $perPage = (int) $request->input('per_page', 100);
         $range = strtolower($request->input('range') ?: $request->input('period') ?: 'all');
 
         $applyDateRange = function ($query) use ($range) {
@@ -1366,11 +4269,13 @@ class WorkOrderController extends Controller
         $completedCount = $completedQuery->count();
         $completedValue = $completedQuery->sum('total_price') ?: ($completedQuery->sum('allotted_weight') * 7200);
 
-        // 2. Real Material Weights
-        $activeOrders = $activeOrdersQuery->get();
-        $totalAllocatedWeight = (float) $activeOrders->sum('allotted_weight');
+        // 2. Real Material Weights across all active manufacturing runs
+        $activeOrders = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received', 'delivered'])->get();
+        $totalAllocatedWeight = (float) $activeOrders->sum('allotted_weight') + (float) $activeOrders->sum('additional_allocated_weight');
         $totalCompletedWeight = (float) $activeOrders->sum('completed_weight');
-        $totalPendingWeight = (float) $activeOrders->sum('pending_weight');
+        $totalPendingWeight = (float) $activeOrders->sum(function ($wo) {
+            return max(0.0, (float)$wo->allotted_weight + (float)($wo->additional_allocated_weight ?? 0) - (float)$wo->completed_weight - (float)$wo->wastage_weight - (float)($wo->returned_weight ?? 0));
+        });
 
         $silverWeight = (float) $activeOrders->filter(function ($wo) {
             $m = strtolower($wo->material_type ?? '');
@@ -1387,31 +4292,38 @@ class WorkOrderController extends Controller
             return !str_contains($m, 'silver') && !str_contains($m, 'diamond');
         })->sum('allotted_weight');
 
-        // 3. Real Material Allocations per active Artisan from filtered active work orders
+        \App\Models\RawMaterial::recalculateAllocations();
+
+        // 3. Real Material Allocations per active Artisan across ALL active work orders and Karigar bench balances
         $materialAllocations = [];
-        $activeWorkOrdersQuery = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received', 'delivered'])
-            ->with('karigar');
-        $applyDateRange($activeWorkOrdersQuery);
-        $activeWorkOrders = $activeWorkOrdersQuery->get();
+        $allActiveWorkOrders = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received', 'delivered'])
+            ->with(['karigar', 'product'])
+            ->get();
 
-        $activeKarigarIds = $activeWorkOrders->pluck('karigar_id')->filter()->unique();
+        $allKarigars = Karigar::all();
 
-        $activeKarigars = Karigar::whereIn('id', $activeKarigarIds)->get();
-
-        foreach ($activeKarigars as $k) {
-            $orders = $activeWorkOrders->where('karigar_id', $k->id);
-            $issued = (float) $orders->sum('allotted_weight');
+        foreach ($allKarigars as $k) {
+            $orders = $allActiveWorkOrders->where('karigar_id', $k->id);
+            $issued = (float) $orders->sum('allotted_weight') + (float) $orders->sum('additional_allocated_weight');
             $completed = (float) $orders->sum('completed_weight');
-            $balance = (float) $orders->sum('pending_weight');
+            $wastage = (float) $orders->sum('wastage_weight');
+            $returned = (float) $orders->sum('returned_weight');
+            $balance = max(0.0, round($issued - $completed - $wastage - $returned, 3));
 
-            if ($issued > 0) {
+            // If no active work orders found, check if Karigar has gold balance on bench
+            if ($issued == 0 && (float)$k->current_gold_balance_grams > 0) {
+                $issued = (float) $k->current_gold_balance_grams;
+                $balance = (float) $k->current_gold_balance_grams;
+            }
+
+            if ($issued > 0 || $balance > 0) {
                 $primaryMaterial = $orders->first()?->material_type ?? '22K Gold';
                 $unit = 'g';
                 if (stripos($primaryMaterial, 'diamond') !== false && stripos($primaryMaterial, 'gold') === false) {
                     $unit = 'ct';
                 }
 
-                $percent = $issued > 0 ? min(100, max(8, round((($issued - $balance) / $issued) * 100))) : 0;
+                $percent = $issued > 0 ? min(100, max(8, round((($issued - $balance) / $issued) * 100))) : 25;
 
                 $color = '#78591e';
                 if (stripos($primaryMaterial, 'silver') !== false) {
@@ -1423,7 +4335,7 @@ class WorkOrderController extends Controller
                 $materialAllocations[] = [
                     'artisan_id' => $k->id,
                     'artisan_name' => $k->name,
-                    'material_title' => $primaryMaterial,
+                    'material_title' => str_contains($primaryMaterial, 'Issued') ? $primaryMaterial : ($primaryMaterial . ' Issued'),
                     'issued_weight' => round($issued, 3) . $unit,
                     'balance_weight' => 'Bal: ' . round($balance, 3) . $unit,
                     'issued_numeric' => round($issued, 3),
@@ -1436,10 +4348,13 @@ class WorkOrderController extends Controller
         }
 
         // 4. Real Quality Check Queue (Awaiting Final Approval)
-        $dbApprovalCardsQuery = WorkOrder::with(['karigar', 'product'])
+        $dbApprovalCardsQuery = WorkOrder::with(['karigar', 'product', 'items'])
             ->where(function ($q) {
-                $q->where('status', 'pending_approval')
-                  ->orWhereIn('current_stage', ['work_completed', 'sent_for_approval', 'quality_check']);
+                $q->where('qc_pending_qty', '>', 0)
+                  ->orWhere(function ($sq) {
+                      $sq->whereIn('current_stage', ['work_completed', 'sent_for_approval', 'quality_check'])
+                         ->where('status', 'pending_approval');
+                  });
             })
             ->whereNotIn('status', ['completed', 'approved', 'cancelled']);
         $dbApprovalCards = $dbApprovalCardsQuery
@@ -1447,8 +4362,16 @@ class WorkOrderController extends Controller
             ->get()
             ->map(function ($order) {
                 $rawImg = $order->image_url ?? $order->specifications['image'] ?? $order->product?->image_url ?? '/images/samples/peacock_choker.jpg';
+                $pendingItem = $order->items->first(function ($it) {
+                    return (int)$it->qc_pending_qty > 0;
+                }) ?: $order->items->first();
+
                 return [
                     'id' => $order->id,
+                    'work_order_id' => $order->id,
+                    'work_order_item_id' => $pendingItem?->id ?? null,
+                    'design_no' => $pendingItem?->design_no ?? $order->design_code,
+                    'submitted_qty' => $pendingItem?->qc_pending_qty ?: ($order->qc_pending_qty ?: 1),
                     'qc_code' => 'QC-' . (440 + $order->id),
                     'work_order_number' => $order->work_order_number,
                     'product_name' => $order->product_name,
@@ -1467,7 +4390,7 @@ class WorkOrderController extends Controller
             ->whereNotIn('status', ['completed', 'cancelled', 'delivered', 'final_received'])
             ->latest();
 
-        $paginatedLiveJobs = $liveJobsQuery->paginate(50, ['*'], 'page', $page);
+        $paginatedLiveJobs = $liveJobsQuery->paginate($perPage, ['*'], 'page', $page);
 
         $transformedLiveJobs = collect($paginatedLiveJobs->items())->map(function ($j, $idx) use ($today) {
             $artisanName = $j->karigar_name ?? $j->karigar?->name ?? 'Artisan';
@@ -1499,15 +4422,29 @@ class WorkOrderController extends Controller
 
             $isOverdue = ($j->delivery_date && Carbon::parse($j->delivery_date)->toDateString() < $today && !in_array($j->status, ['completed', 'final_received']));
 
+            $imageUrl = $j->image_url;
+            if (!$imageUrl && !empty($j->pricing_details['items']) && is_array($j->pricing_details['items'])) {
+                $firstItem = $j->pricing_details['items'][0] ?? null;
+                if ($firstItem) {
+                    $imageUrl = $firstItem['reference_image'] ?? $firstItem['design_file'] ?? $firstItem['image'] ?? null;
+                }
+            }
+            if (!$imageUrl && !empty($j->pricing_details['item_details']) && is_array($j->pricing_details['item_details'])) {
+                $itm = $j->pricing_details['item_details'];
+                $imageUrl = $itm['reference_image'] ?? $itm['design_file'] ?? $itm['image'] ?? null;
+            }
+
             return [
                 'id' => $j->id,
                 'artisan_name' => $artisanName,
                 'karigar_name' => $artisanName,
+                'karigar_id' => $j->karigar_id,
                 'product_name' => $j->product_name ?: ($j->product?->name ?? '22K Gold Bangle Set'),
                 'initials' => $initials ?: 'AR',
                 'avatar_color' => $avatarColors[$idx % count($avatarColors)],
                 'work_order_number' => $j->work_order_number,
                 'item_type' => $j->product_name ?: ($j->product?->name ?? '22K Gold Bangle Set'),
+                'image_url' => $imageUrl ?: '/images/samples/peacock_choker.jpg',
                 'stage' => $stageName,
                 'current_stage' => $j->current_stage ?: 'Created',
                 'status' => $j->status ?: 'ongoing',
@@ -1532,9 +4469,11 @@ class WorkOrderController extends Controller
                     ? Carbon::parse($j->delivery_date)->format('M d, Y')
                     : Carbon::parse($j->created_at)->addDays(7)->format('M d, Y');
 
-                $allotted = (float) $j->allotted_weight;
+                $allotted = (float) $j->allotted_weight + (float) ($j->additional_allocated_weight ?? 0);
                 $completed = (float) $j->completed_weight;
-                $pending = max(0, $allotted - $completed);
+                $wastage = (float) $j->wastage_weight;
+                $returned = (float) ($j->returned_weight ?? 0);
+                $pending = max(0.0, round($allotted - $completed - $wastage - $returned, 3));
 
                 return [
                     'id' => $j->id,
@@ -1556,7 +4495,7 @@ class WorkOrderController extends Controller
             });
 
         // 7. Detailed Audit Log per Karigar from DB
-        $auditLogs = $activeKarigars->map(function ($k) {
+        $auditLogs = $allKarigars->map(function ($k) {
             $orders = $k->workOrders;
             $allotted = (float) $orders->sum('allotted_weight');
             $completed = (float) $orders->sum('completed_weight');
@@ -1642,47 +4581,109 @@ class WorkOrderController extends Controller
                 return; // Avoid duplicate increments
             }
 
-            $product = null;
-            if ($order->product_id) {
-                $product = Product::find($order->product_id);
+            // Guard: If individual pieces exist for this Work Order, inventory posting MUST only come through syncInventoryPosting
+            if (WorkOrderReceivedPiece::where('work_order_id', $order->id)->exists()) {
+                $pricing['inventory_credited'] = true;
+                $pricing['inventory_credited_at'] = now()->toDateTimeString();
+                $order->pricing_details = $pricing;
+                $order->save();
+                return;
             }
 
-            if (!$product && !empty($order->product_name)) {
-                $product = Product::where('name', $order->product_name)->first();
-            }
-
-            $itemWeight = (float) ($order->completed_weight ?: ($order->allotted_weight ?: 28.5));
-
-            if ($product) {
-                $product->current_stock_qty = max(1, intval($product->current_stock_qty ?? 0) + 1);
-                $product->opening_stock_weight = round(floatval($product->opening_stock_weight ?? 0) + $itemWeight, 3);
-                $product->status = 'active';
-                $product->save();
-            } else {
-                $code = $order->design_code ?: ('PROD-' . strtoupper(\Illuminate\Support\Str::random(6)));
-                $catId = $order->category_id ?: 1;
-
-                $product = Product::create([
-                    'name' => $order->product_name ?: 'Finished Jewelry Piece',
-                    'product_code' => $code,
-                    'category_id' => $catId,
-                    'subcategory_id' => $order->subcategory_id,
-                    'current_stock_qty' => 1,
-                    'opening_stock_weight' => round($itemWeight, 3),
-                    'weight' => round($itemWeight, 3),
-                    'purchase_price' => $order->total_price ?: 0,
+            $items = $pricing['items'] ?? [];
+            if (empty($items) || !is_array($items)) {
+                $items = [[
+                    'product_name' => $order->product_name ?: 'Finished Jewelry Piece',
+                    'design_number' => $order->design_code,
+                    'gold_weight' => $order->completed_weight ?: ($order->allotted_weight ?: 28.5),
+                    'need_pcs' => 1,
+                    'total_price' => $order->total_price ?: 0,
                     'image' => $order->image_url,
-                    'image_url' => $order->image_url,
-                    'status' => 'active',
-                    'attributes' => [
-                        'source' => 'inventory',
-                        'is_inventory' => true,
-                        'gross_wt' => round($itemWeight, 3),
-                        'from_work_order' => $order->work_order_number,
-                        'karigar_name' => $order->karigar_name,
-                    ],
-                ]);
-                $order->product_id = $product->id;
+                ]];
+            }
+
+            $certNo = $pricing['certification_no'] ?? $order->pricing_details['certification_no'] ?? null;
+            $certAgency = $pricing['certification_agency'] ?? $order->pricing_details['certification_agency'] ?? null;
+            $huid = $pricing['huid'] ?? $order->pricing_details['huid'] ?? null;
+            $hallmarkCenter = $pricing['hallmark_center'] ?? $order->pricing_details['hallmark_center'] ?? null;
+
+            foreach ($items as $itm) {
+                $designNo = $itm['design_number'] ?? $order->design_code;
+                $pName = $itm['product_name'] ?? $itm['variant'] ?? $order->product_name ?? 'Finished Jewelry Piece';
+                $pcs = intval($itm['need_pcs'] ?? 1);
+                if ($pcs < 1) $pcs = 1;
+                $itemWeight = (float) ($itm['gold_weight'] ?? $itm['total_weight'] ?? $order->completed_weight ?: ($order->allotted_weight ?: 0));
+
+                $product = null;
+                if (!empty($designNo)) {
+                    $product = Product::where('product_code', $designNo)
+                        ->orWhere('design_no', $designNo)
+                        ->first();
+                }
+
+                if (!$product && !empty($pName)) {
+                    $product = Product::where('name', $pName)->first();
+                }
+
+                if ($product) {
+                    $product->current_stock_qty = intval($product->current_stock_qty ?? 0) + $pcs;
+                    $product->opening_stock_weight = round(floatval($product->opening_stock_weight ?? 0) + $itemWeight, 3);
+                    $product->status = 'active';
+
+                    $attrs = $product->attributes ?? [];
+                    if ($certNo) $attrs['certification_no'] = $certNo;
+                    if ($certAgency) $attrs['certification_agency'] = $certAgency;
+                    if ($huid) $attrs['huid'] = $huid;
+                    if ($hallmarkCenter) $attrs['hallmark_center'] = $hallmarkCenter;
+                    $product->attributes = $attrs;
+
+                    $product->save();
+                } else {
+                    $code = $designNo ?: ('PROD-' . strtoupper(\Illuminate\Support\Str::random(6)));
+
+                    // Safely resolve category_id
+                    $catId = $order->category_id;
+                    if (empty($catId) || !\App\Models\Category::where('id', $catId)->exists()) {
+                        $cat = \App\Models\Category::where('name', 'like', '%' . $pName . '%')->first()
+                            ?: \App\Models\Category::first();
+                        if (!$cat) {
+                            $cat = \App\Models\Category::create([
+                                'name' => 'Jewellery',
+                                'code' => 'JWL',
+                                'status' => 'active',
+                            ]);
+                        }
+                        $catId = $cat->id;
+                    }
+
+                    $img = $itm['reference_image'] ?? $itm['design_file'] ?? $itm['image'] ?? $order->image_url;
+
+                    Product::create([
+                        'name' => $pName,
+                        'product_code' => $code,
+                        'design_no' => $designNo,
+                        'category_id' => $catId,
+                        'subcategory_id' => $order->subcategory_id,
+                        'current_stock_qty' => $pcs,
+                        'opening_stock_weight' => round($itemWeight, 3),
+                        'weight' => round($itemWeight, 3),
+                        'purchase_price' => $itm['total_price'] ?? $order->total_price ?: 0,
+                        'image' => $img,
+                        'image_url' => $img,
+                        'status' => 'active',
+                        'attributes' => [
+                            'source' => 'inventory',
+                            'is_inventory' => true,
+                            'gross_wt' => round($itemWeight, 3),
+                            'from_work_order' => $order->work_order_number,
+                            'karigar_name' => $order->karigar_name,
+                            'certification_no' => $certNo,
+                            'certification_agency' => $certAgency,
+                            'huid' => $huid,
+                            'hallmark_center' => $hallmarkCenter,
+                        ],
+                    ]);
+                }
             }
 
             $pricing['inventory_credited'] = true;
@@ -1692,5 +4693,92 @@ class WorkOrderController extends Controller
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Failed to credit work order to inventory: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Helper to process and convert base64 image data strings to real stored files
+     */
+    protected function processBase64Data($data, $folder = 'work_orders')
+    {
+        if (empty($data) || !is_string($data)) {
+            return $data;
+        }
+
+        // If it's already a regular path or URL (not base64), return as is
+        if (!str_starts_with($data, 'data:image') && !str_starts_with($data, 'data:application') && strlen($data) < 1000) {
+            return $data;
+        }
+
+        try {
+            if (preg_match('/^data:([^;]+);base64,(.*)$/s', $data, $matches)) {
+                $mimeType = $matches[1];
+                $base64Str = $matches[2];
+                $extension = explode('/', $mimeType)[1] ?? 'jpg';
+                if ($extension === 'jpeg') $extension = 'jpg';
+            } else {
+                $base64Str = $data;
+                $extension = 'jpg';
+            }
+
+            $decoded = base64_decode($base64Str);
+            if ($decoded === false) {
+                return $data;
+            }
+
+            $filename = 'wo_' . time() . '_' . \Illuminate\Support\Str::random(10) . '.' . $extension;
+            $path = "public/{$folder}/{$filename}";
+
+            \Illuminate\Support\Facades\Storage::put($path, $decoded);
+
+            return asset("storage/{$folder}/{$filename}");
+        } catch (\Exception $e) {
+            return $data;
+        }
+    }
+
+
+
+    /**
+     * Helper to clean design codes appended to product names
+     */
+    public static function cleanProductName(?string $name, ?string $designNo = null): string
+    {
+        if (!$name) {
+            return 'Jewellery Product';
+        }
+        $cleaned = trim($name);
+        if ($designNo) {
+            $d = trim($designNo);
+            if ($d !== '') {
+                $cleaned = preg_replace('/\s*\(?' . preg_quote($d, '/') . '\)?$/i', '', $cleaned);
+                $cleaned = preg_replace('/\s*-\s*' . preg_quote($d, '/') . '$/i', '', $cleaned);
+            }
+        }
+        $cleaned = preg_replace('/\s*\([A-Z0-9_-]+\)$/i', '', $cleaned);
+        return trim($cleaned) ?: $name;
+    }
+
+    /**
+     * Delete a work order and cascade deletion to related pieces, items, timelines, and operations
+     */
+    public function destroy($id)
+    {
+        $this->authorizeAction();
+
+        $order = WorkOrder::findOrFail($id);
+        $karigarId = $order->karigar_id;
+
+        $order->delete();
+
+        if ($karigarId) {
+            $this->syncKarigarGoldBalance($karigarId);
+        }
+
+        \Illuminate\Support\Facades\Cache::flush();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Work order and all associated records deleted successfully.'
+        ]);
     }
 }

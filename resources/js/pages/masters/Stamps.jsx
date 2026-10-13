@@ -16,6 +16,7 @@ export default function Stamps() {
   const [formData, setFormData] = useState({
     name: '',
     code: '',
+    applicable_for: [],
     sort_order: '',
     description: '',
   });
@@ -47,10 +48,15 @@ export default function Stamps() {
 
   const openAddModal = () => {
     setEditingItem(null);
+    const maxSort = stamps.reduce((max, item) => {
+      const num = parseInt(item.sort_order, 10);
+      return !isNaN(num) && num > max ? num : max;
+    }, 0);
     setFormData({
       name: '',
       code: '',
-      sort_order: (stamps.length + 1).toString(),
+      applicable_for: [],
+      sort_order: (maxSort + 1).toString(),
       description: '',
     });
     setIsModalOpen(true);
@@ -58,29 +64,60 @@ export default function Stamps() {
 
   const openEditModal = (item) => {
     setEditingItem(item);
+    let appArr = [];
+    if (item.applicable_for) {
+      if (item.applicable_for === 'All') {
+        appArr = ['Gold', 'Silver', 'Diamond', 'Stone'];
+      } else {
+        appArr = item.applicable_for.split(',').map((s) => s.trim()).filter(Boolean);
+      }
+    }
     setFormData({
       name: item.name || '',
       code: item.code || '',
+      applicable_for: appArr,
       sort_order: item.sort_order ? String(item.sort_order) : '',
       description: item.description || '',
     });
     setIsModalOpen(true);
   };
 
+  const toggleApplicableMaterial = (material) => {
+    setFormData((prev) => {
+      const current = prev.applicable_for || [];
+      if (current.includes(material)) {
+        return { ...prev, applicable_for: current.filter((m) => m !== material) };
+      } else {
+        return { ...prev, applicable_for: [...current, material] };
+      }
+    });
+  };
+
   const handleSave = async (e) => {
     e.preventDefault();
     if (!formData.name.trim()) {
-      showToast('Please enter a stamp name (e.g. 916, 999)', 'error');
+      showToast('Please enter a stamp name (e.g. 916, 925, 999)', 'error');
+      return;
+    }
+    if (!formData.applicable_for || formData.applicable_for.length === 0) {
+      showToast('Please select at least one material type (Gold, Silver, Diamond, or Stone)', 'error');
       return;
     }
 
     try {
       setSaving(true);
+      const payload = {
+        ...formData,
+        applicable_for: Array.isArray(formData.applicable_for)
+          ? formData.applicable_for.join(',')
+          : formData.applicable_for,
+      };
+
       if (editingItem) {
-        await api.put(`/stamps/${editingItem.id}`, formData);
+        await api.put(`/stamps/${editingItem.id}`, payload);
         showToast('Stamp master updated successfully!', 'success', 'Updated');
       } else {
-        await api.post('/stamps', formData);
+        await api.post('/stamps', payload);
         showToast('Stamp master created successfully!', 'success', 'Created');
       }
       setIsModalOpen(false);
@@ -110,13 +147,44 @@ export default function Stamps() {
     }
   };
 
+  const renderMaterialBadges = (applicableStr) => {
+    if (!applicableStr) return null;
+    const raw = applicableStr;
+    const list = raw === 'All' ? ['Gold', 'Silver', 'Diamond', 'Stone'] : raw.split(',').map((s) => s.trim());
+
+    return (
+      <div className="flex flex-wrap gap-1 mt-2">
+        {list.includes('Gold') && (
+          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+            <i className="fa-solid fa-coins mr-1 text-[9px] text-amber-600"></i>Gold
+          </span>
+        )}
+        {list.includes('Silver') && (
+          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-800 border border-slate-300">
+            <i className="fa-solid fa-coins mr-1 text-[9px] text-slate-500"></i>Silver
+          </span>
+        )}
+        {list.includes('Diamond') && (
+          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-100 text-blue-900 border border-blue-300">
+            <i className="fa-solid fa-gem mr-1 text-[9px] text-blue-600"></i>Diamond
+          </span>
+        )}
+        {list.includes('Stone') && (
+          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-100 text-purple-900 border border-purple-300">
+            <i className="fa-solid fa-cube mr-1 text-[9px] text-purple-600"></i>Stone
+          </span>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="max-w-6xl mx-auto pb-12">
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Stamp Master</h1>
-          <p className="text-sm text-gray-500 mt-1">Manage hallmarking stamps, purity marks, and certification tags</p>
+          <p className="text-sm text-gray-500 mt-1">Manage hallmarking stamps, purity marks, and link with Gold, Diamond, or Stone</p>
         </div>
         <button
           type="button"
@@ -150,9 +218,9 @@ export default function Stamps() {
                   className="bg-white rounded-xl border border-stone-200 p-5 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between"
                 >
                   <div>
-                    <div className="flex items-start justify-between gap-3 mb-3">
+                    <div className="flex items-start justify-between gap-3 mb-2">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-amber-50 text-amber-800 flex items-center justify-center font-bold text-sm border border-amber-200">
+                        <div className="w-10 h-10 rounded-lg bg-amber-50 text-amber-800 flex items-center justify-center font-bold text-sm border border-amber-200 shrink-0">
                           <i className="fa-solid fa-certificate"></i>
                         </div>
                         <div>
@@ -181,9 +249,13 @@ export default function Stamps() {
                       </div>
                     </div>
 
-                    <p className="text-xs text-gray-500 leading-relaxed">
-                      {item.description || `Hallmarking stamp mark "${item.name}" for authentic product certification.`}
-                    </p>
+                    {renderMaterialBadges(item.applicable_for)}
+
+                    {item.description && (
+                      <p className="text-xs text-gray-500 leading-relaxed mt-2">
+                        {item.description}
+                      </p>
+                    )}
                   </div>
                 </div>
               ))}
@@ -206,14 +278,15 @@ export default function Stamps() {
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-lg overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="text-base font-bold text-gray-900">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-stone-50">
+              <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                <i className="fa-solid fa-certificate text-[#b01622]"></i>
                 {editingItem ? 'Edit Stamp Master' : 'Add New Stamp Master'}
               </h2>
               <button
                 type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="text-gray-400 hover:text-gray-600 w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center"
+                className="text-gray-400 hover:text-gray-600 w-8 h-8 rounded-lg hover:bg-gray-200 flex items-center justify-center"
               >
                 <i className="fa-solid fa-xmark text-base"></i>
               </button>
@@ -227,11 +300,70 @@ export default function Stamps() {
                 <input
                   type="text"
                   required
-                  placeholder="e.g. 916, 999, BIS Hallmarked"
+                  placeholder="e.g. 916, 999, IGI Certified, BIS Hallmarked"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   className="w-full px-3.5 h-[42px] bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:border-[#b01622]"
                 />
+              </div>
+
+              {/* Link With Gold / Silver / Diamond / Stone Checkbox Selector */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                  Link With Material Type <span className="text-[#b01622]">*</span>
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-stone-50 p-3 rounded-xl border border-stone-200">
+                  <label className="flex items-center gap-2 text-xs font-bold text-gray-800 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={(formData.applicable_for || []).includes('Gold')}
+                      onChange={() => toggleApplicableMaterial('Gold')}
+                      className="w-4 h-4 rounded text-[#b01622] focus:ring-[#b01622] cursor-pointer"
+                    />
+                    <span className="flex items-center gap-1 text-amber-900">
+                      <i className="fa-solid fa-coins text-amber-600"></i> Gold
+                    </span>
+                  </label>
+
+                  <label className="flex items-center gap-2 text-xs font-bold text-gray-800 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={(formData.applicable_for || []).includes('Silver')}
+                      onChange={() => toggleApplicableMaterial('Silver')}
+                      className="w-4 h-4 rounded text-[#b01622] focus:ring-[#b01622] cursor-pointer"
+                    />
+                    <span className="flex items-center gap-1 text-slate-800">
+                      <i className="fa-solid fa-coins text-slate-500"></i> Silver
+                    </span>
+                  </label>
+
+                  <label className="flex items-center gap-2 text-xs font-bold text-gray-800 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={(formData.applicable_for || []).includes('Diamond')}
+                      onChange={() => toggleApplicableMaterial('Diamond')}
+                      className="w-4 h-4 rounded text-[#b01622] focus:ring-[#b01622] cursor-pointer"
+                    />
+                    <span className="flex items-center gap-1 text-blue-900">
+                      <i className="fa-solid fa-gem text-blue-600"></i> Diamond
+                    </span>
+                  </label>
+
+                  <label className="flex items-center gap-2 text-xs font-bold text-gray-800 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={(formData.applicable_for || []).includes('Stone')}
+                      onChange={() => toggleApplicableMaterial('Stone')}
+                      className="w-4 h-4 rounded text-[#b01622] focus:ring-[#b01622] cursor-pointer"
+                    />
+                    <span className="flex items-center gap-1 text-purple-900">
+                      <i className="fa-solid fa-cube text-purple-600"></i> Stone
+                    </span>
+                  </label>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Stamps will be dynamically filtered in dropdowns based on product material type (e.g. Silver stamps for Silver items).
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -239,7 +371,7 @@ export default function Stamps() {
                   <label className="block text-xs font-semibold text-gray-700 mb-1.5">Code (Optional)</label>
                   <input
                     type="text"
-                    placeholder="e.g. 916"
+                    placeholder="e.g. 916, IGI, GIA"
                     value={formData.code}
                     onChange={(e) => setFormData({ ...formData, code: e.target.value })}
                     className="w-full px-3.5 h-[42px] bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:border-[#b01622]"

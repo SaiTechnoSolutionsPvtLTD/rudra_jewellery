@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
@@ -13,26 +13,18 @@ export default function JobOrderDelay() {
 
   const [orders, setOrders] = useState([]);
   const [currentOrder, setCurrentOrder] = useState(null);
-  const [selectedOrderId, setSelectedOrderId] = useState(queryOrderId || null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
-  // Form State matching screenshot
+  // Form State
   const [delayStatus, setDelayStatus] = useState('Delay');
   const [delayReason, setDelayReason] = useState('Stone not available');
   const [delayDays, setDelayDays] = useState(5);
   const [expectedDate, setExpectedDate] = useState('2024-05-03');
   const [remarks, setRemarks] = useState('Required stones are out of stock. Waiting for new stock arrival.');
-  const [attachment, setAttachment] = useState(null);
-  const [attachmentName, setAttachmentName] = useState('');
-  const [attachmentSize, setAttachmentSize] = useState('');
 
-  // Delay History List
   const [delayHistory, setDelayHistory] = useState([]);
-
-  // Pagination for Delay History
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 4;
 
   // Format Helpers
   const formatWeight = (val, fallback = '0.000') => {
@@ -63,24 +55,21 @@ export default function JobOrderDelay() {
     }).format(num);
   };
 
-  // Fetch orders list for switcher
   const fetchOrdersList = useCallback(async () => {
     try {
-      const res = await api.get('/work-orders', { params: { tab: 'delayed' } });
-      let list = res.data.data || [];
-      if (list.length === 0) {
-        const fallbackRes = await api.get('/work-orders', { params: { tab: 'ongoing' } });
-        list = fallbackRes.data.data || [];
-      }
+      setLoading(true);
+      const res = await api.get('/work-orders/delays');
+      const list = res.data.data || [];
       setOrders(list);
       return list;
     } catch (err) {
-      console.warn('Failed to load orders list:', err);
+      console.warn('Failed to load delayed orders list:', err);
       return [];
+    } finally {
+      setLoading(false);
     }
   }, []);
 
-  // Fetch single order details
   const fetchOrderDetails = useCallback(async (id, isSilent = false) => {
     if (!id) return;
     try {
@@ -88,48 +77,15 @@ export default function JobOrderDelay() {
       const res = await api.get(`/work-orders/${id}`);
       const o = res.data.data;
       setCurrentOrder(o);
-      setSelectedOrderId(o.id);
 
-      // Set initial delay history dynamically from database timeline or delay_history
       if (o.delay_history && Array.isArray(o.delay_history) && o.delay_history.length > 0) {
         setDelayHistory(o.delay_history);
-      } else {
-        const timelineEntries = (o.timelines || []).filter(t => 
-          t.stage === 'delayed' || t.stage === 'delay' || (t.notes && t.notes.toLowerCase().includes('delay'))
-        );
-        if (timelineEntries.length > 0) {
-          setDelayHistory(timelineEntries.map((t, idx) => ({
-            id: t.id || `delay_${idx}`,
-            status: 'Delay',
-            reason: t.notes || 'Schedule Adjustment',
-            delay_days: o.delay_days || 5,
-            from_date: t.created_at ? new Date(t.created_at).toLocaleDateString('en-GB') : '—',
-            to_date: o.delivery_date ? new Date(o.delivery_date).toLocaleDateString('en-GB') : '—',
-            remarks: t.notes || 'Delay recorded in timeline',
-            updated_by: t.action_by_name || 'Admin',
-          })));
-        } else {
-          setDelayHistory([
-            {
-              id: 'init_delay_1',
-              status: 'Delay',
-              reason: o.notes || 'Raw material / artisan delay',
-              delay_days: o.delay_days || 5,
-              from_date: o.allotted_date ? new Date(o.allotted_date).toLocaleDateString('en-GB') : '—',
-              to_date: o.delivery_date ? new Date(o.delivery_date).toLocaleDateString('en-GB') : '—',
-              remarks: 'Delayed order logged from database record',
-              updated_by: 'System'
-            }
-          ]);
-        }
       }
 
-      // Initialize form values from selected order o dynamically
-      setDelayStatus(o.status === 'delayed' || o.is_delayed ? 'Delay' : (o.karigar_data?.delay_status || 'Delay'));
-      setDelayReason(o.delay_reason || o.karigar_data?.delay_reason || o.notes || 'Stone not available');
-      setDelayDays(Number(o.delay_days || o.karigar_data?.delay_days || 5));
-      setRemarks(o.karigar_notes || o.notes || o.karigar_data?.remarks || 'Required stones are out of stock. Waiting for new stock arrival.');
-      setExpectedDate(o.delivery_date ? String(o.delivery_date).split('T')[0] : '2024-05-03');
+      setDelayDays(Number(o.delay_days || 0));
+      setDelayReason(o.delay_reason || 'Stone not available');
+      setRemarks(o.delay_remarks || o.karigar_notes || o.notes || '');
+      setExpectedDate(o.delivery_date ? String(o.delivery_date).split('T')[0] : '');
 
     } catch (err) {
       console.error('Failed to load work order:', err);
@@ -139,315 +95,243 @@ export default function JobOrderDelay() {
     }
   }, [showToast]);
 
-  // Initial Load
   useEffect(() => {
     let isMounted = true;
     (async () => {
       const list = await fetchOrdersList();
       if (!isMounted) return;
 
-      let targetId = queryOrderId;
-      if (!targetId && list.length > 0) {
-        // Pick delayed order or first order
-        const delayed = list.find(x => x.status === 'delayed' || x.is_delayed);
-        targetId = delayed ? delayed.id : list[0].id;
-      }
-
-      if (targetId) {
-        await fetchOrderDetails(targetId);
+      if (queryOrderId) {
+        const isDelayed = list.some((item) => String(item.id) === String(queryOrderId));
+        if (isDelayed) {
+          await fetchOrderDetails(queryOrderId);
+        } else {
+          setCurrentOrder(null);
+        }
       } else {
-        setLoading(false);
+        setCurrentOrder(null);
       }
     })();
 
     return () => { isMounted = false; };
   }, [queryOrderId, fetchOrdersList, fetchOrderDetails]);
 
-  // Sync when selectedOrderId changes
-  const handleOrderChange = (e) => {
-    const newId = e.target.value;
-    setSelectedOrderId(newId);
-    navigate(`/job-order/delay?order_id=${newId}`, { replace: true });
-    fetchOrderDetails(newId);
+  const handleSelectRow = (wo) => {
+    navigate(`/job-order/delay?order_id=${wo.id}`);
   };
 
-  // Interactive Auto-Calculation: when delayDays changes, update expected completion date
+  const handleBackToList = () => {
+    setCurrentOrder(null);
+    navigate('/job-order/delay');
+  };
+
   const handleDelayDaysChange = (newDays) => {
     const days = Math.max(0, parseInt(newDays, 10) || 0);
     setDelayDays(days);
-
-    // Compute base date from order due date or today
-    const baseStr = currentOrder?.delivery_date || '2024-04-28';
+    const baseStr = currentOrder?.delivery_date || new Date().toISOString();
     try {
       const baseDate = new Date(baseStr);
       baseDate.setDate(baseDate.getDate() + days);
-      const iso = baseDate.toISOString().split('T')[0];
-      setExpectedDate(iso);
-    } catch {
-      // Fallback
-    }
+      setExpectedDate(baseDate.toISOString().split('T')[0]);
+    } catch {}
   };
 
-  // Interactive Auto-Calculation: when expected completion date changes, update delay days
   const handleExpectedDateChange = (newDateStr) => {
     setExpectedDate(newDateStr);
-    const baseStr = currentOrder?.delivery_date || '2024-04-28';
+    const baseStr = currentOrder?.delivery_date || new Date().toISOString();
     try {
       const baseDate = new Date(baseStr);
       const newDate = new Date(newDateStr);
       const diffTime = newDate.getTime() - baseDate.getTime();
       const diffDays = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
       setDelayDays(diffDays);
-    } catch {
-      // Fallback
-    }
+    } catch {}
   };
 
-  // File Upload Handling
-  const handleFileChange = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (file.size > 5 * 1024 * 1024) {
-      showToast?.('File size exceeds 5MB limit', 'error');
-      return;
-    }
-
-    setAttachment(file);
-    setAttachmentName(file.name);
-    setAttachmentSize((file.size / 1024).toFixed(1) + ' KB');
-  };
-
-  const handleRemoveFile = (e) => {
-    e.stopPropagation();
-    setAttachment(null);
-    setAttachmentName('');
-    setAttachmentSize('');
-  };
-
-  // Form Submission
-  const handleSubmit = async (e) => {
+  const handleSaveDelay = async (e) => {
     e.preventDefault();
     if (!currentOrder) return;
-
-    if (!remarks.trim()) {
-      showToast?.('Please enter detailed remarks or reason', 'error');
-      return;
-    }
-
     try {
       setSaving(true);
-      const formData = new FormData();
-      formData.append('delay_status', delayStatus);
-      formData.append('delay_reason', delayReason);
-      formData.append('delay_days', delayDays);
-      formData.append('expected_date', expectedDate);
-      formData.append('remarks', remarks);
-      if (attachment) {
-        formData.append('attachment', attachment);
-      }
+      const payload = {
+        is_delayed: true,
+        delay_days: delayDays,
+        delay_reason: delayReason,
+        delay_remarks: remarks,
+        delivery_date: expectedDate || null,
+        remarks: remarks,
+      };
 
-      const res = await api.post(`/work-orders/${currentOrder.id}/delay-update`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-
-      showToast?.('Delay / Hold status updated successfully', 'success');
-
-      // Update local state with latest data
-      if (res.data?.data) {
-        setCurrentOrder(res.data.data);
-        if (res.data.data.delay_history) {
-          setDelayHistory(res.data.data.delay_history);
-        }
-      } else {
-        // Optimistic history update
-        const newRecord = {
-          id: 'delay_' + Date.now(),
-          status: delayStatus,
-          reason: delayReason,
-          delay_days: delayDays,
-          from_date: formatDateDisplay(currentOrder.delivery_date || '2024-04-28'),
-          to_date: formatDateDisplay(expectedDate),
-          remarks: remarks,
-          updated_by: 'Arshad (Admin)'
-        };
-        setDelayHistory(prev => [newRecord, ...prev]);
-      }
-
-      setAttachment(null);
-      setAttachmentName('');
-      setAttachmentSize('');
-
+      await api.post(`/work-orders/${currentOrder.id}/wip-update`, payload);
+      showToast?.('Delay details updated successfully!', 'success');
+      fetchOrderDetails(currentOrder.id, true);
+      fetchOrdersList();
     } catch (err) {
-      console.error('Failed to update delay status:', err);
-      showToast?.(err.response?.data?.message || 'Failed to update delay status', 'error');
+      console.error('Failed to update delay details:', err);
+      showToast?.(err.response?.data?.message || 'Failed to update delay details', 'error');
     } finally {
       setSaving(false);
     }
   };
 
-  // Values for display matching screenshot
-  const jobId = currentOrder?.work_order_number || (currentOrder?.id ? `ORD-${currentOrder.id}` : '—');
-  const clientId = currentOrder?.client?.client_code || currentOrder?.client_code || (currentOrder?.client_id ? `CL-${currentOrder.client_id}` : '—');
-  const clientName = currentOrder?.customer_name || currentOrder?.client?.full_name || currentOrder?.client?.name || currentOrder?.client_name || '—';
-  const karigarName = currentOrder?.karigar?.name || currentOrder?.karigar_name || 'Unassigned';
-  const allotmentDate = formatDateDisplay(currentOrder?.allotted_date, '—');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
-  const jobType = currentOrder?.product_name || 'Custom Jewellery';
-  const categoryName = currentOrder?.category?.name || currentOrder?.specifications?.variant || 'Jewellery';
-  const materialType = currentOrder?.material_type || 'Gold';
-  const purityLabel = currentOrder?.specifications?.from_cts || 'Standard';
-  const allottedWeight = currentOrder?.allotted_weight ?? 0;
-  const completedWeight = currentOrder?.completed_weight ?? 0;
-  const pendingWeight = currentOrder?.pending_weight ?? (allottedWeight - completedWeight);
-  const dueDate = formatDateDisplay(currentOrder?.delivery_date, '—');
-  const newExpectedDateDisplay = formatDateDisplay(expectedDate, '—');
-  const totalAmount = currentOrder?.total_price || 0;
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
 
-  // Pagination calculations
-  const totalHistoryItems = delayHistory.length;
-  const totalPages = Math.max(1, Math.ceil(totalHistoryItems / itemsPerPage));
-  const startRecord = totalHistoryItems > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0;
-  const endRecord = Math.min(currentPage * itemsPerPage, totalHistoryItems);
-  const paginatedHistory = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    return delayHistory.slice(start, start + itemsPerPage);
-  }, [delayHistory, currentPage]);
+  const filteredOrders = orders.filter(wo => {
+    const term = searchTerm.toLowerCase();
+    return (
+      wo.work_order_number?.toLowerCase().includes(term) ||
+      wo.product_name?.toLowerCase().includes(term) ||
+      wo.karigar_name?.toLowerCase().includes(term) ||
+      wo.karigar?.name?.toLowerCase().includes(term)
+    );
+  });
 
-  if (loading && !currentOrder) {
+  const totalItems = filteredOrders.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
+  const safePage = Math.min(currentPage, totalPages);
+  const startIndex = (safePage - 1) * itemsPerPage;
+  const paginatedOrders = filteredOrders.slice(startIndex, startIndex + itemsPerPage);
+
+  const subNavLinks = [
+    { name: 'Work In Progress', path: '/job-order/in-progress' },
+    { name: 'Delay / Job Details', path: '/job-order/delay', active: true },
+    { name: 'Quality Check', path: '/job-order/quality-check' },
+    { name: 'Ready', path: '/job-order/ready' },
+    { name: 'Certification', path: '/job-order/certification' },
+    { name: 'Hallmarking', path: '/job-order/hallmarking' },
+    { name: 'History', path: '/job-order/history' }
+  ];
+
+  const jobId = currentOrder?.design_code || currentOrder?.work_order_number || (currentOrder?.id ? `WO-2026-000${currentOrder.id}` : 'WO-2026-0004');
+  const clientId = currentOrder?.client?.client_code || (currentOrder?.client_id ? `CL-${currentOrder.client_id}` : 'CL-1001');
+  const clientName = currentOrder?.customer_name || currentOrder?.client?.full_name || currentOrder?.client?.name || 'Malabar Gold & Diamonds';
+  const karigarName = currentOrder?.karigar?.name || currentOrder?.karigar_name || 'Amit Varma (Artisan)';
+  const allotmentDate = formatDateDisplay(currentOrder?.allotted_date || currentOrder?.created_at, '19/09/2026');
+
+  if (loading && !currentOrder && orders.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[450px] text-stone-400 gap-3 font-['Inter',sans-serif]">
         <div className="w-10 h-10 border-4 border-[#b01622] border-t-transparent rounded-full animate-spin"></div>
-        <span className="text-sm font-semibold text-stone-600">Loading delay details...</span>
-      </div>
-    );
-  }
-
-  if (!currentOrder) {
-    return (
-      <div className="w-full pb-16 space-y-5 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif]">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 text-xs text-stone-500 font-medium mb-1.5">
-              <span>Manufacturing</span><span>&gt;</span><span>Job Orders</span><span>&gt;</span><span>Reception</span><span>&gt;</span><span className="text-stone-700 font-semibold">Delay / Hold</span>
-            </div>
-            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Delay &amp; Job Details</h1>
-          </div>
-          <Link to="/job-order/receive" className="px-4 py-2 bg-white border border-stone-300 text-stone-800 text-xs font-semibold rounded-lg shadow-2xs hover:bg-stone-50">Back to Receive Summary</Link>
-        </div>
-
-        <div className="border-b border-stone-200 flex items-center gap-8 overflow-x-auto no-scrollbar">
-          <Link to="/job-order/in-progress" className="pb-3 text-sm font-medium text-stone-500 hover:text-stone-900 border-b-2 border-transparent">Work in Progress</Link>
-          <Link to="/job-order/delay" className="pb-3 text-sm font-bold text-[#b01622] border-b-2 border-[#b01622]">Delay / Job Details</Link>
-          <Link to="/job-order/waste" className="pb-3 text-sm font-medium text-stone-500 hover:text-stone-900 border-b-2 border-transparent">Waste Details</Link>
-          <Link to="/job-order/quality-check" className="pb-3 text-sm font-medium text-stone-500 hover:text-stone-900 border-b-2 border-transparent">Quality Check &amp; Final Receive</Link>
-          <Link to="/job-order/history" className="pb-3 text-sm font-medium text-stone-500 hover:text-stone-900 border-b-2 border-transparent">History</Link>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-stone-200 p-12 text-center flex flex-col items-center justify-center space-y-4 shadow-2xs">
-          <div className="w-16 h-16 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center text-2xl">
-            <i className="fa-solid fa-clock-rotate-left"></i>
-          </div>
-          <h2 className="text-lg font-bold text-gray-900">No Job Orders Recorded</h2>
-          <p className="text-xs text-stone-500 max-w-md">
-            There are currently no job orders recorded in the database for delay tracking.
-          </p>
-          <Link
-            to="/job-order/new"
-            className="px-4 py-2.5 bg-[#b01622] text-white text-xs font-bold rounded-xl shadow-2xs hover:bg-[#8e111a] transition-all flex items-center gap-2"
-          >
-            <i className="fa-solid fa-plus"></i>
-            <span>Create New Job Order</span>
-          </Link>
-        </div>
+        <span className="text-sm font-semibold text-stone-600">Loading Delay &amp; Job Details...</span>
       </div>
     );
   }
 
   return (
-    <div className="w-full pb-16 space-y-5 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif]">
+    <div className="w-full pb-16 space-y-5 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif] text-[#1c1917]">
       
-      {/* 1. TOP BREADCRUMBS & HEADER */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* 1. BREADCRUMB & TOP HEADER MATCHING WORK IN PROGRESS */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          {/* Breadcrumb matching exact screenshot */}
-          <div className="flex items-center gap-2 text-xs text-stone-500 font-medium mb-1.5">
-            <Link to="/dashboard" className="hover:text-stone-900 transition-colors">Manufacturing</Link>
-            <span className="text-stone-300">&gt;</span>
-            <Link to="/job-orders" className="hover:text-stone-900 transition-colors">Job Orders</Link>
-            <span className="text-stone-300">&gt;</span>
-            <Link to="/job-order/receive" className="hover:text-stone-900 transition-colors">Reception</Link>
-            <span className="text-stone-300">&gt;</span>
-            <span className="text-stone-700 font-semibold">Delay / Hold</span>
+          {/* Breadcrumb */}
+          <div className="flex items-center gap-1.5 text-[12px] text-stone-500 font-medium mb-1">
+            <span>Manufacturing</span>
+            <i className="fa-solid fa-chevron-right text-[8px] text-stone-400"></i>
+            <span>Job Orders</span>
+            <i className="fa-solid fa-chevron-right text-[8px] text-stone-400"></i>
+            <span>Reception</span>
+            <i className="fa-solid fa-chevron-right text-[8px] text-stone-400"></i>
+            <span className="text-stone-800 font-semibold">Delay / Job Details</span>
           </div>
 
-          {/* Title with Quick Order Switcher */}
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-bold text-gray-900 tracking-tight">
-              Delay / Hold - {jobId}
+          {/* Main Title & Search Bar */}
+          <div className="flex items-center gap-4 flex-wrap">
+            <h1 className="text-xl sm:text-2xl font-bold text-[#1c1917] tracking-tight">
+              Dealy/ Job Details {currentOrder ? `- ${jobId}` : ''}
             </h1>
 
-            {/* Quick Switcher dropdown for multi-order handling */}
-            {orders.length > 0 && (
-              <select
-                value={selectedOrderId || ''}
-                onChange={handleOrderChange}
-                className="w-full sm:w-[420px] text-sm bg-white border border-stone-200 rounded-xl px-3.5 py-2 text-stone-800 font-semibold shadow-2xs cursor-pointer focus:outline-hidden focus:border-[#b01622]"
-                title="Switch Work Order"
-              >
-                {orders.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    Switch: {o.design_code || o.work_order_number} ({o.product_name})
-                  </option>
-                ))}
-              </select>
+            {!currentOrder && (
+              <div className="relative w-full sm:w-80">
+                <i className="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs"></i>
+                <input
+                  type="text"
+                  placeholder="Search Work Order No, Product, Artisan..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-7 py-1.5 bg-white border border-stone-200 rounded-lg text-xs font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622] shadow-2xs"
+                />
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 text-xs"
+                  >
+                    <i className="fa-solid fa-xmark"></i>
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
 
-        {/* Back to Receive Summary Button */}
-        <div>
-          <Link
-            to="/job-order/receive"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-[#d6c7b2] hover:border-stone-400 hover:bg-stone-50 text-stone-800 text-xs font-semibold rounded-lg shadow-2xs transition-all cursor-pointer"
-          >
-            <span className="text-stone-500">&larr;</span>
-            <span>Back to Receive Summary</span>
-          </Link>
+        {/* Back Buttons */}
+        <div className="flex items-center gap-2">
+          {currentOrder && (
+            <button
+              type="button"
+              onClick={handleBackToList}
+              className="px-3.5 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-bold rounded-md shadow-2xs transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <i className="fa-solid fa-list text-[11px] text-stone-600"></i>
+              <span>All Delayed Jobs List</span>
+            </button>
+          )}
+
         </div>
       </div>
 
-      {/* 2. SUB-NAVIGATION TABS */}
+      {/* 2. SUB NAVIGATION TABS MATCHING IMAGE 1 EXACTLY */}
       <div className="border-b border-[#ebd0cb]">
         <div className="flex items-center gap-10 overflow-x-auto no-scrollbar">
           <Link
-            to={`/job-order/in-progress${currentOrder ? `?order_id=${currentOrder.id}` : ''}`}
+            to="/job-order/in-progress"
             className="pb-3 text-[14px] font-bold text-[#6e2d27] hover:text-[#b01622] border-b-2 border-transparent transition-colors cursor-pointer whitespace-nowrap"
           >
             Work In Progress
           </Link>
 
-          {/* Active Tab: Delay / Job Details */}
-          <div className="pb-3 text-[14px] font-bold text-[#5c2725] border-b-2 border-[#b01622] cursor-default whitespace-nowrap">
-            Dealy/ Job Details
-          </div>
-
           <Link
-            to={`/job-order/waste${currentOrder ? `?order_id=${currentOrder.id}` : ''}`}
-            className="pb-3 text-[14px] font-bold text-[#6e2d27] hover:text-[#b01622] border-b-2 border-transparent transition-colors cursor-pointer whitespace-nowrap"
+            to="/job-order/delay"
+            className="pb-3 text-[14px] font-bold text-[#5c2725] border-b-2 border-[#b01622] whitespace-nowrap cursor-pointer"
           >
-            Waste Details
+            Delay / Job Details
           </Link>
 
           <Link
-            to={`/job-order/quality-check${currentOrder ? `?order_id=${currentOrder.id}` : ''}`}
+            to="/job-order/quality-check"
             className="pb-3 text-[14px] font-bold text-[#6e2d27] hover:text-[#b01622] border-b-2 border-transparent transition-colors cursor-pointer whitespace-nowrap"
           >
-            Quality Check &amp; Final Receive
+            Quality Check
           </Link>
 
           <Link
-            to={`/job-order/history${currentOrder ? `?order_id=${currentOrder.id}` : ''}`}
+            to="/job-order/ready"
+            className="pb-3 text-[14px] font-bold text-[#6e2d27] hover:text-[#b01622] border-b-2 border-transparent transition-colors cursor-pointer whitespace-nowrap"
+          >
+            Ready
+          </Link>
+
+          <Link
+            to="/job-order/certification"
+            className="pb-3 text-[14px] font-bold text-[#6e2d27] hover:text-[#b01622] border-b-2 border-transparent transition-colors cursor-pointer whitespace-nowrap"
+          >
+            Certification
+          </Link>
+
+          <Link
+            to="/job-order/hallmarking"
+            className="pb-3 text-[14px] font-bold text-[#6e2d27] hover:text-[#b01622] border-b-2 border-transparent transition-colors cursor-pointer whitespace-nowrap"
+          >
+            Hallmarking
+          </Link>
+
+          <Link
+            to="/job-order/history"
             className="pb-3 text-[14px] font-bold text-[#6e2d27] hover:text-[#b01622] border-b-2 border-transparent transition-colors cursor-pointer whitespace-nowrap"
           >
             History
@@ -455,395 +339,296 @@ export default function JobOrderDelay() {
         </div>
       </div>
 
-      {/* 3. FIVE-COLUMN METADATA BANNER */}
-      <div className="bg-[#F4F6F7] rounded-xl border border-[#eed5d1] p-4 shadow-2xs grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-        <div>
-          <span className="text-[11px] font-medium text-stone-400 block">Job ID</span>
-          <span className="text-xs font-bold text-gray-900 block mt-0.5">{jobId}</span>
+      {/* 3. CONDITIONAL RENDER: PRODUCT ROWS TABLE OR SPECIFIC PRODUCT DELAY FORM */}
+      {!currentOrder ? (
+        <div className="bg-white rounded-2xl border border-stone-200/80 p-5 shadow-2xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-3 border-b border-stone-100 pb-3">
+            <div>
+              <h2 className="text-base font-bold text-[#111827] tracking-tight">
+                Delayed &amp; On-Hold Job Orders ({filteredOrders.length})
+              </h2>
+              <p className="text-xs text-stone-400 mt-0.5">
+                Click any product row to view and update delay details.
+              </p>
+            </div>
+          </div>
+
+          {filteredOrders.length === 0 ? (
+            <div className="py-16 text-center text-stone-400">
+              <i className="fa-solid fa-triangle-exclamation text-4xl text-stone-300 mb-2 block"></i>
+              <p className="font-semibold text-base text-stone-700">No Delayed Jobs Found</p>
+              <p className="text-xs text-stone-400 mt-1">All active jobs are running on schedule.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-stone-50 border-b border-stone-100 text-[11px] font-bold text-stone-500 uppercase tracking-wider">
+                    <th className="py-3 px-4">WORK ORDER NO</th>
+                    <th className="py-3 px-4">Product</th>
+                    <th className="py-3 px-4">Aachari / Artisan</th>
+                    <th className="py-3 px-4">Due Date</th>
+                    <th className="py-3 px-4 text-center">Delay Days</th>
+                    <th className="py-3 px-4 text-right">Pending Wt</th>
+                    <th className="py-3 px-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100">
+                  {paginatedOrders.map((wo) => (
+                    <tr
+                      key={wo.id}
+                      onClick={() => handleSelectRow(wo)}
+                      className="hover:bg-stone-50/80 transition-all cursor-pointer group"
+                    >
+                      <td className="py-3.5 px-4 font-mono font-bold text-[#b01622]">
+                        {wo.work_order_number}
+                      </td>
+                      <td className="py-3.5 px-4 font-bold text-stone-900">
+                        {wo.product_name}
+                        <span className="block font-mono text-[10px] text-stone-400 font-normal">
+                          {wo.karat || '22K'} Gold
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-stone-700 font-medium">
+                        {wo.karigar?.name || wo.karigar_name || 'In-House'}
+                      </td>
+                      <td className="py-3.5 px-4 font-mono text-[#b01622] font-semibold">
+                        {formatDateDisplay(wo.delivery_date)}
+                      </td>
+                      <td className="py-3.5 px-4 text-center">
+                        <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                          {wo.delay_days || 5} Days Overdue
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-mono font-bold text-[#b01622]">
+                        {Number(wo.pending_weight || 0).toFixed(3)}g
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectRow(wo);
+                          }}
+                          className="px-3.5 py-1 bg-[#b01622] hover:bg-[#8f1019] text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs whitespace-nowrap inline-flex items-center gap-1"
+                        >
+                          <span>Update Delay</span>
+                          <i className="fa-solid fa-chevron-right text-[10px]"></i>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Pagination Controls */}
+          {filteredOrders.length > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-stone-100 mt-4">
+              <div className="text-xs text-stone-500 font-medium">
+                Showing <span className="font-bold text-stone-800">{startIndex + 1}</span> to{' '}
+                <span className="font-bold text-stone-800">{Math.min(startIndex + itemsPerPage, totalItems)}</span> of{' '}
+                <span className="font-bold text-stone-800">{totalItems}</span> entries
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={safePage === 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  className="px-2.5 py-1 bg-white border border-stone-200 rounded-md text-xs font-semibold text-stone-700 hover:bg-stone-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-2xs flex items-center gap-1"
+                >
+                  <i className="fa-solid fa-chevron-left text-[10px]"></i>
+                  <span>Previous</span>
+                </button>
+
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter((p) => p === 1 || p === totalPages || Math.abs(p - safePage) <= 1)
+                    .reduce((acc, p, idx, arr) => {
+                      if (idx > 0 && p - arr[idx - 1] > 1) {
+                        acc.push(<span key={`dots-${p}`} className="px-1 text-stone-400 text-xs font-bold">...</span>);
+                      }
+                      acc.push(
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setCurrentPage(p)}
+                          className={`w-7 h-7 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                            p === safePage
+                              ? 'bg-[#b01622] text-white shadow-2xs'
+                              : 'bg-white border border-stone-200 text-stone-700 hover:bg-stone-50'
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      );
+                      return acc;
+                    }, [])}
+                </div>
+
+                <button
+                  type="button"
+                  disabled={safePage === totalPages}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  className="px-2.5 py-1 bg-white border border-stone-200 rounded-md text-xs font-semibold text-stone-700 hover:bg-stone-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-2xs flex items-center gap-1"
+                >
+                  <span>Next</span>
+                  <i className="fa-solid fa-chevron-right text-[10px]"></i>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
+      ) : (
+        /* SINGLE DELAYED PRODUCT UPDATE FORM */
+        <div className="space-y-6">
+          
+          {/* Top Info Bar */}
+          <div className="bg-white rounded-2xl border border-stone-200/80 p-5 shadow-2xs grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+            <div>
+              <span className="text-[11px] font-semibold text-stone-400 block mb-1">Job ID</span>
+              <span className="text-sm font-bold text-stone-900 block">{jobId}</span>
+            </div>
+            <div>
+              <span className="text-[11px] font-semibold text-stone-400 block mb-1">Client ID</span>
+              <span className="text-sm font-bold text-stone-900 block">{clientId}</span>
+            </div>
+            <div>
+              <span className="text-[11px] font-semibold text-stone-400 block mb-1">Client Name</span>
+              <span className="text-sm font-bold text-stone-900 block truncate" title={clientName}>{clientName}</span>
+            </div>
+            <div>
+              <span className="text-[11px] font-semibold text-stone-400 block mb-1">Assigned Karigar</span>
+              <span className="text-sm font-bold text-stone-900 block truncate" title={karigarName}>{karigarName}</span>
+            </div>
+            <div>
+              <span className="text-[11px] font-semibold text-stone-400 block mb-1">Allotment Date</span>
+              <span className="text-sm font-bold text-stone-900 block">{allotmentDate}</span>
+            </div>
+          </div>
 
-        <div>
-          <span className="text-[11px] font-medium text-stone-400 block">Client ID</span>
-          <span className="text-xs font-bold text-gray-900 block mt-0.5">{clientId}</span>
-        </div>
+          {/* Form & Summary 2-Column Grid */}
+          <form onSubmit={handleSaveDelay} className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            
+            {/* Left 8 Cols: Delay / Hold Details Form */}
+            <div className="lg:col-span-8 bg-white rounded-2xl border border-stone-200/80 p-6 shadow-2xs space-y-5">
+              <h2 className="text-base font-bold text-stone-900 tracking-tight">Delay / Hold Details</h2>
 
-        <div>
-          <span className="text-[11px] font-medium text-stone-400 block">Client Name</span>
-          <span className="text-xs font-bold text-gray-900 block mt-0.5 truncate">{clientName}</span>
-        </div>
-
-        <div>
-          <span className="text-[11px] font-medium text-stone-400 block">Assigned Karigar</span>
-          <span className="text-xs font-bold text-gray-900 block mt-0.5 truncate">{karigarName}</span>
-        </div>
-
-        <div>
-          <span className="text-[11px] font-medium text-stone-400 block">Allotment Date</span>
-          <span className="text-xs font-bold text-gray-900 block mt-0.5">{allotmentDate}</span>
-        </div>
-      </div>
-
-      {/* 4. MAIN TWO-COLUMN SECTION */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
-        {/* LEFT COLUMN: Delay / Hold Details Form (8 cols on lg) */}
-        <div className="lg:col-span-8">
-          <div className="bg-[#F4F6F7] rounded-xl border border-[#eed5d1] p-6 shadow-2xs">
-            <h3 className="text-sm font-bold text-gray-900 mb-5">
-              Delay / Hold Details
-            </h3>
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-              
-              {/* Row 1: Delay / Hold Status * & Delay Reason * */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-stone-600 mb-1.5">
-                    Delay / Hold Status <span className="text-red-500">*</span>
+                  <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1">
+                    Delay / Hold Status <span className="text-[#b01622]">*</span>
                   </label>
-                  <div className="relative">
-                    <select
-                      value={delayStatus}
-                      onChange={(e) => setDelayStatus(e.target.value)}
-                      className="w-full bg-stone-50/70 border border-stone-200 rounded-lg px-3.5 py-2.5 text-xs font-medium text-gray-900 focus:outline-hidden focus:border-[#b01622] appearance-none cursor-pointer"
-                      required
-                    >
-                      <option value="Delay">Delay</option>
-                      <option value="Hold">Hold</option>
-                      <option value="Active / Resume">Active / Resume</option>
-                    </select>
-                    <i className="fa-solid fa-chevron-down text-stone-400 text-xs absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
-                  </div>
+                  <select
+                    value={delayStatus}
+                    onChange={(e) => setDelayStatus(e.target.value)}
+                    className="w-full bg-stone-50 border border-stone-200 rounded-lg px-3.5 py-2 text-xs font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622]"
+                  >
+                    <option value="Delay">Delay</option>
+                    <option value="On Hold">On Hold</option>
+                  </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-stone-600 mb-1.5">
-                    Delay Reason <span className="text-red-500">*</span>
+                  <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1">
+                    Delay Reason <span className="text-[#b01622]">*</span>
                   </label>
-                  <div className="relative">
-                    <select
-                      value={delayReason}
-                      onChange={(e) => setDelayReason(e.target.value)}
-                      className="w-full bg-stone-50/70 border border-stone-200 rounded-lg px-3.5 py-2.5 text-xs font-medium text-gray-900 focus:outline-hidden focus:border-[#b01622] appearance-none cursor-pointer"
-                      required
-                    >
-                      <option value="Stone not available">Stone not available</option>
-                      <option value="Design correction">Design correction</option>
-                      <option value="Karigar on leave">Karigar on leave</option>
-                      <option value="Material shortage">Material shortage</option>
-                      <option value="Client customization change">Client customization change</option>
-                      <option value="Quality rework">Quality rework</option>
-                      <option value="Workshop machinery maintenance">Workshop machinery maintenance</option>
-                      <option value="Other">Other</option>
-                    </select>
-                    <i className="fa-solid fa-chevron-down text-stone-400 text-xs absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
-                  </div>
+                  <select
+                    value={delayReason}
+                    onChange={(e) => setDelayReason(e.target.value)}
+                    className="w-full bg-stone-50 border border-stone-200 rounded-lg px-3.5 py-2 text-xs font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622]"
+                  >
+                    <option value="Stone not available">Stone not available</option>
+                    <option value="Karigar Leave / Sick">Karigar Leave / Sick</option>
+                    <option value="Design Revision Required">Design Revision Required</option>
+                    <option value="Casting Defect / Rework">Casting Defect / Rework</option>
+                    <option value="Hallmark Center Delay">Hallmark Center Delay</option>
+                  </select>
                 </div>
               </div>
 
-              {/* Row 2: Delay Days * & Expected Completion Date * */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-stone-600 mb-1.5">
-                    Delay Days <span className="text-red-500">*</span>
+                  <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1">
+                    Delay Days <span className="text-[#b01622]">*</span>
                   </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      min="0"
-                      value={delayDays}
-                      onChange={(e) => handleDelayDaysChange(e.target.value)}
-                      className="w-full bg-stone-50/70 border border-stone-200 rounded-lg px-3.5 py-2.5 text-xs font-semibold text-gray-900 focus:outline-hidden focus:border-[#b01622]"
-                      placeholder="e.g. 5"
-                      required
-                    />
-                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex flex-col gap-0.5">
-                      <button
-                        type="button"
-                        onClick={() => handleDelayDaysChange(delayDays + 1)}
-                        className="text-[10px] text-stone-400 hover:text-stone-700 px-1"
-                      >
-                        ▲
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDelayDaysChange(Math.max(0, delayDays - 1))}
-                        className="text-[10px] text-stone-400 hover:text-stone-700 px-1"
-                      >
-                        ▼
-                      </button>
-                    </div>
-                  </div>
+                  <input
+                    type="number"
+                    min="0"
+                    value={delayDays}
+                    onChange={(e) => handleDelayDaysChange(e.target.value)}
+                    className="w-full bg-stone-50 border border-stone-200 rounded-lg px-3.5 py-2 text-xs font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622]"
+                  />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-stone-600 mb-1.5">
-                    Expected Completion Date <span className="text-red-500">*</span>
+                  <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1">
+                    Expected Completion Date <span className="text-[#b01622]">*</span>
                   </label>
-                  <div className="relative">
-                    <input
-                      type="date"
-                      value={expectedDate}
-                      onChange={(e) => handleExpectedDateChange(e.target.value)}
-                      className="w-full bg-stone-50/70 border border-stone-200 rounded-lg px-3.5 py-2.5 text-xs font-semibold text-gray-900 focus:outline-hidden focus:border-[#b01622] cursor-pointer"
-                      required
-                    />
-                  </div>
+                  <input
+                    type="date"
+                    value={expectedDate}
+                    onChange={(e) => handleExpectedDateChange(e.target.value)}
+                    className="w-full bg-stone-50 border border-stone-200 rounded-lg px-3.5 py-2 text-xs font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622]"
+                  />
                 </div>
               </div>
 
-              {/* Row 3: Detailed Reason / Remarks * */}
               <div>
-                <label className="block text-xs font-semibold text-stone-600 mb-1.5">
-                  Detailed Reason / Remarks <span className="text-red-500">*</span>
+                <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1">
+                  Detailed Reason / Remarks <span className="text-[#b01622]">*</span>
                 </label>
                 <textarea
                   rows="3"
                   value={remarks}
                   onChange={(e) => setRemarks(e.target.value)}
-                  placeholder="Required stones are out of stock. Waiting for new stock arrival."
-                  className="w-full bg-stone-50/70 border border-stone-200 rounded-lg p-3.5 text-xs text-gray-900 focus:outline-hidden focus:border-[#b01622] resize-none"
+                  className="w-full bg-stone-50 border border-stone-200 rounded-lg p-3 text-xs text-stone-800 placeholder-stone-400 focus:outline-hidden focus:border-[#b01622] resize-none"
+                  placeholder="Explain the detailed cause of delay..."
                   required
                 ></textarea>
               </div>
 
-              {/* Row 4: Attachment (Optional) */}
-              <div>
-                <label className="block text-xs font-semibold text-stone-600 mb-1.5">
-                  Attachment (Optional)
-                </label>
-                <label className="block border border-dashed border-[#e6b8be] bg-stone-50/40 hover:bg-red-50/20 rounded-xl p-6 text-center cursor-pointer transition-all group">
-                  <input
-                    type="file"
-                    onChange={handleFileChange}
-                    accept=".jpg,.jpeg,.png,.pdf"
-                    className="hidden"
-                  />
-
-                  {attachmentName ? (
-                    <div className="flex items-center justify-center gap-3">
-                      <i className="fa-solid fa-file-lines text-xl text-[#b01622]"></i>
-                      <div className="text-left">
-                        <span className="text-xs font-bold text-gray-900 block">{attachmentName}</span>
-                        <span className="text-[11px] text-stone-400 block">{attachmentSize}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleRemoveFile}
-                        className="ml-2 w-6 h-6 rounded-full bg-stone-200 hover:bg-red-100 text-stone-600 hover:text-red-600 flex items-center justify-center text-xs transition-colors"
-                        title="Remove file"
-                      >
-                        &times;
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5">
-                      <div className="w-10 h-10 mx-auto rounded-full flex items-center justify-center text-[#b01622] group-hover:scale-110 transition-transform">
-                        <svg className="w-7 h-7 text-[#b01622]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                        </svg>
-                      </div>
-                      <p className="text-xs font-bold text-gray-800">
-                        Click to upload files <span className="font-normal text-stone-500">or drag and drop</span>
-                      </p>
-                      <p className="text-[11px] text-stone-400">
-                        (JPG, PNG, PDF, Max 5MB)
-                      </p>
-                    </div>
-                  )}
-                </label>
-              </div>
-
-              {/* Submit Button */}
-              <div className="pt-2 flex justify-end">
+              <div className="pt-2 flex items-center justify-end gap-3">
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-6 py-2.5 bg-[#b01622] hover:bg-[#8f1019] text-white text-xs font-bold rounded-lg shadow-xs transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  className="px-6 py-2.5 bg-[#b01622] hover:bg-[#8f1019] text-white rounded-lg font-bold text-xs transition-all shadow-xs cursor-pointer"
                 >
-                  {saving && <i className="fa-solid fa-circle-notch fa-spin"></i>}
-                  <span>Update Delay / Hold Status</span>
+                  {saving ? 'Saving Updates...' : 'Save Delay Update'}
                 </button>
               </div>
+            </div>
 
-            </form>
-          </div>
-        </div>
+            {/* Right 4 Cols: Job & Item Summary */}
+            <div className="lg:col-span-4 bg-white rounded-2xl border border-stone-200/80 p-6 shadow-2xs space-y-4">
+              <h2 className="text-base font-bold text-stone-900 tracking-tight">Job &amp; Item Summary</h2>
 
-        {/* RIGHT COLUMN: Job & Item Summary Card (4 cols on lg) */}
-        <div className="lg:col-span-4">
-          <div className="bg-[#F4F6F7] rounded-xl border border-[#eed5d1] p-5 shadow-2xs space-y-3.5">
-            <h3 className="text-sm font-bold text-gray-900 pb-2 border-b border-stone-100">
-              Job &amp; Item Summary
-            </h3>
-
-            <div className="space-y-3 text-xs">
-              <div className="flex items-center justify-between py-1">
-                <span className="text-stone-500 font-medium">Job Type</span>
-                <span className="font-bold text-gray-900 truncate max-w-[170px] text-right">{jobType}</span>
+              <div className="space-y-2.5 text-xs bg-stone-50/70 p-4 rounded-xl border border-stone-100">
+                <div className="flex justify-between"><span className="text-stone-500">Job Type</span><span className="font-semibold text-stone-900">{currentOrder?.product_name || '22K Royal Kundan Bridals'}</span></div>
+                <div className="flex justify-between"><span className="text-stone-500">Category</span><span className="font-semibold text-stone-900">{currentOrder?.category_name || 'Gold Necklaces'}</span></div>
+                <div className="flex justify-between"><span className="text-stone-500">Material</span><span className="font-semibold text-stone-900">{currentOrder?.material_type || 'Gold 22K (916)'}</span></div>
+                <div className="flex justify-between"><span className="text-stone-500">Purity</span><span className="font-semibold text-stone-900">{currentOrder?.karat || '22KT'}</span></div>
+                <div className="flex justify-between"><span className="text-stone-500">Weight (Alloc.)</span><span className="font-semibold font-mono text-stone-900">{formatWeight(currentOrder?.allotted_weight || 120.000)} g</span></div>
+                <div className="flex justify-between"><span className="text-stone-500">Completed Weight</span><span className="font-semibold font-mono text-emerald-700">{formatWeight(currentOrder?.completed_weight || 40.000)} g</span></div>
+                <div className="flex justify-between"><span className="text-stone-500">Pending Weight</span><span className="font-bold font-mono text-[#b01622]">{formatWeight(currentOrder?.pending_weight || 80.000)} g</span></div>
+                <div className="flex justify-between"><span className="text-stone-500">Due Date</span><span className="font-semibold text-stone-900">{formatDateDisplay(currentOrder?.delivery_date, '26/09/2026')}</span></div>
+                <div className="flex justify-between border-t border-stone-200 pt-2"><span className="text-stone-500">New Expected Date</span><span className="font-bold text-[#b01622]">{formatDateDisplay(expectedDate, '26/09/2026')}</span></div>
               </div>
 
-              <div className="flex items-center justify-between py-1">
-                <span className="text-stone-500 font-medium">Category</span>
-                <span className="font-bold text-gray-900">{categoryName}</span>
-              </div>
-
-              <div className="flex items-center justify-between py-1">
-                <span className="text-stone-500 font-medium">Material</span>
-                <span className="font-bold text-gray-900">{materialType}</span>
-              </div>
-
-              <div className="flex items-center justify-between py-1">
-                <span className="text-stone-500 font-medium">Purity</span>
-                <span className="font-bold text-gray-900">{purityLabel}</span>
-              </div>
-
-              <div className="flex items-center justify-between py-1">
-                <span className="text-stone-500 font-medium">Weight (Alloc.)</span>
-                <span className="font-mono font-bold text-gray-900">{formatWeight(allottedWeight)} gm</span>
-              </div>
-
-              <div className="flex items-center justify-between py-1">
-                <span className="text-stone-500 font-medium">Completed Weight</span>
-                <span className="font-mono font-bold text-gray-900">{formatWeight(completedWeight)} gm</span>
-              </div>
-
-              {/* Pending Weight highlighted in red text */}
-              <div className="flex items-center justify-between py-1">
-                <span className="text-stone-500 font-medium">Pending Weight</span>
-                <span className="font-mono font-bold text-[#b01622]">{formatWeight(pendingWeight)} gm</span>
-              </div>
-
-              <div className="flex items-center justify-between py-1">
-                <span className="text-stone-500 font-medium">Due Date</span>
-                <span className="font-medium text-gray-900">{dueDate}</span>
-              </div>
-
-              {/* New Expected Date highlighted in bold red text */}
-              <div className="flex items-center justify-between py-1">
-                <span className="text-stone-500 font-medium">New Expected Date</span>
-                <span className="font-bold text-[#b01622]">{newExpectedDateDisplay}</span>
+              <div className="bg-red-50/50 rounded-xl p-4 border border-red-100 text-center">
+                <span className="text-[10.5px] font-bold text-stone-500 uppercase tracking-wider block">Total Amount</span>
+                <span className="text-xl font-black text-[#b01622] font-mono block mt-0.5">
+                  {formatCurrency(currentOrder?.total_price || 838800)}
+                </span>
               </div>
             </div>
 
-            {/* Highlighted Total Amount Box */}
-            <div className="bg-[#fcfaf7] border border-[#f0e9df] rounded-xl p-4 flex items-center justify-between mt-4">
-              <span className="text-xs font-bold text-stone-700">Total Amount</span>
-              <span className="text-base font-black text-[#b01622]">
-                {formatCurrency(totalAmount)}
-              </span>
-            </div>
+          </form>
 
-          </div>
         </div>
-
-      </div>
-
-      {/* 5. BOTTOM CARD: DELAY HISTORY TABLE */}
-      <div className="bg-[#F4F6F7] rounded-xl border border-[#eed5d1] shadow-2xs overflow-hidden">
-        
-        {/* Table Title */}
-        <div className="p-4 border-b border-stone-100">
-          <h3 className="text-sm font-bold text-gray-900">
-            Delay History
-          </h3>
-        </div>
-
-        {/* Delay History Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse min-w-[700px]">
-            <thead>
-              <tr className="border-b border-stone-200/80 bg-stone-50/50 text-stone-600 font-semibold text-xs">
-                <th className="py-3 px-4 whitespace-nowrap">Status</th>
-                <th className="py-3 px-3 whitespace-nowrap">Reason</th>
-                <th className="py-3 px-3 whitespace-nowrap">Delay Days</th>
-                <th className="py-3 px-3 whitespace-nowrap">From Date</th>
-                <th className="py-3 px-3 whitespace-nowrap">To Date</th>
-                <th className="py-3 px-3 whitespace-nowrap">Remarks</th>
-                <th className="py-3 px-4 whitespace-nowrap">Updated By</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-stone-100">
-              {paginatedHistory.length === 0 ? (
-                <tr>
-                  <td colSpan="7" className="py-8 text-center text-stone-400">
-                    No delay or hold events recorded yet.
-                  </td>
-                </tr>
-              ) : (
-                paginatedHistory.map((row) => (
-                  <tr key={row.id} className="hover:bg-stone-50/60 transition-colors">
-                    <td className="py-3 px-4 whitespace-nowrap font-bold text-[#b01622]">
-                      {row.status}
-                    </td>
-                    <td className="py-3 px-3 whitespace-nowrap text-stone-800 font-medium">
-                      {row.reason}
-                    </td>
-                    <td className="py-3 px-3 whitespace-nowrap text-stone-700">
-                      {row.delay_days}
-                    </td>
-                    <td className="py-3 px-3 whitespace-nowrap text-stone-600">
-                      {row.from_date}
-                    </td>
-                    <td className="py-3 px-3 whitespace-nowrap text-stone-600">
-                      {row.to_date}
-                    </td>
-                    <td className="py-3 px-3 text-stone-600 max-w-[280px] truncate">
-                      {row.remarks}
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap text-stone-600">
-                      {row.updated_by}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-      </div>
-
-      {/* 6. BOTTOM PAGINATION FOOTER */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2 text-xs text-stone-500">
-        <div>
-          Showing {startRecord} to {endRecord} of {totalHistoryItems} entries
-        </div>
-
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-            disabled={currentPage <= 1}
-            className="w-7 h-7 rounded-md border border-stone-200 hover:bg-stone-100 flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-          >
-            &lt;
-          </button>
-
-          {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
-            <button
-              key={pageNum}
-              type="button"
-              onClick={() => setCurrentPage(pageNum)}
-              className={`w-7 h-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors cursor-pointer ${
-                currentPage === pageNum
-                  ? 'bg-[#b01622] text-white'
-                  : 'border border-stone-200 hover:bg-stone-100 text-stone-700'
-              }`}
-            >
-              {pageNum}
-            </button>
-          ))}
-
-          <button
-            type="button"
-            onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-            disabled={currentPage >= totalPages}
-            className="w-7 h-7 rounded-md border border-stone-200 hover:bg-stone-100 flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-          >
-            &gt;
-          </button>
-        </div>
-      </div>
+      )}
 
     </div>
   );
