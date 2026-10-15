@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import api from '../services/api';
+import api, { sanitizeErrorMessage } from '../services/api';
 
 const AuthContext = createContext();
 
@@ -73,11 +73,11 @@ export const AuthProvider = ({ children }) => {
         setIsAuthenticated(true);
         return { success: true, user: userData };
       }
-      return { success: false, message: response.data?.message || 'Invalid credentials' };
+      return { success: false, message: sanitizeErrorMessage(response.data?.message, 'Invalid credentials') };
     } catch (error) {
       return {
         success: false,
-        message: error.response?.data?.message || 'Login failed. Please check credentials.'
+        message: sanitizeErrorMessage(error, 'Login failed. Please check credentials.')
       };
     }
   };

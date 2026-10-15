@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
+import { preloadMasters } from '../services/api';
 
 export default function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -11,6 +12,9 @@ export default function AppLayout() {
     try {
       localStorage.removeItem('rj_sidebar_open');
     } catch (e) {}
+
+    // Preload common master lists in background so dropdowns populate with 0ms latency
+    preloadMasters();
   }, []);
 
   const toggleSidebar = () => {

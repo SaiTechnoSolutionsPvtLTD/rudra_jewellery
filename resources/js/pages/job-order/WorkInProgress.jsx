@@ -182,7 +182,9 @@ export default function WorkInProgress() {
           if (!matchesSearch(item.product_name, item.design_no)) return;
           const reqQty = Number(item.required_qty || 1);
           const compQty = Number(item.completed_qty || 0);
+          const reworkQty = Number(item.rework_qty || 0) || (item.status === 'rework' ? 1 : 0);
           const pendQty = Math.max(0, reqQty - compQty);
+          const totalInProcess = pendQty + reworkQty;
 
           rows.push({
             rowKey: `wo_${wo.id}_item_${item.id}`,
@@ -204,6 +206,9 @@ export default function WorkInProgress() {
             required_qty: reqQty,
             completed_qty: compQty,
             pending_qty: pendQty,
+            rework_qty: reworkQty,
+            total_in_process: totalInProcess,
+            return_reason: item.return_reason || wo.return_reason || null,
             qc_pending_qty: Number(item.qc_pending_qty || (['quality_check', 'pending_approval', 'ready_for_qc'].includes(item.status) || ['quality_check', 'pending_approval'].includes(wo.current_stage) || wo.status === 'pending_approval' ? (wo.qc_pending_qty || compQty || reqQty || 1) : 0)),
             status: item.status || wo.status || 'in_progress',
             current_stage: wo.current_stage || 'in_progress',
@@ -216,7 +221,9 @@ export default function WorkInProgress() {
         if (!matchesSearch(wo.product_name, wo.design_code)) return;
         const reqQty = Number(wo.required_qty || 1);
         const compQty = Number(wo.completed_qty || 0);
+        const reworkQty = Number(wo.rework_qty || 0) || (wo.status === 'returned' || wo.current_stage === 'rework' ? 1 : 0);
         const pendQty = Math.max(0, reqQty - compQty);
+        const totalInProcess = pendQty + reworkQty;
 
         rows.push({
           rowKey: `wo_${wo.id}_root`,
@@ -238,6 +245,9 @@ export default function WorkInProgress() {
           required_qty: reqQty,
           completed_qty: compQty,
           pending_qty: pendQty,
+          rework_qty: reworkQty,
+          total_in_process: totalInProcess,
+          return_reason: wo.return_reason || null,
           qc_pending_qty: Number(wo.qc_pending_qty || (['quality_check', 'pending_approval', 'ready_for_qc'].includes(wo.current_stage) || wo.status === 'pending_approval' ? (compQty || reqQty || 1) : 0)),
           status: wo.status || 'in_progress',
           current_stage: wo.current_stage || 'in_progress',
@@ -314,13 +324,14 @@ export default function WorkInProgress() {
 
   const openInlineProductionModal = (row) => {
     setInlineModalRow(row);
-    setInlineCompletedNow(row.pending_qty > 0 ? 1 : 0);
+    const maxAvail = (row.total_in_process || (row.pending_qty + (row.rework_qty || 0)));
+    setInlineCompletedNow(maxAvail > 0 ? 1 : 0);
     setInlineActualWeight(row.completed_weight ? String(row.completed_weight) : String(row.allotted_weight || ''));
     setInlineConsumedWeight(row.completed_weight ? String(row.completed_weight) : String(row.allotted_weight || ''));
     setInlineStoneWeight('');
     setInlineRecoveredWeight('');
     setInlineProcessLoss('');
-    setInlineProdStatus(row.completed_qty >= row.required_qty ? 'ready_for_qc' : 'in_progress');
+    setInlineProdStatus(row.completed_qty >= row.required_qty && !row.rework_qty ? 'ready_for_qc' : 'in_progress');
     setInlineRemarks('');
   };
 
@@ -861,7 +872,7 @@ export default function WorkInProgress() {
                   <th className="py-3 px-2 text-center whitespace-nowrap">PENDING</th>
                   <th className="py-3 px-2 text-center whitespace-nowrap">QC PENDING</th>
                   <th className="py-3 px-3 text-center whitespace-nowrap">STATUS</th>
-                  <th className="py-3 px-3 text-right whitespace-nowrap">ACTIONS</th>
+                  <th className="py-3 px-3 text-center whitespace-nowrap">ACTIONS</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
@@ -941,7 +952,16 @@ export default function WorkInProgress() {
                           {row.completed_qty}
                         </td>
                         <td className="py-3.5 px-2 text-center font-bold text-amber-700 text-xs">
-                          {row.pending_qty}
+                          {row.rework_qty > 0 ? (
+                            <div>
+                              <span className="text-amber-900 font-extrabold text-xs">{row.total_in_process}</span>
+                              <span className="text-[10px] text-amber-700 font-medium block leading-tight">
+                                ({row.pending_qty}+{row.rework_qty} returned)
+                              </span>
+                            </div>
+                          ) : (
+                            row.pending_qty
+                          )}
                         </td>
                         <td className="py-3.5 px-2 text-center font-mono">
                           {row.qc_pending_qty > 0 ? (
@@ -953,7 +973,15 @@ export default function WorkInProgress() {
                           )}
                         </td>
                         <td className="py-3.5 px-3 text-center whitespace-nowrap">
-                          {row.is_delayed ? (
+                          {row.rework_qty > 0 ? (
+                            <span
+                              className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 inline-flex items-center gap-1"
+                              title={row.return_reason ? `Rework: ${row.return_reason}` : 'Returned from QC for rework'}
+                            >
+                              <i className="fa-solid fa-rotate-left text-[9px] text-amber-700"></i>
+                              <span>Rework ({row.rework_qty})</span>
+                            </span>
+                          ) : row.is_delayed ? (
                             <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-800 border border-red-200">
                               Delayed
                             </span>
@@ -963,42 +991,44 @@ export default function WorkInProgress() {
                             </span>
                           )}
                         </td>
-                        <td className="py-3.5 px-3 text-right whitespace-nowrap space-x-1">
-                          <button
-                            type="button"
-                            onClick={() => openInlineProductionModal(row)}
-                            className="px-2 py-1 bg-stone-800 hover:bg-stone-900 text-white text-[11px] font-bold rounded-md transition-colors cursor-pointer shadow-2xs"
-                            title="Update Production details"
-                          >
-                            <i className="fa-solid fa-[#b01622] fa-pen-to-square mr-1"></i> Production
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openOperationModal(row)}
-                            className="px-2 py-1 bg-indigo-700 hover:bg-indigo-800 text-white text-[11px] font-bold rounded-md transition-colors cursor-pointer shadow-2xs"
-                            title="Record Manufacturing Operation"
-                          >
-                            <i className="fa-solid fa-gears mr-1"></i> Operation
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openHistoryModal(row)}
-                            className="px-2 py-1 bg-slate-600 hover:bg-slate-700 text-white text-[11px] font-bold rounded-md transition-colors cursor-pointer shadow-2xs"
-                            title="View Production History"
-                          >
-                            <i className="fa-solid fa-clock-rotate-left mr-1"></i> History
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedOrderId(row.orderId);
-                              navigate(`/job-order/in-progress?order_id=${row.orderId}`);
-                              fetchOrderDetails(row.orderId);
-                            }}
-                            className="px-2 py-1 bg-[#b01622] hover:bg-[#8e111a] text-white text-[11px] font-bold rounded-md transition-colors cursor-pointer shadow-2xs"
-                          >
-                            Workbench →
-                          </button>
+                        <td className="py-3.5 px-3 text-center whitespace-nowrap">
+                          <div className="inline-flex items-center justify-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => openInlineProductionModal(row)}
+                              className="px-2 py-1 bg-stone-800 hover:bg-stone-900 text-white text-[11px] font-bold rounded-md transition-colors cursor-pointer shadow-2xs"
+                              title="Update Production details"
+                            >
+                              <i className="fa-solid fa-[#b01622] fa-pen-to-square mr-1"></i> Production
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openOperationModal(row)}
+                              className="px-2 py-1 bg-indigo-700 hover:bg-indigo-800 text-white text-[11px] font-bold rounded-md transition-colors cursor-pointer shadow-2xs"
+                              title="Record Manufacturing Operation"
+                            >
+                              <i className="fa-solid fa-gears mr-1"></i> Operation
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openHistoryModal(row)}
+                              className="px-2 py-1 bg-slate-600 hover:bg-slate-700 text-white text-[11px] font-bold rounded-md transition-colors cursor-pointer shadow-2xs"
+                              title="View Production History"
+                            >
+                              <i className="fa-solid fa-clock-rotate-left mr-1"></i> History
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedOrderId(row.orderId);
+                                navigate(`/job-order/in-progress?order_id=${row.orderId}`);
+                                fetchOrderDetails(row.orderId);
+                              }}
+                              className="px-2 py-1 bg-[#b01622] hover:bg-[#8e111a] text-white text-[11px] font-bold rounded-md transition-colors cursor-pointer shadow-2xs"
+                            >
+                              Workbench →
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1176,7 +1206,6 @@ export default function WorkInProgress() {
                       <th className="py-2 px-3 text-right">Allotted Wt</th>
                       <th className="py-2 px-3 text-right">Done Wt</th>
                       <th className="py-2 px-3">Status</th>
-                      <th className="py-2 px-3 text-center">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100 font-mono text-[11px]">
@@ -1208,19 +1237,6 @@ export default function WorkInProgress() {
                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold capitalize ${it.status === 'completed' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>
                               {it.status || 'in_progress'}
                             </span>
-                          </td>
-                          <td className="py-2.5 px-3 text-center font-sans">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedJobId(it.id);
-                                setFormCompletedNow(1);
-                              }}
-                              className={`px-2.5 py-1 text-xs font-bold rounded transition-colors ${isSelected ? 'bg-[#b01622] text-white shadow-2xs' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'}`}
-                            >
-                              {isSelected ? 'Active Job' : 'Select Job'}
-                            </button>
                           </td>
                         </tr>
                       );
@@ -1709,13 +1725,16 @@ export default function WorkInProgress() {
                   <input
                     type="number"
                     min="1"
-                    max={inlineModalRow.pending_qty || 1}
+                    max={inlineModalRow.total_in_process || inlineModalRow.pending_qty || 1}
                     value={inlineCompletedNow}
                     onChange={(e) => setInlineCompletedNow(Math.max(1, parseInt(e.target.value || 1, 10)))}
                     className="w-full bg-stone-50 border border-stone-300 rounded-lg px-3 py-1.5 font-mono text-stone-900 font-bold focus:border-[#b01622]"
                     required
                   />
-                  <span className="text-[10px] text-stone-400">Max eligible: {inlineModalRow.pending_qty} pc(s)</span>
+                  <span className="text-[10px] text-stone-400">
+                    Max eligible: {inlineModalRow.total_in_process || inlineModalRow.pending_qty} pc(s)
+                    {inlineModalRow.rework_qty > 0 ? ` (${inlineModalRow.pending_qty} balance + ${inlineModalRow.rework_qty} returned)` : ''}
+                  </span>
                 </div>
 
                 <div>

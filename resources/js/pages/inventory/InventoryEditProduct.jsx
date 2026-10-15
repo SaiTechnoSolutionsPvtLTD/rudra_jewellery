@@ -4,6 +4,7 @@ import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { compressImageFile } from '../../utils/imageCompressor';
 import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
+import { isMetalPurityStamp } from '../../components/JewelleryTagCard';
 
 export default function InventoryEditProduct() {
   const { id } = useParams();
@@ -367,6 +368,15 @@ export default function InventoryEditProduct() {
     setSaving(true);
     try {
       const updatedStockQty = parseInt(formData.no_of_pieces) || 1;
+
+      const diaComp = Array.isArray(components) ? components.find((c) => {
+        const n = (c.category_name || c.item_name || c.component_type || '').toLowerCase();
+        return c.is_diamond || n.includes('diamond') || n.includes('dia');
+      }) : null;
+      const diaWt = diaComp ? (parseFloat(diaComp.stone_weight || diaComp.gross_wt) || 0) : 0;
+      const diaCount = diaComp ? (parseInt(diaComp.no_of_pieces, 10) || 1) : 0;
+      const diaStamp = diaComp?.stamp && !isMetalPurityStamp(diaComp.stamp) ? diaComp.stamp : null;
+
       const updatedAttributes = {
         ...rawAttributes,
         item_name: formData.item_name,
@@ -375,6 +385,12 @@ export default function InventoryEditProduct() {
         karat: formData.karat,
         purity: formData.purity,
         stamp: formData.stamp,
+        gold_stamp: formData.stamp,
+        diamond_stamp: diaStamp || rawAttributes?.diamond_stamp || null,
+        dia_wt_ct: diaWt > 0 ? diaWt.toFixed(2) : (rawAttributes?.dia_wt_ct || null),
+        diamond_weight: diaWt > 0 ? diaWt.toFixed(2) : (rawAttributes?.diamond_weight || null),
+        diamond_count: diaCount > 0 ? diaCount : (rawAttributes?.diamond_count || null),
+        dia_count: diaCount > 0 ? diaCount : (rawAttributes?.dia_count || null),
         unit: formData.unit,
         size: formData.size,
         no_of_pieces: formData.no_of_pieces,
@@ -406,7 +422,8 @@ export default function InventoryEditProduct() {
         vendor_name: formData.vendor_name || formData.vendor,
         vendor_id: formData.vendor_id,
         quality: formData.quality,
-        description: formData.description,
+        attributes: updatedAttributes,
+        components: components,
         image: imageUrls[0],
         thumbnail: imageUrls[0],
       });

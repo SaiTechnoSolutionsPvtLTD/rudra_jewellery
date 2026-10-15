@@ -987,24 +987,27 @@ export default function JobCreationDashboard() {
                         </p>
                       </div>
 
-                      {/* Action Buttons: Inspect & Reject */}
+                      {/* Action Buttons: Approve & Reject redirecting to exact QC page */}
                       <div className="grid grid-cols-2 gap-2 mt-1">
                         <button
                           type="button"
                           onClick={() => {
                             const woId = card.work_order_id || card.id;
                             const itemId = card.work_order_item_id;
-                            navigate(itemId ? `/job-order/quality-check?order_id=${woId}&item_id=${itemId}` : `/job-order/quality-check?order_id=${woId}`);
+                            navigate(itemId ? `/job-order/quality-check?order_id=${woId}&item_id=${itemId}&action=approve` : `/job-order/quality-check?order_id=${woId}&action=approve`);
                           }}
                           className="py-1.5 px-3 bg-[#16a34a] hover:bg-[#15803d] text-white font-bold text-xs rounded-md transition-colors text-center cursor-pointer shadow-2xs"
                         >
-                          Inspect / QC
+                          Approve
                         </button>
                         <button
                           type="button"
-                          disabled={actionLoading}
-                          onClick={() => handleOpenReject(card)}
-                          className="py-1.5 px-3 bg-white hover:bg-red-50 disabled:opacity-50 text-[#ef4444] border border-[#ef4444] font-bold text-xs rounded-md transition-colors text-center cursor-pointer"
+                          onClick={() => {
+                            const woId = card.work_order_id || card.id;
+                            const itemId = card.work_order_item_id;
+                            navigate(itemId ? `/job-order/quality-check?order_id=${woId}&item_id=${itemId}&action=reject` : `/job-order/quality-check?order_id=${woId}&action=reject`);
+                          }}
+                          className="py-1.5 px-3 bg-white hover:bg-red-50 text-[#ef4444] border border-[#ef4444] font-bold text-xs rounded-md transition-colors text-center cursor-pointer"
                         >
                           Reject
                         </button>

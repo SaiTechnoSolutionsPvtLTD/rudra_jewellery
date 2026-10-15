@@ -31,6 +31,15 @@ class InventoryMovement extends Model
         'material_opening_stock_id' => 'integer',
     ];
 
+    protected static function booted()
+    {
+        static::saving(function ($model) {
+            $model->quantity = floatval($model->quantity ?? 0);
+            $model->weight = floatval($model->weight ?? 0);
+            $model->unit_cost = floatval($model->unit_cost ?? 0);
+        });
+    }
+
     public function product() { return $this->belongsTo(Product::class); }
     public function rawMaterial() { return $this->belongsTo(RawMaterial::class); }
     public function purchaseEntry() { return $this->belongsTo(PurchaseEntry::class); }

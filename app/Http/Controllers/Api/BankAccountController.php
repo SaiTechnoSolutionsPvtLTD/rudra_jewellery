@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\BankAccount;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class BankAccountController extends Controller
 {
@@ -13,9 +14,11 @@ class BankAccountController extends Controller
      */
     public function index()
     {
-        $accounts = BankAccount::orderBy('is_default', 'desc')
-            ->orderBy('created_at', 'desc')
-            ->get();
+        $accounts = Cache::remember('masters_bank_accounts_all', 300, function () {
+            return BankAccount::orderBy('is_default', 'desc')
+                ->orderBy('created_at', 'desc')
+                ->get();
+        });
 
         return response()->json($accounts);
     }
@@ -28,8 +31,8 @@ class BankAccountController extends Controller
         $validated = $request->validate([
             'bank_name' => 'required|string|max:255',
             'account_name' => 'required|string|max:255',
-            'account_number' => 'required|string|max:255',
-            'ifsc_code' => 'required|string|max:255',
+            'account_number' => ['required', 'string', 'regex:/^\d{9,18}$/'],
+            'ifsc_code' => ['required', 'string', 'regex:/^[A-Z]{4}0[A-Z0-9]{6}$/i'],
             'branch' => 'nullable|string|max:255',
             'account_type' => 'nullable|string|max:255',
             'upi_id' => 'nullable|string|max:255',
@@ -47,8 +50,9 @@ class BankAccountController extends Controller
         }
 
         $account = BankAccount::create($validated);
+        Cache::forget('masters_bank_accounts_all');
 
-        return response()->json($account, 217);
+        return response()->json($account, 201);
     }
 
     /**
@@ -70,8 +74,8 @@ class BankAccountController extends Controller
         $validated = $request->validate([
             'bank_name' => 'sometimes|required|string|max:255',
             'account_name' => 'sometimes|required|string|max:255',
-            'account_number' => 'sometimes|required|string|max:255',
-            'ifsc_code' => 'sometimes|required|string|max:255',
+            'account_number' => ['sometimes', 'required', 'string', 'regex:/^\d{9,18}$/'],
+            'ifsc_code' => ['sometimes', 'required', 'string', 'regex:/^[A-Z]{4}0[A-Z0-9]{6}$/i'],
             'branch' => 'nullable|string|max:255',
             'account_type' => 'nullable|string|max:255',
             'upi_id' => 'nullable|string|max:255',
@@ -84,6 +88,7 @@ class BankAccountController extends Controller
         }
 
         $account->update($validated);
+        Cache::forget('masters_bank_accounts_all');
 
         return response()->json($account);
     }
@@ -104,6 +109,8 @@ class BankAccountController extends Controller
             }
         }
 
+        Cache::forget('masters_bank_accounts_all');
+
         return response()->json(['message' => 'Bank account deleted successfully']);
     }
 
@@ -115,6 +122,8 @@ class BankAccountController extends Controller
         BankAccount::query()->update(['is_default' => false]);
         $account = BankAccount::findOrFail($id);
         $account->update(['is_default' => true, 'is_active' => true]);
+
+        Cache::forget('masters_bank_accounts_all');
 
         return response()->json([
             'message' => 'Default bank account updated successfully',

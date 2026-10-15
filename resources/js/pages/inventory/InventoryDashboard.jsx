@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
@@ -48,6 +48,43 @@ export default function InventoryDashboard() {
     return { totalCarats: 0, totalCount: 0, breakdown: [] };
   });
   const [showDiamondModal, setShowDiamondModal] = useState(false);
+
+  // Low Stock Alerts Horizontal Scroll Ref & State
+  const alertsScrollRef = useRef(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const checkAlertScroll = () => {
+    if (alertsScrollRef.current) {
+      const { scrollLeft, scrollWidth, clientWidth } = alertsScrollRef.current;
+      setCanScrollLeft(scrollLeft > 5);
+      setCanScrollRight(scrollLeft + clientWidth < scrollWidth - 5);
+    }
+  };
+
+  const handleScrollAlerts = (direction) => {
+    if (alertsScrollRef.current) {
+      const scrollAmount = 340;
+      alertsScrollRef.current.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth',
+      });
+      setTimeout(checkAlertScroll, 350);
+    }
+  };
+
+  useEffect(() => {
+    checkAlertScroll();
+    const el = alertsScrollRef.current;
+    if (el) {
+      el.addEventListener('scroll', checkAlertScroll);
+      window.addEventListener('resize', checkAlertScroll);
+      return () => {
+        el.removeEventListener('scroll', checkAlertScroll);
+        window.removeEventListener('resize', checkAlertScroll);
+      };
+    }
+  }, [stats]);
 
   const [loading, setLoading] = useState(() => {
     try {
@@ -204,10 +241,10 @@ export default function InventoryDashboard() {
   };
 
   const jewelValues = stats?.jewel_values || {
-    gold: { weight: '0.000 kg' },
-    stone: { weight: '0 units' },
-    silver: { weight: '0.000 kg' },
-    diamond: { weight: '0.00 ct' },
+    gold: { weight: '0.000 g', amount: '₹0' },
+    stone: { weight: '0 units', amount: '₹0' },
+    silver: { weight: '0.000 g', amount: '₹0' },
+    diamond: { weight: '0.000 ct', amount: '₹0' },
   };
 
   const lowStockAlerts = Array.isArray(stats?.low_stock_alerts) ? stats.low_stock_alerts : [];
@@ -373,8 +410,8 @@ export default function InventoryDashboard() {
               <span className="text-[11px] font-semibold text-stone-400">Gold Jewellery</span>
             </div>
             <div>
-              <div className="text-lg font-bold text-gray-900 tracking-tight">
-                {jewelValues.gold?.weight || '0.000 kg'}
+              <div className="text-lg font-bold text-gray-900 tracking-tight font-mono">
+                {jewelValues.gold?.weight || '0.000 g'}
               </div>
               <div className="text-[11px] text-stone-400 font-medium mt-0.5">
                 Finished Goods
@@ -391,7 +428,7 @@ export default function InventoryDashboard() {
               <span className="text-[11px] font-semibold text-stone-400">Stone Jewellery</span>
             </div>
             <div>
-              <div className="text-lg font-bold text-gray-900 tracking-tight">
+              <div className="text-lg font-bold text-gray-900 tracking-tight font-mono">
                 {jewelValues.stone?.weight || '0 units'}
               </div>
               <div className="text-[11px] text-stone-400 font-medium mt-0.5">
@@ -409,8 +446,8 @@ export default function InventoryDashboard() {
               <span className="text-[11px] font-semibold text-stone-400">Silver Jewellery</span>
             </div>
             <div>
-              <div className="text-lg font-bold text-gray-900 tracking-tight">
-                {jewelValues.silver?.weight || '0.000 kg'}
+              <div className="text-lg font-bold text-gray-900 tracking-tight font-mono">
+                {jewelValues.silver?.weight || '0.000 g'}
               </div>
               <div className="text-[11px] text-stone-400 font-medium mt-0.5">
                 Finished Goods
@@ -427,8 +464,8 @@ export default function InventoryDashboard() {
               <span className="text-[11px] font-semibold text-stone-400">Diamond Jewellery</span>
             </div>
             <div>
-              <div className="text-lg font-bold text-gray-900 tracking-tight">
-                {jewelValues.diamond?.weight || '0.00 ct'}
+              <div className="text-lg font-bold text-gray-900 tracking-tight font-mono">
+                {jewelValues.diamond?.weight || '0.000 ct'}
               </div>
               <div className="text-[11px] text-stone-400 font-medium mt-0.5">
                 Finished Goods
@@ -518,7 +555,7 @@ export default function InventoryDashboard() {
 
       {/* 5. Low Stock Alerts Section (Matching Reference Image) */}
       <div className="bg-[#fffdf5] rounded-2xl p-5 border border-amber-200/90 border-l-4 border-l-amber-500 shadow-2xs space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-amber-800 font-bold text-xs">
             <i className="fa-solid fa-triangle-exclamation text-amber-600 text-sm"></i>
             <span>Low Stock Alerts</span>
@@ -526,48 +563,161 @@ export default function InventoryDashboard() {
               {lowStockAlerts.length} {lowStockAlerts.length === 1 ? 'alert' : 'alerts'}
             </span>
           </div>
+
+          {/* Left / Right Scroll Arrow Buttons (appears when alerts overflow or > 3) */}
+          {lowStockAlerts.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => handleScrollAlerts('left')}
+                disabled={!canScrollLeft}
+                className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs transition-all border ${
+                  canScrollLeft
+                    ? 'bg-amber-100/80 hover:bg-amber-200 text-amber-900 border-amber-300 shadow-2xs cursor-pointer'
+                    : 'bg-stone-100/60 text-stone-300 border-stone-200/60 cursor-not-allowed opacity-50'
+                }`}
+                title="Scroll left"
+                aria-label="Scroll left"
+              >
+                <i className="fa-solid fa-chevron-left text-[10px]"></i>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleScrollAlerts('right')}
+                disabled={!canScrollRight}
+                className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs transition-all border ${
+                  canScrollRight
+                    ? 'bg-amber-100/80 hover:bg-amber-200 text-amber-900 border-amber-300 shadow-2xs cursor-pointer'
+                    : 'bg-stone-100/60 text-stone-300 border-stone-200/60 cursor-not-allowed opacity-50'
+                }`}
+                title="Scroll right"
+                aria-label="Scroll right"
+              >
+                <i className="fa-solid fa-chevron-right text-[10px]"></i>
+              </button>
+            </div>
+          )}
         </div>
 
         {lowStockAlerts.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+          <div
+            ref={alertsScrollRef}
+            onScroll={checkAlertScroll}
+            className="flex items-stretch gap-3.5 overflow-x-auto no-scrollbar scroll-smooth py-1"
+          >
             {lowStockAlerts.map((item, idx) => {
-              const qtyNum = typeof item.stock_qty === 'number' ? item.stock_qty : parseInt(item.stock_qty || 0);
-              const formattedQty = String(Math.max(0, qtyNum)).padStart(2, '0');
+              const qtyNum = typeof item.stock_qty === 'number' ? item.stock_qty : parseFloat(item.stock_qty || 0);
               const isOut = item.is_out_of_stock || qtyNum <= 0;
+              const unit = item.unit || 'units';
+
+              let formattedVal = '';
+              if (item.is_raw_material) {
+                if (unit === 'ct') {
+                  formattedVal = `${qtyNum.toFixed(2)} ct`;
+                } else if (unit === 'g' || unit === 'kg') {
+                  formattedVal = `${qtyNum.toFixed(3)} ${unit}`;
+                } else {
+                  formattedVal = `${Math.max(0, parseInt(qtyNum))} ${unit}`;
+                }
+              } else {
+                formattedVal = `${String(Math.max(0, parseInt(qtyNum))).padStart(2, '0')} units`;
+              }
+
               const stockText = isOut
-                ? 'Out of Stock (00)'
-                : `Current Stock: ${formattedQty} ${item.is_raw_material ? (item.unit || 'units') : 'units'}`;
+                ? (item.is_raw_material ? `Out of Stock (00 ${unit})` : 'Out of Stock (00)')
+                : `Current Stock: ${formattedVal}`;
+
+              // Determine icon & badge theme per material
+              const nameLower = (item.name || '').toLowerCase();
+              const matType = (item.material_type || '').toLowerCase();
+
+              let theme = {
+                icon: 'fa-boxes-stacked',
+                iconColor: 'bg-amber-50 text-amber-700 border-amber-200',
+                border: 'border-amber-100 hover:border-amber-300',
+              };
+
+              if (nameLower.includes('silver') || matType === 'silver') {
+                theme = {
+                  icon: 'fa-ring',
+                  iconColor: 'bg-slate-100 text-slate-700 border-slate-200',
+                  border: 'border-slate-200 hover:border-slate-400',
+                };
+              } else if (nameLower.includes('diamond') || matType === 'diamond') {
+                theme = {
+                  icon: 'fa-gem',
+                  iconColor: 'bg-cyan-50 text-cyan-600 border-cyan-200',
+                  border: 'border-cyan-100 hover:border-cyan-300',
+                };
+              } else if (nameLower.includes('gold') || matType === 'gold') {
+                theme = {
+                  icon: 'fa-coins',
+                  iconColor: 'bg-amber-100/70 text-amber-700 border-amber-200',
+                  border: 'border-amber-200 hover:border-amber-400',
+                };
+              } else if (nameLower.includes('stone') || matType === 'stone') {
+                theme = {
+                  icon: 'fa-circle-dot',
+                  iconColor: 'bg-purple-50 text-purple-700 border-purple-200',
+                  border: 'border-purple-100 hover:border-purple-300',
+                };
+              }
 
               return (
                 <div
                   key={item.id || idx}
-                  className="bg-white rounded-xl p-3.5 border border-amber-100 shadow-2xs flex items-center justify-between gap-3 hover:border-amber-300 transition-colors"
+                  className={`bg-white rounded-xl p-3.5 border ${theme.border} shadow-2xs flex items-center justify-between gap-3 transition-colors shrink-0 ${lowStockAlerts.length <= 3 ? 'flex-1 min-w-[260px]' : 'min-w-[290px] sm:min-w-[320px] max-w-[360px]'}`}
                 >
                   <div
-                    className="min-w-0 flex-1 cursor-pointer"
+                    className="min-w-0 flex-1 flex items-center gap-2.5 cursor-pointer"
                     onClick={() => {
                       if (!item.is_raw_material) {
                         setSearchTerm(item.name);
                         setCurrentPage(1);
                       } else {
-                        navigate('/purchase/entry');
+                        navigate('/purchase/entry', {
+                          state: {
+                            purchase_type: 'raw_material',
+                            metal_type: matType || (nameLower.includes('silver') ? 'silver' : nameLower.includes('diamond') ? 'diamond' : nameLower.includes('gold') ? 'gold' : 'gold'),
+                            raw_material_id: item.raw_material_id || item.id,
+                            raw_material_name: item.name,
+                          }
+                        });
                       }
                     }}
-                    title={item.is_raw_material ? 'Click to open Purchase Entry for Raw Metal' : 'Click to filter by this product in table'}
+                    title={item.is_raw_material ? 'Click to restock raw material in Purchase Entry' : 'Click to filter by this product in table'}
                   >
-                    <h4 className="font-bold text-gray-900 text-xs truncate hover:text-[#b01622] transition-colors">
-                      {item.name}
-                    </h4>
-                    <div className="mt-0.5">
-                      <span className={`text-[11px] font-semibold ${isOut ? 'text-red-600 font-bold' : 'text-amber-700'}`}>
-                        {stockText}
-                      </span>
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs shrink-0 border ${theme.iconColor}`}>
+                      <i className={`fa-solid ${theme.icon}`}></i>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h4 className="font-bold text-gray-900 text-xs truncate hover:text-[#b01622] transition-colors">
+                        {item.name}
+                      </h4>
+                      <div className="mt-0.5">
+                        <span className={`text-[11px] font-semibold ${isOut ? 'text-red-600 font-bold' : 'text-amber-700'}`}>
+                          {stockText}
+                        </span>
+                      </div>
                     </div>
                   </div>
                   <button
                     type="button"
-                    onClick={() => navigate('/purchase/entry', { state: { productId: item.id, productName: item.name } })}
-                    className="text-xs font-bold text-[#b01622] hover:text-[#8f1019] hover:underline cursor-pointer shrink-0 transition-colors"
+                    onClick={() => {
+                      if (item.is_raw_material) {
+                        navigate('/purchase/entry', {
+                          state: {
+                            purchase_type: 'raw_material',
+                            metal_type: matType || (nameLower.includes('silver') ? 'silver' : nameLower.includes('diamond') ? 'diamond' : nameLower.includes('gold') ? 'gold' : 'gold'),
+                            raw_material_id: item.raw_material_id || item.id,
+                            raw_material_name: item.name,
+                          }
+                        });
+                      } else {
+                        navigate('/purchase/entry', { state: { productId: item.id, productName: item.name } });
+                      }
+                    }}
+                    className="text-xs font-bold text-[#b01622] hover:text-[#8f1019] hover:underline cursor-pointer shrink-0 transition-colors px-1 py-0.5"
                     title="Restock this item"
                   >
                     ! Restock
@@ -638,8 +788,9 @@ export default function InventoryDashboard() {
                   const qualityVal = attrs.quality || attrs.setting_style || attrs.stamp || 'Hallmark';
 
                   // Weight derivation strictly from product attributes
-                  const grossWt = attrs.gross_wt || p.opening_stock_weight || 0;
-                  const weightStr = grossWt > 0 ? `${grossWt}g` : '—';
+                  const rawGross = parseFloat(attrs.unit_gross_wt || attrs.gross_wt || p.opening_stock_weight || 0);
+                  const displayGross = (rawGross > 0 && rawGross < 0.1) ? (rawGross * 1000) : rawGross;
+                  const weightStr = displayGross > 0 ? `${Number(displayGross.toFixed(3))}g` : '—';
 
                   // Stock Quantity (Formatted as 2 digits e.g. 08, 02, 00)
                   const pieces = p.current_stock_qty ?? attrs.pieces ?? 0;
@@ -928,7 +1079,7 @@ export default function InventoryDashboard() {
                 </thead>
                 <tbody className="divide-y divide-stone-100">
                   {diamondVault.breakdown.length > 0 ? (
-                    diamondVault.breakdown.map((item, idx) => (
+                    diamondVault.breakdown.slice(0, 5).map((item, idx) => (
                       <tr key={idx} className="hover:bg-cyan-50/30 transition-colors">
                         <td className="py-2.5 px-3 font-semibold text-stone-900 flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-cyan-500 shrink-0"></span>
@@ -951,9 +1102,26 @@ export default function InventoryDashboard() {
                   )}
                 </tbody>
               </table>
+
+              {diamondVault.breakdown.length > 5 && (
+                <div className="mt-2.5 text-center text-[11px] text-stone-500 font-medium">
+                  Showing 5 of {diamondVault.breakdown.length} stamps
+                </div>
+              )}
             </div>
 
-            <div className="p-3 bg-stone-50 border-t border-stone-200 flex justify-end">
+            <div className="p-3 bg-stone-50 border-t border-stone-200 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDiamondModal(false);
+                  navigate('/purchase/stock#diamond-stock-section');
+                }}
+                className="px-4 py-2 bg-[#b01622] hover:bg-[#8f121b] text-white rounded-xl text-xs font-bold transition-all shadow-xs hover:shadow flex items-center gap-2 cursor-pointer"
+              >
+                <span>View More</span>
+                <i className="fa-solid fa-arrow-right text-[10px]"></i>
+              </button>
               <button
                 type="button"
                 onClick={() => setShowDiamondModal(false)}

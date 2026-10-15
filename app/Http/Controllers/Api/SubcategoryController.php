@@ -7,16 +7,23 @@ use App\Models\Subcategory;
 use App\Models\Category;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Cache;
 
 class SubcategoryController extends Controller
 {
     public function index(Request $request)
     {
         try {
-            if (Schema::hasTable('subcategories')) {
-                $subcategories = Subcategory::with('category')->orderBy('id', 'desc')->get();
-                return response()->json($subcategories);
-            }
+            $catId = $request->query('category_id');
+            $cacheKey = 'master_subcategories_list' . ($catId ? "_{$catId}" : '');
+            $subcategories = Cache::remember($cacheKey, 300, function () use ($catId) {
+                $query = Subcategory::with('category')->orderBy('id', 'desc');
+                if ($catId) {
+                    $query->where('category_id', $catId);
+                }
+                return $query->get();
+            });
+            return response()->json($subcategories);
         } catch (\Exception $e) {
             // Fallback
         }
@@ -46,6 +53,7 @@ class SubcategoryController extends Controller
 
                 $subcategory = Subcategory::create($validated);
                 $subcategory->load('category');
+                Cache::flush();
 
                 return response()->json([
                     'status' => 'success',
@@ -102,6 +110,7 @@ class SubcategoryController extends Controller
 
                     $subcategory->update($validated);
                     $subcategory->load('category');
+                    Cache::flush();
 
                     return response()->json([
                         'status' => 'success',
@@ -124,6 +133,7 @@ class SubcategoryController extends Controller
                 $subcategory = Subcategory::find($id);
                 if ($subcategory) {
                     $subcategory->delete();
+                    Cache::flush();
                     return response()->json([
                         'status' => 'success',
                         'message' => 'Subcategory deleted successfully'

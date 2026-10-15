@@ -131,7 +131,7 @@ export default function Step4Download() {
   return (
     <div className="max-w-7xl mx-auto pb-12">
       {/* Top Step Nav */}
-      <ProductUploadStepNav currentStep={4} />
+      <ProductUploadStepNav currentStep={3} />
 
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between mb-5 gap-4">
@@ -333,8 +333,8 @@ export default function Step4Download() {
       {/* Bottom Actions */}
       <div className="flex items-center justify-between pt-2">
         <Link
-          to="/product-upload/step3"
-          className="px-6 py-2.5 bg-white border border-gray-300 text-gray-600 text-sm font-semibold rounded-lg hover:bg-gray-50 transition-colors shadow-xs inline-flex items-center gap-2"
+          to="/product-upload/step2"
+          className="px-6 py-2.5 bg-white border border-gray-300 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-50 transition-colors shadow-xs inline-flex items-center gap-2 cursor-pointer"
         >
           &larr; Back to Selection
         </Link>

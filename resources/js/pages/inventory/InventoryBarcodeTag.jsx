@@ -155,7 +155,7 @@ export default function InventoryBarcodeTag() {
 
       {/* ── Print CSS ─────────────────────────────────────── */}
       <style>{`
-        @page { size: A4; margin: 8mm; }
+        @page { size: A4; margin: 0 !important; }
         .a4-page {
           width: 210mm;
           min-height: 297mm;

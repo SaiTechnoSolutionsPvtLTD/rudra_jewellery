@@ -231,7 +231,7 @@ export default function BillingDashboard() {
     setQuickSelectedProductIds(prev => {
       const isSelected = prev.includes(product.id);
       const nextIds = isSelected ? prev.filter(id => id !== product.id) : [...prev, product.id];
-      
+
       const selectedProds = availableProducts.filter(p => nextIds.includes(p.id));
       const items = selectedProds.map((prod, idx) => {
         const wt = parseFloat(prod.opening_stock_weight || 10);
@@ -773,7 +773,7 @@ export default function BillingDashboard() {
       const total = parseFloat(editPaymentInvoice.total || 0);
       const paid = parseFloat(paymentFormData.paid_amount || 0);
       const bal = Math.max(0, total - paid);
-      
+
       const paymentSummary = `Paid: ₹${paid.toLocaleString('en-IN')} via ${paymentFormData.payment_mode}${paymentFormData.ref_no ? ` [Ref: ${paymentFormData.ref_no}]` : ''}. Balance: ₹${bal.toLocaleString('en-IN')}. ${paymentFormData.notes || ''}`.trim();
 
       await api.put(`/invoices/${invId}`, {
@@ -965,19 +965,16 @@ export default function BillingDashboard() {
 
   return (
     <div className={`w-full pb-14 font-sans antialiased text-gray-800 ${selectedInvoice ? 'print:hidden' : ''}`}>
-      
+
       {/* Top Breadcrumb & Actions Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-        <div className="flex items-center gap-3.5">
-          <img src="/logo_emblem.png" alt="Rudra Jewellers" className="w-11 h-11 object-contain drop-shadow-xs" />
-          <div>
-            <div className="text-[11px] font-bold tracking-wider text-gray-400 uppercase mb-1 flex items-center gap-1.5">
-              <span>ADMINISTRATIVE PORTAL</span>
-              <span className="text-gray-300 font-normal">›</span>
-              <span className="text-[#a91d22] font-semibold">BILLING OVERVIEW</span>
-            </div>
-            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Billing Dashboard</h1>
+        <div>
+          <div className="text-[11px] font-bold tracking-wider text-gray-400 uppercase mb-1 flex items-center gap-1.5">
+            <span>ADMINISTRATIVE PORTAL</span>
+            <span className="text-gray-300 font-normal">›</span>
+            <span className="text-[#a91d22] font-semibold">BILLING OVERVIEW</span>
           </div>
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Billing Dashboard</h1>
         </div>
 
         <div className="flex items-center gap-3 self-start md:self-auto">
@@ -1025,7 +1022,7 @@ export default function BillingDashboard() {
 
       {/* 4 Metric Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        
+
         {/* Card 1: Invoices Count */}
         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
           <div className="flex items-center gap-3 mb-3">
@@ -1112,7 +1109,7 @@ export default function BillingDashboard() {
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-6">
         <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3.5 flex-1">
-            
+
             {/* Filter by Existing Client */}
             <div>
               <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
@@ -1330,7 +1327,7 @@ export default function BillingDashboard() {
               ) : (
                 paginatedInvoices.map((inv, idx) => (
                   <tr key={inv.numeric_id || inv.id || idx} className="hover:bg-[#fdfaf7] transition-colors">
-                    
+
                     {/* INVOICE ID (Exact text color #801824 and bold font) */}
                     <td className="pl-5 pr-2 py-3.5 font-bold text-[#801824] text-[12px] whitespace-nowrap tracking-tight font-mono">
                       {inv.invoice_no || inv.id}
@@ -1478,7 +1475,7 @@ export default function BillingDashboard() {
 
         {/* Pagination Controls */}
         <div className="px-6 py-4 border-t border-[#f4e6e1] flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-semibold text-gray-500 bg-white">
-          
+
           {/* Left: Accurate Showing entries indicator */}
           <div className="flex items-center gap-2">
             <span className="text-gray-600 font-medium">
@@ -1497,11 +1494,10 @@ export default function BillingDashboard() {
               type="button"
               disabled={currentPage === 1}
               onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-              className={`min-w-[28px] h-7 px-2 rounded-lg border flex items-center justify-center gap-1 transition-colors text-xs font-semibold ${
-                currentPage === 1
-                  ? 'border-gray-200 text-gray-300 cursor-not-allowed bg-gray-50/50'
-                  : 'border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-gray-900 cursor-pointer'
-              }`}
+              className={`min-w-[28px] h-7 px-2 rounded-lg border flex items-center justify-center gap-1 transition-colors text-xs font-semibold ${currentPage === 1
+                ? 'border-gray-200 text-gray-300 cursor-not-allowed bg-gray-50/50'
+                : 'border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-gray-900 cursor-pointer'
+                }`}
             >
               <i className="fa-solid fa-chevron-left text-[9px]"></i>
               <span className="hidden sm:inline">Prev</span>
@@ -1512,11 +1508,10 @@ export default function BillingDashboard() {
                 key={pageNum}
                 type="button"
                 onClick={() => setCurrentPage(pageNum)}
-                className={`min-w-[28px] h-7 px-2 rounded-lg flex items-center justify-center text-xs font-bold transition-all cursor-pointer ${
-                  currentPage === pageNum
-                    ? 'bg-[#a91d22] text-white shadow-xs'
-                    : 'border border-gray-200 text-gray-700 hover:bg-gray-100'
-                }`}
+                className={`min-w-[28px] h-7 px-2 rounded-lg flex items-center justify-center text-xs font-bold transition-all cursor-pointer ${currentPage === pageNum
+                  ? 'bg-[#a91d22] text-white shadow-xs'
+                  : 'border border-gray-200 text-gray-700 hover:bg-gray-100'
+                  }`}
               >
                 {pageNum}
               </button>
@@ -1526,11 +1521,10 @@ export default function BillingDashboard() {
               type="button"
               disabled={currentPage === totalPages || totalPages === 0}
               onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-              className={`min-w-[28px] h-7 px-2 rounded-lg border flex items-center justify-center gap-1 transition-colors text-xs font-semibold ${
-                currentPage === totalPages || totalPages === 0
-                  ? 'border-gray-200 text-gray-300 cursor-not-allowed bg-gray-50/50'
-                  : 'border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-gray-900 cursor-pointer'
-              }`}
+              className={`min-w-[28px] h-7 px-2 rounded-lg border flex items-center justify-center gap-1 transition-colors text-xs font-semibold ${currentPage === totalPages || totalPages === 0
+                ? 'border-gray-200 text-gray-300 cursor-not-allowed bg-gray-50/50'
+                : 'border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-gray-900 cursor-pointer'
+                }`}
             >
               <span className="hidden sm:inline">Next</span>
               <i className="fa-solid fa-chevron-right text-[9px]"></i>
@@ -1566,7 +1560,7 @@ export default function BillingDashboard() {
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-2 sm:p-4 overflow-hidden">
           <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-gray-100 max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            
+
             {/* Pinned Modal Header (Never scrolls away - Close button always accessible!) */}
             <div className="px-5 py-3.5 sm:px-6 sm:py-4 border-b border-gray-100 shrink-0 flex items-center justify-between bg-white z-10">
               <div className="flex items-center gap-2.5">
@@ -1590,10 +1584,10 @@ export default function BillingDashboard() {
 
             {/* Form wrapper with scrollable body */}
             <form onSubmit={handleCreateInvoiceSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden">
-              
+
               {/* Scrollable Form Body */}
               <div className="overflow-y-auto px-5 py-4 sm:px-6 sm:py-5 space-y-4 flex-1">
-                
+
                 {/* 1. Client Selection Dropdown */}
                 <div>
                   <div className="flex items-center justify-between mb-1">
@@ -1703,9 +1697,9 @@ export default function BillingDashboard() {
                     <input
                       type="email"
                       value={formData.client_email}
-                      onChange={(e) => setFormData(prev => ({ ...prev, client_email: e.target.value }))}
+                      onChange={(e) => setFormData(prev => ({ ...prev, client_email: e.target.value.toLowerCase().replace(/\s+/g, '') }))}
                       placeholder="e.g. client@email.com"
-                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs text-gray-800 focus:outline-none focus:border-[#a91d22] bg-white"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs lowercase text-gray-800 focus:outline-none focus:border-[#a91d22] bg-white"
                     />
                   </div>
 
@@ -1742,17 +1736,16 @@ export default function BillingDashboard() {
                       </div>
                       <p className="text-[11px] text-gray-500">Choose itemized product entry from catalog or quick lump sum</p>
                     </div>
-                    
+
                     {/* Mode Toggle */}
                     <div className="inline-flex p-0.5 bg-gray-200/80 rounded-xl text-xs font-semibold self-start sm:self-auto">
                       <button
                         type="button"
                         onClick={() => setInvoiceMode('itemized')}
-                        className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
-                          invoiceMode === 'itemized'
-                            ? 'bg-white text-[#a91d22] shadow-xs font-bold'
-                            : 'text-gray-600 hover:text-gray-900'
-                        }`}
+                        className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${invoiceMode === 'itemized'
+                          ? 'bg-white text-[#a91d22] shadow-xs font-bold'
+                          : 'text-gray-600 hover:text-gray-900'
+                          }`}
                       >
                         <i className="fa-solid fa-list-check text-[11px]"></i>
                         <span>Itemized Products (Best)</span>
@@ -1760,11 +1753,10 @@ export default function BillingDashboard() {
                       <button
                         type="button"
                         onClick={() => setInvoiceMode('quick')}
-                        className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
-                          invoiceMode === 'quick'
-                            ? 'bg-white text-[#a91d22] shadow-xs font-bold'
-                            : 'text-gray-600 hover:text-gray-900'
-                        }`}
+                        className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${invoiceMode === 'quick'
+                          ? 'bg-white text-[#a91d22] shadow-xs font-bold'
+                          : 'text-gray-600 hover:text-gray-900'
+                          }`}
                       >
                         <i className="fa-solid fa-bolt text-[11px]"></i>
                         <span>Quick Amount</span>
@@ -1797,7 +1789,7 @@ export default function BillingDashboard() {
                                 </span>
                                 <span>Item Particulars</span>
                               </span>
-                              
+
                               {invoiceItems.length > 1 && (
                                 <button
                                   type="button"
@@ -1936,7 +1928,7 @@ export default function BillingDashboard() {
                           </label>
                           <span className="text-[10px] text-gray-400 font-medium">Click to select / deselect</span>
                         </div>
-                        
+
                         {/* Quick Product Chips Grid */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
                           {availableProducts.map(prod => {
@@ -1949,11 +1941,10 @@ export default function BillingDashboard() {
                                 key={prod.id}
                                 type="button"
                                 onClick={() => handleToggleQuickProduct(prod)}
-                                className={`p-2.5 rounded-xl border text-left transition-all flex items-start justify-between gap-2 cursor-pointer ${
-                                  isSelected
-                                    ? 'bg-red-50/80 border-[#a91d22] text-gray-900 shadow-xs ring-1 ring-[#a91d22]'
-                                    : 'bg-white border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'
-                                }`}
+                                className={`p-2.5 rounded-xl border text-left transition-all flex items-start justify-between gap-2 cursor-pointer ${isSelected
+                                  ? 'bg-red-50/80 border-[#a91d22] text-gray-900 shadow-xs ring-1 ring-[#a91d22]'
+                                  : 'bg-white border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+                                  }`}
                               >
                                 <div className="min-w-0 flex-1">
                                   <div className="text-xs font-bold truncate flex items-center gap-1.5">
@@ -2136,11 +2127,10 @@ export default function BillingDashboard() {
                       <button
                         type="button"
                         onClick={() => handlePaymentPlanChange('full')}
-                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
-                          formData.payment_plan === 'full'
-                            ? 'bg-emerald-50 border-emerald-500 text-emerald-900 ring-2 ring-emerald-500/20 shadow-xs'
-                            : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100/60'
-                        }`}
+                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${formData.payment_plan === 'full'
+                          ? 'bg-emerald-50 border-emerald-500 text-emerald-900 ring-2 ring-emerald-500/20 shadow-xs'
+                          : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100/60'
+                          }`}
                       >
                         <div className="flex items-center gap-1.5 font-bold text-xs">
                           <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
@@ -2153,11 +2143,10 @@ export default function BillingDashboard() {
                       <button
                         type="button"
                         onClick={() => handlePaymentPlanChange('partial')}
-                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
-                          formData.payment_plan === 'partial'
-                            ? 'bg-amber-50 border-amber-500 text-amber-900 ring-2 ring-amber-500/20 shadow-xs'
-                            : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100/60'
-                        }`}
+                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${formData.payment_plan === 'partial'
+                          ? 'bg-amber-50 border-amber-500 text-amber-900 ring-2 ring-amber-500/20 shadow-xs'
+                          : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100/60'
+                          }`}
                       >
                         <div className="flex items-center gap-1.5 font-bold text-xs">
                           <span className="w-2 h-2 rounded-full bg-amber-500"></span>
@@ -2170,11 +2159,10 @@ export default function BillingDashboard() {
                       <button
                         type="button"
                         onClick={() => handlePaymentPlanChange('later')}
-                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
-                          formData.payment_plan === 'later'
-                            ? 'bg-rose-50 border-rose-500 text-rose-900 ring-2 ring-rose-500/20 shadow-xs'
-                            : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100/60'
-                        }`}
+                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${formData.payment_plan === 'later'
+                          ? 'bg-rose-50 border-rose-500 text-rose-900 ring-2 ring-rose-500/20 shadow-xs'
+                          : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100/60'
+                          }`}
                       >
                         <div className="flex items-center gap-1.5 font-bold text-xs">
                           <span className="w-2 h-2 rounded-full bg-rose-500"></span>
@@ -2261,9 +2249,8 @@ export default function BillingDashboard() {
                   <div className="bg-white p-3 rounded-xl border border-gray-200 text-xs space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-gray-500 font-medium">Current Bill Balance Remaining:</span>
-                      <span className={`font-mono font-bold text-sm ${
-                        formData.status === 'paid' ? 'text-emerald-600' : formData.status === 'partial' ? 'text-amber-600' : 'text-[#cf3b3b]'
-                      }`}>
+                      <span className={`font-mono font-bold text-sm ${formData.status === 'paid' ? 'text-emerald-600' : formData.status === 'partial' ? 'text-amber-600' : 'text-[#cf3b3b]'
+                        }`}>
                         ₹ {Math.max(0, currentBillTotal - (parseFloat(advancePaid) || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
                     </div>
@@ -2427,7 +2414,7 @@ export default function BillingDashboard() {
       {editPaymentInvoice && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[65] flex items-center justify-center p-2 sm:p-4 overflow-hidden">
           <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-gray-100 max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            
+
             {/* Pinned Header */}
             <div className="px-5 py-4 sm:px-6 border-b border-gray-100 shrink-0 flex items-center justify-between bg-white z-10">
               <div className="flex items-center gap-2.5">
@@ -2494,11 +2481,10 @@ export default function BillingDashboard() {
                           if (tab.id === 'partial' && (!paid || paid === total)) paid = Math.round(total * 0.5);
                           setPaymentFormData(prev => ({ ...prev, status: tab.id, paid_amount: paid }));
                         }}
-                        className={`py-2 px-3 text-xs font-bold rounded-xl border text-center transition-colors cursor-pointer ${
-                          paymentFormData.status === tab.id
-                            ? tab.color + ' ring-2 ring-offset-1'
-                            : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-                        }`}
+                        className={`py-2 px-3 text-xs font-bold rounded-xl border text-center transition-colors cursor-pointer ${paymentFormData.status === tab.id
+                          ? tab.color + ' ring-2 ring-offset-1'
+                          : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                          }`}
                       >
                         ● {tab.label}
                       </button>
@@ -2652,7 +2638,7 @@ export default function BillingDashboard() {
             className="bg-white rounded-2xl max-w-4xl w-full p-4 sm:p-6 shadow-2xl border border-gray-200 space-y-4 max-h-[94vh] flex flex-col cursor-default"
             onClick={(e) => e.stopPropagation()}
           >
-            
+
             {/* Modal Top Action Bar */}
             <div className="flex items-center justify-between border-b border-gray-100 pb-3 shrink-0 print:hidden">
               <div className="flex items-center gap-2.5">
@@ -2694,7 +2680,7 @@ export default function BillingDashboard() {
               id="printable-tax-invoice-sheet"
               className="relative overflow-y-auto flex-1 p-6 bg-white rounded-xl border border-gray-200 space-y-5 text-xs text-gray-800 print:p-0 print:border-0 print:overflow-visible"
             >
-              
+
               {/* Subtle Watermark (Hidden in print) */}
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.03] print:hidden select-none z-0 overflow-hidden">
                 <div className="text-center font-black text-[#b01622] transform -rotate-12 space-y-2">
@@ -2743,7 +2729,7 @@ export default function BillingDashboard() {
 
               {/* Info Cards Grid with Clean Vertically Aligned Colons */}
               <div className="grid grid-cols-2 gap-4 relative z-10">
-                
+
                 {/* Buyer / Client Details */}
                 <div className="bg-gray-50/70 p-3.5 rounded-xl border border-gray-200 space-y-2 text-xs">
                   <div className="text-[10.5px] font-bold text-[#b01622] uppercase tracking-wider flex items-center gap-1.5 border-b border-gray-200/80 pb-1.5 mb-2">
@@ -2915,7 +2901,7 @@ export default function BillingDashboard() {
 
               {/* Financial Computation & Bank Details Section */}
               <div className="grid grid-cols-12 gap-4 items-start relative z-10">
-                
+
                 {/* Left: Bank Details & Amount in Words */}
                 <div className="col-span-7 space-y-3">
                   {(() => {

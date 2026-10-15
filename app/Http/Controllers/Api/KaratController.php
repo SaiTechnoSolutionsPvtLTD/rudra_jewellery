@@ -5,12 +5,15 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Karat;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class KaratController extends Controller
 {
     public function index()
     {
-        $items = Karat::orderBy('sort_order')->orderBy('name')->get();
+        $items = Cache::remember('masters_karats_all', 300, function () {
+            return Karat::orderBy('sort_order')->orderBy('name')->get();
+        });
         return response()->json($items);
     }
 
@@ -31,6 +34,7 @@ class KaratController extends Controller
         }
 
         $karat = Karat::create($validated);
+        Cache::forget('masters_karats_all');
 
         return response()->json([
             'message' => 'Karat created successfully.',
@@ -59,6 +63,7 @@ class KaratController extends Controller
         }
 
         $karat->update($validated);
+        Cache::forget('masters_karats_all');
 
         return response()->json([
             'message' => 'Karat updated successfully.',
@@ -69,6 +74,7 @@ class KaratController extends Controller
     public function destroy(Karat $karat)
     {
         $karat->delete();
+        Cache::forget('masters_karats_all');
 
         return response()->json([
             'message' => 'Karat deleted successfully.',

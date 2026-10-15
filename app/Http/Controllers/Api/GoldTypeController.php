@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\GoldType;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class GoldTypeController extends Controller
 {
@@ -13,7 +14,9 @@ class GoldTypeController extends Controller
      */
     public function index()
     {
-        $types = GoldType::orderBy('sort_order')->orderBy('name')->get();
+        $types = Cache::remember('masters_gold_types_all', 300, function () {
+            return GoldType::orderBy('sort_order')->orderBy('name')->get();
+        });
         return response()->json($types);
     }
 
@@ -38,6 +41,7 @@ class GoldTypeController extends Controller
         }
 
         $goldType = GoldType::create($validated);
+        Cache::forget('masters_gold_types_all');
 
         return response()->json([
             'message' => 'Gold type created successfully.',
@@ -73,6 +77,7 @@ class GoldTypeController extends Controller
         }
 
         $goldType->update($validated);
+        Cache::forget('masters_gold_types_all');
 
         return response()->json([
             'message' => 'Gold type updated successfully.',
@@ -86,6 +91,7 @@ class GoldTypeController extends Controller
     public function destroy(GoldType $goldType)
     {
         $goldType->delete();
+        Cache::forget('masters_gold_types_all');
 
         return response()->json([
             'message' => 'Gold type deleted successfully.',

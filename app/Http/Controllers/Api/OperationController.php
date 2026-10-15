@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Operation;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 
 class OperationController extends Controller
@@ -28,6 +29,16 @@ class OperationController extends Controller
 
     public function index(Request $request)
     {
+        $hasFilters = $request->filled('search') || ($request->filled('status') && $request->status !== 'all');
+
+        if (!$hasFilters) {
+            $items = Cache::remember('masters_operations_all', 300, function () {
+                $this->ensureTable();
+                return Operation::orderBy('sort_order', 'asc')->orderBy('name', 'asc')->get();
+            });
+            return response()->json($items);
+        }
+
         $this->ensureTable();
 
         $query = Operation::query();
@@ -51,7 +62,7 @@ class OperationController extends Controller
 
     public function store(Request $request)
     {
-        $this->ensureTableAndSeeded();
+        $this->ensureTable();
 
         $validated = $request->validate([
             'name' => 'required|string|max:255|unique:operations,name',
@@ -83,6 +94,7 @@ class OperationController extends Controller
         }
 
         $item = Operation::create($validated);
+        Cache::forget('masters_operations_all');
 
         return response()->json([
             'message' => 'Operation created successfully.',
@@ -92,7 +104,7 @@ class OperationController extends Controller
 
     public function show($id)
     {
-        $this->ensureTableAndSeeded();
+        $this->ensureTable();
 
         $item = Operation::findOrFail($id);
         return response()->json($item);
@@ -100,7 +112,7 @@ class OperationController extends Controller
 
     public function update(Request $request, $id)
     {
-        $this->ensureTableAndSeeded();
+        $this->ensureTable();
 
         $item = Operation::findOrFail($id);
 
@@ -121,6 +133,7 @@ class OperationController extends Controller
         }
 
         $item->update($validated);
+        Cache::forget('masters_operations_all');
 
         return response()->json([
             'message' => 'Operation updated successfully.',
@@ -130,10 +143,11 @@ class OperationController extends Controller
 
     public function destroy($id)
     {
-        $this->ensureTableAndSeeded();
+        $this->ensureTable();
 
         $item = Operation::findOrFail($id);
         $item->delete();
+        Cache::forget('masters_operations_all');
 
         return response()->json([
             'message' => 'Operation deleted successfully.',

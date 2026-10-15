@@ -8,6 +8,7 @@ use App\Models\Invoice;
 use App\Models\Product;
 use App\Models\SaleItem;
 use App\Models\SalePayment;
+use App\Models\WorkOrderReceivedPiece;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -105,7 +106,73 @@ class SaleService
                 ]);
 
                 if ($product) {
+                    $soldQty = max(1, (int) round($line['quantity']));
                     $product->decrement('current_stock_qty', $line['quantity']);
+
+                    // Find matching active pieces to mark as sold
+                    $specifiedTag = $item['tag_number'] ?? ($item['details']['tag_number'] ?? null);
+                    $soldPieces = collect();
+
+                    if (!empty($specifiedTag)) {
+                        $specificPiece = WorkOrderReceivedPiece::where('tag_number', $specifiedTag)
+                            ->where(function ($q) {
+                                $q->whereNull('status')->orWhere('status', '!=', 'sold');
+                            })
+                            ->first();
+                        if ($specificPiece) {
+                            $soldPieces->push($specificPiece);
+                        }
+                    }
+
+                    $remainingCount = max(0, $soldQty - $soldPieces->count());
+                    if ($remainingCount > 0) {
+                        $availablePieces = WorkOrderReceivedPiece::where(function ($q) use ($product) {
+                                $q->where('product_id', $product->id);
+                                if (!empty($product->design_no)) {
+                                    $q->orWhere('design_no', $product->design_no);
+                                }
+                                if (!empty($product->product_code)) {
+                                    $q->orWhere('design_no', $product->product_code);
+                                }
+                            })
+                            ->where(function ($q) {
+                                $q->whereNull('status')->orWhere('status', '!=', 'sold');
+                            })
+                            ->whereNotIn('id', $soldPieces->pluck('id')->all())
+                            ->orderBy('id', 'asc')
+                            ->take($remainingCount)
+                            ->get();
+
+                        $soldPieces = $soldPieces->concat($availablePieces);
+                    }
+
+                    $soldTags = [];
+                    foreach ($soldPieces as $soldPiece) {
+                        $soldPiece->status = 'sold';
+                        $soldPiece->save();
+                        if (!empty($soldPiece->tag_number)) {
+                            $soldTags[] = $soldPiece->tag_number;
+                        }
+                    }
+
+                    // Remove sold tags from active product attributes
+                    $attrs = is_array($product->attributes)
+                        ? $product->attributes
+                        : (json_decode($product->attributes ?? '[]', true) ?: []);
+
+                    $currentTags = is_array($attrs['tags'] ?? null) ? $attrs['tags'] : [];
+                    if (!empty($soldTags) && !empty($currentTags)) {
+                        $attrs['tags'] = array_values(array_diff($currentTags, $soldTags));
+                        $attrs['no_of_pieces'] = (string) max(0, (int)($product->current_stock_qty));
+                        $product->attributes = $attrs;
+                        $product->save();
+                    }
+
+                    $notes = "Sold on {$invoice->invoice_no}";
+                    if (!empty($soldTags)) {
+                        $notes .= " (Tag: " . implode(', ', $soldTags) . ")";
+                    }
+
                     InventoryMovement::create([
                         'product_id' => $product->id,
                         'invoice_id' => $invoice->id,
@@ -113,7 +180,7 @@ class SaleService
                         'quantity' => -$line['quantity'],
                         'weight' => -((float) ($item['gross_weight'] ?? 0) * $line['quantity']),
                         'unit_cost' => $line['unitCost'],
-                        'notes' => "Sold on {$invoice->invoice_no}",
+                        'notes' => $notes,
                         'created_by' => $userId,
                     ]);
                 }

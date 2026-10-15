@@ -38,12 +38,12 @@ export const printElement = (elementId, documentTitle = 'Document', options = {}
       <head>
         <meta charset="UTF-8" />
         <base href="${baseUrl}">
-        <title>${documentTitle}</title>
+        <title></title>
         ${styles}
         <style>
           @page {
             size: A4 ${pageOrientation};
-            margin: 8mm;
+            margin: 0 !important;
           }
           *, *::before, *::after, body, div, table, tr, th, td, span, strong, header, footer, [class*="bg-"], [class*="border-"], [class*="text-"] {
             -webkit-print-color-adjust: exact !important;
@@ -51,6 +51,10 @@ export const printElement = (elementId, documentTitle = 'Document', options = {}
             color-adjust: exact !important;
           }
           @media print {
+            @page {
+              size: A4 ${pageOrientation};
+              margin: 0 !important;
+            }
             *, *::before, *::after, body, div, table, tr, th, td, span, strong, header, footer, [class*="bg-"], [class*="border-"], [class*="text-"] {
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
@@ -66,6 +70,19 @@ export const printElement = (elementId, documentTitle = 'Document', options = {}
               display: none !important;
               opacity: 0 !important;
               visibility: hidden !important;
+            }
+            body {
+              margin: 0 !important;
+              padding: 6mm 8mm !important;
+              background: #ffffff !important;
+              color: #000000 !important;
+            }
+            table {
+              width: 100% !important;
+              max-width: 100% !important;
+            }
+            .overflow-x-auto, div {
+              overflow: visible !important;
             }
           }
           .watermark,
@@ -83,10 +100,11 @@ export const printElement = (elementId, documentTitle = 'Document', options = {}
             background: #ffffff !important;
             color: #000000 !important;
             margin: 0 !important;
-            padding: 8px !important;
+            padding: 6mm 8mm !important;
             width: 100% !important;
             height: auto !important;
             min-height: 100% !important;
+            box-sizing: border-box !important;
             overflow: visible !important;
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
             -webkit-print-color-adjust: exact !important;
@@ -158,6 +176,9 @@ export const printElement = (elementId, documentTitle = 'Document', options = {}
         ${content}
         <script>
           window.onload = function() {
+            try {
+              document.title = "";
+            } catch (e) {}
             setTimeout(function() {
               window.focus();
               window.print();

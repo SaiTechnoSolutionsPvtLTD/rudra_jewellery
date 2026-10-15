@@ -36,7 +36,8 @@ class PurchaseEntryController extends Controller
             $entries = $query->orderBy('id', 'desc')->get();
             return response()->json($entries);
         } catch (\Exception $e) {
-            return response()->json(['message' => 'Error fetching purchase entries: ' . $e->getMessage()], 500);
+            \Illuminate\Support\Facades\Log::error('Error fetching purchase entries: ' . $e->getMessage());
+            return response()->json(['message' => 'Unable to fetch purchase entries (500). Please try again later.'], 500);
         }
     }
 
@@ -140,11 +141,24 @@ class PurchaseEntryController extends Controller
                     $totalAmount = ($netWeight > 0 && $rate > 0) ? ($netWeight * $rate) : ($qty * $rate);
                 }
 
+                $stoneWeight = isset($validated['stone_weight']) && $validated['stone_weight'] !== null && $validated['stone_weight'] !== ''
+                    ? floatval($validated['stone_weight'])
+                    : 0.0;
+                $makingCharge = isset($validated['making_charge']) && $validated['making_charge'] !== null && $validated['making_charge'] !== ''
+                    ? floatval($validated['making_charge'])
+                    : 0.0;
+                $stoneCost = isset($validated['stone_cost']) && $validated['stone_cost'] !== null && $validated['stone_cost'] !== ''
+                    ? floatval($validated['stone_cost'])
+                    : 0.0;
+
                 $validated['qty'] = $qty;
                 $validated['count_qty'] = $countQty;
                 $validated['weight'] = $weight;
                 $validated['less_weight'] = round($lessWeight, 3);
                 $validated['net_weight'] = round($netWeight, 3);
+                $validated['stone_weight'] = round($stoneWeight, 3);
+                $validated['making_charge'] = round($makingCharge, 2);
+                $validated['stone_cost'] = round($stoneCost, 2);
                 $validated['touch'] = $touch;
                 $validated['fine_weight'] = round($fineWeight, 3);
                 $validated['rate'] = $rate;
@@ -293,7 +307,8 @@ class PurchaseEntryController extends Controller
                 ], 201);
             });
         } catch (\Exception $e) {
-            return response()->json(['message' => 'Failed to save purchase entry: ' . $e->getMessage()], 500);
+            \Illuminate\Support\Facades\Log::error('Failed to save purchase entry: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to save purchase entry (500). Please try again later.'], 500);
         }
     }
 
@@ -347,7 +362,8 @@ class PurchaseEntryController extends Controller
                 ]);
             });
         } catch (\Exception $e) {
-            return response()->json(['message' => 'Error deleting purchase entry: ' . $e->getMessage()], 500);
+            \Illuminate\Support\Facades\Log::error('Error deleting purchase entry: ' . $e->getMessage());
+            return response()->json(['message' => 'Unable to delete purchase entry (500). Please try again later.'], 500);
         }
     }
 }

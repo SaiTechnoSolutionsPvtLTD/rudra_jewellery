@@ -105,6 +105,8 @@ export default function NotificationsHistory() {
         return { label: 'Rework Resubmitted', icon: 'fa-arrows-rotate', bg: 'bg-purple-100 text-purple-800' };
       case 'work_order_created':
         return { label: 'New Work Order', icon: 'fa-file-lines', bg: 'bg-indigo-100 text-indigo-800' };
+      case 'work_order_updated':
+        return { label: 'Work Order Updated', icon: 'fa-pen-to-square', bg: 'bg-indigo-100 text-indigo-800' };
       case 'assigned':
         return { label: 'Artisan Assigned', icon: 'fa-user-tag', bg: 'bg-amber-100 text-amber-800' };
       case 'ready_for_receive':
@@ -133,7 +135,7 @@ export default function NotificationsHistory() {
         return { label: 'Stock Alert', icon: 'fa-triangle-exclamation', bg: 'bg-rose-100 text-rose-800' };
       case 'system':
       default:
-        return { label: 'System', icon: 'fa-bell', bg: 'bg-amber-50 text-amber-900 border border-amber-200', isLogo: true };
+        return { label: 'System', icon: 'fa-bell', bg: 'bg-amber-100 text-amber-800' };
     }
   };
 
@@ -282,25 +284,9 @@ export default function NotificationsHistory() {
                     !notif.is_read ? 'bg-rose-50/20' : 'bg-white'
                   }`}
                 >
-                  {/* Badge Icon / Logo */}
-                  <div className={`w-10 h-10 rounded-xl shrink-0 flex items-center justify-center text-sm shadow-2xs overflow-hidden ${badge.bg}`}>
-                    {badge.isLogo || notif.data?.image_url || notif.image_url ? (
-                      <>
-                        <img
-                          src={notif.data?.image_url || notif.image_url || '/logo_emblem.png'}
-                          alt="Logo"
-                          className="w-7 h-7 object-contain"
-                          onError={(e) => {
-                            e.currentTarget.style.display = 'none';
-                            const fb = e.currentTarget.parentElement?.querySelector('.fallback-notif-icon');
-                            if (fb) fb.style.display = 'flex';
-                          }}
-                        />
-                        <i className={`fallback-notif-icon fa-solid ${badge.icon || 'fa-bell'} hidden`}></i>
-                      </>
-                    ) : (
-                      <i className={`fa-solid ${badge.icon || 'fa-bell'}`}></i>
-                    )}
+                  {/* Badge Icon */}
+                  <div className={`w-10 h-10 rounded-xl shrink-0 flex items-center justify-center text-sm shadow-2xs ${badge.bg}`}>
+                    <i className={`fa-solid ${badge.icon || 'fa-bell'}`}></i>
                   </div>
 
                   {/* Body Content */}

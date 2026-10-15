@@ -36,6 +36,11 @@ class SalesController extends Controller
     public function customerReport(Request $request)
     {
         $base = Invoice::query()
+            ->whereNotIn('status', ['cancelled', 'void', 'returned'])
+            ->where(function ($sub) {
+                $sub->whereNull('sale_status')
+                    ->orWhereNotIn('sale_status', ['cancelled', 'void', 'returned', 'reversed']);
+            })
             ->when($request->filled('from'), fn ($q) => $q->whereDate('invoice_date', '>=', $request->date('from')))
             ->when($request->filled('to'), fn ($q) => $q->whereDate('invoice_date', '<=', $request->date('to')))
             ->when($request->filled('client_id') && $request->client_id !== 'all', fn ($q) => $q->where('client_id', $request->client_id))
@@ -152,7 +157,41 @@ class SalesController extends Controller
             return $row;
         });
 
-        $trend = (clone $base)->select('invoice_date', DB::raw('SUM(total_amount) as amount'))->groupBy('invoice_date')->orderBy('invoice_date')->get()->map(fn ($row) => ['date' => $row->invoice_date, 'amount' => round((float) $row->amount, 2)]);
+        // Build monthly trend with all metrics (amount, quantity, gold_weight, diamond_weight, invoices)
+        $trendGrouped = (clone $base)->get()->groupBy(function ($inv) {
+            $date = $inv->invoice_date;
+            return $date ? date('Y-m', strtotime($date)) : date('Y-m');
+        });
+
+        $trend = $trendGrouped->map(function ($group, $yearMonth) {
+            $amt = 0; $qty = 0; $gw = 0; $dw = 0;
+            foreach ($group as $ci) {
+                $amt += (float) ($ci->total_amount ?: 0);
+                $rawItems = is_array($ci->items) ? $ci->items : (json_decode($ci->items, true) ?: []);
+                if (empty($rawItems)) {
+                    $qty += (float) ($ci->total_items ?: 1);
+                    $gw += (float) ($ci->gross_weight ?: 0);
+                    $dw += (float) ($ci->stone_weight ?: 0);
+                } else {
+                    foreach ($rawItems as $itm) {
+                        $qty += (float) ($itm['quantity'] ?? $itm['qty'] ?? 1);
+                        $gw += (float) ($itm['gross_wt'] ?? $itm['gross_weight'] ?? 0);
+                        $dw += (float) ($itm['stone_weight'] ?? $itm['dia_wt'] ?? 0);
+                    }
+                }
+            }
+            $d = date('Y-m-01', strtotime($yearMonth . '-01'));
+            $label = date("M 'y", strtotime($d));
+            return [
+                'date' => $d,
+                'label' => $label,
+                'amount' => round($amt, 2),
+                'invoices' => $group->count(),
+                'quantity' => round($qty, 3),
+                'gold_weight' => round($gw, 3),
+                'diamond_weight' => round($dw, 3),
+            ];
+        })->sortBy('date')->values();
 
         return response()->json(['summary' => $summary, 'invoice_summary' => $invoiceSummary, 'trend' => $trend, 'rows' => $rows]);
     }
@@ -254,10 +293,14 @@ class SalesController extends Controller
 
     public function customer(Request $request, Client $client)
     {
-        $query = Invoice::where(function ($q) use ($client) {
-            $q->where('client_id', $client->id)
-              ->orWhere('client_name', 'like', '%' . $client->full_name . '%');
-        })->with(['itemsRelation.product', 'payments'])->latest('invoice_date');
+        $query = Invoice::whereNotIn('status', ['cancelled', 'void', 'returned'])
+            ->where(function ($q) {
+                $q->whereNull('sale_status')->orWhere('sale_status', '!=', 'cancelled');
+            })
+            ->where(function ($q) use ($client) {
+                $q->where('client_id', $client->id)
+                  ->orWhere('client_name', 'like', '%' . $client->full_name . '%');
+            })->with(['itemsRelation.product', 'payments'])->latest('invoice_date');
 
         if ($request->filled('from')) $query->whereDate('invoice_date', '>=', $request->date('from'));
         if ($request->filled('to')) $query->whereDate('invoice_date', '<=', $request->date('to'));
@@ -276,6 +319,40 @@ class SalesController extends Controller
         $paidAmount = round((float) $sales->sum('paid_amount'), 2);
         $dueAmount = round((float) $sales->sum('due_amount'), 2);
 
+        $trend = $sales->groupBy(function ($inv) {
+            return date('Y-m', strtotime($inv->invoice_date ?: $inv->created_at));
+        })->map(function ($group, $yearMonth) {
+            $amt = (float) $group->sum('total_amount');
+            $qty = 0.0;
+            $gw = 0.0;
+            $dw = 0.0;
+            foreach ($group as $inv) {
+                if ($inv->itemsRelation && $inv->itemsRelation->isNotEmpty()) {
+                    $qty += (float) $inv->itemsRelation->sum('quantity');
+                    $gw += (float) $inv->itemsRelation->sum('gross_weight');
+                    $dw += (float) $inv->itemsRelation->sum('diamond_weight');
+                } elseif (!empty($inv->items)) {
+                    $parsed = is_array($inv->items) ? $inv->items : (json_decode($inv->items, true) ?: []);
+                    foreach ($parsed as $it) {
+                        $qty += (float) ($it['quantity'] ?? $it['qty'] ?? 1);
+                        $gw += (float) ($it['gross_wt'] ?? $it['gross_weight'] ?? 0);
+                        $dw += (float) ($it['diamond_wt'] ?? $it['diamond_weight'] ?? 0);
+                    }
+                }
+            }
+            $d = date('Y-m-01', strtotime($yearMonth . '-01'));
+            $label = date("M 'y", strtotime($d));
+            return [
+                'date' => $d,
+                'label' => $label,
+                'amount' => round($amt, 2),
+                'invoices' => $group->count(),
+                'quantity' => round($qty, 3),
+                'gold_weight' => round($gw, 3),
+                'diamond_weight' => round($dw, 3),
+            ];
+        })->sortBy('date')->values();
+
         return response()->json([
             'customer' => $client,
             'stats' => [
@@ -284,6 +361,7 @@ class SalesController extends Controller
                 'due_amount' => $dueAmount,
                 'transactions' => $sales->count(),
             ],
+            'trend' => $trend,
             'sales' => $sales
         ]);
     }

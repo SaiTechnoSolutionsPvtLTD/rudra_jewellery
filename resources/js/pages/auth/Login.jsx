@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { sanitizeErrorMessage } from '../../services/api';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -44,11 +45,11 @@ export default function Login() {
       if (res?.success) {
         navigate('/dashboard', { replace: true });
       } else {
-        setError(res?.message || 'Invalid credentials');
+        setError(sanitizeErrorMessage(res?.message, 'Invalid credentials. Please check your email and password.'));
         setIsSubmitting(false);
       }
     } catch (err) {
-      setError('Login failed. Please try again.');
+      setError(sanitizeErrorMessage(err, 'Login failed (500). Please try again later.'));
       setIsSubmitting(false);
     }
   };
@@ -98,8 +99,8 @@ export default function Login() {
             <input
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="form-input"
+              onChange={(e) => setEmail(e.target.value.toLowerCase().replace(/\s+/g, ''))}
+              className="form-input lowercase"
               placeholder="Email address"
               required
               disabled={isSubmitting}

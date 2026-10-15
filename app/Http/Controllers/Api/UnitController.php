@@ -5,12 +5,15 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Unit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class UnitController extends Controller
 {
     public function index()
     {
-        $items = Unit::orderBy('sort_order')->orderBy('name')->get();
+        $items = Cache::remember('masters_units_all', 300, function () {
+            return Unit::orderBy('sort_order')->orderBy('name')->get();
+        });
         return response()->json($items);
     }
 
@@ -31,6 +34,7 @@ class UnitController extends Controller
         }
 
         $unit = Unit::create($validated);
+        Cache::forget('masters_units_all');
 
         return response()->json([
             'message' => 'Unit created successfully.',
@@ -59,6 +63,7 @@ class UnitController extends Controller
         }
 
         $unit->update($validated);
+        Cache::forget('masters_units_all');
 
         return response()->json([
             'message' => 'Unit updated successfully.',
@@ -69,6 +74,7 @@ class UnitController extends Controller
     public function destroy(Unit $unit)
     {
         $unit->delete();
+        Cache::forget('masters_units_all');
 
         return response()->json([
             'message' => 'Unit deleted successfully.',

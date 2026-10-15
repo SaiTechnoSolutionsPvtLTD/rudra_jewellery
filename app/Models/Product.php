@@ -60,13 +60,22 @@ class Product extends Model
             if (str_starts_with($this->image, 'data:image')) {
                 return $this->image;
             }
-            if (str_starts_with($this->image, '/images/') || str_starts_with($this->image, 'images/')) {
-                return asset(ltrim($this->image, '/'));
+            if ($this->image === '/placeholder-jewelry.png' || $this->image === 'placeholder-jewelry.png') {
+                return '/placeholder-jewelry.png';
             }
             if (str_starts_with($this->image, '/storage/') || str_starts_with($this->image, 'storage/')) {
-                return asset(ltrim($this->image, '/'));
+                return '/' . ltrim($this->image, '/');
             }
-            return asset('storage/' . $this->image);
+            if (str_starts_with($this->image, '/images/') || str_starts_with($this->image, 'images/')) {
+                return '/' . ltrim($this->image, '/');
+            }
+            if (str_starts_with($this->image, 'products/')) {
+                return '/storage/' . $this->image;
+            }
+            if (str_starts_with($this->image, '/')) {
+                return $this->image;
+            }
+            return '/storage/' . $this->image;
         }
         return null;
     }
@@ -80,13 +89,22 @@ class Product extends Model
             if (str_starts_with($this->thumbnail, 'data:image')) {
                 return $this->thumbnail;
             }
-            if (str_starts_with($this->thumbnail, '/images/') || str_starts_with($this->thumbnail, 'images/')) {
-                return asset(ltrim($this->thumbnail, '/'));
+            if ($this->thumbnail === '/placeholder-jewelry.png' || $this->thumbnail === 'placeholder-jewelry.png') {
+                return '/placeholder-jewelry.png';
             }
             if (str_starts_with($this->thumbnail, '/storage/') || str_starts_with($this->thumbnail, 'storage/')) {
-                return asset(ltrim($this->thumbnail, '/'));
+                return '/' . ltrim($this->thumbnail, '/');
             }
-            return asset('storage/' . $this->thumbnail);
+            if (str_starts_with($this->thumbnail, '/images/') || str_starts_with($this->thumbnail, 'images/')) {
+                return '/' . ltrim($this->thumbnail, '/');
+            }
+            if (str_starts_with($this->thumbnail, 'products/')) {
+                return '/storage/' . $this->thumbnail;
+            }
+            if (str_starts_with($this->thumbnail, '/')) {
+                return $this->thumbnail;
+            }
+            return '/storage/' . $this->thumbnail;
         }
         return $this->image_url;
     }

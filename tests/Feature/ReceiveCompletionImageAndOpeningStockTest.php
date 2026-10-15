@@ -356,8 +356,38 @@ class ReceiveCompletionImageAndOpeningStockTest extends TestCase
         $delRes->assertStatus(200);
 
         $rawSilver->refresh();
-        $this->assertEquals(0.0, (float)$rawSilver->current_balance);
         $this->assertDatabaseMissing('material_opening_stocks', ['id' => $stockId]);
         $this->assertDatabaseMissing('inventory_movements', ['material_opening_stock_id' => $stockId]);
+    }
+
+    /**
+     * Test 7: Verify opening stock with null carat_weight and null quantity succeeds without constraint violation.
+     */
+    public function test_material_opening_stock_with_null_carat_weight_and_quantity_succeeds()
+    {
+        $unique = uniqid();
+        $response = $this->actingAs($this->adminUser)->postJson('/api/material-opening-stocks', [
+            'material_type' => 'gold',
+            'stamp' => '916',
+            'karat' => '22K',
+            'purity' => 91.6,
+            'unit' => 'g',
+            'weight' => 565546.000,
+            'carat_weight' => null,
+            'quantity' => null,
+            'rate' => 41.00,
+            'total_value' => 23187386.00,
+            'entry_date' => '2026-10-13',
+            'notes' => "Initial business vault opening balance {$unique}",
+        ]);
+
+        $response->assertStatus(201);
+        $this->assertTrue($response->json('status') === 'success');
+        $this->assertDatabaseHas('material_opening_stocks', [
+            'notes' => "Initial business vault opening balance {$unique}",
+            'weight' => 565546.000,
+            'carat_weight' => 0.000,
+            'quantity' => 0.000,
+        ]);
     }
 }

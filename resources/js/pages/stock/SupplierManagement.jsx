@@ -2,6 +2,23 @@ import React, { useState, useEffect } from 'react';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import Pagination from '../../components/Pagination';
+import {
+  validateMobile,
+  handleMobileKeyDown,
+  sanitizeMobile,
+  validateEmail,
+  validatePincode,
+  handlePincodeKeyDown,
+  sanitizePincode,
+  validateGSTIN,
+  sanitizeGSTIN,
+  validatePAN,
+  sanitizePAN,
+  validateIFSC,
+  sanitizeIFSC,
+  validateAccountNumber,
+  sanitizeAccountNumber
+} from '../../utils/validationUtils';
 
 export default function SupplierManagement() {
   const { showToast } = useToast();
@@ -9,6 +26,7 @@ export default function SupplierManagement() {
   const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [formErrors, setFormErrors] = useState({});
 
   // Filters & Search
   const [searchTerm, setSearchTerm] = useState('');
@@ -158,18 +176,48 @@ export default function SupplierManagement() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    const missing = [];
-    if (!formData.supplier_code?.trim()) missing.push('Supplier Code');
-    if (!formData.name?.trim()) missing.push('Supplier Name');
-    if (!formData.phone?.trim()) missing.push('Primary Phone');
-    if (!formData.email?.trim()) missing.push('Email Address');
-    if (!formData.address?.trim()) missing.push('Street Address');
-    if (!formData.city?.trim()) missing.push('City');
-    if (!formData.state?.trim()) missing.push('State');
-    if (!formData.pincode?.trim()) missing.push('Pincode');
+    const errors = {};
+    if (!formData.supplier_code?.trim()) errors.supplier_code = 'Supplier code is required';
+    if (!formData.name?.trim()) errors.name = 'Supplier name is required';
 
-    if (missing.length > 0) {
-      showToast(`Please enter all required fields (marked in red): ${missing.join(', ')}`, 'error');
+    if (formData.phone?.trim()) {
+      const phoneErr = validateMobile(formData.phone, false);
+      if (phoneErr) errors.phone = phoneErr;
+    }
+
+    if (formData.email?.trim()) {
+      const emailErr = validateEmail(formData.email, false);
+      if (emailErr) errors.email = emailErr;
+    }
+
+    const pinErr = validatePincode(formData.pincode, true);
+    if (pinErr) errors.pincode = pinErr;
+
+    if (formData.gstin?.trim()) {
+      const gstinErr = validateGSTIN(formData.gstin, false);
+      if (gstinErr) errors.gstin = gstinErr;
+    }
+
+    if (formData.pan_number?.trim()) {
+      const panErr = validatePAN(formData.pan_number, false);
+      if (panErr) errors.pan_number = panErr;
+    }
+
+    if (formData.account_number?.trim()) {
+      const accErr = validateAccountNumber(formData.account_number, false);
+      if (accErr) errors.account_number = accErr;
+    }
+
+    if (formData.ifsc_code?.trim()) {
+      const ifscErr = validateIFSC(formData.ifsc_code, false);
+      if (ifscErr) errors.ifsc_code = ifscErr;
+    }
+
+    setFormErrors(errors);
+
+    if (Object.keys(errors).length > 0) {
+      const firstErr = Object.values(errors)[0];
+      showToast(firstErr, 'error');
       return;
     }
 
@@ -621,14 +669,21 @@ export default function SupplierManagement() {
                       Primary Phone / Mobile <span className="text-red-500">*</span>
                     </label>
                     <input
-                      type="text"
+                      type="tel"
+                      maxLength={10}
                       name="phone"
                       value={formData.phone}
-                      onChange={handleInputChange}
+                      onKeyDown={handleMobileKeyDown}
+                      onChange={(e) => {
+                        const clean = sanitizeMobile(e.target.value);
+                        setFormData(prev => ({ ...prev, phone: clean }));
+                        if (formErrors.phone) setFormErrors(prev => ({ ...prev, phone: null }));
+                      }}
                       required
-                      placeholder="+91 98400 00000"
-                      className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                      placeholder="9840000000"
+                      className={`w-full px-3.5 py-2.5 border ${formErrors.phone ? 'border-red-500' : 'border-gray-300'} rounded-xl text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]`}
                     />
+                    {formErrors.phone && <p className="text-red-500 text-[11px] mt-1">{formErrors.phone}</p>}
                   </div>
 
                   <div>
@@ -639,11 +694,15 @@ export default function SupplierManagement() {
                       type="email"
                       name="email"
                       value={formData.email}
-                      onChange={handleInputChange}
+                      onChange={(e) => {
+                        setFormData(prev => ({ ...prev, email: e.target.value.toLowerCase().replace(/\s+/g, '') }));
+                        if (formErrors.email) setFormErrors(prev => ({ ...prev, email: null }));
+                      }}
                       required
                       placeholder="supplier@jewels.com"
-                      className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                      className={`w-full px-3.5 py-2.5 border ${formErrors.email ? 'border-red-500' : 'border-gray-300'} rounded-xl text-xs lowercase text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]`}
                     />
+                    {formErrors.email && <p className="text-red-500 text-[11px] mt-1">{formErrors.email}</p>}
                   </div>
                 </div>
               </div>
@@ -661,12 +720,18 @@ export default function SupplierManagement() {
                     </label>
                     <input
                       type="text"
+                      maxLength={15}
                       name="gstin"
                       value={formData.gstin}
-                      onChange={handleInputChange}
+                      onChange={(e) => {
+                        const clean = sanitizeGSTIN(e.target.value);
+                        setFormData(prev => ({ ...prev, gstin: clean }));
+                        if (formErrors.gstin) setFormErrors(prev => ({ ...prev, gstin: null }));
+                      }}
                       placeholder="33AAAAA0000A1Z5"
-                      className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-xs font-mono font-semibold uppercase text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                      className={`w-full px-3.5 py-2.5 border ${formErrors.gstin ? 'border-red-500' : 'border-gray-300'} rounded-xl text-xs font-mono font-semibold uppercase text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]`}
                     />
+                    {formErrors.gstin && <p className="text-red-500 text-[11px] mt-1">{formErrors.gstin}</p>}
                   </div>
 
                   <div>
@@ -675,12 +740,18 @@ export default function SupplierManagement() {
                     </label>
                     <input
                       type="text"
+                      maxLength={10}
                       name="pan_number"
                       value={formData.pan_number}
-                      onChange={handleInputChange}
+                      onChange={(e) => {
+                        const clean = sanitizePAN(e.target.value);
+                        setFormData(prev => ({ ...prev, pan_number: clean }));
+                        if (formErrors.pan_number) setFormErrors(prev => ({ ...prev, pan_number: null }));
+                      }}
                       placeholder="AAAAA0000A"
-                      className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-xs font-mono font-semibold uppercase text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                      className={`w-full px-3.5 py-2.5 border ${formErrors.pan_number ? 'border-red-500' : 'border-gray-300'} rounded-xl text-xs font-mono font-semibold uppercase text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]`}
                     />
+                    {formErrors.pan_number && <p className="text-red-500 text-[11px] mt-1">{formErrors.pan_number}</p>}
                   </div>
 
                   <div>
@@ -758,13 +829,21 @@ export default function SupplierManagement() {
                     </label>
                     <input
                       type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      onKeyDown={handlePincodeKeyDown}
                       name="pincode"
                       value={formData.pincode}
-                      onChange={handleInputChange}
+                      onChange={(e) => {
+                        const clean = sanitizePincode(e.target.value);
+                        setFormData(prev => ({ ...prev, pincode: clean }));
+                        if (formErrors.pincode) setFormErrors(prev => ({ ...prev, pincode: null }));
+                      }}
                       required
                       placeholder="600001"
-                      className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                      className={`w-full px-3.5 py-2.5 border ${formErrors.pincode ? 'border-red-500' : 'border-gray-300'} rounded-xl text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]`}
                     />
+                    {formErrors.pincode && <p className="text-red-500 text-[11px] mt-1">{formErrors.pincode}</p>}
                   </div>
                 </div>
               </div>
@@ -796,12 +875,19 @@ export default function SupplierManagement() {
                     </label>
                     <input
                       type="text"
+                      maxLength={18}
+                      onKeyDown={handleMobileKeyDown}
                       name="account_number"
                       value={formData.account_number}
-                      onChange={handleInputChange}
+                      onChange={(e) => {
+                        const clean = sanitizeAccountNumber(e.target.value);
+                        setFormData(prev => ({ ...prev, account_number: clean }));
+                        if (formErrors.account_number) setFormErrors(prev => ({ ...prev, account_number: null }));
+                      }}
                       placeholder="502000000000"
-                      className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-xs font-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                      className={`w-full px-3.5 py-2.5 border ${formErrors.account_number ? 'border-red-500' : 'border-gray-300'} rounded-xl text-xs font-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]`}
                     />
+                    {formErrors.account_number && <p className="text-red-500 text-[11px] mt-1">{formErrors.account_number}</p>}
                   </div>
 
                   <div>
@@ -810,12 +896,18 @@ export default function SupplierManagement() {
                     </label>
                     <input
                       type="text"
+                      maxLength={11}
                       name="ifsc_code"
                       value={formData.ifsc_code}
-                      onChange={handleInputChange}
+                      onChange={(e) => {
+                        const clean = sanitizeIFSC(e.target.value);
+                        setFormData(prev => ({ ...prev, ifsc_code: clean }));
+                        if (formErrors.ifsc_code) setFormErrors(prev => ({ ...prev, ifsc_code: null }));
+                      }}
                       placeholder="HDFC0000004"
-                      className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-xs font-mono uppercase text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]"
+                      className={`w-full px-3.5 py-2.5 border ${formErrors.ifsc_code ? 'border-red-500' : 'border-gray-300'} rounded-xl text-xs font-mono uppercase text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#b01622]`}
                     />
+                    {formErrors.ifsc_code && <p className="text-red-500 text-[11px] mt-1">{formErrors.ifsc_code}</p>}
                   </div>
 
                   <div>

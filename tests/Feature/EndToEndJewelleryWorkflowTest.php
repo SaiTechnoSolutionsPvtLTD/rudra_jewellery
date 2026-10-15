@@ -249,6 +249,19 @@ class EndToEndJewelleryWorkflowTest extends TestCase
         $tagNumber2 = $recPiece2Res->json('tag_number');
         $this->assertNotEmpty($tagNumber2);
 
+        // Certify & hallmark piece 2
+        $this->actingAs($this->user)->postJson("/api/work-orders/{$orderId}/update-certification", [
+            'action' => 'add',
+            'certification_no' => 'CERT-BIS-99882',
+            'agency' => 'BIS Hallmarking Center',
+        ])->assertStatus(200);
+
+        $this->actingAs($this->user)->postJson("/api/work-orders/{$orderId}/update-hallmarking", [
+            'action' => 'add',
+            'huid' => 'HUID778800',
+            'hallmark_center' => 'Chennai Govt Hallmark Center',
+        ])->assertStatus(200);
+
         // 9. Inventory Update: Both pieces received & verified -> Order completes & inventory updates existing product
         $order->refresh();
         $this->assertEquals(2, $order->received_qty);

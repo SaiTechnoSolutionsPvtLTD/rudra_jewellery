@@ -31,14 +31,14 @@ export default function Sidebar({ sidebarOpen = true }) {
   const isSalesActive = location.pathname.startsWith('/sales');
   const isProfitsActive = location.pathname.startsWith('/sales/profit');
 
-  const [jobCreationAccordionOpen, setJobCreationAccordionOpen] = useState(true);
-  const [jobOrderSubAccordionOpen, setJobOrderSubAccordionOpen] = useState(isJobOrderSubActive || true);
+  const [jobCreationAccordionOpen, setJobCreationAccordionOpen] = useState(isJobCreationActive);
+  const [jobOrderSubAccordionOpen, setJobOrderSubAccordionOpen] = useState(isJobOrderSubActive);
   const [authAccordionOpen, setAuthAccordionOpen] = useState(isAuthActive);
   const [mastersAccordionOpen, setMastersAccordionOpen] = useState(isMastersActive);
   const [purchaseAccordionOpen, setPurchaseAccordionOpen] = useState(isPurchaseActive);
   const [clientsAccordionOpen, setClientsAccordionOpen] = useState(isClientsActive);
   const [salesAccordionOpen, setSalesAccordionOpen] = useState(isSalesActive);
-  const [profitsAccordionOpen, setProfitsAccordionOpen] = useState(isProfitsActive || true);
+  const [profitsAccordionOpen, setProfitsAccordionOpen] = useState(isProfitsActive);
 
   useEffect(() => {
     if (isClientsActive) {
@@ -162,6 +162,7 @@ export default function Sidebar({ sidebarOpen = true }) {
                       <Link to="/masters/diamond-clarities" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/masters/diamond-clarities' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Diamond Clarity</Link>
                       <Link to="/masters/work-specifications" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname.startsWith('/masters/work-specifications') ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Work Specification</Link>
                       <Link to="/masters/operations" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/masters/operations' || location.pathname === '/masters/operation' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Operation</Link>
+                      <Link to="/masters/raw-materials" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/masters/raw-materials' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Raw Materials</Link>
                       <Link to="/masters/bank-accounts" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/masters/bank-accounts' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Bank Accounts</Link>
                       <Link to="/masters/info" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/masters/info' || location.pathname === '/masters/company-info' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Info</Link>
                     </div>

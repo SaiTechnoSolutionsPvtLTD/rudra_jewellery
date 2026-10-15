@@ -4,12 +4,26 @@ import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import ConfirmModal from '../../components/ConfirmModal';
 import { DEFAULT_COMPANY_INFO, fetchCompanyInfo } from '../../utils/companyInfoService';
+import {
+  validateMobile,
+  handleMobileKeyDown,
+  sanitizeMobile,
+  validateEmail,
+  validatePincode,
+  handlePincodeKeyDown,
+  sanitizePincode,
+  validateGSTIN,
+  sanitizeGSTIN,
+  validatePAN,
+  sanitizePAN
+} from '../../utils/validationUtils';
 
 export default function CompanyInfoMaster() {
   const { showToast } = useToast();
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [formErrors, setFormErrors] = useState({});
 
   // Modal States
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
@@ -130,8 +144,46 @@ export default function CompanyInfoMaster() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!formData.company_name.trim()) {
-      showToast('Company Name is required', 'error', 'Validation Error');
+    const errors = {};
+    if (!formData.company_name?.trim()) {
+      errors.company_name = 'Company Name is required';
+    }
+
+    if (formData.phone?.trim()) {
+      const phoneErr = validateMobile(formData.phone, false);
+      if (phoneErr) errors.phone = phoneErr;
+    }
+
+    if (formData.alternate_phone?.trim()) {
+      const altErr = validateMobile(formData.alternate_phone, false);
+      if (altErr) errors.alternate_phone = altErr;
+    }
+
+    if (formData.email?.trim()) {
+      const emailErr = validateEmail(formData.email, false);
+      if (emailErr) errors.email = emailErr;
+    }
+
+    if (formData.pincode?.trim()) {
+      const pinErr = validatePincode(formData.pincode, false);
+      if (pinErr) errors.pincode = pinErr;
+    }
+
+    if (formData.gstin?.trim()) {
+      const gstinErr = validateGSTIN(formData.gstin, false);
+      if (gstinErr) errors.gstin = gstinErr;
+    }
+
+    if (formData.pan_no?.trim()) {
+      const panErr = validatePAN(formData.pan_no, false);
+      if (panErr) errors.pan_no = panErr;
+    }
+
+    setFormErrors(errors);
+
+    if (Object.keys(errors).length > 0) {
+      const firstErr = Object.values(errors)[0];
+      showToast(firstErr, 'error', 'Validation Error');
       return;
     }
 
@@ -592,37 +644,59 @@ export default function CompanyInfoMaster() {
                       <label className="block text-xs font-semibold text-stone-700 mb-1">Pincode</label>
                       <input
                         type="text"
+                        inputMode="numeric"
+                        maxLength={6}
                         name="pincode"
                         value={formData.pincode}
-                        onChange={handleChange}
+                        onKeyDown={handlePincodeKeyDown}
+                        onChange={(e) => {
+                          const clean = sanitizePincode(e.target.value);
+                          setFormData(prev => ({ ...prev, pincode: clean }));
+                          if (formErrors.pincode) setFormErrors(prev => ({ ...prev, pincode: null }));
+                        }}
                         placeholder="600079"
-                        className="w-full px-3 py-2 border border-stone-300 rounded-lg text-xs focus:outline-none focus:border-[#b01622]"
+                        className={`w-full px-3 py-2 border ${formErrors.pincode ? 'border-red-500' : 'border-stone-300'} rounded-lg text-xs focus:outline-none focus:border-[#b01622]`}
                       />
+                      {formErrors.pincode && <p className="text-red-500 text-[11px] mt-1">{formErrors.pincode}</p>}
                     </div>
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-stone-700 mb-1">Primary Phone</label>
                     <input
-                      type="text"
+                      type="tel"
+                      maxLength={10}
                       name="phone"
                       value={formData.phone}
-                      onChange={handleChange}
-                      placeholder="+91 98400 12345"
-                      className="w-full px-3 py-2 border border-stone-300 rounded-lg text-xs focus:outline-none focus:border-[#b01622]"
+                      onKeyDown={handleMobileKeyDown}
+                      onChange={(e) => {
+                        const clean = sanitizeMobile(e.target.value);
+                        setFormData(prev => ({ ...prev, phone: clean }));
+                        if (formErrors.phone) setFormErrors(prev => ({ ...prev, phone: null }));
+                      }}
+                      placeholder="9840012345"
+                      className={`w-full px-3 py-2 border ${formErrors.phone ? 'border-red-500' : 'border-stone-300'} rounded-lg text-xs focus:outline-none focus:border-[#b01622]`}
                     />
+                    {formErrors.phone && <p className="text-red-500 text-[11px] mt-1">{formErrors.phone}</p>}
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-stone-700 mb-1">Alternate Phone / Landline</label>
+                    <label className="block text-xs font-semibold text-stone-700 mb-1">Alternate Phone (Optional)</label>
                     <input
-                      type="text"
+                      type="tel"
+                      maxLength={10}
                       name="alternate_phone"
                       value={formData.alternate_phone}
-                      onChange={handleChange}
-                      placeholder="044-25380000"
-                      className="w-full px-3 py-2 border border-stone-300 rounded-lg text-xs focus:outline-none focus:border-[#b01622]"
+                      onKeyDown={handleMobileKeyDown}
+                      onChange={(e) => {
+                        const clean = sanitizeMobile(e.target.value);
+                        setFormData(prev => ({ ...prev, alternate_phone: clean }));
+                        if (formErrors.alternate_phone) setFormErrors(prev => ({ ...prev, alternate_phone: null }));
+                      }}
+                      placeholder="9840012346"
+                      className={`w-full px-3 py-2 border ${formErrors.alternate_phone ? 'border-red-500' : 'border-stone-300'} rounded-lg text-xs focus:outline-none focus:border-[#b01622]`}
                     />
+                    {formErrors.alternate_phone && <p className="text-red-500 text-[11px] mt-1">{formErrors.alternate_phone}</p>}
                   </div>
 
                   <div>
@@ -631,10 +705,14 @@ export default function CompanyInfoMaster() {
                       type="email"
                       name="email"
                       value={formData.email}
-                      onChange={handleChange}
+                      onChange={(e) => {
+                        setFormData(prev => ({ ...prev, email: e.target.value.toLowerCase().replace(/\s+/g, '') }));
+                        if (formErrors.email) setFormErrors(prev => ({ ...prev, email: null }));
+                      }}
                       placeholder="info@rudrajewellers.com"
-                      className="w-full px-3 py-2 border border-stone-300 rounded-lg text-xs focus:outline-none focus:border-[#b01622]"
+                      className={`w-full px-3 py-2 border ${formErrors.email ? 'border-red-500' : 'border-stone-300'} rounded-lg text-xs lowercase focus:outline-none focus:border-[#b01622]`}
                     />
+                    {formErrors.email && <p className="text-red-500 text-[11px] mt-1">{formErrors.email}</p>}
                   </div>
 
                   <div>
@@ -662,12 +740,18 @@ export default function CompanyInfoMaster() {
                     <label className="block text-xs font-semibold text-stone-700 mb-1">GSTIN Number</label>
                     <input
                       type="text"
+                      maxLength={15}
                       name="gstin"
                       value={formData.gstin}
-                      onChange={handleChange}
+                      onChange={(e) => {
+                        const clean = sanitizeGSTIN(e.target.value);
+                        setFormData(prev => ({ ...prev, gstin: clean }));
+                        if (formErrors.gstin) setFormErrors(prev => ({ ...prev, gstin: null }));
+                      }}
                       placeholder="33AAACR1234F1Z0"
-                      className="w-full px-3 py-2 border border-stone-300 rounded-lg text-xs font-mono uppercase focus:outline-none focus:border-[#b01622]"
+                      className={`w-full px-3 py-2 border ${formErrors.gstin ? 'border-red-500' : 'border-stone-300'} rounded-lg text-xs font-mono uppercase focus:outline-none focus:border-[#b01622]`}
                     />
+                    {formErrors.gstin && <p className="text-red-500 text-[11px] mt-1">{formErrors.gstin}</p>}
                   </div>
 
                   <div>
@@ -686,12 +770,18 @@ export default function CompanyInfoMaster() {
                     <label className="block text-xs font-semibold text-stone-700 mb-1">PAN Number</label>
                     <input
                       type="text"
+                      maxLength={10}
                       name="pan_no"
                       value={formData.pan_no}
-                      onChange={handleChange}
+                      onChange={(e) => {
+                        const clean = sanitizePAN(e.target.value);
+                        setFormData(prev => ({ ...prev, pan_no: clean }));
+                        if (formErrors.pan_no) setFormErrors(prev => ({ ...prev, pan_no: null }));
+                      }}
                       placeholder="AAACR1234F"
-                      className="w-full px-3 py-2 border border-stone-300 rounded-lg text-xs font-mono uppercase focus:outline-none focus:border-[#b01622]"
+                      className={`w-full px-3 py-2 border ${formErrors.pan_no ? 'border-red-500' : 'border-stone-300'} rounded-lg text-xs font-mono uppercase focus:outline-none focus:border-[#b01622]`}
                     />
+                    {formErrors.pan_no && <p className="text-red-500 text-[11px] mt-1">{formErrors.pan_no}</p>}
                   </div>
 
                   <div>

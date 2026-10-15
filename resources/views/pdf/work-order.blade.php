@@ -249,7 +249,7 @@
             $items = [[
                 'form_no' => 'FRM-' . date('Y') . '-0001-01',
                 'design_number' => $order->design_code ?? 'DG-4587',
-                'gold_purity' => $order->material_type ?? '22K (916)',
+                'gold_purity' => $order->material_type ?? ($order->gold_purity ?? '-'),
                 'setting_type' => 'Prong',
                 'diamond_weight' => '0.500',
                 'diamond_wt_from' => '0.100',
@@ -303,12 +303,15 @@
             @foreach($items as $idx => $row)
                 @php
                     $gw = (float)($row['gold_weight'] ?? $row['total_weight'] ?? 0);
-                    $dw = (float)($row['diamond_weight'] ?? 0);
                     $pcs = (int)($row['need_pcs'] ?? $row['qty'] ?? 1);
                     $diaPcs = (int)($row['no_of_diamonds'] ?? 0);
                     $cstones = (int)($row['no_of_colour_stones'] ?? 0);
-                    $gross = (float)($row['total_gross_wt'] ?? ($gw * $pcs));
-                    $diaCts = (float)($row['total_dia_cts'] ?? ($dw * $pcs));
+                    $cstoneWtGrams = (float)($row['color_stone_weight'] ?? 0);
+
+                    // Diamond carats vs grams conversion (1 ct = 0.2 g)
+                    $diaCts = (float)($row['total_dia_cts'] ?? ($row['diamond_weight'] ?? 0));
+                    $dwGrams = (float)($row['diamond_weight_grams'] ?? ($diaCts > 0 ? $diaCts * 0.2 : (float)($row['diamond_weight'] ?? 0)));
+                    $gross = (float)($row['total_gross_wt'] ?? (($gw + $dwGrams + $cstoneWtGrams) * $pcs));
 
                     $imgSrc = !empty($row['reference_image']) ? $row['reference_image'] : (!empty($row['image']) ? $row['image'] : null);
                     if ($imgSrc && str_starts_with($imgSrc, '/')) {
@@ -336,9 +339,9 @@
                             <span style="font-size: 7px; color: #888;">N/A</span>
                         @endif
                     </td>
-                    <td style="border: 1px solid #e8e8e8; white-space: nowrap;">{{ $row['gold_purity'] ?? '22K (916)' }}</td>
+                    <td style="border: 1px solid #e8e8e8; white-space: nowrap;">{{ $row['gold_purity'] ?? $row['gold_priory'] ?? '-' }}</td>
                     <td style="border: 1px solid #e8e8e8; white-space: nowrap;">{{ $row['setting_type'] ?? 'Prong' }}</td>
-                    <td style="text-align: right; font-family: monospace; border: 1px solid #e8e8e8; white-space: nowrap;">{{ number_format($dw, 3) }}</td>
+                    <td style="text-align: right; font-family: monospace; border: 1px solid #e8e8e8; white-space: nowrap;">{{ number_format($dwGrams, 3) }}g</td>
                     <td style="text-align: right; font-family: monospace; color: #666; border: 1px solid #e8e8e8; white-space: nowrap;">{{ number_format((float)($row['diamond_wt_from'] ?? 0.1), 3) }}</td>
                     <td style="text-align: right; font-family: monospace; color: #666; border: 1px solid #e8e8e8; white-space: nowrap;">{{ number_format((float)($row['diamond_wt_to'] ?? 0.5), 3) }}</td>
                     <td style="text-align: right; font-family: monospace; font-weight: bold; border: 1px solid #e8e8e8; white-space: nowrap;">{{ number_format($gw, 3) }}g</td>
@@ -356,7 +359,7 @@
         <tfoot>
             <tr style="background-color: #eedfce; color: #3b3228; font-weight: bold; border-top: 2px solid #881337;">
                 <td colSpan="7" style="text-transform: uppercase; border: 1px solid #d8c8b0; padding: 4px; white-space: nowrap;">TOTAL SUMMARY</td>
-                <td style="text-align: right; font-family: monospace; border: 1px solid #d8c8b0; white-space: nowrap;">{{ number_format(array_reduce($items, function($a, $r){ return $a + (float)($r['diamond_weight'] ?? 0); }, 0), 3) }}</td>
+                <td style="text-align: right; font-family: monospace; border: 1px solid #d8c8b0; white-space: nowrap;">{{ number_format(array_reduce($items, function($a, $r){ $cts = (float)($r['total_dia_cts'] ?? ($r['diamond_weight'] ?? 0)); return $a + (float)($r['diamond_weight_grams'] ?? ($cts * 0.2)); }, 0), 3) }}g</td>
                 <td colSpan="2" style="border: 1px solid #d8c8b0; white-space: nowrap;"></td>
                 <td style="text-align: right; font-family: monospace; border: 1px solid #d8c8b0; white-space: nowrap;">{{ number_format($totGold, 3) }}g</td>
                 <td colSpan="2" style="border: 1px solid #d8c8b0; white-space: nowrap;"></td>
@@ -373,7 +376,7 @@
     <!-- Work Instructions / Notes -->
     <div class="section-title">Artisan Instructions & Specifications</div>
     <div class="notes-box">
-        <strong>Notes:</strong> {{ $order->notes ?? 'Adhere strictly to 916 BIS Hallmarking standards. Maintain mirror buff finish, verify clasp security, and ensure stones are set with prongs as per approved CAD master.' }}
+        <strong>Notes:</strong> {{ $order->notes ?? 'Maintain mirror buff finish, verify clasp security, and ensure stones are set with prongs as per approved CAD master.' }}
     </div>
 
     <!-- 4 Red Metric Summary Boxes -->

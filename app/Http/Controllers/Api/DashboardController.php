@@ -287,8 +287,7 @@ class DashboardController extends Controller
             foreach ($hours as $hr) {
                 $cutoff = Carbon::today()->addHours($hr);
                 $invTot = (float) $invToday->filter(fn($i) => Carbon::parse($i->created_at)->lte($cutoff))->sum('total_amount');
-                $woTot = (float) $woToday->filter(fn($w) => Carbon::parse($w->created_at)->lte($cutoff))->sum('total_price');
-                $tot = $invTot + $woTot;
+                $tot = $invTot;
                 $chartPoints[] = [
                     'date' => sprintf('%02d:00', $hr),
                     'val' => $tot,
@@ -301,8 +300,7 @@ class DashboardController extends Controller
                 $dayDate = Carbon::now()->startOfWeek()->addDays($i);
                 if ($dayDate->gt(Carbon::now()->endOfDay())) continue;
                 $invTotal = (float) \App\Models\Invoice::whereDate('created_at', $dayDate)->sum('total_amount');
-                $woTotal = (float) \App\Models\WorkOrder::whereDate('created_at', $dayDate)->sum('total_price');
-                $runningTot += ($invTotal + $woTotal);
+                $runningTot += $invTotal;
                 $chartPoints[] = [
                     'date' => $dayDate->format('D, d M'),
                     'val' => $runningTot,
@@ -317,8 +315,7 @@ class DashboardController extends Controller
                 $dt = Carbon::now()->startOfMonth()->addDays($d - 1);
                 if ($dt->gt(Carbon::now())) continue;
                 $invTotal = (float) \App\Models\Invoice::whereDate('created_at', '<=', $dt)->whereDate('created_at', '>=', Carbon::now()->startOfMonth())->sum('total_amount');
-                $woTotal = (float) \App\Models\WorkOrder::whereDate('created_at', '<=', $dt)->whereDate('created_at', '>=', Carbon::now()->startOfMonth())->sum('total_price');
-                $tot = $invTotal + $woTotal;
+                $tot = $invTotal;
                 $chartPoints[] = [
                     'date' => $dt->format('d M'),
                     'val' => $tot,
@@ -331,8 +328,7 @@ class DashboardController extends Controller
                 $mStart = $mDate->copy()->startOfMonth();
                 $mEnd = $mDate->copy()->endOfMonth();
                 $invTotal = (float) \App\Models\Invoice::whereBetween('created_at', [$mStart, $mEnd])->sum('total_amount');
-                $woTotal = (float) \App\Models\WorkOrder::whereBetween('created_at', [$mStart, $mEnd])->sum('total_price');
-                $tot = $invTotal + $woTotal;
+                $tot = $invTotal;
                 $chartPoints[] = [
                     'date' => $mDate->format('M Y'),
                     'val' => $tot,

@@ -9,33 +9,7 @@ import { printElement } from '../../utils/printHelper';
 const money = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 const dateText = (value) => value ? new Date(value).toLocaleDateString('en-IN') : '—';
 
-export const defaultSampleClients = [
-  { id: '1', full_name: 'Ramesh Jewellers', primary_phone: '+91 98765 43210' },
-  { id: '2', full_name: 'Sakthi Gold House', primary_phone: '+91 98765 43211' },
-  { id: '3', full_name: 'New Style Ornaments', primary_phone: '+91 98765 43212' },
-  { id: '4', full_name: 'Lakshmi Jewellers', primary_phone: '+91 98765 43213' },
-  { id: '5', full_name: 'Sri Venkateswara Jewellers', primary_phone: '+91 98765 43214' },
-  { id: '6', full_name: 'GRT Jewellers', primary_phone: '+91 98765 43215' },
-  { id: '7', full_name: 'Malabar Gold & Diamonds', primary_phone: '+91 98765 43216' },
-  { id: '8', full_name: 'Kalyan Jewellers', primary_phone: '+91 98765 43217' },
-  { id: '9', full_name: 'Jos Alukkas', primary_phone: '+91 98765 43218' },
-  { id: '10', full_name: 'Bhima Jewellery', primary_phone: '+91 98765 43219' },
-  { id: '11', full_name: 'Joyalukkas India', primary_phone: '+91 98765 43220' },
-  { id: '12', full_name: 'Senco Gold & Diamonds', primary_phone: '+91 98765 43221' },
-  { id: '13', full_name: 'Lalithaa Jewellery', primary_phone: '+91 98765 43222' },
-  { id: '14', full_name: 'Thangamayil Jewellery', primary_phone: '+91 98765 43223' },
-  { id: '15', full_name: 'Saravana Stores Elite', primary_phone: '+91 98765 43224' },
-  { id: '16', full_name: 'Khazana Jewellery', primary_phone: '+91 98765 43225' },
-  { id: '17', full_name: 'Prince Jewellery', primary_phone: '+91 98765 43226' },
-  { id: '18', full_name: 'VBJ Jewellers', primary_phone: '+91 98765 43227' },
-  { id: '19', full_name: 'Nathella Sampathu Chetty', primary_phone: '+91 98765 43228' },
-  { id: '20', full_name: 'NAC Jewelers', primary_phone: '+91 98765 43229' },
-  { id: '21', full_name: 'AVR Swarna Mahal', primary_phone: '+91 98765 43230' },
-  { id: '22', full_name: 'Kirtilals Jewellers', primary_phone: '+91 98765 43231' },
-  { id: '23', full_name: 'Emerald Jewel Industry', primary_phone: '+91 98765 43232' },
-  { id: '24', full_name: 'Joy Gold Creation', primary_phone: '+91 98765 43233' },
-  { id: '25', full_name: 'Abiraame Jewellers', primary_phone: '+91 98765 43234' }
-];
+export const defaultSampleClients = [];
 
 const normalizeClients = (response) => {
   const payload = response?.data ?? response;
@@ -44,15 +18,7 @@ const normalizeClients = (response) => {
   else if (Array.isArray(payload?.clients) && payload.clients.length > 0) fetched = payload.clients;
   else if (Array.isArray(payload?.data) && payload.data.length > 0) fetched = payload.data;
 
-  const existingNames = new Set(fetched.map(c => (c.full_name || c.name || '').toLowerCase()));
-  const merged = [...fetched];
-
-  for (const sample of defaultSampleClients) {
-    if (!existingNames.has(sample.full_name.toLowerCase())) {
-      merged.push(sample);
-    }
-  }
-  return merged;
+  return fetched;
 };
 
 function numberToWordsINR(amount) {
@@ -303,7 +269,7 @@ export default function SalesModule({ view = 'dashboard' }) {
       setLoading(true);
     }
     try {
-      if (view === 'customer-index') {
+      if (view === 'dashboard' || view === 'customer-index') {
         const [reportResponse, clientResponse] = await Promise.all([
           api.get('/sales/customer-report', { params: activeFilters }).catch(() => ({ data: null })),
           api.get('/clients').catch(() => ({ data: null }))
@@ -311,7 +277,7 @@ export default function SalesModule({ view = 'dashboard' }) {
         if (reportResponse?.data) setDashboard(reportResponse.data);
         if (clientResponse) setClients(normalizeClients(clientResponse));
       }
-      if (view === 'dashboard' || view === 'list') {
+      if (view === 'list') {
         const res = await api.get('/sales', { params: activeFilters }).catch(() => ({ data: null }));
         if (res?.data) setSales(res.data);
       }
@@ -604,48 +570,75 @@ export default function SalesModule({ view = 'dashboard' }) {
               </div>
             </div>
 
-            {/* 3. Product Table */}
-            <div className="border border-stone-200 rounded-lg overflow-x-auto">
-              <table className="w-full text-left border-collapse text-[11px]">
-                <thead className="bg-[#b01622] text-white text-[10px] font-bold uppercase tracking-wider">
-                  <tr>
-                    <th className="p-2 text-center border-r border-red-700/50">S. No.</th>
-                    <th className="p-2 border-r border-red-700/50">Product Code</th>
-                    <th className="p-2 border-r border-red-700/50">Product Description</th>
-                    <th className="p-2 text-right border-r border-red-700/50">Gross Weight (g)</th>
-                    <th className="p-2 text-right border-r border-red-700/50">Net Weight (g)</th>
-                    <th className="p-2 text-center border-r border-red-700/50">Purity (22K)</th>
-                    <th className="p-2 text-right border-r border-red-700/50">Gold Rate (₹ / g)</th>
-                    <th className="p-2 text-right border-r border-red-700/50">Gold Value (₹)</th>
-                    <th className="p-2 text-right border-r border-red-700/50">Making Rate (₹ / g)</th>
-                    <th className="p-2 text-right border-r border-red-700/50">Making Charges (₹)</th>
-                    <th className="p-2 text-right border-r border-red-700/50">If Fixed Amount (₹)</th>
-                    <th className="p-2 text-center border-r border-red-700/50">Wastage (%)</th>
-                    <th className="p-2 text-right border-r border-red-700/50">Discount (₹)</th>
-                    <th className="p-2 text-right">Total MC (₹)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-200">
-                  {displayItems.map((item, idx) => (
-                    <tr key={idx} className="hover:bg-amber-50/10 text-stone-800">
-                      <td className="p-2 text-center font-mono text-stone-500">{item.s_no}</td>
-                      <td className="p-2 font-mono font-medium text-stone-700">{item.code}</td>
-                      <td className="p-2 font-bold text-stone-900">{item.desc}</td>
-                      <td className="p-2 text-right font-mono">{Number(item.gross_wt).toFixed(3)}</td>
-                      <td className="p-2 text-right font-mono">{Number(item.net_wt).toFixed(3)}</td>
-                      <td className="p-2 text-center font-semibold">{item.purity}</td>
-                      <td className="p-2 text-right font-mono">{Number(item.gold_rate).toLocaleString('en-IN')}</td>
-                      <td className="p-2 text-right font-mono">{Number(item.gold_value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                      <td className="p-2 text-right font-mono">{Number(item.making_rate).toFixed(2)}</td>
-                      <td className="p-2 text-right font-mono">{Number(item.making_charges).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                      <td className="p-2 text-right font-mono">{item.fixed_amount ? Number(item.fixed_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : ''}</td>
-                      <td className="p-2 text-center font-mono">{item.wastage}</td>
-                      <td className="p-2 text-right font-mono">{item.discount ? Number(item.discount).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : ''}</td>
-                      <td className="p-2 text-right font-mono font-bold text-[#b01622]">{Number(item.total_mc).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            {/* 3. Product Table (2-Row Structured Format for Full Print Parity without Scrolling) */}
+            <div className="space-y-2">
+              {displayItems.map((item, idx) => (
+                <div key={idx} className="border border-stone-200 rounded-lg overflow-hidden bg-white shadow-2xs space-y-1 p-2">
+                  {/* Row 1: Item & Gold Value */}
+                  <div className="border border-stone-200 rounded overflow-hidden">
+                    <div className="bg-[#b01622]/10 px-2.5 py-0.5 text-[8px] font-bold text-[#b01622] uppercase tracking-wider border-b border-stone-200 flex items-center justify-between">
+                      <span>Item #{item.s_no} — Primary Details &amp; Gold Value</span>
+                      <span className="font-mono text-stone-500">Row 1 of 2</span>
+                    </div>
+                    <table className="w-full text-left border-collapse text-[10px]">
+                      <thead className="bg-[#b01622] text-white text-[9px] font-bold uppercase tracking-wider">
+                        <tr>
+                          <th className="p-1.5 text-center w-10">S. No.</th>
+                          <th className="p-1.5">Product Code</th>
+                          <th className="p-1.5">Product Description</th>
+                          <th className="p-1.5 text-center">Purity</th>
+                          <th className="p-1.5 text-right">Gross Wt (g)</th>
+                          <th className="p-1.5 text-right">Net Wt (g)</th>
+                          <th className="p-1.5 text-right">Gold Rate (₹/g)</th>
+                          <th className="p-1.5 text-right">Gold Value (₹)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr className="hover:bg-amber-50/10 text-stone-800">
+                          <td className="p-1.5 text-center font-mono text-stone-500 font-bold">{item.s_no}</td>
+                          <td className="p-1.5 font-mono font-medium text-stone-700">{item.code}</td>
+                          <td className="p-1.5 font-bold text-stone-900">{item.desc}</td>
+                          <td className="p-1.5 text-center font-semibold">{item.purity}</td>
+                          <td className="p-1.5 text-right font-mono font-bold">{Number(item.gross_wt).toFixed(3)}</td>
+                          <td className="p-1.5 text-right font-mono font-bold text-[#b01622]">{Number(item.net_wt).toFixed(3)}</td>
+                          <td className="p-1.5 text-right font-mono">{Number(item.gold_rate).toLocaleString('en-IN')}</td>
+                          <td className="p-1.5 text-right font-mono font-bold text-stone-900">{Number(item.gold_value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Row 2: Making Charges & Discounts */}
+                  <div className="border border-stone-200 rounded overflow-hidden">
+                    <div className="bg-stone-100 px-2.5 py-0.5 text-[8px] font-bold text-stone-700 uppercase tracking-wider border-b border-stone-200 flex items-center justify-between">
+                      <span>Item #{item.s_no} — Making Charges, Wastage &amp; Discount Breakdown</span>
+                      <span className="font-mono text-stone-500">Row 2 of 2</span>
+                    </div>
+                    <table className="w-full text-left border-collapse text-[10px]">
+                      <thead className="bg-stone-700 text-white text-[9px] font-bold uppercase tracking-wider">
+                        <tr>
+                          <th className="p-1.5 text-right">Making Rate (₹/g)</th>
+                          <th className="p-1.5 text-right">Making Charges (₹)</th>
+                          <th className="p-1.5 text-right">Fixed Amount (₹)</th>
+                          <th className="p-1.5 text-center">Wastage (%)</th>
+                          <th className="p-1.5 text-right">Discount (₹)</th>
+                          <th className="p-1.5 text-right">Total MC (₹)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr className="bg-stone-50/50 hover:bg-stone-100/50 text-stone-800">
+                          <td className="p-1.5 text-right font-mono">{Number(item.making_rate).toFixed(2)}</td>
+                          <td className="p-1.5 text-right font-mono">{Number(item.making_charges).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          <td className="p-1.5 text-right font-mono">{item.fixed_amount ? Number(item.fixed_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '—'}</td>
+                          <td className="p-1.5 text-center font-mono font-medium">{item.wastage || '0%'}</td>
+                          <td className="p-1.5 text-right font-mono text-emerald-700">{item.discount ? Number(item.discount).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '—'}</td>
+                          <td className="p-1.5 text-right font-mono font-black text-[#b01622]">{Number(item.total_mc).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
             </div>
 
             {/* 4. Horizontal Summary Metrics Box (8-column bar) */}
@@ -856,7 +849,8 @@ export default function SalesModule({ view = 'dashboard' }) {
 
     return (
       <SelectedCustomerSalesReport
-        customerName={customerObj.full_name || 'Ramesh Jewellers'}
+        customerName={customerObj.full_name || 'Customer'}
+        customerData={sale}
         clients={clients}
         filters={filters}
         setFilters={setFilters}
@@ -903,7 +897,7 @@ export default function SalesModule({ view = 'dashboard' }) {
   );
 }
 
-function SelectedCustomerSalesReport({ customerName, clients, filters, setFilters, reload }) {
+function SelectedCustomerSalesReport({ customerName, clients, filters, setFilters, reload, customerData }) {
   const [graphMetric, setGraphMetric] = useState('amount');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedCustId, setSelectedCustId] = useState(filters?.client_id || '');
@@ -918,41 +912,58 @@ function SelectedCustomerSalesReport({ customerName, clients, filters, setFilter
     reload(next);
   };
 
-  // Generate 156 realistic invoices so all 32 pages have 5 rows each
+  // Real invoices from customerData
   const allInvoices = useMemo(() => {
-    const modes = ['Bank Transfer', 'UPI', 'Cash', 'Credit Card'];
-    const list = [];
-    for (let i = 1; i <= 156; i++) {
-      const invNum = String(157 - i).padStart(4, '0');
-      const day = String(Math.max(1, 30 - Math.floor((i - 1) / 5.5))).padStart(2, '0');
-      const items = (i % 6) + 3;
-      const qty = items * 3 + (i % 4);
-      const goldWgt = (qty * 1.000).toFixed(3);
-      const diamondWgt = (qty * 0.120).toFixed(3);
-      const amount = Math.round(qty * 18240 + (i % 10) * 1500);
-      const payment_mode = modes[i % modes.length];
-      list.push({
-        id: String(i),
-        invoice_no: `INV-2504-${invNum}`,
-        date: `${day} Apr 2025`,
-        items,
-        qty,
-        gold_wgt: goldWgt,
-        diamond_wgt: diamondWgt,
-        amount,
-        payment_mode,
-        status: 'Paid'
-      });
-    }
-    return list;
-  }, []);
+    const rawList = Array.isArray(customerData?.sales) ? customerData.sales : [];
+    return rawList.map((inv, idx) => {
+      let qty = 0;
+      let goldWgt = 0;
+      let diamondWgt = 0;
+      let itemsCount = 0;
+
+      if (Array.isArray(inv.itemsRelation) && inv.itemsRelation.length > 0) {
+        itemsCount = inv.itemsRelation.length;
+        inv.itemsRelation.forEach((it) => {
+          qty += Number(it.quantity || 1);
+          goldWgt += Number(it.gross_weight || it.gross_wt || 0);
+          diamondWgt += Number(it.diamond_weight || it.diamond_wt || 0);
+        });
+      } else if (inv.items) {
+        let parsed = [];
+        try {
+          parsed = typeof inv.items === 'string' ? JSON.parse(inv.items) : (Array.isArray(inv.items) ? inv.items : []);
+        } catch (e) {
+          parsed = [];
+        }
+        itemsCount = parsed.length;
+        parsed.forEach((it) => {
+          qty += Number(it.quantity || it.qty || 1);
+          goldWgt += Number(it.gross_wt || it.gross_weight || 0);
+          diamondWgt += Number(it.diamond_wt || it.diamond_weight || 0);
+        });
+      }
+
+      return {
+        id: inv.id,
+        invoice_no: inv.invoice_no || `INV-${inv.id}`,
+        date: dateText(inv.invoice_date || inv.created_at),
+        items: itemsCount,
+        qty: qty || (itemsCount > 0 ? itemsCount : 0),
+        gold_wgt: goldWgt.toFixed(3),
+        diamond_wgt: diamondWgt.toFixed(3),
+        amount: Number(inv.total_amount || 0),
+        payment_mode: inv.payment_method || inv.payment_mode || 'Cash',
+        status: inv.status === 'paid' || Number(inv.due_amount || 0) <= 0 ? 'Paid' : (inv.status || 'Unpaid')
+      };
+    });
+  }, [customerData]);
 
   const totalEntries = allInvoices.length;
   const itemsPerPage = 5;
   const totalPages = Math.max(1, Math.ceil(totalEntries / itemsPerPage));
 
   const tableRows = allInvoices.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
-  const displayStart = (currentPage - 1) * itemsPerPage + 1;
+  const displayStart = totalEntries > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0;
   const displayEnd = Math.min(currentPage * itemsPerPage, totalEntries);
 
   const handlePageClick = (newPage) => {
@@ -983,53 +994,80 @@ function SelectedCustomerSalesReport({ customerName, clients, filters, setFilter
 
   // Dynamic Chart Metric dataset and Y-axis scaling
   const chartDataset = useMemo(() => {
-    const months = ["Apr '24", "May '24", "Jun '24", "Jul '24", "Aug '24", "Sep '24", "Oct '24", "Nov '24", "Dec '24", "Jan '25", "Feb '25", "Mar '25", "Apr '25"];
-    if (graphMetric === 'quantity') {
-      const vals = [180, 240, 240, 160, 250, 320, 200, 280, 160, 210, 260, 300, 480];
-      return months.map((m, i) => ({ label: m, val: vals[i], formattedVal: `${vals[i]} Pcs` }));
+    const rawTrend = Array.isArray(customerData?.trend) ? customerData.trend : [];
+    if (rawTrend.length > 0) {
+      return rawTrend.map((t) => {
+        let val = 0;
+        let formattedVal = '';
+        if (graphMetric === 'quantity') {
+          val = Number(t.quantity || 0);
+          formattedVal = `${val} Pcs`;
+        } else if (graphMetric === 'gold_weight') {
+          val = Number(t.gold_weight || 0);
+          formattedVal = `${val.toFixed(3)}g`;
+        } else if (graphMetric === 'diamond_weight') {
+          val = Number(t.diamond_weight || 0);
+          formattedVal = `${val.toFixed(3)}ct`;
+        } else if (graphMetric === 'invoices') {
+          val = Number(t.invoices || 0);
+          formattedVal = `${val} Invoices`;
+        } else {
+          val = Number(t.amount || 0);
+          formattedVal = val >= 100000 ? `₹${(val / 100000).toFixed(1)}L` : `₹${val.toLocaleString('en-IN')}`;
+        }
+        return {
+          label: t.label || t.date,
+          val,
+          formattedVal
+        };
+      });
     }
-    if (graphMetric === 'gold_weight') {
-      const vals = [210, 280, 280, 190, 290, 380, 240, 330, 190, 245, 310, 355, 560];
-      return months.map((m, i) => ({ label: m, val: vals[i], formattedVal: `${vals[i]}g` }));
+
+    // Default dynamic past 7 months with 0 if no records
+    const fallbackMonths = [];
+    const now = new Date();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      fallbackMonths.push(d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }).replace(' ', " '"));
     }
-    if (graphMetric === 'diamond_weight') {
-      const vals = [45, 60, 60, 40, 65, 85, 52, 72, 42, 54, 68, 78, 125];
-      return months.map((m, i) => ({ label: m, val: vals[i], formattedVal: `${vals[i]}ct` }));
-    }
-    if (graphMetric === 'invoices') {
-      const vals = [40, 52, 52, 35, 55, 70, 44, 62, 36, 46, 58, 67, 102];
-      return months.map((m, i) => ({ label: m, val: vals[i], formattedVal: `${vals[i]} Invoices` }));
-    }
-    // Default 'amount'
-    const vals = [11.5, 15.0, 15.0, 10.5, 15.5, 20.2, 12.8, 17.6, 10.2, 13.0, 16.4, 19.0, 29.4];
-    return months.map((m, i) => ({ label: m, val: vals[i], formattedVal: `₹${vals[i]}L` }));
-  }, [graphMetric]);
+    return fallbackMonths.map((m) => {
+      let formattedVal = '₹0';
+      if (graphMetric === 'quantity') formattedVal = '0 Pcs';
+      else if (graphMetric === 'gold_weight') formattedVal = '0.000g';
+      else if (graphMetric === 'diamond_weight') formattedVal = '0.000ct';
+      else if (graphMetric === 'invoices') formattedVal = '0 Invoices';
+      return { label: m, val: 0, formattedVal };
+    });
+  }, [customerData, graphMetric]);
 
   const chartConfig = useMemo(() => {
     const values = chartDataset.map(d => d.val);
-    const rawMax = Math.max(...values, 1);
-    const maxVal = rawMax * 1.15;
+    const rawMax = Math.max(...values, 0);
+    const hasData = rawMax > 0;
+    const maxVal = hasData ? rawMax * 1.15 : 1;
 
     const formatY = (val) => {
+      if (!hasData) return '—';
       if (graphMetric === 'quantity') return `${Math.round(val)} Pcs`;
-      if (graphMetric === 'gold_weight') return `${Math.round(val)}g`;
-      if (graphMetric === 'diamond_weight') return `${Math.round(val)}ct`;
+      if (graphMetric === 'gold_weight') return `${val.toFixed(1)}g`;
+      if (graphMetric === 'diamond_weight') return `${val.toFixed(2)}ct`;
       if (graphMetric === 'invoices') return `${Math.round(val)}`;
-      return `${val.toFixed(val >= 10 ? 0 : 1)}L`;
+      return val >= 100000 ? `${(val / 100000).toFixed(1)}L` : `${Math.round(val)}`;
     };
 
-    const yLabels = [
+    const yLabels = hasData ? [
       formatY(maxVal),
       formatY(maxVal * 0.75),
       formatY(maxVal * 0.5),
       formatY(maxVal * 0.25),
       '0'
-    ];
+    ] : ['—', '—', '—', '—', '0'];
 
-    const stepX = 456 / 12;
+    const count = Math.max(1, chartDataset.length - 1);
+    const stepX = 456 / count;
     const dots = chartDataset.map((item, idx) => {
       const cx = 40 + idx * stepX;
-      const cy = 160 - (item.val / maxVal) * 140;
+      const cy = hasData ? 160 - (item.val / maxVal) * 140 : 160;
       return {
         cx: Number(cx.toFixed(1)),
         cy: Number(cy.toFixed(1)),
@@ -1041,7 +1079,7 @@ function SelectedCustomerSalesReport({ customerName, clients, filters, setFilter
     const polyline = dots.map(d => `${d.cx},${d.cy}`).join(' ');
     const polygon = `40,160 ${polyline} 496,160`;
 
-    return { yLabels, dots, polyline, polygon };
+    return { yLabels, dots, polyline, polygon, hasData };
   }, [chartDataset, graphMetric]);
 
   return (
@@ -1085,14 +1123,6 @@ function SelectedCustomerSalesReport({ customerName, clients, filters, setFilter
             <span>Export Excel</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => { setPrintModalTitle('Tax Invoice & Remittance Statement'); setShowPrintModal(true); }}
-            className="px-3.5 py-2 bg-white border border-red-200 hover:bg-red-50 text-red-700 text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer"
-          >
-            <i className="fa-solid fa-file-invoice text-red-600"></i>
-            <span>Export Invoice</span>
-          </button>
         </div>
       </div>
 
@@ -1283,9 +1313,17 @@ function SelectedCustomerSalesReport({ customerName, clients, filters, setFilter
             </select>
           </div>
 
-          {/* SVG Smooth Area Chart across 13 months */}
+          {/* SVG Smooth Area Chart */}
           <div className="w-full relative pt-2">
-            <svg className="w-full h-44 overflow-visible" viewBox="0 0 520 180" preserveAspectRatio="none">
+            {!chartConfig.hasData && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center z-10 pointer-events-none pb-4">
+                <div className="bg-white/95 px-3 py-1.5 rounded-lg border border-stone-200/80 shadow-2xs text-xs font-semibold text-stone-400 flex items-center gap-2">
+                  <i className="fa-solid fa-chart-line text-stone-300"></i>
+                  <span>No sales transactions recorded yet</span>
+                </div>
+              </div>
+            )}
+            <svg className={`w-full h-44 overflow-visible ${!chartConfig.hasData ? 'opacity-30' : ''}`} viewBox="0 0 520 180" preserveAspectRatio="none">
               <defs>
                 <linearGradient id="customerTrendGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#b01622" stopOpacity="0.25" />
@@ -1320,26 +1358,16 @@ function SelectedCustomerSalesReport({ customerName, clients, filters, setFilter
               ))}
             </svg>
 
-            {/* X-axis 13 Month Labels */}
+            {/* Dynamic X-axis Labels */}
             <div className="flex justify-between text-[10px] text-stone-500 font-semibold pl-10 pr-1 mt-1">
-              <span>Apr '24</span>
-              <span>May '24</span>
-              <span>Jun '24</span>
-              <span>Jul '24</span>
-              <span>Aug '24</span>
-              <span>Sep '24</span>
-              <span>Oct '24</span>
-              <span>Nov '24</span>
-              <span>Dec '24</span>
-              <span>Jan '25</span>
-              <span>Feb '25</span>
-              <span>Mar '25</span>
-              <span>Apr '25</span>
+              {chartDataset.map((d, i) => (
+                <span key={i}>{d.label}</span>
+              ))}
             </div>
           </div>
         </div>
 
-        {/* Right Column (5 cols): Sales Summary Card matching image */}
+        {/* Right Column (5 cols): Sales Summary Card */}
         <div className="lg:col-span-5 bg-white border border-stone-200/90 rounded-2xl p-5 shadow-2xs flex flex-col justify-between space-y-4">
           <h2 className="text-sm font-bold text-gray-900 border-b border-stone-100 pb-3">
             Sales Summary
@@ -1347,33 +1375,39 @@ function SelectedCustomerSalesReport({ customerName, clients, filters, setFilter
 
           <div className="space-y-3 text-xs text-stone-600 flex-1 flex flex-col justify-center">
             <div className="flex justify-between items-center">
-              <span>Opening Balance (01 Apr 2025)</span>
-              <span className="font-mono font-bold text-stone-900">₹ 1,12,450.00</span>
+              <span>Opening Balance</span>
+              <span className="font-mono font-bold text-stone-900">₹ 0.00</span>
             </div>
             <div className="flex justify-between items-center">
               <span>Total Sales Amount</span>
-              <span className="font-mono font-bold text-stone-900">₹ 28,45,600.00</span>
+              <span className="font-mono font-bold text-stone-900">
+                ₹ {Number(customerData?.stats?.total_purchases || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </span>
             </div>
             <div className="flex justify-between items-center">
               <span>Total Receipts</span>
-              <span className="font-mono font-bold text-stone-900">₹ 26,80,000.00</span>
+              <span className="font-mono font-bold text-stone-900">
+                ₹ {Number(customerData?.stats?.paid_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </span>
             </div>
 
             <div className="border-t border-stone-200 pt-3 flex justify-between items-center">
-              <span className="font-bold text-stone-900 text-xs">Closing Balance (30 Apr 2025)</span>
+              <span className="font-bold text-stone-900 text-xs">Closing Balance</span>
               <span className="font-mono font-black text-base text-[#b01622]">
-                ₹ 2,78,050.00
+                ₹ {Number(customerData?.stats?.due_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
               </span>
             </div>
 
             <div className="border-t border-stone-100 pt-3 space-y-2">
               <div className="flex justify-between items-center">
                 <span>Credit Sales Amount</span>
-                <span className="font-mono font-bold text-stone-900">₹ 5,65,000.00</span>
+                <span className="font-mono font-bold text-stone-900">
+                  ₹ {Number(customerData?.stats?.due_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
               </div>
               <div className="flex justify-between items-center">
                 <span>Advance Received</span>
-                <span className="font-mono font-bold text-stone-900">₹ 3,20,000.00</span>
+                <span className="font-mono font-bold text-stone-900">₹ 0.00</span>
               </div>
             </div>
           </div>
@@ -1392,7 +1426,7 @@ function SelectedCustomerSalesReport({ customerName, clients, filters, setFilter
           <table className="w-full text-xs text-left">
             <thead className="bg-stone-50 text-stone-500 uppercase text-[10px] font-bold tracking-wider border-b border-stone-200">
               <tr>
-                <th className="px-4 py-3 text-center w-12">#</th>
+                <th className="px-4 py-3 text-center w-14">S.No</th>
                 <th className="px-4 py-3">Invoice No.</th>
                 <th className="px-4 py-3 text-center">Invoice Date</th>
                 <th className="px-4 py-3 text-center">Items</th>
@@ -1406,45 +1440,61 @@ function SelectedCustomerSalesReport({ customerName, clients, filters, setFilter
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
-              {tableRows.map((row, index) => (
-                <tr key={row.id} className="hover:bg-stone-50/80 transition-colors">
-                  <td className="px-4 py-3 text-center font-medium text-stone-500">
-                    {(currentPage - 1) * itemsPerPage + index + 1}
-                  </td>
-                  <td className="px-4 py-3 font-mono font-bold text-stone-900">{row.invoice_no}</td>
-                  <td className="px-4 py-3 text-center text-stone-600">{row.date}</td>
-                  <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.items}</td>
-                  <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.qty}</td>
-                  <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.gold_wgt}</td>
-                  <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.diamond_wgt}</td>
-                  <td className="px-4 py-3 text-right font-bold text-stone-900">₹ {Number(row.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                  <td className="px-4 py-3 text-center text-stone-600 font-medium">{row.payment_mode}</td>
-                  <td className="px-4 py-3 text-center">
-                    <span className="inline-block px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold rounded-md">
-                      Paid
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <Link
-                      to={`/sales/${row.id}`}
-                      className="inline-block px-3 py-1 bg-white border border-red-300 text-red-700 hover:bg-red-50 text-xs font-bold rounded-lg transition-all cursor-pointer"
-                    >
-                      View
-                    </Link>
+              {tableRows.length > 0 ? (
+                tableRows.map((row, index) => (
+                  <tr key={row.id} className="hover:bg-stone-50/80 transition-colors">
+                    <td className="px-4 py-3 text-center font-medium text-stone-500">
+                      {(currentPage - 1) * itemsPerPage + index + 1}
+                    </td>
+                    <td className="px-4 py-3 font-mono font-bold text-stone-900">{row.invoice_no}</td>
+                    <td className="px-4 py-3 text-center text-stone-600">{row.date}</td>
+                    <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.items}</td>
+                    <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.qty}</td>
+                    <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.gold_wgt}</td>
+                    <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.diamond_wgt}</td>
+                    <td className="px-4 py-3 text-right font-bold text-stone-900">₹ {Number(row.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-4 py-3 text-center text-stone-600 font-medium">{row.payment_mode}</td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`inline-block px-2.5 py-0.5 text-[10px] font-bold rounded-md ${
+                        row.status === 'Paid' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'
+                      }`}>
+                        {row.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <Link
+                        to={`/sales/${row.id}`}
+                        className="inline-block px-3 py-1 bg-white border border-red-300 text-red-700 hover:bg-red-50 text-xs font-bold rounded-lg transition-all cursor-pointer"
+                      >
+                        View
+                      </Link>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={11} className="py-12 text-center text-stone-400">
+                    <div className="flex flex-col items-center justify-center space-y-2">
+                      <i className="fa-solid fa-folder-open text-3xl text-rose-300"></i>
+                      <p className="text-sm font-semibold text-stone-600">No Sales Data Available for this customer</p>
+                      <p className="text-xs text-stone-400">No sales transactions have been recorded for this client yet.</p>
+                    </div>
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
             <tfoot>
               <tr className="bg-red-50/40 border-t-2 border-stone-200 font-bold text-xs">
                 <td className="px-4 py-3 text-center font-bold text-[#b01622]">TOTAL</td>
                 <td className="px-4 py-3"></td>
                 <td className="px-4 py-3"></td>
-                <td className="px-4 py-3"></td>
-                <td className="px-4 py-3 text-center text-[#b01622] font-black">156</td>
-                <td className="px-4 py-3 text-center text-[#b01622] font-black">842</td>
-                <td className="px-4 py-3"></td>
-                <td className="px-4 py-3 text-right text-[#b01622] font-black">₹ 28,45,600.00</td>
+                <td className="px-4 py-3 text-center text-[#b01622] font-black">{allInvoices.reduce((acc, r) => acc + (Number(r.items) || 0), 0)}</td>
+                <td className="px-4 py-3 text-center text-[#b01622] font-black">{allInvoices.reduce((acc, r) => acc + (Number(r.qty) || 0), 0)}</td>
+                <td className="px-4 py-3 text-center text-[#b01622] font-black">{allInvoices.reduce((acc, r) => acc + (Number(r.gold_wgt) || 0), 0).toFixed(3)}</td>
+                <td className="px-4 py-3 text-center text-[#b01622] font-black">{allInvoices.reduce((acc, r) => acc + (Number(r.diamond_wgt) || 0), 0).toFixed(3)}</td>
+                <td className="px-4 py-3 text-right text-[#b01622] font-black">
+                  ₹ {allInvoices.reduce((acc, r) => acc + (Number(r.amount) || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </td>
                 <td className="px-4 py-3"></td>
                 <td className="px-4 py-3"></td>
                 <td className="px-4 py-3"></td>
@@ -1503,38 +1553,7 @@ function roundNum(val) {
   return Math.round((Number(val) || 0) * 100) / 100;
 }
 
-const defaultCustomerRows = [
-  // Page 1
-  { client_id: '1', client_name: 'Ramesh Jewellers', invoice_count: 156, quantity: 842, gold_weight: '842.000', diamond_weight: '842.000', total_amount: 2845600, last_sale_date: '2025-04-30' },
-  { client_id: '2', client_name: 'Sakthi Gold House', invoice_count: 132, quantity: 726, gold_weight: '726.000', diamond_weight: '726.000', total_amount: 2218400, last_sale_date: '2025-04-29' },
-  { client_id: '3', client_name: 'New Style Ornaments', invoice_count: 118, quantity: 612, gold_weight: '612.000', diamond_weight: '612.000', total_amount: 1675200, last_sale_date: '2025-04-28' },
-  { client_id: '4', client_name: 'Lakshmi Jewellers', invoice_count: 104, quantity: 568, gold_weight: '568.000', diamond_weight: '568.000', total_amount: 1532000, last_sale_date: '2025-04-27' },
-  { client_id: '5', client_name: 'Sri Venkateswara Jewellers', invoice_count: 92, quantity: 438, gold_weight: '438.000', diamond_weight: '438.000', total_amount: 1025600, last_sale_date: '2025-04-26' },
-  // Page 2
-  { client_id: '6', client_name: 'GRT Jewellers', invoice_count: 88, quantity: 410, gold_weight: '410.000', diamond_weight: '410.000', total_amount: 980000, last_sale_date: '2025-04-25' },
-  { client_id: '7', client_name: 'Malabar Gold & Diamonds', invoice_count: 82, quantity: 390, gold_weight: '390.000', diamond_weight: '390.000', total_amount: 895000, last_sale_date: '2025-04-24' },
-  { client_id: '8', client_name: 'Kalyan Jewellers', invoice_count: 78, quantity: 360, gold_weight: '360.000', diamond_weight: '360.000', total_amount: 820000, last_sale_date: '2025-04-23' },
-  { client_id: '9', client_name: 'Jos Alukkas', invoice_count: 74, quantity: 340, gold_weight: '340.000', diamond_weight: '340.000', total_amount: 760000, last_sale_date: '2025-04-22' },
-  { client_id: '10', client_name: 'Bhima Jewellery', invoice_count: 70, quantity: 320, gold_weight: '320.000', diamond_weight: '320.000', total_amount: 710000, last_sale_date: '2025-04-21' },
-  // Page 3
-  { client_id: '11', client_name: 'Joyalukkas India', invoice_count: 65, quantity: 295, gold_weight: '295.000', diamond_weight: '295.000', total_amount: 650000, last_sale_date: '2025-04-20' },
-  { client_id: '12', client_name: 'Senco Gold & Diamonds', invoice_count: 60, quantity: 270, gold_weight: '270.000', diamond_weight: '270.000', total_amount: 590000, last_sale_date: '2025-04-19' },
-  { client_id: '13', client_name: 'Lalithaa Jewellery', invoice_count: 56, quantity: 250, gold_weight: '250.000', diamond_weight: '250.000', total_amount: 540000, last_sale_date: '2025-04-18' },
-  { client_id: '14', client_name: 'Thangamayil Jewellery', invoice_count: 52, quantity: 230, gold_weight: '230.000', diamond_weight: '230.000', total_amount: 490000, last_sale_date: '2025-04-17' },
-  { client_id: '15', client_name: 'Saravana Stores Elite', invoice_count: 48, quantity: 210, gold_weight: '210.000', diamond_weight: '210.000', total_amount: 440000, last_sale_date: '2025-04-16' },
-  // Page 4
-  { client_id: '16', client_name: 'Khazana Jewellery', invoice_count: 44, quantity: 190, gold_weight: '190.000', diamond_weight: '190.000', total_amount: 395000, last_sale_date: '2025-04-15' },
-  { client_id: '17', client_name: 'Prince Jewellery', invoice_count: 40, quantity: 175, gold_weight: '175.000', diamond_weight: '175.000', total_amount: 360000, last_sale_date: '2025-04-14' },
-  { client_id: '18', client_name: 'VBJ Jewellers', invoice_count: 36, quantity: 160, gold_weight: '160.000', diamond_weight: '160.000', total_amount: 325000, last_sale_date: '2025-04-13' },
-  { client_id: '19', client_name: 'Nathella Sampathu Chetty', invoice_count: 32, quantity: 145, gold_weight: '145.000', diamond_weight: '145.000', total_amount: 290000, last_sale_date: '2025-04-12' },
-  { client_id: '20', client_name: 'NAC Jewelers', invoice_count: 28, quantity: 130, gold_weight: '130.000', diamond_weight: '130.000', total_amount: 260000, last_sale_date: '2025-04-11' },
-  // Page 5
-  { client_id: '21', client_name: 'AVR Swarna Mahal', invoice_count: 24, quantity: 110, gold_weight: '110.000', diamond_weight: '110.000', total_amount: 225000, last_sale_date: '2025-04-10' },
-  { client_id: '22', client_name: 'Kirtilals Jewellers', invoice_count: 20, quantity: 95, gold_weight: '95.000', diamond_weight: '95.000', total_amount: 195000, last_sale_date: '2025-04-09' },
-  { client_id: '23', client_name: 'Emerald Jewel Industry', invoice_count: 16, quantity: 80, gold_weight: '80.000', diamond_weight: '80.000', total_amount: 165000, last_sale_date: '2025-04-08' },
-  { client_id: '24', client_name: 'Joy Gold Creation', invoice_count: 12, quantity: 65, gold_weight: '65.000', diamond_weight: '65.000', total_amount: 135000, last_sale_date: '2025-04-07' },
-  { client_id: '25', client_name: 'Abiraame Jewellers', invoice_count: 8, quantity: 50, gold_weight: '50.000', diamond_weight: '50.000', total_amount: 100000, last_sale_date: '2025-04-06' },
-];
+const defaultCustomerRows = [];
 
 function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }) {
   const [graphMetric, setGraphMetric] = useState('amount');
@@ -1548,13 +1567,13 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
   const profitSummary = dashboard?.profitSummary || summary || {};
 
   const dropdownClients = useMemo(() => {
-    return Array.isArray(clients) && clients.length > 0 ? clients : defaultSampleClients;
+    return Array.isArray(clients) && clients.length > 0 ? clients : [];
   }, [clients]);
 
   const selectedCustomerId = filters.client_id && filters.client_id !== 'all' ? String(filters.client_id) : 'all';
 
   const filteredRows = useMemo(() => {
-    const baseList = dbRows.length > 0 ? dbRows : defaultCustomerRows;
+    const baseList = dbRows;
     if (selectedCustomerId === 'all') return baseList;
     return baseList.filter((r) => String(r.client_id) === selectedCustomerId || r.client_name?.toLowerCase().includes(String(selectedCustomerId).toLowerCase()));
   }, [dbRows, selectedCustomerId]);
@@ -1565,75 +1584,81 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
 
   const isFiltered = selectedCustomerId !== 'all';
 
-  const totalSalesAmountVal = filteredRows.reduce((acc, r) => acc + Number(r.total_amount || 0), 0) || 12485600;
+  const totalSalesAmountVal = filteredRows.reduce((acc, r) => acc + Number(r.total_amount || 0), 0);
 
   const totalCustomersVal = isFiltered
     ? 1
-    : Number(summary.customers || (dbRows.length > 0 ? dropdownClients.length : 186));
+    : Number(summary.customers || dropdownClients.length || 0);
 
-  const totalInvoicesVal = filteredRows.reduce((acc, r) => acc + Number(r.invoice_count || 0), 0) || 1248;
+  const totalInvoicesVal = filteredRows.reduce((acc, r) => acc + Number(r.invoice_count || 0), 0);
 
-  const goldValueVal = isFiltered ? roundNum(totalSalesAmountVal * 0.83) : (invoiceSummary.gold_value !== undefined ? Number(invoiceSummary.gold_value) : 650311);
-  const makingChargesVal = isFiltered ? roundNum(totalSalesAmountVal * 0.10) : (invoiceSummary.making_charges !== undefined ? Number(invoiceSummary.making_charges) : 78037);
-  const stoneChargesVal = isFiltered ? roundNum(totalSalesAmountVal * 0.05) : (invoiceSummary.stone_charges !== undefined ? Number(invoiceSummary.stone_charges) : 42600);
-  const discountVal = isFiltered ? roundNum(totalSalesAmountVal * 0.01) : (invoiceSummary.discount !== undefined ? Number(invoiceSummary.discount) : 10000);
-  const gstVal = isFiltered ? roundNum((goldValueVal + makingChargesVal + stoneChargesVal - discountVal) * 0.03) : (invoiceSummary.gst !== undefined ? Number(invoiceSummary.gst) : 22520);
-  const grandTotalVal = isFiltered ? roundNum(goldValueVal + makingChargesVal + stoneChargesVal - discountVal + gstVal) : (invoiceSummary.grand_total !== undefined ? Number(invoiceSummary.grand_total) : 783468);
+  const goldValueVal = isFiltered ? roundNum(totalSalesAmountVal * 0.83) : Number(invoiceSummary.gold_value || 0);
+  const makingChargesVal = isFiltered ? roundNum(totalSalesAmountVal * 0.10) : Number(invoiceSummary.making_charges || 0);
+  const stoneChargesVal = isFiltered ? roundNum(totalSalesAmountVal * 0.05) : Number(invoiceSummary.stone_charges || 0);
+  const discountVal = isFiltered ? roundNum(totalSalesAmountVal * 0.01) : Number(invoiceSummary.discount || 0);
+  const gstVal = isFiltered ? roundNum((goldValueVal + makingChargesVal + stoneChargesVal - discountVal) * 0.03) : Number(invoiceSummary.gst || 0);
+  const grandTotalVal = isFiltered ? roundNum(goldValueVal + makingChargesVal + stoneChargesVal - discountVal + gstVal) : Number(invoiceSummary.grand_total || 0);
 
-  // Dynamic Chart Calculations based on graphMetric (amount, quantity, gold_weight, diamond_weight, invoices) and sub-tabs
+  // Dynamic Chart Calculations based on graphMetric and real trend data from database
   const chartDataset = useMemo(() => {
+    const getRecentMonths = (count = 7) => {
+      const list = [];
+      const now = new Date();
+      for (let i = count - 1; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const label = d.toLocaleString('en-US', { month: 'short' }) + " '" + String(d.getFullYear()).slice(-2);
+        list.push({ label, val: 0, formattedVal: '0' });
+      }
+      return list;
+    };
+
     if (activeSubTab === 'yearly') {
-      if (graphMetric === 'quantity') return [{ label: "2023-24", val: 3200 }, { label: "2024-25", val: 5400 }, { label: "2025-26", val: 6800 }];
-      if (graphMetric === 'gold_weight') return [{ label: "2023-24", val: 4100 }, { label: "2024-25", val: 6200 }, { label: "2025-26", val: 7500 }];
-      if (graphMetric === 'diamond_weight') return [{ label: "2023-24", val: 850 }, { label: "2024-25", val: 1250 }, { label: "2025-26", val: 1600 }];
-      if (graphMetric === 'invoices') return [{ label: "2023-24", val: 850 }, { label: "2024-25", val: 1420 }, { label: "2025-26", val: 1850 }];
-      return [{ label: "2023-24", val: 45000000 }, { label: "2024-25", val: 89000000 }, { label: "2025-26", val: 124856000 }];
+      if (Array.isArray(trend) && trend.length > 0) {
+        const yearMap = {};
+        trend.forEach((t) => {
+          const yr = t.date ? new Date(t.date).getFullYear() : new Date().getFullYear();
+          const label = String(yr);
+          const v = Number(t[graphMetric] ?? t.amount ?? 0);
+          if (!yearMap[label]) yearMap[label] = { label, val: 0 };
+          yearMap[label].val += v;
+        });
+        return Object.values(yearMap);
+      }
+      const curYear = new Date().getFullYear();
+      return [
+        { label: String(curYear - 2), val: 0, formattedVal: '0' },
+        { label: String(curYear - 1), val: 0, formattedVal: '0' },
+        { label: String(curYear), val: 0, formattedVal: '0' }
+      ];
     }
 
     if (Array.isArray(trend) && trend.length > 0) {
-      return trend.map((t) => ({
-        label: t.label || (t.date ? new Date(t.date).toLocaleString('en-US', { month: 'short' }) + " '" + String(new Date(t.date).getFullYear()).slice(-2) : '—'),
-        val: Number(t[graphMetric] ?? t.amount ?? t.value ?? 0)
-      }));
+      return trend.map((t) => {
+        const label = t.label || (t.date ? new Date(t.date).toLocaleString('en-US', { month: 'short' }) + " '" + String(new Date(t.date).getFullYear()).slice(-2) : '—');
+        const rawVal = Number(t[graphMetric] ?? t.amount ?? t.value ?? 0);
+        return {
+          label,
+          val: rawVal,
+          formattedVal: graphMetric === 'amount' ? `₹${Number(rawVal).toLocaleString('en-IN')}` :
+            graphMetric === 'quantity' ? `${rawVal} Pcs` :
+            graphMetric === 'gold_weight' ? `${rawVal}g` :
+            graphMetric === 'diamond_weight' ? `${rawVal}ct` : `${rawVal} Invoices`
+        };
+      });
     }
 
-    if (graphMetric === 'quantity') {
-      return [
-        { label: "Oct '24", val: 180 }, { label: "Nov '24", val: 420 }, { label: "Dec '24", val: 650 },
-        { label: "Jan '25", val: 540 }, { label: "Feb '25", val: 780 }, { label: "Mar '25", val: 610 }, { label: "Apr '25", val: 512 }
-      ];
-    }
-    if (graphMetric === 'gold_weight') {
-      return [
-        { label: "Oct '24", val: 210 }, { label: "Nov '24", val: 480 }, { label: "Dec '24", val: 710 },
-        { label: "Jan '25", val: 620 }, { label: "Feb '25", val: 840 }, { label: "Mar '25", val: 690 }, { label: "Apr '25", val: 590 }
-      ];
-    }
-    if (graphMetric === 'diamond_weight') {
-      return [
-        { label: "Oct '24", val: 45 }, { label: "Nov '24", val: 95 }, { label: "Dec '24", val: 140 },
-        { label: "Jan '25", val: 110 }, { label: "Feb '25", val: 165 }, { label: "Mar '25", val: 130 }, { label: "Apr '25", val: 115 }
-      ];
-    }
-    if (graphMetric === 'invoices') {
-      return [
-        { label: "Oct '24", val: 40 }, { label: "Nov '24", val: 95 }, { label: "Dec '24", val: 150 },
-        { label: "Jan '25", val: 125 }, { label: "Feb '25", val: 180 }, { label: "Mar '25", val: 140 }, { label: "Apr '25", val: 120 }
-      ];
-    }
-
-    return [
-      { label: "Oct '24", val: 1000000 }, { label: "Nov '24", val: 2000000 }, { label: "Dec '24", val: 2600000 },
-      { label: "Jan '25", val: 2300000 }, { label: "Feb '25", val: 2900000 }, { label: "Mar '25", val: 2200000 }, { label: "Apr '25", val: 2000000 }
-    ];
+    // Default when no sales data exists: dynamic recent months with val: 0
+    return getRecentMonths(7);
   }, [trend, graphMetric, activeSubTab]);
 
   const chartConfig = useMemo(() => {
     const values = chartDataset.map((d) => d.val);
-    const rawMax = Math.max(...values, 1);
-    const maxVal = Math.ceil(rawMax * 1.15);
+    const rawMax = Math.max(...values, 0);
+    const hasData = rawMax > 0;
+    const maxVal = hasData ? Math.ceil(rawMax * 1.15) : 100;
 
     const formatY = (val) => {
+      if (!hasData) return '0';
       if (graphMetric === 'quantity') return `${Math.round(val)} Pcs`;
       if (graphMetric === 'gold_weight') return `${Math.round(val)}g`;
       if (graphMetric === 'diamond_weight') return `${Math.round(val)}ct`;
@@ -1641,23 +1666,23 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
       if (val >= 10000000) return `₹${(val / 10000000).toFixed(1)}Cr`;
       if (val >= 100000) return `${(val / 100000).toFixed(val % 100000 === 0 ? 0 : 1)}L`;
       if (val >= 1000) return `${(val / 1000).toFixed(0)}k`;
-      return `${Math.round(val)}`;
+      return `₹${Math.round(val)}`;
     };
 
-    const yLabels = [
+    const yLabels = hasData ? [
       formatY(maxVal),
       formatY(maxVal * 0.75),
       formatY(maxVal * 0.5),
       formatY(maxVal * 0.25),
       '0',
-    ];
+    ] : ['—', '—', '—', '—', '0'];
 
     const count = chartDataset.length;
     const stepX = count > 1 ? 440 / (count - 1) : 220;
 
     const dots = chartDataset.map((item, idx) => {
       const cx = 40 + idx * stepX;
-      const cy = 160 - (item.val / Math.max(maxVal, 1)) * 140;
+      const cy = hasData ? 160 - (item.val / Math.max(maxVal, 1)) * 140 : 160;
       return {
         cx: Number(cx.toFixed(1)),
         cy: Number(cy.toFixed(1)),
@@ -1676,6 +1701,7 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
     const polygon = `${firstX},160 ${polyline} ${lastX},160`;
 
     return {
+      hasData,
       yLabels,
       dots,
       polyline,
@@ -1694,11 +1720,11 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
   const displayStart = totalEntries > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0;
   const displayEnd = Math.min(currentPage * itemsPerPage, totalEntries);
 
-  const totalInvoicesSum = filteredRows.reduce((acc, r) => acc + (Number(r.invoice_count) || 0), 0) || 602;
-  const totalQtySum = filteredRows.reduce((acc, r) => acc + (Number(r.quantity) || 0), 0) || 3186;
-  const totalGoldWgtSum = Number((filteredRows.reduce((acc, r) => acc + (Number(r.gold_weight) || 0), 0) || 3186).toFixed(3));
-  const totalDiamondWgtSum = Number((filteredRows.reduce((acc, r) => acc + (Number(r.diamond_weight) || 0), 0) || 3186).toFixed(3));
-  const totalSalesSum = filteredRows.reduce((acc, r) => acc + (Number(r.total_amount) || 0), 0) || 12485600;
+  const totalInvoicesSum = filteredRows.reduce((acc, r) => acc + (Number(r.invoice_count) || 0), 0);
+  const totalQtySum = filteredRows.reduce((acc, r) => acc + (Number(r.quantity) || 0), 0);
+  const totalGoldWgtSum = Number(filteredRows.reduce((acc, r) => acc + (Number(r.gold_weight) || 0), 0).toFixed(3));
+  const totalDiamondWgtSum = Number(filteredRows.reduce((acc, r) => acc + (Number(r.diamond_weight) || 0), 0).toFixed(3));
+  const totalSalesSum = filteredRows.reduce((acc, r) => acc + (Number(r.total_amount) || 0), 0);
 
   const handlePageClick = (newPage) => {
     if (newPage < 1 || newPage > totalPages) return;
@@ -1840,16 +1866,6 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
             <i className="fa-solid fa-file-excel text-emerald-600"></i>
             <span>Export Excel</span>
           </button>
-
-          {/* Export Invoice */}
-          <button
-            type="button"
-            onClick={handleExportInvoice}
-            className="px-3.5 py-2 bg-white border border-red-200 hover:bg-red-50 text-red-700 text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer"
-          >
-            <i className="fa-solid fa-file-invoice text-red-600"></i>
-            <span>Export Invoice</span>
-          </button>
         </div>
       </div>
 
@@ -1965,7 +1981,15 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
 
           {/* SVG Smooth Area Chart mirroring Image 2 */}
           <div className="w-full relative pt-2">
-            <svg className="w-full h-44 overflow-visible" viewBox="0 0 500 180" preserveAspectRatio="none">
+            {!chartConfig.hasData && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center z-10 pointer-events-none pb-4">
+                <div className="bg-white/95 px-3 py-1.5 rounded-lg border border-stone-200/80 shadow-2xs text-xs font-semibold text-stone-400 flex items-center gap-2">
+                  <i className="fa-solid fa-chart-line text-stone-300"></i>
+                  <span>No sales transactions recorded yet</span>
+                </div>
+              </div>
+            )}
+            <svg className={`w-full h-44 overflow-visible ${!chartConfig.hasData ? 'opacity-30' : ''}`} viewBox="0 0 500 180" preserveAspectRatio="none">
               <defs>
                 <linearGradient id="salesOverviewGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#b01622" stopOpacity="0.25" />
@@ -2069,7 +2093,7 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
           <table className="w-full text-xs text-left">
             <thead className="bg-stone-50 text-stone-500 uppercase text-[10px] font-bold tracking-wider border-b border-stone-200">
               <tr>
-                <th className="px-4 py-3 text-center w-12">#</th>
+                <th className="px-4 py-3 text-center w-14">S.No</th>
                 <th className="px-4 py-3">Customer Name</th>
                 <th className="px-4 py-3 text-center">No. of Invoices</th>
                 <th className="px-4 py-3 text-center">Total Quantity (Pcs)</th>
@@ -2221,7 +2245,7 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
               }
               @page {
                 size: A4 portrait;
-                margin: 8mm;
+                margin: 0 !important;
               }
             }
           `}</style>

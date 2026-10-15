@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\DiamondRange;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 class DiamondRangeController extends Controller
@@ -14,7 +15,9 @@ class DiamondRangeController extends Controller
      */
     public function index()
     {
-        $ranges = DiamondRange::orderBy('id', 'asc')->get();
+        $ranges = Cache::remember('masters_diamond_ranges_all', 300, function () {
+            return DiamondRange::orderBy('id', 'asc')->get();
+        });
         return response()->json($ranges);
     }
 
@@ -66,6 +69,7 @@ class DiamondRangeController extends Controller
         }
 
         $range = DiamondRange::create($validated);
+        Cache::forget('masters_diamond_ranges_all');
 
         return response()->json([
             'message' => 'Diamond master item created successfully.',
@@ -115,6 +119,7 @@ class DiamondRangeController extends Controller
         }
 
         $diamondRange->update($validated);
+        Cache::forget('masters_diamond_ranges_all');
 
         return response()->json([
             'message' => 'Diamond master item updated successfully.',
@@ -128,6 +133,7 @@ class DiamondRangeController extends Controller
     public function destroy(DiamondRange $diamondRange)
     {
         $diamondRange->delete();
+        Cache::forget('masters_diamond_ranges_all');
 
         return response()->json([
             'message' => 'Diamond master item deleted successfully.',

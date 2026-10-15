@@ -7,7 +7,25 @@ import ConfirmModal from '../../components/ConfirmModal';
 import Pagination from '../../components/Pagination';
 import KarigarWorkModal from './KarigarWorkModal';
 import BenchMetalModal from '../../components/BenchMetalModal';
+import MaterialAllocationModal from '../../components/MaterialAllocationModal';
 import { handleIntegerKeyDown, handleDecimalKeyDown, sanitizeInteger, sanitizeDecimal } from '../../utils/numberInputUtils';
+import {
+  validateMobile,
+  handleMobileKeyDown,
+  sanitizeMobile,
+  validateEmail,
+  validatePersonName,
+  handlePersonNameKeyDown,
+  validatePincode,
+  handlePincodeKeyDown,
+  sanitizePincode,
+  validatePAN,
+  sanitizePAN,
+  validateIFSC,
+  sanitizeIFSC,
+  validateAccountNumber,
+  sanitizeAccountNumber
+} from '../../utils/validationUtils';
 
 const INITIAL_FORM_STATE = {
   karigar_code: '',
@@ -72,6 +90,8 @@ export default function KarigarManagement() {
 
   // Profile View Drawer state
   const [isBenchModalOpen, setIsBenchModalOpen] = useState(false);
+  const [isMaterialModalOpen, setIsMaterialModalOpen] = useState(false);
+  const [materialModalKarigarId, setMaterialModalKarigarId] = useState(null);
   const [viewKarigar, setViewKarigar] = useState(null);
   const [viewDrawerTab, setViewDrawerTab] = useState('works'); // 'works' | 'profile'
   const [selectedKarigarWorks, setSelectedKarigarWorks] = useState([]);
@@ -86,6 +106,11 @@ export default function KarigarManagement() {
       setWorkModalOrderId(openOrderId);
     }
   }, []);
+
+  const handleOpenMaterialAllocation = (karigarId = null) => {
+    setMaterialModalKarigarId(karigarId ? String(karigarId) : null);
+    setIsMaterialModalOpen(true);
+  };
 
   const fetchKarigarWorks = async (karigarId) => {
     try {
@@ -317,9 +342,13 @@ export default function KarigarManagement() {
       }
     }
 
+    let cleanVal = value;
+    if (name === 'email') cleanVal = String(value || '').toLowerCase().replace(/\s+/g, '');
+    else if (name === 'zip_code') cleanVal = sanitizePincode(value);
+
     setFormData(prev => ({
       ...prev,
-      [name]: value
+      [name]: cleanVal
     }));
     if (formErrors[name]) {
       setFormErrors(prev => ({ ...prev, [name]: null }));
@@ -332,13 +361,22 @@ export default function KarigarManagement() {
 
     // Tab 1: Artisan & Workshop (Non-optional fields)
     if (!formData.karigar_code?.trim()) errors.karigar_code = 'Karigar code is required';
-    if (!formData.name?.trim()) errors.name = 'Artisan full name is required';
-    if (!formData.primary_phone?.trim()) errors.primary_phone = 'Primary mobile number is required';
-    if (!formData.email?.trim()) {
-      errors.email = 'Email address is required';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
-      errors.email = 'Enter a valid email address';
+    const nameErr = validatePersonName(formData.name, 'Artisan full name', true);
+    if (nameErr) errors.name = nameErr;
+
+    const phoneErr = validateMobile(formData.primary_phone, true);
+    if (phoneErr) errors.primary_phone = phoneErr;
+
+    if (formData.secondary_phone?.trim()) {
+      const secPhoneErr = validateMobile(formData.secondary_phone, false);
+      if (secPhoneErr) errors.secondary_phone = secPhoneErr;
     }
+
+    if (formData.email?.trim()) {
+      const emailErr = validateEmail(formData.email, false);
+      if (emailErr) errors.email = emailErr;
+    }
+
     if (formData.experience_years === '' || formData.experience_years === null || isNaN(Number(formData.experience_years))) {
       errors.experience_years = 'Years of experience is required';
     } else if (Number(formData.experience_years) < 0) {
@@ -348,7 +386,9 @@ export default function KarigarManagement() {
     if (!formData.workshop_address?.trim()) errors.workshop_address = 'Workshop street address is required';
     if (!formData.city?.trim()) errors.city = 'City is required';
     if (!formData.state?.trim()) errors.state = 'State is required';
-    if (!formData.zip_code?.trim()) errors.zip_code = 'Pincode is required';
+
+    const pinErr = validatePincode(formData.zip_code, true);
+    if (pinErr) errors.zip_code = pinErr;
 
     // Tab 2: Craft & Bench Metal (Non-optional fields)
     if (!formData.specialization?.trim()) errors.specialization = 'Please select a craft specialization';
@@ -368,12 +408,25 @@ export default function KarigarManagement() {
       errors.current_gold_balance_grams = 'Metal balance cannot be negative';
     }
 
-    // Tab 3: Financial & KYC (Non-optional fields)
-    if (!formData.pan_number?.trim()) errors.pan_number = 'PAN number is required';
-    if (!formData.aadhar_number?.trim()) errors.aadhar_number = 'Aadhar number is required';
-    if (!formData.bank_name?.trim()) errors.bank_name = 'Bank name is required';
-    if (!formData.account_number?.trim()) errors.account_number = 'Bank account number is required';
-    if (!formData.ifsc_code?.trim()) errors.ifsc_code = 'IFSC code is required';
+    // Tab 3: Financial & KYC (Validate accurate formats if provided)
+    if (formData.pan_number?.trim()) {
+      const panErr = validatePAN(formData.pan_number, false);
+      if (panErr) errors.pan_number = panErr;
+    }
+    if (formData.aadhar_number?.trim()) {
+      const aadharDigits = formData.aadhar_number.replace(/\D/g, '');
+      if (aadharDigits.length !== 12) {
+        errors.aadhar_number = 'Aadhar number must be exactly 12 digits';
+      }
+    }
+    if (formData.account_number?.trim()) {
+      const accErr = validateAccountNumber(formData.account_number, false);
+      if (accErr) errors.account_number = accErr;
+    }
+    if (formData.ifsc_code?.trim()) {
+      const ifscErr = validateIFSC(formData.ifsc_code, false);
+      if (ifscErr) errors.ifsc_code = ifscErr;
+    }
 
     setFormErrors(errors);
 
@@ -520,6 +573,16 @@ export default function KarigarManagement() {
           >
             <i className={`fa-solid fa-arrows-rotate text-stone-500 ${loading ? 'fa-spin text-[#b01622]' : ''}`}></i>
             <span className="hidden sm:inline">Refresh</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleOpenMaterialAllocation(null)}
+            className="px-4 py-2.5 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white rounded-xl text-xs font-bold shadow-md shadow-amber-900/20 transition-all flex items-center gap-2 cursor-pointer hover:shadow-lg active:scale-95"
+            title="Allocate gold, silver, or materials directly to artisan without a work order"
+          >
+            <i className="fa-solid fa-scale-balanced text-sm"></i>
+            <span>Allocate Material</span>
           </button>
 
           <button
@@ -1085,6 +1148,14 @@ export default function KarigarManagement() {
                         >
                           <i className="fa-regular fa-eye text-xs"></i>
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenMaterialAllocation(karigar.id)}
+                          className="w-8 h-8 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 flex items-center justify-center transition-colors cursor-pointer shadow-2xs border border-amber-200/60"
+                          title={`Allocate Material directly to ${karigar.name}`}
+                        >
+                          <i className="fa-solid fa-scale-balanced text-xs"></i>
+                        </button>
                         {karigar.current_assigned_order && (
                           <button
                             type="button"
@@ -1275,6 +1346,14 @@ export default function KarigarManagement() {
                   >
                     View Details
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenMaterialAllocation(karigar.id)}
+                    className="p-1.5 text-amber-800 hover:text-amber-900 hover:bg-amber-100 rounded-lg transition-colors cursor-pointer border border-amber-200/60"
+                    title={`Allocate Material directly to ${karigar.name}`}
+                  >
+                    <i className="fa-solid fa-scale-balanced text-xs"></i>
+                  </button>
                   {karigar.current_assigned_order && (
                     <button
                       type="button"
@@ -1452,6 +1531,7 @@ export default function KarigarManagement() {
                         type="text"
                         name="name"
                         value={formData.name}
+                        onKeyDown={handlePersonNameKeyDown}
                         onChange={handleInputChange}
                         placeholder="e.g. Rajesh Varma"
                         className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.name ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
@@ -1468,11 +1548,17 @@ export default function KarigarManagement() {
                       <div className="relative">
                         <i className="fa-solid fa-phone absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs"></i>
                         <input
-                          type="text"
+                          type="tel"
+                          maxLength={10}
+                          onKeyDown={handleMobileKeyDown}
                           name="primary_phone"
                           value={formData.primary_phone}
-                          onChange={handleInputChange}
-                          placeholder="+91 98401 23456"
+                          onChange={(e) => {
+                            const clean = sanitizeMobile(e.target.value);
+                            setFormData(prev => ({ ...prev, primary_phone: clean }));
+                            if (formErrors.primary_phone) setFormErrors(prev => ({ ...prev, primary_phone: null }));
+                          }}
+                          placeholder="9840123456"
                           className={`w-full pl-8 pr-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.primary_phone ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
                             }`}
                         />
@@ -1488,14 +1574,21 @@ export default function KarigarManagement() {
                       <div className="relative">
                         <i className="fa-solid fa-mobile-screen absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs"></i>
                         <input
-                          type="text"
+                          type="tel"
+                          maxLength={10}
+                          onKeyDown={handleMobileKeyDown}
                           name="secondary_phone"
                           value={formData.secondary_phone}
-                          onChange={handleInputChange}
-                          placeholder="+91 98401 23457"
+                          onChange={(e) => {
+                            const clean = sanitizeMobile(e.target.value);
+                            setFormData(prev => ({ ...prev, secondary_phone: clean }));
+                            if (formErrors.secondary_phone) setFormErrors(prev => ({ ...prev, secondary_phone: null }));
+                          }}
+                          placeholder="9840123457"
                           className="w-full pl-8 pr-3 py-2 bg-stone-50 border border-stone-300 rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:border-[#b01622] focus:bg-white"
                         />
                       </div>
+                      {formErrors.secondary_phone && <p className="text-[11px] text-red-500 mt-1">{formErrors.secondary_phone}</p>}
                     </div>
 
                     {/* Email */}
@@ -1511,7 +1604,7 @@ export default function KarigarManagement() {
                           value={formData.email}
                           onChange={handleInputChange}
                           placeholder="artisan@rudrajewellery.com"
-                          className={`w-full pl-8 pr-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.email ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
+                          className={`w-full pl-8 pr-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium lowercase text-stone-900 focus:outline-none focus:bg-white ${formErrors.email ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
                             }`}
                         />
                       </div>
@@ -1613,9 +1706,16 @@ export default function KarigarManagement() {
                           <div>
                             <input
                               type="text"
+                              inputMode="numeric"
+                              maxLength={6}
                               name="zip_code"
                               value={formData.zip_code}
-                              onChange={handleInputChange}
+                              onKeyDown={handlePincodeKeyDown}
+                              onChange={(e) => {
+                                const clean = sanitizePincode(e.target.value);
+                                setFormData((prev) => ({ ...prev, zip_code: clean }));
+                                if (formErrors.zip_code) setFormErrors((prev) => ({ ...prev, zip_code: null }));
+                              }}
                               placeholder="600079"
                               className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.zip_code ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
                                 }`}
@@ -1857,13 +1957,18 @@ export default function KarigarManagement() {
                     {/* PAN Card */}
                     <div>
                       <label className="block text-xs font-bold text-stone-700 mb-1">
-                        PAN Number <span className="text-red-500">*</span>
+                        PAN Number
                       </label>
                       <input
                         type="text"
+                        maxLength={10}
                         name="pan_number"
                         value={formData.pan_number}
-                        onChange={handleInputChange}
+                        onChange={(e) => {
+                          const clean = sanitizePAN(e.target.value);
+                          setFormData(prev => ({ ...prev, pan_number: clean }));
+                          if (formErrors.pan_number) setFormErrors(prev => ({ ...prev, pan_number: null }));
+                        }}
                         placeholder="ABCDE1234F"
                         className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs uppercase font-mono font-bold text-stone-900 focus:outline-none focus:bg-white ${formErrors.pan_number ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
                           }`}
@@ -1874,14 +1979,20 @@ export default function KarigarManagement() {
                     {/* Aadhar Number */}
                     <div>
                       <label className="block text-xs font-bold text-stone-700 mb-1">
-                        Aadhar Card Number <span className="text-red-500">*</span>
+                        Aadhar Card Number
                       </label>
                       <input
                         type="text"
+                        maxLength={12}
+                        onKeyDown={handleMobileKeyDown}
                         name="aadhar_number"
                         value={formData.aadhar_number}
-                        onChange={handleInputChange}
-                        placeholder="1234 5678 9012"
+                        onChange={(e) => {
+                          const clean = e.target.value.replace(/\D/g, '').slice(0, 12);
+                          setFormData(prev => ({ ...prev, aadhar_number: clean }));
+                          if (formErrors.aadhar_number) setFormErrors(prev => ({ ...prev, aadhar_number: null }));
+                        }}
+                        placeholder="123456789012"
                         className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-mono font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.aadhar_number ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
                           }`}
                       />
@@ -1891,7 +2002,7 @@ export default function KarigarManagement() {
                     {/* Bank Name */}
                     <div>
                       <label className="block text-xs font-bold text-stone-700 mb-1">
-                        Bank Name <span className="text-red-500">*</span>
+                        Bank Name
                       </label>
                       <input
                         type="text"
@@ -1908,13 +2019,19 @@ export default function KarigarManagement() {
                     {/* Account Number */}
                     <div>
                       <label className="block text-xs font-bold text-stone-700 mb-1">
-                        Bank Account Number <span className="text-red-500">*</span>
+                        Bank Account Number
                       </label>
                       <input
                         type="text"
+                        maxLength={18}
+                        onKeyDown={handleMobileKeyDown}
                         name="account_number"
                         value={formData.account_number}
-                        onChange={handleInputChange}
+                        onChange={(e) => {
+                          const clean = sanitizeAccountNumber(e.target.value);
+                          setFormData(prev => ({ ...prev, account_number: clean }));
+                          if (formErrors.account_number) setFormErrors(prev => ({ ...prev, account_number: null }));
+                        }}
                         placeholder="50100234123456"
                         className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs font-mono font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.account_number ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
                           }`}
@@ -1925,13 +2042,18 @@ export default function KarigarManagement() {
                     {/* IFSC Code */}
                     <div>
                       <label className="block text-xs font-bold text-stone-700 mb-1">
-                        IFSC Code <span className="text-red-500">*</span>
+                        IFSC Code
                       </label>
                       <input
                         type="text"
+                        maxLength={11}
                         name="ifsc_code"
                         value={formData.ifsc_code}
-                        onChange={handleInputChange}
+                        onChange={(e) => {
+                          const clean = sanitizeIFSC(e.target.value);
+                          setFormData(prev => ({ ...prev, ifsc_code: clean }));
+                          if (formErrors.ifsc_code) setFormErrors(prev => ({ ...prev, ifsc_code: null }));
+                        }}
                         placeholder="SBIN0001234"
                         className={`w-full px-3 py-2 bg-stone-50 border rounded-xl text-xs uppercase font-mono font-medium text-stone-900 focus:outline-none focus:bg-white ${formErrors.ifsc_code ? 'border-red-500 bg-red-50/30' : 'border-stone-300 focus:border-[#b01622]'
                           }`}
@@ -2022,6 +2144,18 @@ export default function KarigarManagement() {
             {/* Header with Artisan Avatar and Status */}
             <div className="p-6 bg-gradient-to-r from-[#801824] via-[#9c131d] to-[#b01622] text-white relative">
               <div className="absolute right-4 top-4 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetId = viewKarigar.id;
+                    handleOpenMaterialAllocation(targetId);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-amber-500/30 hover:bg-amber-500/45 text-amber-200 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm border border-amber-400/40"
+                  title="Allocate material directly to this artisan"
+                >
+                  <i className="fa-solid fa-scale-balanced text-xs"></i>
+                  <span>Allocate Material</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -2466,6 +2600,18 @@ export default function KarigarManagement() {
         onClose={() => setIsBenchModalOpen(false)}
         totalBenchMetal={Number(stats.total_gold_balance || 0)}
         karigarsList={karigars}
+      />
+
+      {/* Material Allocation Modal */}
+      <MaterialAllocationModal
+        isOpen={isMaterialModalOpen}
+        onClose={() => {
+          setIsMaterialModalOpen(false);
+          setMaterialModalKarigarId(null);
+          fetchKarigars();
+        }}
+        initialKarigarId={materialModalKarigarId}
+        initialTab="karigar_management"
       />
     </div>
   );

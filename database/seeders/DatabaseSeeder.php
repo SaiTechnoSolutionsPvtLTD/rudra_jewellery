@@ -16,7 +16,7 @@ class DatabaseSeeder extends Seeder
     {
         $this->call([
             AdminUserSeeder::class,
-            SampleDataSeeder::class,
+            // SampleDataSeeder::class, // Disabled: user requested empty tables so data can be added manually one by one
         ]);
     }
 }

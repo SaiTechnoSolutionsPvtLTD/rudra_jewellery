@@ -140,8 +140,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('products', ProductController::class);
     Route::apiResource('memberships', MembershipController::class);
     Route::apiResource('suppliers', SupplierController::class);
-    Route::get('/raw-materials', [PurchaseEntryController::class, 'rawMaterials']);
     Route::get('/raw-materials/unified-stock', [\App\Http\Controllers\Api\MaterialOpeningStockController::class, 'unifiedStock']);
+    Route::post('/raw-materials/unified-stock/update', [\App\Http\Controllers\Api\MaterialOpeningStockController::class, 'updateUnifiedStock']);
+    Route::apiResource('raw-materials', \App\Http\Controllers\Api\RawMaterialController::class);
     Route::get('/purchase-entries/generate-no', [PurchaseEntryController::class, 'generateNo']);
     Route::apiResource('purchase-entries', PurchaseEntryController::class);
     Route::get('/material-opening-stocks/generate-no', [\App\Http\Controllers\Api\MaterialOpeningStockController::class, 'generateNo']);
@@ -186,6 +187,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // Inventory Module
     Route::get('/inventory/categories', [InventoryController::class, 'getCategories']);
     Route::get('/inventory/sample-csv', [InventoryController::class, 'downloadSampleCsv']);
+    Route::get('/inventory/sample-excel', [InventoryController::class, 'downloadSampleExcel']);
+    Route::post('/inventory/bulk-upload/preview', [InventoryController::class, 'bulkUploadPreview']);
     Route::post('/inventory/bulk-upload', [InventoryController::class, 'bulkUpload']);
     Route::get('/inventory/products/{id}', [InventoryController::class, 'show']);
     Route::put('/inventory/products/{id}', [InventoryController::class, 'update']);
@@ -195,8 +198,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/inventory', [InventoryController::class, 'store']);
 });
 
-// Public download route for inventory sample CSV
+// Public download routes for inventory sample templates
 Route::get('/inventory/sample-csv', [InventoryController::class, 'downloadSampleCsv']);
+Route::get('/inventory/sample-excel', [InventoryController::class, 'downloadSampleExcel']);
 
 // Public / direct export routes for convenient downloading
 Route::get('/product-designs/export-pdf', [\App\Http\Controllers\Api\ProductDesignController::class, 'exportPdf']);

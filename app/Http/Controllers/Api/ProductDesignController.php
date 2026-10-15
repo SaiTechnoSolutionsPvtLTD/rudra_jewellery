@@ -142,7 +142,13 @@ class ProductDesignController extends Controller
         $goldTypesList = GoldType::orderBy('sort_order')->orderBy('name')->get();
         $goldNames = $goldTypesList->pluck('name')->toArray();
 
-        $goldTypes = array_values(array_unique(array_merge($goldNames, $existingGold)));
+        $existingGold = ProductDesign::whereNotNull('gold_type')
+            ->distinct()
+            ->pluck('gold_type')
+            ->filter()
+            ->toArray();
+
+        $goldTypes = array_values(array_unique(array_filter(array_merge($goldNames, $existingGold))));
 
         $diamondRanges = DiamondRange::orderBy('min_ct')->get();
 
@@ -223,8 +229,8 @@ class ProductDesignController extends Controller
         $request->validate([
             'design_no' => 'required|string|unique:product_designs,design_no',
             'net_wt' => 'required|numeric',
-            'gold_type' => 'required|string',
-            'setting_style' => 'required|string',
+            'gold_type' => 'nullable|string',
+            'setting_style' => 'nullable|string',
             'dia_wt_ct' => 'nullable|string',
             'dia_wt_range' => 'nullable|string',
             'image' => 'nullable',
@@ -232,6 +238,7 @@ class ProductDesignController extends Controller
         ], [
             'design_no.unique' => 'The Design Number ":input" is already taken. Design Numbers must be unique across all products.',
             'design_no.required' => 'Design Number is required.',
+            'net_wt.required' => 'Net Weight is required.',
         ]);
 
         $imagePaths = [];

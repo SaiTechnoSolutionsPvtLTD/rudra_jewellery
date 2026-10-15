@@ -3,8 +3,9 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
-import { STAMP_OPTIONS, STONE_SIZE_OPTIONS, STONE_COLOR_OPTIONS } from '../../constants/productOptions';
+import { STAMP_OPTIONS, GOLD_STAMP_OPTIONS, DIAMOND_STAMP_OPTIONS, STONE_SIZE_OPTIONS, STONE_COLOR_OPTIONS } from '../../constants/productOptions';
 import { cleanProductName } from '../../utils/formatters';
+import Pagination from '../../components/Pagination';
 
 export default function InventoryViewProduct() {
   const { id } = useParams();
@@ -13,6 +14,7 @@ export default function InventoryViewProduct() {
 
   const [settingStyles, setSettingStyles] = useState([]);
   const [showStylesModal, setShowStylesModal] = useState(false);
+  const [stampsList, setStampsList] = useState([]);
 
   const [product, setProduct] = useState(null);
   const [attributes, setAttributes] = useState({});
@@ -24,6 +26,8 @@ export default function InventoryViewProduct() {
   const [huid, setHuid] = useState('');
   const [movements, setMovements] = useState([]);
   const [pieceTags, setPieceTags] = useState([]);
+  const [tagsPage, setTagsPage] = useState(1);
+  const [tagsPerPage, setTagsPerPage] = useState(5);
 
   // Pagination for stock movements
   const [currentPage, setCurrentPage] = useState(1);
@@ -34,15 +38,20 @@ export default function InventoryViewProduct() {
   const [editForm, setEditForm] = useState({
     name: '',
     product_code: '',
+    design_no: '',
     purity: '22K Hallmark Gold',
     gross_wt: '',
     net_wt: '',
     stock_qty: '1',
     setting_style: '',
+    quality: '',
+    vendor: '',
     wastage_percent: '3.50',
     making_charge: '650',
     dia_wt_ct: '',
-    stamp: '+0',
+    dia_count: '',
+    stamp: '916',
+    diamond_stamp: '+0',
     huid: '',
     size: '',
     stone_size: '',
@@ -93,8 +102,18 @@ export default function InventoryViewProduct() {
     }
   };
 
+  const fetchStamps = async () => {
+    try {
+      const res = await api.get('/stamps');
+      setStampsList(Array.isArray(res.data) ? res.data : (res.data?.data || []));
+    } catch (err) {
+      console.error('Failed to fetch stamps master:', err);
+    }
+  };
+
   useEffect(() => {
     fetchSettingStyles();
+    fetchStamps();
     fetchProductDetails();
   }, [id]);
 
@@ -112,13 +131,23 @@ export default function InventoryViewProduct() {
       setHuid(effectiveHuid);
       setMovements(res.data.movements || []);
       setPieceTags((tagsRes.data?.data || []).filter((piece) => Boolean(piece.tag_number)));
-
+      setTagsPage(1);
 
       const rawImgs = res.data.images || [];
       const cleanImgs = rawImgs.filter(
         (img) => img && typeof img === 'string' && img !== '/placeholder-jewelry.png' && !img.includes('/storage/data:image') && img.trim() !== '1' && img.length > 5
       );
       setImages(cleanImgs.length > 0 ? cleanImgs : [p.image || p.image_url || '/placeholder-jewelry.png']);
+
+      // Preload diamond details from attributes or components
+      const diaComp = Array.isArray(attrs.components) ? attrs.components.find((c) => {
+        const n = (c.category_name || c.item_name || c.component_type || '').toLowerCase();
+        return c.is_diamond || n.includes('diamond') || n.includes('dia');
+      }) : null;
+      const initialDiaStamp = attrs.diamond_stamp || diaComp?.stamp || '';
+      const initialGoldStamp = attrs.stamp || attrs.gold_stamp || attrs.hallmark || (attrs.purity?.includes('22') ? '916' : '750');
+      const initialDiaWt = attrs.dia_wt_ct || attrs.diamond_wt || (diaComp ? (diaComp.stone_weight || diaComp.gross_wt) : '');
+      const initialDiaCount = attrs.diamond_count || attrs.dia_count || (diaComp ? diaComp.no_of_pieces : '');
 
       // Preload edit form
       setEditForm({
@@ -134,8 +163,10 @@ export default function InventoryViewProduct() {
         vendor: attrs.vendor || attrs.vendor_name || '',
         wastage_percent: attrs.wastage_percent || attrs.wastage || '0.00',
         making_charge: attrs.making_charge || '0',
-        dia_wt_ct: attrs.dia_wt_ct || attrs.diamond_wt || '',
-        stamp: attrs.stamp || attrs.hallmark || '',
+        dia_wt_ct: initialDiaWt || '',
+        dia_count: initialDiaCount || '',
+        stamp: initialGoldStamp,
+        diamond_stamp: initialDiaStamp,
         huid: effectiveHuid,
         size: attrs.size || attrs.ring_size || attrs.bangle_size || '',
         stone_size: attrs.stone_size || '',
@@ -169,7 +200,12 @@ export default function InventoryViewProduct() {
         wastage_percent: editForm.wastage_percent,
         making_charge: editForm.making_charge,
         dia_wt_ct: editForm.dia_wt_ct,
+        diamond_weight: editForm.dia_wt_ct,
+        dia_count: editForm.dia_count,
+        diamond_count: editForm.dia_count,
         stamp: editForm.stamp,
+        gold_stamp: editForm.stamp,
+        diamond_stamp: editForm.diamond_stamp,
         huid: editForm.huid,
         size: editForm.size,
         stone_size: editForm.stone_size,
@@ -294,6 +330,12 @@ export default function InventoryViewProduct() {
   const totalMovements = movements.length;
   const totalPages = Math.ceil(totalMovements / movementsPerPage) || 1;
   const currentMovements = movements.slice((currentPage - 1) * movementsPerPage, currentPage * movementsPerPage);
+
+  // Physical piece tags pagination calculations
+  const tagsTotal = pieceTags.length;
+  const tagsTotalPages = Math.max(1, Math.ceil(tagsTotal / tagsPerPage));
+  const currentTagsPage = Math.min(tagsPage, tagsTotalPages);
+  const paginatedPieceTags = pieceTags.slice((currentTagsPage - 1) * tagsPerPage, currentTagsPage * tagsPerPage);
 
   const getActionBadgeStyle = (actionType = '') => {
     const typeLower = actionType.toLowerCase();
@@ -625,6 +667,113 @@ export default function InventoryViewProduct() {
       </div>
 
 
+      {/* Product Components & Breakdown Section */}
+      {Array.isArray(attributes?.components) && attributes.components.length > 0 && (
+        <section className="bg-white rounded-2xl border border-stone-200/90 shadow-2xs overflow-hidden">
+          <div className="p-5 border-b border-stone-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-stone-50/50">
+            <div>
+              <div className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-[#b01622]"></div>
+                <h2 className="text-sm sm:text-base font-bold text-stone-900">
+                  Product Components &amp; Breakdown
+                </h2>
+              </div>
+              <p className="text-xs text-stone-400 mt-0.5">
+                Detailed specifications for individual diamonds, gemstones, and paired component entries.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-2.5 py-1 rounded-lg bg-stone-100 text-stone-700 text-xs font-semibold border border-stone-200">
+                <i className="fa-solid fa-layer-group mr-1.5 text-stone-500"></i>
+                {attributes.components.length} Component{attributes.components.length > 1 ? 's' : ''}
+              </span>
+              {(() => {
+                const diaPcs = attributes.components.filter(c => c.is_diamond || (c.component_type && c.component_type.toLowerCase().includes('diamond')) || (c.category_name && c.category_name.toLowerCase().includes('diamond'))).reduce((sum, c) => sum + (parseInt(c.no_of_pieces) || 0), 0);
+                const diaWt = attributes.components.filter(c => c.is_diamond || (c.component_type && c.component_type.toLowerCase().includes('diamond')) || (c.category_name && c.category_name.toLowerCase().includes('diamond'))).reduce((sum, c) => sum + (parseFloat(c.stone_weight || c.weight) || 0), 0);
+                return diaPcs > 0 ? (
+                  <span className="px-2.5 py-1 rounded-lg bg-red-50 text-[#b01622] text-xs font-semibold border border-red-200">
+                    <i className="fa-regular fa-gem mr-1.5"></i>
+                    {diaPcs} Diamonds ({diaWt.toFixed(3)} ct)
+                  </span>
+                ) : null;
+              })()}
+              {(() => {
+                const stonePcs = attributes.components.filter(c => c.is_stone || (c.component_type && (c.component_type.toLowerCase().includes('stone') || c.component_type.toLowerCase().includes('colour'))) && !(c.component_type && c.component_type.toLowerCase().includes('diamond'))).reduce((sum, c) => sum + (parseInt(c.no_of_pieces) || 0), 0);
+                const stoneWt = attributes.components.filter(c => c.is_stone || (c.component_type && (c.component_type.toLowerCase().includes('stone') || c.component_type.toLowerCase().includes('colour'))) && !(c.component_type && c.component_type.toLowerCase().includes('diamond'))).reduce((sum, c) => sum + (parseFloat(c.stone_weight || c.weight) || 0), 0);
+                return stonePcs > 0 ? (
+                  <span className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 text-xs font-semibold border border-amber-200">
+                    <i className="fa-solid fa-shapes mr-1.5"></i>
+                    {stonePcs} Colour Stones ({stoneWt.toFixed(3)}g)
+                  </span>
+                ) : null;
+              })()}
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-stone-50 border-b border-stone-200 text-stone-500 font-bold uppercase text-[10px] tracking-wider">
+                  <th className="py-3 px-4 w-14 text-center">S.No</th>
+                  <th className="py-3 px-4">Component / Stone</th>
+                  <th className="py-3 px-4">Type</th>
+                  <th className="py-3 px-4">Stamp / Sieve Size</th>
+                  <th className="py-3 px-4 text-center">Pieces</th>
+                  <th className="py-3 px-4 text-right">Weight</th>
+                  <th className="py-3 px-4 text-center">Unit</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {attributes.components.map((comp, idx) => {
+                  const isDia = comp.is_diamond || (comp.component_type && comp.component_type.toLowerCase().includes('diamond')) || (comp.category_name && comp.category_name.toLowerCase().includes('diamond'));
+                  const isStone = comp.is_stone || (comp.component_type && comp.component_type.toLowerCase().includes('stone')) || (comp.component_type && comp.component_type.toLowerCase().includes('colour'));
+                  return (
+                    <tr key={comp.id_temp || idx} className="hover:bg-stone-50/70 transition-colors">
+                      <td className="py-3 px-4 text-center text-stone-400 font-mono text-[11px]">
+                        {idx + 1}
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="font-bold text-stone-900">
+                          {comp.item_name || comp.stone_type || comp.category_name || `Component ${idx + 1}`}
+                        </div>
+                        {comp.item_code && (
+                          <div className="text-[10px] font-mono text-stone-400">
+                            {comp.item_code}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                          isDia
+                            ? 'bg-red-50 text-[#b01622] border-red-200'
+                            : isStone
+                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                            : 'bg-stone-100 text-stone-700 border-stone-200'
+                        }`}>
+                          {comp.component_type || (isDia ? 'Diamond' : (isStone ? 'Colour Stone' : 'Metal'))}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 font-mono font-bold text-stone-800">
+                        {comp.stamp || comp.size || '—'}
+                      </td>
+                      <td className="py-3 px-4 text-center font-mono font-bold text-stone-900">
+                        {comp.no_of_pieces || 1}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-stone-900">
+                        {Number(comp.stone_weight || comp.gross_wt || comp.weight || 0).toFixed(3)}
+                      </td>
+                      <td className="py-3 px-4 text-center font-mono text-stone-600">
+                        {comp.unit || (isDia ? 'ct' : 'g')}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       <section className="bg-white rounded-2xl border border-stone-200/90 shadow-2xs overflow-hidden">
         <div className="p-5 border-b border-stone-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
@@ -653,7 +802,7 @@ export default function InventoryViewProduct() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {pieceTags.map((piece) => (
+                {paginatedPieceTags.map((piece) => (
                   <tr key={piece.id} className="hover:bg-stone-50/70">
                     <td className="py-3 px-5 font-mono font-bold text-stone-900">{piece.tag_number}</td>
                     <td className="py-3 px-4 font-mono text-[#b01622]">{piece.work_order?.work_order_number || `WO-${piece.work_order_id}`}</td>
@@ -677,6 +826,20 @@ export default function InventoryViewProduct() {
           </div>
         ) : (
           <p className="px-5 py-8 text-center text-xs text-stone-500">No received physical-piece tags are linked to this product yet. The master label uses the product SKU above.</p>
+        )}
+
+        {pieceTags.length > 0 && (
+          <Pagination
+            currentPage={currentTagsPage}
+            totalPages={tagsTotalPages}
+            totalItems={tagsTotal}
+            itemsPerPage={tagsPerPage}
+            onPageChange={(p) => setTagsPage(p)}
+            onItemsPerPageChange={(val) => {
+              setTagsPerPage(val);
+              setTagsPage(1);
+            }}
+          />
         )}
       </section>
 
@@ -870,16 +1033,62 @@ export default function InventoryViewProduct() {
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-bold text-stone-600 uppercase mb-1">Stamp / Hallmark</label>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase mb-1">Gold Hallmark / Stamp</label>
                   <select
                     value={editForm.stamp}
                     onChange={(e) => setEditForm({ ...editForm, stamp: e.target.value })}
                     className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs font-mono focus:outline-hidden focus:border-[#b01622]"
                   >
-                    {STAMP_OPTIONS.map((st) => (
+                    <option value="">-- Select Gold Stamp --</option>
+                    {(stampsList.filter((s) => !s.applicable_for || s.applicable_for.toLowerCase().includes('gold') || s.applicable_for.toLowerCase().includes('all')).length > 0
+                      ? stampsList.filter((s) => !s.applicable_for || s.applicable_for.toLowerCase().includes('gold') || s.applicable_for.toLowerCase().includes('all')).map((s) => s.name)
+                      : GOLD_STAMP_OPTIONS
+                    ).map((st) => (
                       <option key={st} value={st}>{st}</option>
                     ))}
                   </select>
+                </div>
+              </div>
+
+              {/* Diamond Specifications Row (strictly diamond sieve stamps like +7, +8, +0, not gold 916/22K) */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-stone-50/70 border border-stone-200/80 rounded-xl">
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase mb-1">Diamond Wt (Ct)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={editForm.dia_wt_ct}
+                    onChange={(e) => setEditForm({ ...editForm, dia_wt_ct: e.target.value })}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-xs font-mono focus:outline-hidden focus:border-[#b01622]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase mb-1">Diamond Stamp / Sieve (e.g. +7, +8)</label>
+                  <select
+                    value={editForm.diamond_stamp}
+                    onChange={(e) => setEditForm({ ...editForm, diamond_stamp: e.target.value })}
+                    className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-xs font-mono focus:outline-hidden focus:border-[#b01622]"
+                  >
+                    <option value="">-- Select Diamond Stamp --</option>
+                    {(stampsList.filter((s) => !s.applicable_for || s.applicable_for.toLowerCase().includes('diamond') || s.applicable_for.toLowerCase().includes('all')).length > 0
+                      ? stampsList.filter((s) => !s.applicable_for || s.applicable_for.toLowerCase().includes('diamond') || s.applicable_for.toLowerCase().includes('all')).map((s) => s.name)
+                      : DIAMOND_STAMP_OPTIONS
+                    ).map((st) => (
+                      <option key={st} value={st}>{st}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase mb-1">Diamond Count (Pcs)</label>
+                  <input
+                    type="number"
+                    step="1"
+                    value={editForm.dia_count}
+                    onChange={(e) => setEditForm({ ...editForm, dia_count: e.target.value })}
+                    placeholder="0"
+                    className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-xs font-mono focus:outline-hidden focus:border-[#b01622]"
+                  />
                 </div>
               </div>
 

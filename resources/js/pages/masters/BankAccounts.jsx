@@ -3,6 +3,13 @@ import { Link } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { handleIntegerKeyDown, sanitizeInteger } from '../../utils/numberInputUtils';
+import {
+  validateAccountNumber,
+  validateIFSC,
+  sanitizeAccountNumber,
+  sanitizeIFSC,
+  handleMobileKeyDown
+} from '../../utils/validationUtils';
 
 const DEFAULT_BANK_ACCOUNTS = [
   {
@@ -103,7 +110,10 @@ export default function BankAccounts() {
     fetchAccounts();
   }, []);
 
+  const [formErrors, setFormErrors] = useState({});
+
   const handleOpenAddModal = () => {
+    setFormErrors({});
     setFormData({
       bank_name: '',
       account_name: 'Rudra Jewellers Pvt Ltd',
@@ -119,6 +129,7 @@ export default function BankAccounts() {
   };
 
   const handleOpenEditModal = (acc) => {
+    setFormErrors({});
     setSelectedAccount(acc);
     setFormData({
       bank_name: acc.bank_name || '',
@@ -139,10 +150,26 @@ export default function BankAccounts() {
     setIsDeleteModalOpen(true);
   };
 
+  const validateAccountForm = () => {
+    const errors = {};
+    if (!formData.bank_name?.trim()) errors.bank_name = 'Bank name is required';
+    if (!formData.account_name?.trim()) errors.account_name = 'Account holder name is required';
+
+    const accErr = validateAccountNumber(formData.account_number, true);
+    if (accErr) errors.account_number = accErr;
+
+    const ifscErr = validateIFSC(formData.ifsc_code, true);
+    if (ifscErr) errors.ifsc_code = ifscErr;
+
+    setFormErrors(errors);
+    return errors;
+  };
+
   const handleSaveAdd = async (e) => {
     e.preventDefault();
-    if (!formData.bank_name || !formData.account_number || !formData.ifsc_code) {
-      showToast?.('Please fill required fields (Bank Name, Account Number, IFSC)', 'error');
+    const errors = validateAccountForm();
+    if (Object.keys(errors).length > 0) {
+      showToast?.(Object.values(errors)[0], 'error');
       return;
     }
 
@@ -172,6 +199,12 @@ export default function BankAccounts() {
   const handleSaveEdit = async (e) => {
     e.preventDefault();
     if (!selectedAccount) return;
+
+    const errors = validateAccountForm();
+    if (Object.keys(errors).length > 0) {
+      showToast?.(Object.values(errors)[0], 'error');
+      return;
+    }
 
     try {
       await api.put(`/bank-accounts/${selectedAccount.id}`, formData);
@@ -473,13 +506,19 @@ export default function BankAccounts() {
                   <input
                     type="text"
                     inputMode="numeric"
+                    maxLength={18}
                     required
                     placeholder="e.g. 50200018899221"
                     value={formData.account_number}
-                    onKeyDown={handleIntegerKeyDown}
-                    onChange={(e) => setFormData({ ...formData, account_number: sanitizeInteger(e.target.value) })}
-                    className="w-full px-3 py-2 border border-stone-300 rounded-xl font-mono focus:outline-hidden focus:border-[#b01622]"
+                    onKeyDown={handleMobileKeyDown}
+                    onChange={(e) => {
+                      const clean = sanitizeAccountNumber(e.target.value);
+                      setFormData({ ...formData, account_number: clean });
+                      if (formErrors.account_number) setFormErrors(prev => ({ ...prev, account_number: null }));
+                    }}
+                    className={`w-full px-3 py-2 border ${formErrors.account_number ? 'border-red-500' : 'border-stone-300'} rounded-xl font-mono focus:outline-hidden focus:border-[#b01622]`}
                   />
+                  {formErrors.account_number && <p className="text-red-500 text-[11px] mt-1">{formErrors.account_number}</p>}
                 </div>
                 <div>
                   <label className="block text-stone-600 font-bold mb-1">
@@ -487,12 +526,18 @@ export default function BankAccounts() {
                   </label>
                   <input
                     type="text"
+                    maxLength={11}
                     required
                     placeholder="e.g. HDFC0000124"
                     value={formData.ifsc_code}
-                    onChange={(e) => setFormData({ ...formData, ifsc_code: e.target.value.toUpperCase() })}
-                    className="w-full px-3 py-2 border border-stone-300 rounded-xl font-mono focus:outline-hidden focus:border-[#b01622]"
+                    onChange={(e) => {
+                      const clean = sanitizeIFSC(e.target.value);
+                      setFormData({ ...formData, ifsc_code: clean });
+                      if (formErrors.ifsc_code) setFormErrors(prev => ({ ...prev, ifsc_code: null }));
+                    }}
+                    className={`w-full px-3 py-2 border ${formErrors.ifsc_code ? 'border-red-500' : 'border-stone-300'} rounded-xl font-mono focus:outline-hidden focus:border-[#b01622]`}
                   />
+                  {formErrors.ifsc_code && <p className="text-red-500 text-[11px] mt-1">{formErrors.ifsc_code}</p>}
                 </div>
               </div>
 
@@ -620,11 +665,19 @@ export default function BankAccounts() {
                   </label>
                   <input
                     type="text"
+                    inputMode="numeric"
+                    maxLength={18}
                     required
                     value={formData.account_number}
-                    onChange={(e) => setFormData({ ...formData, account_number: e.target.value })}
-                    className="w-full px-3 py-2 border border-stone-300 rounded-xl font-mono focus:outline-hidden focus:border-[#b01622]"
+                    onKeyDown={handleMobileKeyDown}
+                    onChange={(e) => {
+                      const clean = sanitizeAccountNumber(e.target.value);
+                      setFormData({ ...formData, account_number: clean });
+                      if (formErrors.account_number) setFormErrors(prev => ({ ...prev, account_number: null }));
+                    }}
+                    className={`w-full px-3 py-2 border ${formErrors.account_number ? 'border-red-500' : 'border-stone-300'} rounded-xl font-mono focus:outline-hidden focus:border-[#b01622]`}
                   />
+                  {formErrors.account_number && <p className="text-red-500 text-[11px] mt-1">{formErrors.account_number}</p>}
                 </div>
                 <div>
                   <label className="block text-stone-600 font-bold mb-1">
@@ -632,11 +685,17 @@ export default function BankAccounts() {
                   </label>
                   <input
                     type="text"
+                    maxLength={11}
                     required
                     value={formData.ifsc_code}
-                    onChange={(e) => setFormData({ ...formData, ifsc_code: e.target.value.toUpperCase() })}
-                    className="w-full px-3 py-2 border border-stone-300 rounded-xl font-mono focus:outline-hidden focus:border-[#b01622]"
+                    onChange={(e) => {
+                      const clean = sanitizeIFSC(e.target.value);
+                      setFormData({ ...formData, ifsc_code: clean });
+                      if (formErrors.ifsc_code) setFormErrors(prev => ({ ...prev, ifsc_code: null }));
+                    }}
+                    className={`w-full px-3 py-2 border ${formErrors.ifsc_code ? 'border-red-500' : 'border-stone-300'} rounded-xl font-mono focus:outline-hidden focus:border-[#b01622]`}
                   />
+                  {formErrors.ifsc_code && <p className="text-red-500 text-[11px] mt-1">{formErrors.ifsc_code}</p>}
                 </div>
               </div>
 

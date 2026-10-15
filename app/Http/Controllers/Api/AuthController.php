@@ -30,7 +30,8 @@ class AuthController extends Controller
             ], 422);
         }
 
-        $loginInput = $request->input('login') ?? $request->input('email');
+        $loginInput = trim((string)($request->input('login') ?? $request->input('email') ?? ''));
+        $loginEmailLower = strtolower($loginInput);
 
         if (empty($loginInput)) {
             return response()->json([
@@ -39,8 +40,9 @@ class AuthController extends Controller
             ], 422);
         }
 
-        // Search user by email or mobile_number
-        $user = User::where('email', $loginInput)
+        // Search user by email (case-insensitive) or mobile_number
+        $user = User::whereRaw('LOWER(email) = ?', [$loginEmailLower])
+            ->orWhere('email', $loginEmailLower)
             ->orWhere('mobile_number', $loginInput)
             ->first();
 

@@ -62,6 +62,35 @@ class KarigarMaterialController extends Controller
             // Negative means Company owes gold to Karigar!
             $settlementBalance = round($benchBalance - $karigarGold, 3);
 
+            // Diamond metrics across Karigar's active work orders
+            $diaAllocated = 0.0;
+            $diaReceived = 0.0;
+            $diaCountAllocated = 0;
+            $diaCountReceived = 0;
+
+            foreach ($allOrders as $ord) {
+                // Sum diamond from items
+                foreach ($ord->items as $itm) {
+                    $p = $itm->pricing_details ?? [];
+                    $st = $itm->stone_details ?? [];
+                    $qty = max(1, (int)($itm->required_qty ?? 1));
+                    $dW = (float)($p['diamond_weight'] ?? $st['diamond_weight'] ?? 0);
+                    $dC = (int)($p['no_of_diamonds'] ?? $p['diamond_count'] ?? $st['diamond_count'] ?? 0);
+                    $diaAllocated += ($dW * $qty);
+                    $diaCountAllocated += ($dC * $qty);
+                }
+                if ($diaAllocated == 0 && str_contains(strtolower($ord->material_type ?? ''), 'diamond')) {
+                    $diaAllocated += (float)$ord->allotted_weight;
+                }
+
+                // Sum diamond from received pieces
+                $diaReceived += (float) $ord->receivedPieces->whereNotNull('received_at')->sum('diamond_weight');
+                $diaCountReceived += (int) $ord->receivedPieces->whereNotNull('received_at')->sum('diamond_count');
+            }
+
+            $diaOnBench = max(0.0, round($diaAllocated - $diaReceived, 3));
+            $diaCountOnBench = max(0, round($diaCountAllocated - $diaCountReceived, 0));
+
             return [
                 'id' => $k->id,
                 'name' => $k->name,
@@ -77,6 +106,12 @@ class KarigarMaterialController extends Controller
                 'karigar_gold_contributed' => round($karigarGold, 3),
                 'material_on_bench' => $benchBalance,
                 'settlement_balance' => $settlementBalance,
+                'diamond_allocated' => round($diaAllocated, 3),
+                'diamond_received' => round($diaReceived, 3),
+                'diamond_on_bench' => $diaOnBench,
+                'diamond_count_allocated' => $diaCountAllocated,
+                'diamond_count_received' => $diaCountReceived,
+                'diamond_count_on_bench' => $diaCountOnBench,
                 'active_jobs_count' => $activeOrders->count(),
             ];
         });
@@ -93,7 +128,10 @@ class KarigarMaterialController extends Controller
     public function ledger($id)
     {
         $karigar = Karigar::findOrFail($id);
-        $allOrders = WorkOrder::where('karigar_id', $id)->orderBy('id', 'desc')->get();
+        $allOrders = WorkOrder::where('karigar_id', $id)
+            ->with(['items', 'receivedPieces'])
+            ->orderBy('id', 'desc')
+            ->get();
         $activeOrders = $allOrders->filter(fn($wo) => !in_array($wo->status, ['completed', 'cancelled', 'final_received', 'delivered']))->values();
 
         $companyAllocated = (float) $allOrders->sum('allotted_weight');
@@ -108,6 +146,33 @@ class KarigarMaterialController extends Controller
 
         // Signed settlement balance: Company gold on bench - Karigar-owned gold
         $settlementBalance = round($benchBalance - $karigarGold, 3);
+
+        // Diamond metrics
+        $diaAllocated = 0.0;
+        $diaReceived = 0.0;
+        $diaCountAllocated = 0;
+        $diaCountReceived = 0;
+
+        foreach ($allOrders as $ord) {
+            foreach ($ord->items as $itm) {
+                $p = $itm->pricing_details ?? [];
+                $st = $itm->stone_details ?? [];
+                $qty = max(1, (int)($itm->required_qty ?? 1));
+                $dW = (float)($p['diamond_weight'] ?? $st['diamond_weight'] ?? 0);
+                $dC = (int)($p['no_of_diamonds'] ?? $p['diamond_count'] ?? $st['diamond_count'] ?? 0);
+                $diaAllocated += ($dW * $qty);
+                $diaCountAllocated += ($dC * $qty);
+            }
+            if ($diaAllocated == 0 && str_contains(strtolower($ord->material_type ?? ''), 'diamond')) {
+                $diaAllocated += (float)$ord->allotted_weight;
+            }
+
+            $diaReceived += (float) $ord->receivedPieces->whereNotNull('received_at')->sum('diamond_weight');
+            $diaCountReceived += (int) $ord->receivedPieces->whereNotNull('received_at')->sum('diamond_count');
+        }
+
+        $diaOnBench = max(0.0, round($diaAllocated - $diaReceived, 3));
+        $diaCountOnBench = max(0, round($diaCountAllocated - $diaCountReceived, 0));
 
         // Fetch transaction history
         $transactions = KarigarMaterialTransaction::where('karigar_id', $id)
@@ -130,6 +195,12 @@ class KarigarMaterialController extends Controller
                     'karigar_gold_contributed' => round($karigarGold, 3),
                     'material_on_bench' => $benchBalance,
                     'settlement_balance' => $settlementBalance,
+                    'diamond_allocated' => round($diaAllocated, 3),
+                    'diamond_received' => round($diaReceived, 3),
+                    'diamond_on_bench' => $diaOnBench,
+                    'diamond_count_allocated' => $diaCountAllocated,
+                    'diamond_count_received' => $diaCountReceived,
+                    'diamond_count_on_bench' => $diaCountOnBench,
                 ],
                 'active_work_orders' => $activeOrders,
                 'all_work_orders' => $allOrders,
@@ -158,6 +229,9 @@ class KarigarMaterialController extends Controller
 
         $validated = $request->validate([
             'action_type' => 'required|string|in:additional_allocation,karigar_contribution,unused_returned,approve_wastage,adjustment,settlement',
+            'material_type' => 'nullable|string|in:gold,diamond,colour_stone',
+            'purity' => 'nullable|string|max:50',
+            'stamp' => 'nullable|string|max:100',
             'weight' => 'required|numeric|min:0.001',
             'work_order_id' => 'nullable|exists:work_orders,id',
             'reason' => 'required|string|min:3|max:500',
@@ -167,8 +241,24 @@ class KarigarMaterialController extends Controller
         return DB::transaction(function () use ($validated, $id) {
             $karigar = Karigar::lockForUpdate()->findOrFail($id);
             $action = $validated['action_type'];
+            $matType = strtolower($validated['material_type'] ?? 'gold');
             $weight = round((float) $validated['weight'], 3);
             $reason = trim($validated['reason']);
+
+            $extraNotes = [];
+            if (!empty($validated['purity'])) {
+                $extraNotes[] = "Purity: {$validated['purity']}";
+            }
+            if (!empty($validated['stamp'])) {
+                $extraNotes[] = "Stamp: {$validated['stamp']}";
+            }
+            if (!empty($validated['material_type']) && $validated['material_type'] !== 'gold') {
+                $extraNotes[] = "Material: " . ucwords(str_replace('_', ' ', $validated['material_type']));
+            }
+            if (!empty($extraNotes)) {
+                $reason = $reason . " (" . implode(', ', $extraNotes) . ")";
+            }
+
             $date = $validated['transaction_date'] ?? now();
             $userId = Auth::id() ?? 1;
             $userName = Auth::user()?->name ?? 'Store Manager';
@@ -176,6 +266,9 @@ class KarigarMaterialController extends Controller
             $workOrder = null;
             if (!empty($validated['work_order_id'])) {
                 $workOrder = WorkOrder::lockForUpdate()->where('karigar_id', $karigar->id)->find($validated['work_order_id']);
+                if ($workOrder && str_contains(strtolower($workOrder->material_type ?? ''), 'diamond')) {
+                    $matType = 'diamond';
+                }
             }
 
             $companyGoldWeight = 0.0;
@@ -184,18 +277,24 @@ class KarigarMaterialController extends Controller
 
             switch ($action) {
                 case 'additional_allocation':
-                    // Company issues additional gold
-                    $companyGoldWeight = $weight;
-                    $signedChange = +$weight;
+                    // Company issues additional material
+                    if ($matType === 'diamond') {
+                        RawMaterial::debitAllocation('diamond', $weight);
+                    } elseif ($matType === 'colour_stone') {
+                        RawMaterial::debitAllocation('stone', $weight);
+                    } else {
+                        $companyGoldWeight = $weight;
+                        $signedChange = +$weight;
 
-                    if ($workOrder) {
-                        $workOrder->additional_allocated_weight = round((float) $workOrder->additional_allocated_weight + $weight, 3);
-                        $workOrder->pending_weight = max(0.0, round((float) $workOrder->allotted_weight + (float) $workOrder->additional_allocated_weight - (float) $workOrder->completed_weight - (float) $workOrder->wastage_weight - (float) $workOrder->returned_weight, 3));
-                        $workOrder->save();
+                        if ($workOrder) {
+                            $workOrder->additional_allocated_weight = round((float) $workOrder->additional_allocated_weight + $weight, 3);
+                            $workOrder->pending_weight = max(0.0, round((float) $workOrder->allotted_weight + (float) $workOrder->additional_allocated_weight - (float) $workOrder->completed_weight - (float) $workOrder->wastage_weight - (float) $workOrder->returned_weight, 3));
+                            $workOrder->save();
+                        }
+
+                        // Reduce company raw material stock
+                        RawMaterial::debitAllocation('gold', $weight);
                     }
-
-                    // Reduce company raw material stock
-                    RawMaterial::debitAllocation('gold', $weight);
                     break;
 
                 case 'karigar_contribution':
@@ -210,18 +309,24 @@ class KarigarMaterialController extends Controller
                     break;
 
                 case 'unused_returned':
-                    // Karigar returns unused company gold
-                    $companyGoldWeight = $weight;
-                    $signedChange = -$weight;
+                    // Karigar returns unused company material
+                    if ($matType === 'diamond') {
+                        RawMaterial::creditAllocation('diamond', $weight);
+                    } elseif ($matType === 'colour_stone') {
+                        RawMaterial::creditAllocation('stone', $weight);
+                    } else {
+                        $companyGoldWeight = $weight;
+                        $signedChange = -$weight;
 
-                    if ($workOrder) {
-                        $workOrder->returned_weight = round((float) $workOrder->returned_weight + $weight, 3);
-                        $workOrder->pending_weight = max(0.0, round((float) $workOrder->allotted_weight + (float) $workOrder->additional_allocated_weight - (float) $workOrder->completed_weight - (float) $workOrder->wastage_weight - (float) $workOrder->returned_weight, 3));
-                        $workOrder->save();
+                        if ($workOrder) {
+                            $workOrder->returned_weight = round((float) $workOrder->returned_weight + $weight, 3);
+                            $workOrder->pending_weight = max(0.0, round((float) $workOrder->allotted_weight + (float) $workOrder->additional_allocated_weight - (float) $workOrder->completed_weight - (float) $workOrder->wastage_weight - (float) $workOrder->returned_weight, 3));
+                            $workOrder->save();
+                        }
+
+                        // Restore company raw material stock
+                        RawMaterial::creditAllocation('gold', $weight);
                     }
-
-                    // Restore company raw material stock
-                    RawMaterial::creditAllocation('gold', $weight);
                     break;
 
                 case 'approve_wastage':
@@ -285,6 +390,8 @@ class KarigarMaterialController extends Controller
                 'created_by' => $userId,
                 'action_by_name' => $userName,
             ]);
+
+            RawMaterial::recalculateAllocations();
 
             return response()->json([
                 'status' => 'success',

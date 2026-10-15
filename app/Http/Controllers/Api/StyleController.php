@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Style;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class StyleController extends Controller
 {
@@ -13,7 +14,9 @@ class StyleController extends Controller
      */
     public function index()
     {
-        $styles = Style::orderBy('name')->get();
+        $styles = Cache::remember('masters_styles_all', 300, function () {
+            return Style::orderBy('name')->get();
+        });
         return response()->json($styles);
     }
 
@@ -35,6 +38,7 @@ class StyleController extends Controller
         }
 
         $style = Style::create($validated);
+        Cache::forget('masters_styles_all');
 
         return response()->json([
             'message' => 'Style created successfully.',
@@ -55,6 +59,7 @@ class StyleController extends Controller
         ]);
 
         $style->update($validated);
+        Cache::forget('masters_styles_all');
 
         return response()->json([
             'message' => 'Style updated successfully.',
@@ -68,6 +73,7 @@ class StyleController extends Controller
     public function destroy(Style $style)
     {
         $style->delete();
+        Cache::forget('masters_styles_all');
 
         return response()->json([
             'message' => 'Style deleted successfully.',

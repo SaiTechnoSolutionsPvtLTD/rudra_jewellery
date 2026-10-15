@@ -1243,7 +1243,7 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
             @media print {
               @page {
                 size: A4 portrait;
-                margin: 3mm;
+                margin: 0 !important;
               }
               html, body {
                 height: 100% !important;

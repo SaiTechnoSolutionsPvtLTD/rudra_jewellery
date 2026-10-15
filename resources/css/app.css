@@ -16,34 +16,15 @@ body, input, select, textarea, button, table, td, th, span, div, p, h1, h2, h3, 
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
-/* ==========================================================================
-   FontAwesome Icon Font Guarantee (Local Assets + Override Protection)
-   ========================================================================== */
-@font-face {
-  font-family: 'Font Awesome 6 Free';
-  font-style: normal;
-  font-weight: 900;
-  font-display: block;
-  src: url('/webfonts/fa-solid-900.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'Font Awesome 6 Free';
-  font-style: normal;
-  font-weight: 400;
-  font-display: block;
-  src: url('/webfonts/fa-regular-400.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'Font Awesome 6 Brands';
-  font-style: normal;
-  font-weight: 400;
-  font-display: block;
-  src: url('/webfonts/fa-brands-400.woff2') format('woff2');
-}
+/* FontAwesome icons are loaded globally and reliably via public/css/all.min.css and app.blade.php */
 
-/* Guarantee that icon elements always retain their font family */
-.fa, .fas, .far, .fab, .fa-solid, .fa-regular, .fa-brands, [class*=" fa-"], [class^="fa-"] {
+/* Guarantee that icon elements always retain their font family without delay */
+.fa, .fas, .far, .fa-solid, .fa-regular {
   font-family: 'Font Awesome 6 Free', 'Font Awesome 7 Free', 'FontAwesome' !important;
+  font-style: normal !important;
+}
+.fab, .fa-brands {
+  font-family: 'Font Awesome 6 Brands', 'FontAwesome' !important;
   font-style: normal !important;
 }
 .fa-regular, .far {
@@ -315,8 +296,8 @@ input[type=number].no-spinners,
   }
 
   @page {
-    size: A4 portrait;
-    margin: 8mm;
+    size: auto;
+    margin: 0 !important;
   }
 }
 

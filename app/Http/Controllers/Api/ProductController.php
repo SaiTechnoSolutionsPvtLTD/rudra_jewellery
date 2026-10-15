@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\Category;
 use App\Models\Subcategory;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 
@@ -89,10 +90,16 @@ class ProductController extends Controller
             $prodQuery->where('subcategory_id', $request->input('subcategory_id'));
         }
 
-        $matchingProducts = (clone $prodQuery)->where(function ($q) use ($designNo) {
-            $q->where('product_code', $designNo)
-              ->orWhere('design_no', $designNo)
-              ->orWhere('attributes->design_no', $designNo);
+        $isSqlite = DB::connection()->getDriverName() === 'sqlite';
+        $jsonExtractSql = $isSqlite
+            ? 'LOWER(json_extract(attributes, "$.design_no")) = ?'
+            : 'LOWER(JSON_UNQUOTE(JSON_EXTRACT(attributes, "$.design_no"))) = ?';
+
+        $matchingProducts = (clone $prodQuery)->where(function ($q) use ($designNo, $jsonExtractSql) {
+            $q->whereRaw('LOWER(product_code) = ?', [strtolower($designNo)])
+              ->orWhereRaw('LOWER(design_no) = ?', [strtolower($designNo)])
+              ->orWhere('attributes->design_no', $designNo)
+              ->orWhereRaw($jsonExtractSql, [strtolower($designNo)]);
         })->get();
 
         // Disambiguate if design number matches across multiple categories without category filter
@@ -116,9 +123,10 @@ class ProductController extends Controller
         $product = $matchingProducts->first();
         if (!$product && !$request->filled('category_id')) {
             $product = Product::with(['category', 'subcategory'])
-                ->where('product_code', $designNo)
-                ->orWhere('design_no', $designNo)
+                ->whereRaw('LOWER(product_code) = ?', [strtolower($designNo)])
+                ->orWhereRaw('LOWER(design_no) = ?', [strtolower($designNo)])
                 ->orWhere('attributes->design_no', $designNo)
+                ->orWhereRaw($jsonExtractSql, [strtolower($designNo)])
                 ->first();
         }
 
@@ -158,6 +166,11 @@ class ProductController extends Controller
             $goldStamp = $attrs['stamp'] ?? $product->stamp ?? '916';
             $size = $attrs['size'] ?? null;
 
+            $prodImage = $product->image_url ?: $product->thumbnail_url ?: $product->image;
+            if ($prodImage && (str_contains($prodImage, 'placeholder-jewelry.png') || str_contains($prodImage, '/samples/'))) {
+                $prodImage = null;
+            }
+
             return response()->json([
                 'found' => true,
                 'source' => 'product',
@@ -169,7 +182,7 @@ class ProductController extends Controller
                 'category_name' => $product->category?->name,
                 'subcategory_id' => $product->subcategory_id,
                 'subcategory_name' => $product->subcategory?->name,
-                'image_url' => $product->image_url,
+                'image_url' => $prodImage,
                 'size' => $size,
                 'gold_purity' => $purity,
                 'gold_karat' => $karat,
@@ -189,9 +202,15 @@ class ProductController extends Controller
         }
 
         // Fallback: Search in product_designs table
-        $design = \App\Models\ProductDesign::where('design_no', $designNo)->first();
+        $design = \App\Models\ProductDesign::whereRaw('LOWER(design_no) = ?', [strtolower($designNo)])->first();
         if ($design) {
             $img = !empty($design->image_path) ? (is_array($design->image_path) ? ($design->image_path[0] ?? null) : $design->image_path) : null;
+            if ($img && !str_starts_with($img, 'http') && !str_starts_with($img, 'data:') && !str_starts_with($img, '/')) {
+                $img = '/storage/' . $img;
+            }
+            if ($img && (str_contains($img, 'placeholder-jewelry.png') || str_contains($img, '/samples/'))) {
+                $img = null;
+            }
             return response()->json([
                 'found' => true,
                 'source' => 'product_design',

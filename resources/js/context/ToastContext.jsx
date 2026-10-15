@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState } from 'react';
+import { sanitizeErrorMessage } from '../services/api';
 
 const ToastContext = createContext();
 
@@ -9,18 +10,61 @@ export const ToastProvider = ({ children }) => {
   const [modalConfig, setModalConfig] = useState(null);
   const [modalInputValue, setModalInputValue] = useState('');
 
+  const isStockUnavailable = (msg) => {
+    if (!msg) return false;
+    const str = typeof msg === 'string' ? msg : JSON.stringify(msg);
+    const lower = str.toLowerCase();
+    return (
+      lower.includes('stock not available') ||
+      lower.includes('insufficient diamond stock') ||
+      lower.includes('insufficient colour-stone stock') ||
+      lower.includes('insufficient stone stock') ||
+      lower.includes('insufficient gold stock') ||
+      lower.includes('insufficient raw material stock') ||
+      lower.includes('insufficient stock') ||
+      lower.includes('out of stock') ||
+      lower.includes('not enough stock') ||
+      (lower.includes('stock') && (
+        lower.includes('cannot become negative') ||
+        lower.includes('available balance is') ||
+        lower.includes('available balance') ||
+        lower.includes('balance is 0') ||
+        lower.includes('vault') ||
+        lower.includes('negative')
+      ))
+    );
+  };
+
   const showToast = (message, type = 'error', title = '') => {
     const id = Date.now();
+    const cleanMessage = type === 'error' ? sanitizeErrorMessage(message) : message;
+    const isStockError = isStockUnavailable(cleanMessage);
+
+    let effectiveTitle = title;
+    if (isStockError && (!effectiveTitle || effectiveTitle.toLowerCase().includes('validation'))) {
+      effectiveTitle = 'Stock Not Available';
+    } else if (!effectiveTitle) {
+      if (type === 'error') {
+        if (cleanMessage?.includes('(404)')) effectiveTitle = 'Not Found (404)';
+        else if (cleanMessage?.includes('(403)')) effectiveTitle = 'Access Denied (403)';
+        else if (cleanMessage?.includes('(401)')) effectiveTitle = 'Unauthorized (401)';
+        else if (cleanMessage?.includes('(500)')) effectiveTitle = 'Server Error (500)';
+        else effectiveTitle = 'Notice';
+      } else {
+        effectiveTitle = type === 'success' ? 'Success' : 'Notification';
+      }
+    }
+
     setToast({
       id,
-      message,
+      message: cleanMessage,
       type,
-      title: title || (type === 'error' ? 'Validation Error' : type === 'success' ? 'Success' : 'Notification')
+      title: effectiveTitle,
     });
 
     setTimeout(() => {
       setToast(prev => (prev?.id === id ? null : prev));
-    }, 3000);
+    }, 4500);
   };
 
   const hideToast = () => {
@@ -28,7 +72,10 @@ export const ToastProvider = ({ children }) => {
   };
 
   const success = (message, title = 'Success') => showToast(message, 'success', title);
-  const error = (message, title = 'Validation Error') => showToast(message, 'error', title);
+  const error = (message, title = '') => {
+    const defaultTitle = isStockUnavailable(message) ? 'Stock Not Available' : (title || 'Validation Error');
+    return showToast(message, 'error', defaultTitle);
+  };
   const info = (message, title = 'Notification') => showToast(message, 'info', title);
 
   // Project-themed Modal Dialog Helpers

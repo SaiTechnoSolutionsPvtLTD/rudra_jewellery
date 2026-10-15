@@ -3,6 +3,7 @@ import { useSearchParams, Link } from 'react-router-dom';
 import api from '../../services/api';
 import JewelleryTagCard, { buildPrintableTagsHtml, BarcodeSvgLines } from '../../components/JewelleryTagCard';
 import { cleanProductName } from '../../utils/formatters';
+import Pagination from '../../components/Pagination';
 
 export default function TagPrinting() {
   const [searchParams] = useSearchParams();
@@ -14,8 +15,9 @@ export default function TagPrinting() {
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState([]);
   const [activePreviewPiece, setActivePreviewPiece] = useState(null);
+  const [previewCopies, setPreviewCopies] = useState(1);
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   const fetchTags = async (q = '') => {
     setCurrentPage(1);
@@ -351,57 +353,117 @@ export default function TagPrinting() {
             </table>
           </div>
         )}
-        {!loading && pieces.length > itemsPerPage && (
-          <div className="flex items-center justify-between border-t border-stone-200 px-4 py-3 text-xs text-stone-600">
-            <span>Showing {(safePage - 1) * itemsPerPage + 1}–{Math.min(safePage * itemsPerPage, pieces.length)} of {pieces.length} tags</span>
-            <div className="flex items-center gap-2">
-              <button type="button" disabled={safePage <= 1} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} className="px-3 py-1.5 border border-stone-200 rounded-lg disabled:opacity-40">Previous</button>
-              <span>Page {safePage} of {totalPages}</span>
-              <button type="button" disabled={safePage >= totalPages} onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} className="px-3 py-1.5 border border-stone-200 rounded-lg disabled:opacity-40">Next</button>
-            </div>
-          </div>
+        {!loading && pieces.length > 0 && (
+          <Pagination
+            currentPage={safePage}
+            totalPages={totalPages}
+            totalItems={pieces.length}
+            itemsPerPage={itemsPerPage}
+            onPageChange={(page) => setCurrentPage(page)}
+            onItemsPerPageChange={(num) => {
+              setItemsPerPage(num);
+              setCurrentPage(1);
+            }}
+          />
         )}
       </div>
 
       {/* Preview Modal */}
       {activePreviewPiece && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-stone-200 animate-scale-up">
-            <div className="flex items-center justify-between pb-4 border-b border-stone-100">
-              <div>
-                <h3 className="text-base font-bold text-stone-900">Jewellery Tag Preview</h3>
-                <p className="text-xs text-stone-500">Official Thermal Barcode Label Format</p>
+        <div className="fixed inset-0 bg-stone-900/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-xl w-full shadow-2xl border border-stone-200 overflow-hidden my-auto flex flex-col">
+            {/* Header */}
+            <div className="px-5 py-3.5 bg-stone-50 border-b border-stone-200 flex items-center justify-between no-print">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-red-50 text-[#b01622] flex items-center justify-center text-sm border border-red-100">
+                  <i className="fa-solid fa-tags"></i>
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900 text-xs sm:text-sm">
+                    Jewellery Tag Printing — {activePreviewPiece.tag_number || '—'}
+                  </h3>
+                  <p className="text-[10px] text-stone-500 font-mono">
+                    {activePreviewPiece.product_name || activePreviewPiece.design_no || 'Jewellery Piece'}
+                  </p>
+                </div>
               </div>
-              <button
-                onClick={() => setActivePreviewPiece(null)}
-                className="text-stone-400 hover:text-stone-700 w-8 h-8 rounded-full flex items-center justify-center bg-stone-100"
-              >
-                <i className="fa-solid fa-xmark"></i>
-              </button>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 bg-stone-100 px-2.5 py-1 rounded-xl border border-stone-200 text-xs">
+                  <span className="text-[10.5px] text-stone-500 font-semibold">Copies:</span>
+                  <select
+                    value={previewCopies}
+                    onChange={(e) => setPreviewCopies(Number(e.target.value))}
+                    className="bg-white border border-stone-300 rounded-lg px-2 py-0.5 text-xs font-bold text-stone-800 focus:outline-none"
+                  >
+                    {[1, 2, 3, 4, 5, 10].map((n) => (
+                      <option key={n} value={n}>
+                        {n} {n === 1 ? 'tag' : 'tags'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const items = Array.from({ length: Math.max(1, previewCopies) }, () => activePreviewPiece);
+                    printTagsHtml(items);
+                  }}
+                  className="px-3.5 py-1.5 bg-[#b01622] hover:bg-[#8f1019] text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <i className="fa-solid fa-print text-xs"></i>
+                  <span>Print {previewCopies > 1 ? `${previewCopies} Tags` : 'Tag'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActivePreviewPiece(null);
+                    setPreviewCopies(1);
+                  }}
+                  className="w-7 h-7 rounded-full bg-stone-200 hover:bg-stone-300 text-stone-600 flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  <i className="fa-solid fa-xmark text-xs"></i>
+                </button>
+              </div>
             </div>
 
-            {/* Tag Visual Preview */}
-            <div className="py-6 flex justify-center bg-stone-100 rounded-xl my-4 p-4 overflow-x-auto">
+            {/* Tag Preview Area */}
+            <div className="p-6 bg-stone-100/70 flex flex-col items-center justify-center gap-3 overflow-x-auto">
               <JewelleryTagCard piece={activePreviewPiece} id="active-tag-preview" />
+              <span className="text-[11px] text-stone-400 text-center">
+                Dotted line indicates physical fold crease before barcode label. Tag dimensions: 105mm × 33mm.
+              </span>
             </div>
 
-            {/* Modal Actions */}
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setActivePreviewPiece(null)}
-                className="px-4 py-2 border border-stone-300 text-stone-700 text-xs font-bold rounded-lg hover:bg-stone-50"
-              >
-                Close
-              </button>
-              <button
-                type="button"
-                onClick={() => printSingleTag(activePreviewPiece)}
-                className="px-5 py-2 bg-[#b01622] text-white text-xs font-bold rounded-lg hover:bg-[#8f1019] flex items-center gap-2"
-              >
-                <i className="fa-solid fa-print"></i>
-                <span>Print Tag Now</span>
-              </button>
+            {/* Data Mapping Summary Table */}
+            <div className="p-4 bg-white border-t border-stone-200 text-xs space-y-2">
+              <span className="text-[11px] font-bold text-stone-700 uppercase tracking-wider block">
+                Tag Specifications Summary
+              </span>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-[11px]">
+                <div className="bg-stone-50 p-2 rounded-xl border border-stone-100">
+                  <span className="text-stone-400 block text-[9.5px] font-semibold uppercase">Tag Number</span>
+                  <span className="font-mono font-bold text-stone-900">{activePreviewPiece.tag_number || '—'}</span>
+                </div>
+                <div className="bg-stone-50 p-2 rounded-xl border border-stone-100">
+                  <span className="text-stone-400 block text-[9.5px] font-semibold uppercase">Design No</span>
+                  <span className="font-mono font-bold text-stone-900">{activePreviewPiece.design_no || '—'}</span>
+                </div>
+                <div className="bg-stone-50 p-2 rounded-xl border border-stone-100">
+                  <span className="text-stone-400 block text-[9.5px] font-semibold uppercase">Gross Weight</span>
+                  <span className="font-mono font-bold text-[#b01622]">
+                    {activePreviewPiece.gross_weight != null ? `${Number(activePreviewPiece.gross_weight).toFixed(3)}g` : '—'}
+                  </span>
+                </div>
+                <div className="bg-stone-50 p-2 rounded-xl border border-stone-100">
+                  <span className="text-stone-400 block text-[9.5px] font-semibold uppercase">Purity / Karat</span>
+                  <span className="font-bold text-stone-900">{activePreviewPiece.gold_karat || '22K'}</span>
+                </div>
+              </div>
+              <div className="text-[10px] text-stone-400 flex items-center justify-between pt-1 border-t border-stone-100">
+                <span>Receive Order: <strong>{activePreviewPiece.receive_order_number || '—'}</strong></span>
+                <span>Work Order: <strong>{activePreviewPiece.work_order?.work_order_number || `WO-${activePreviewPiece.work_order_id}`}</strong></span>
+                <span>Net Gold: <strong>{activePreviewPiece.net_gold_weight != null ? `${Number(activePreviewPiece.net_gold_weight).toFixed(3)}g` : (activePreviewPiece.net_weight != null ? `${Number(activePreviewPiece.net_weight).toFixed(3)}g` : '—')}</strong></span>
+              </div>
             </div>
           </div>
         </div>

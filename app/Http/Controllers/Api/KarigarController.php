@@ -190,11 +190,29 @@ class KarigarController extends Controller
      */
     public function store(Request $request)
     {
+        $sanitizePhone = function ($val) {
+            if (!$val) return $val;
+            $digits = preg_replace('/\D/', '', (string)$val);
+            if (strlen($digits) === 12 && str_starts_with($digits, '91')) {
+                $digits = substr($digits, 2);
+            } elseif (strlen($digits) === 11 && str_starts_with($digits, '0')) {
+                $digits = substr($digits, 1);
+            }
+            return strlen($digits) === 10 ? $digits : $val;
+        };
+
+        if ($request->has('primary_phone')) {
+            $request->merge(['primary_phone' => $sanitizePhone($request->primary_phone)]);
+        }
+        if ($request->has('secondary_phone')) {
+            $request->merge(['secondary_phone' => $sanitizePhone($request->secondary_phone)]);
+        }
+
         $validator = Validator::make($request->all(), [
             'karigar_code' => 'required|string|unique:karigars,karigar_code',
-            'name' => 'required|string|max:255',
-            'primary_phone' => 'required|string|max:20',
-            'secondary_phone' => 'nullable|string|max:20',
+            'name' => ['required', 'string', 'max:255', 'regex:/^[\p{L}\s.\'-]+$/u'],
+            'primary_phone' => ['required', 'string', 'regex:/^[6-9]\d{9}$/'],
+            'secondary_phone' => ['nullable', 'string', 'regex:/^[6-9]\d{9}$/'],
             'email' => 'nullable|email|max:255',
             'specialization' => 'required|string|max:100',
             'experience_years' => 'nullable|integer|min:0',
@@ -202,12 +220,12 @@ class KarigarController extends Controller
             'workshop_address' => 'nullable|string',
             'city' => 'nullable|string|max:100',
             'state' => 'nullable|string|max:100',
-            'zip_code' => 'nullable|string|max:20',
-            'pan_number' => 'nullable|string|max:20',
-            'aadhar_number' => 'nullable|string|max:20',
+            'zip_code' => ['nullable', 'string', 'regex:/^[1-9][0-9]{5}$/'],
+            'pan_number' => ['nullable', 'string', 'regex:/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/i'],
+            'aadhar_number' => ['nullable', 'string', 'regex:/^\d{12}$/'],
             'bank_name' => 'nullable|string|max:100',
-            'account_number' => 'nullable|string|max:50',
-            'ifsc_code' => 'nullable|string|max:20',
+            'account_number' => ['nullable', 'string', 'regex:/^\d{9,18}$/'],
+            'ifsc_code' => ['nullable', 'string', 'regex:/^[A-Z]{4}0[A-Z0-9]{6}$/i'],
             'upi_id' => 'nullable|string|max:100',
             'standard_wastage_percent' => 'nullable|numeric|min:0|max:100',
             'making_charge_per_gram' => 'nullable|numeric|min:0',
@@ -235,6 +253,9 @@ class KarigarController extends Controller
         }
         if (empty($data['state'])) {
             $data['state'] = 'Tamil Nadu';
+        }
+        if (!empty($data['email'])) {
+            $data['email'] = strtolower(trim($data['email']));
         }
 
         $karigar = Karigar::create($data);
@@ -280,11 +301,18 @@ class KarigarController extends Controller
             ], 404);
         }
 
+        if ($request->has('primary_phone')) {
+            $request->merge(['primary_phone' => $sanitizePhone($request->primary_phone)]);
+        }
+        if ($request->has('secondary_phone')) {
+            $request->merge(['secondary_phone' => $sanitizePhone($request->secondary_phone)]);
+        }
+
         $validator = Validator::make($request->all(), [
             'karigar_code' => 'required|string|unique:karigars,karigar_code,' . $id,
-            'name' => 'required|string|max:255',
-            'primary_phone' => 'required|string|max:20',
-            'secondary_phone' => 'nullable|string|max:20',
+            'name' => ['required', 'string', 'max:255', 'regex:/^[\p{L}\s.\'-]+$/u'],
+            'primary_phone' => ['required', 'string', 'regex:/^[6-9]\d{9}$/'],
+            'secondary_phone' => ['nullable', 'string', 'regex:/^[6-9]\d{9}$/'],
             'email' => 'nullable|email|max:255',
             'specialization' => 'required|string|max:100',
             'experience_years' => 'nullable|integer|min:0',
@@ -292,12 +320,12 @@ class KarigarController extends Controller
             'workshop_address' => 'nullable|string',
             'city' => 'nullable|string|max:100',
             'state' => 'nullable|string|max:100',
-            'zip_code' => 'nullable|string|max:20',
-            'pan_number' => 'nullable|string|max:20',
-            'aadhar_number' => 'nullable|string|max:20',
+            'zip_code' => ['nullable', 'string', 'regex:/^[1-9][0-9]{5}$/'],
+            'pan_number' => ['nullable', 'string', 'regex:/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/i'],
+            'aadhar_number' => ['nullable', 'string', 'regex:/^\d{12}$/'],
             'bank_name' => 'nullable|string|max:100',
-            'account_number' => 'nullable|string|max:50',
-            'ifsc_code' => 'nullable|string|max:20',
+            'account_number' => ['nullable', 'string', 'regex:/^\d{9,18}$/'],
+            'ifsc_code' => ['nullable', 'string', 'regex:/^[A-Z]{4}0[A-Z0-9]{6}$/i'],
             'upi_id' => 'nullable|string|max:100',
             'standard_wastage_percent' => 'nullable|numeric|min:0|max:100',
             'making_charge_per_gram' => 'nullable|numeric|min:0',
@@ -316,6 +344,9 @@ class KarigarController extends Controller
         }
 
         $validatedData = $validator->validated();
+        if (!empty($validatedData['email'])) {
+            $validatedData['email'] = strtolower(trim($validatedData['email']));
+        }
 
         $karigar->update($validatedData);
 

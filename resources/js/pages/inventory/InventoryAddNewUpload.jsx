@@ -4,6 +4,7 @@ import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { compressImageFile } from '../../utils/imageCompressor';
 import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
+import { isMetalPurityStamp } from '../../components/JewelleryTagCard';
 
 export default function InventoryAddNewUpload() {
   const navigate = useNavigate();
@@ -77,7 +78,7 @@ export default function InventoryAddNewUpload() {
     net_wt: '',
     pure_weight: '',
     stone_weight: '',
-    stamp: '916',
+    stamp: '',
     unit: 'g',
     size: '0.00',
     no_of_pieces: '1',
@@ -162,7 +163,7 @@ export default function InventoryAddNewUpload() {
         ...prev,
         item_code: defaultCode,
         item_name: subName,
-        stamp: isSil ? '925' : '916',
+        stamp: isSil ? '925' : '',
         karat: isSil ? '925 Silver' : '22K',
         purity: isSil ? '92.5' : '91.6',
       }));
@@ -410,7 +411,7 @@ export default function InventoryAddNewUpload() {
         gross_wt: mainProductData.gross_wt || '',
         net_wt: mainProductData.net_wt || '',
         pure_weight: mainProductData.pure_weight || '',
-        stamp: mainProductData.stamp || '916',
+        stamp: mainProductData.stamp || '',
         unit: mainProductData.unit || (unitsList.length > 0 ? unitsList[0].name : 'Grams'),
         size: mainProductData.size || '0.00',
         no_of_pieces: mainProductData.no_of_pieces || '1',
@@ -508,7 +509,7 @@ export default function InventoryAddNewUpload() {
       net_wt: comp.net_wt || '',
       pure_weight: comp.pure_weight || '',
       stone_weight: comp.stone_weight || comp.gross_wt || '',
-      stamp: comp.stamp || '916',
+      stamp: comp.stamp || '',
       unit: comp.unit || 'g',
       size: comp.size || '0.00',
       no_of_pieces: comp.no_of_pieces || '1',
@@ -593,6 +594,9 @@ export default function InventoryAddNewUpload() {
       subcategory_name: primarySubcategory?.name || primaryComp.subcategory_name,
       product_code: primaryComp.item_code || defaultCode,
       design_no: mainProductData?.design_no || formData.design_no || null,
+      stock_qty: parseInt(mainProductData?.stock_qty || formData.stock_qty || 1, 10),
+      quantity: parseInt(mainProductData?.stock_qty || formData.stock_qty || 1, 10),
+      no_of_pieces: parseInt(mainProductData?.stock_qty || formData.stock_qty || 1, 10),
       sku: generatedSku,
       name: cleanName,
       gross_wt: primaryComp.gross_wt,
@@ -610,6 +614,29 @@ export default function InventoryAddNewUpload() {
       image: primaryComp.thumb_image || images[0] || '',
       images: primaryComp.images && primaryComp.images.length > 0 ? primaryComp.images : images,
       components: allComponents,
+      diamond_stamp: (() => {
+        const dc = allComponents.find((c) => {
+          const n = (c.category_name || c.item_name || c.component_type || '').toLowerCase();
+          return c.is_diamond || n.includes('diamond') || n.includes('dia');
+        });
+        return dc?.stamp && !isMetalPurityStamp(dc.stamp) ? dc.stamp : null;
+      })(),
+      dia_wt_ct: (() => {
+        const dc = allComponents.find((c) => {
+          const n = (c.category_name || c.item_name || c.component_type || '').toLowerCase();
+          return c.is_diamond || n.includes('diamond') || n.includes('dia');
+        });
+        const w = dc ? (parseFloat(dc.stone_weight || dc.gross_wt) || 0) : 0;
+        return w > 0 ? w.toFixed(2) : null;
+      })(),
+      diamond_count: (() => {
+        const dc = allComponents.find((c) => {
+          const n = (c.category_name || c.item_name || c.component_type || '').toLowerCase();
+          return c.is_diamond || n.includes('diamond') || n.includes('dia');
+        });
+        const cnt = dc ? parseInt(dc.no_of_pieces || 1, 10) : 0;
+        return cnt > 0 ? cnt : null;
+      })(),
     };
 
     try {
@@ -876,7 +903,7 @@ export default function InventoryAddNewUpload() {
                         {mainProductData.item_name || (isSilverCategory ? 'Silver Item' : 'Gold Item')}
                       </td>
                       <td className="py-3 px-4 text-center font-semibold text-stone-700">
-                        {mainProductData.stamp || (isSilverCategory ? '925' : '916')}
+                        {mainProductData.stamp || (isSilverCategory ? '925' : '-')}
                       </td>
                       <td className="py-3 px-4 text-center text-stone-600 font-bold">
                         {mainProductData.unit || 'Grams'}
@@ -885,7 +912,7 @@ export default function InventoryAddNewUpload() {
                         {mainProductData.no_of_pieces || 1}
                       </td>
                       <td className="py-3 px-4 text-center font-mono font-bold text-gray-900">
-                        {parseFloat(mainProductData.pure_weight || mainProductData.gross_wt || 0).toFixed(3)} g
+                        {parseFloat(mainProductData.pure_weight || mainProductData.gross_wt || 0).toFixed(3)} {mainProductData.unit?.toLowerCase().includes('ct') || mainProductData.unit?.toLowerCase().includes('carat') ? 'ct' : (mainProductData.unit || 'g')}
                       </td>
                       <td className="py-3 px-4 text-center">
                         <button
@@ -937,7 +964,7 @@ export default function InventoryAddNewUpload() {
                           {comp.no_of_pieces || 1}
                         </td>
                         <td className="py-3 px-4 text-center font-mono font-bold text-gray-900">
-                          {weightVal} g
+                          {weightVal} {comp.unit?.toLowerCase().includes('ct') || comp.unit?.toLowerCase().includes('carat') ? 'ct' : (comp.unit || 'g')}
                         </td>
                         <td className="py-3 px-4 text-center">
                           <div className="flex items-center justify-center gap-1.5">

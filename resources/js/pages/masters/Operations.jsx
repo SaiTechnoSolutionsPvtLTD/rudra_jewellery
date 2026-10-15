@@ -261,7 +261,7 @@ export default function Operations() {
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 font-bold uppercase tracking-wider text-[11px]">
-                  <th className="py-3 px-4 w-14 text-center">#</th>
+                  <th className="py-3 px-4 w-14 text-center">S.No</th>
                   <th className="py-3 px-4">Operation Name</th>
                   <th className="py-3 px-4">Code</th>
                   <th className="py-3 px-4">Description</th>

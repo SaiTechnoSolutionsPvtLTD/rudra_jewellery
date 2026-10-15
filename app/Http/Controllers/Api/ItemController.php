@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Item;
 use App\Models\Subcategory;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class ItemController extends Controller
 {
@@ -15,33 +16,40 @@ class ItemController extends Controller
     public function index(Request $request)
     {
         try {
-            $query = Item::with(['category', 'subcategory']);
+            $version = Cache::get('items_version', 1);
+            $cacheKey = 'items_v' . $version . '_' . md5(json_encode($request->all()));
 
-            if ($request->has('category_id') && !empty($request->category_id) && $request->category_id !== 'all') {
-                $query->where('category_id', $request->category_id);
-            }
+            $items = Cache::remember($cacheKey, 300, function () use ($request) {
+                $query = Item::with(['category', 'subcategory']);
 
-            if ($request->has('subcategory_id') && !empty($request->subcategory_id) && $request->subcategory_id !== 'all') {
-                $query->where('subcategory_id', $request->subcategory_id);
-            }
+                if ($request->has('category_id') && !empty($request->category_id) && $request->category_id !== 'all') {
+                    $query->where('category_id', $request->category_id);
+                }
 
-            if ($request->has('status') && !empty($request->status) && $request->status !== 'all') {
-                $query->where('status', $request->status);
-            }
+                if ($request->has('subcategory_id') && !empty($request->subcategory_id) && $request->subcategory_id !== 'all') {
+                    $query->where('subcategory_id', $request->subcategory_id);
+                }
 
-            if ($request->has('q') && !empty($request->q)) {
-                $search = $request->q;
-                $query->where(function ($q) use ($search) {
-                    $q->where('name', 'like', "%{$search}%")
-                      ->orWhere('code', 'like', "%{$search}%")
-                      ->orWhere('description', 'like', "%{$search}%");
-                });
-            }
+                if ($request->has('status') && !empty($request->status) && $request->status !== 'all') {
+                    $query->where('status', $request->status);
+                }
 
-            $items = $query->orderBy('name', 'asc')->get();
+                if ($request->has('q') && !empty($request->q)) {
+                    $search = $request->q;
+                    $query->where(function ($q) use ($search) {
+                        $q->where('name', 'like', "%{$search}%")
+                          ->orWhere('code', 'like', "%{$search}%")
+                          ->orWhere('description', 'like', "%{$search}%");
+                    });
+                }
+
+                return $query->orderBy('name', 'asc')->get();
+            });
+
             return response()->json($items);
         } catch (\Exception $e) {
-            return response()->json(['message' => 'Failed to fetch items: ' . $e->getMessage()], 500);
+            \Illuminate\Support\Facades\Log::error('Failed to fetch items: ' . $e->getMessage());
+            return response()->json(['message' => 'Unable to fetch items (500). Please try again later.'], 500);
         }
     }
 
@@ -84,13 +92,20 @@ class ItemController extends Controller
             $item = Item::create($validated);
             $item->load(['category', 'subcategory']);
 
+            if (Cache::has('items_version')) {
+                Cache::increment('items_version');
+            } else {
+                Cache::put('items_version', 2, 86400 * 30);
+            }
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Item created successfully!',
                 'data' => $item
             ], 201);
         } catch (\Exception $e) {
-            return response()->json(['message' => 'Failed to create item: ' . $e->getMessage()], 500);
+            \Illuminate\Support\Facades\Log::error('Failed to create item: ' . $e->getMessage());
+            return response()->json(['message' => 'Unable to create item (500). Please try again later.'], 500);
         }
     }
 
@@ -136,13 +151,20 @@ class ItemController extends Controller
             $item->update($validated);
             $item->load(['category', 'subcategory']);
 
+            if (Cache::has('items_version')) {
+                Cache::increment('items_version');
+            } else {
+                Cache::put('items_version', 2, 86400 * 30);
+            }
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Item updated successfully!',
                 'data' => $item
             ]);
         } catch (\Exception $e) {
-            return response()->json(['message' => 'Failed to update item: ' . $e->getMessage()], 500);
+            \Illuminate\Support\Facades\Log::error('Failed to update item: ' . $e->getMessage());
+            return response()->json(['message' => 'Unable to update item (500). Please try again later.'], 500);
         }
     }
 
@@ -158,12 +180,20 @@ class ItemController extends Controller
 
         try {
             $item->delete();
+
+            if (Cache::has('items_version')) {
+                Cache::increment('items_version');
+            } else {
+                Cache::put('items_version', 2, 86400 * 30);
+            }
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Item deleted successfully!'
             ]);
         } catch (\Exception $e) {
-            return response()->json(['message' => 'Failed to delete item: ' . $e->getMessage()], 500);
+            \Illuminate\Support\Facades\Log::error('Failed to delete item: ' . $e->getMessage());
+            return response()->json(['message' => 'Unable to delete item (500). Please try again later.'], 500);
         }
     }
 }

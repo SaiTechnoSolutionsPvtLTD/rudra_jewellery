@@ -28,8 +28,10 @@ class NotificationService
         $activeUsers = $query->get();
 
         $matched = $activeUsers->filter(function (User $user) use ($roles, $permissions, $userIds, $excludeUserId) {
-            // Never notify the user performing the action if excluded
-            if ($excludeUserId !== null && $user->id === $excludeUserId) {
+            $isSuperAdmin = $user->isSuperAdmin() || in_array(strtolower(str_replace(' ', '_', $user->role ?? '')), ['super_admin']);
+
+            // Never notify the user performing the action if excluded, unless they are Super Admin
+            if ($excludeUserId !== null && $user->id === $excludeUserId && !$isSuperAdmin) {
                 return false;
             }
 
@@ -64,7 +66,8 @@ class NotificationService
         // Safe fallback: If no specific recipient found, fall back to active Super Admins & Admins so no event is lost
         if ($matched->isEmpty()) {
             $fallback = $activeUsers->filter(function (User $u) use ($excludeUserId) {
-                if ($excludeUserId !== null && $u->id === $excludeUserId) {
+                $isSuperAdmin = $u->isSuperAdmin() || in_array(strtolower(str_replace(' ', '_', $u->role ?? '')), ['super_admin']);
+                if ($excludeUserId !== null && $u->id === $excludeUserId && !$isSuperAdmin) {
                     return false;
                 }
                 return in_array(strtolower(str_replace(' ', '_', $u->role ?? '')), ['super_admin', 'admin']);
@@ -100,6 +103,17 @@ class NotificationService
             $data = $params['data'] ?? [];
             $idempotencyKey = $params['idempotency_key'] ?? null;
             $excludeUserId = $params['exclude_user_id'] ?? null;
+
+            // Foreign key safety validation
+            if ($workOrderId && !WorkOrder::where('id', $workOrderId)->exists()) {
+                $workOrderId = null;
+            }
+            if ($pieceId && !WorkOrderReceivedPiece::where('id', $pieceId)->exists()) {
+                $pieceId = null;
+            }
+            if ($karigarId && !\App\Models\Karigar::where('id', $karigarId)->exists()) {
+                $karigarId = null;
+            }
 
             // Resolve recipients
             if (!empty($params['recipients']) && $params['recipients'] instanceof Collection) {
@@ -322,6 +336,36 @@ class NotificationService
                 'item_id' => $item->id,
                 'product_name' => $itemProd,
                 'design_no' => $item->design_no,
+            ],
+        ]);
+    }
+
+    /**
+     * Notify when a Work Order is updated, edited, or stage advanced.
+     */
+    public static function notifyWorkOrderUpdated(WorkOrder $order, string $updateSummary = 'Details updated', ?int $actorId = null): array
+    {
+        $woNo = $order->work_order_number;
+        $prod = $order->product_name ?: 'Jewelry Item';
+
+        return self::send([
+            'type' => 'work_order_updated',
+            'title' => "Work Order Updated: {$woNo}",
+            'message' => "Work Order {$woNo} ({$prod}) updated: {$updateSummary}.",
+            'work_order_id' => $order->id,
+            'entity_type' => 'work_order',
+            'entity_id' => $order->id,
+            'action_url' => "/job-order/in-progress?order_id={$order->id}",
+            'roles' => ['Manager', 'Admin', 'Super Admin'],
+            'permissions' => ['workorders.view', 'workorders.update'],
+            'exclude_user_id' => $actorId,
+            'idempotency_key' => "wo_updated_{$order->id}_" . time(),
+            'data' => [
+                'work_order_number' => $woNo,
+                'product_name' => $prod,
+                'current_stage' => $order->current_stage,
+                'status' => $order->status,
+                'summary' => $updateSummary,
             ],
         ]);
     }

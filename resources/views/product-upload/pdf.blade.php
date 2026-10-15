@@ -275,11 +275,10 @@
         <thead>
             <tr>
                 <th style="width: 6%;">S.NO</th>
-                <th style="width: 22%;">PREVIEW</th>
-                <th style="width: 24%;">DESIGN NO</th>
-                <th style="width: 16%;">GOLD TYPE</th>
-                <th style="width: 16%;">DIA WT (CT)</th>
-                <th style="width: 16%;">NET WT (G)</th>
+                <th style="width: 24%;">PREVIEW</th>
+                <th style="width: 34%;">DESIGN NO</th>
+                <th style="width: 18%;">DIA WT (CT)</th>
+                <th style="width: 18%;">NET WT (G)</th>
             </tr>
         </thead>
         <tbody>
@@ -304,9 +303,6 @@
                         @if(!empty($design->setting_style))
                             <div class="spec-badge">{{ $design->setting_style }}</div>
                         @endif
-                    </td>
-                    <td>
-                        <span class="val-gold">{{ $design->gold_type ?: '-' }}</span>
                     </td>
                     <td>
                         <span style="font-weight:700; color:#0f172a;">{{ $design->dia_wt_ct ? $design->dia_wt_ct . ' CT' : '-' }}</span>

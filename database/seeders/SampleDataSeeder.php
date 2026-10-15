@@ -35,7 +35,10 @@ class SampleDataSeeder extends Seeder
             \App\Models\Karat::firstOrCreate(['name' => $k], ['code' => $k]);
         }
         foreach (['999', '916', '750', '585', 'HM'] as $st) {
-            \App\Models\Stamp::firstOrCreate(['name' => $st], ['code' => $st]);
+            \App\Models\Stamp::firstOrCreate(['name' => $st], ['code' => $st, 'applicable_for' => 'Gold']);
+        }
+        foreach (['+0', '+1', '+2', '+3', '+4', '+5', '+6', '+7', '+8', '+9', '+10', '+11', '+12', '+14', '-1', '-2'] as $dst) {
+            \App\Models\Stamp::firstOrCreate(['name' => $dst], ['code' => $dst, 'applicable_for' => 'Diamond']);
         }
         foreach (['Carat', 'Gram', 'Kg', 'Piece', 'Milligram'] as $u) {
             \App\Models\Unit::firstOrCreate(['name' => $u], ['code' => $u]);
@@ -1113,27 +1116,6 @@ class SampleDataSeeder extends Seeder
                         'user_id' => $adminUser->id,
                         'action_by_name' => $adminUser->name,
                         'created_at' => Carbon::parse($order->allotted_date)->addMinutes(10),
-                    ]
-                );
-
-                WorkOrderNotification::updateOrCreate(
-                    [
-                        'work_order_id' => $order->id,
-                        'karigar_id' => $order->karigar_id,
-                        'type' => 'assigned',
-                    ],
-                    [
-                        'title' => "Work Order Assigned: {$order->work_order_number}",
-                        'message' => "Work Order {$order->work_order_number} ({$order->product_name}) assigned to Karigar {$order->karigar_name}.",
-                        'data' => [
-                            'order_id' => $order->id,
-                            'work_order_number' => $order->work_order_number,
-                            'product_name' => $order->product_name,
-                            'allotted_weight' => $order->allotted_weight,
-                            'status' => $order->status,
-                            'target_role' => 'karigar',
-                        ],
-                        'is_read' => false,
                     ]
                 );
             }

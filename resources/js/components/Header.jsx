@@ -25,6 +25,7 @@ const QUICK_SEARCH_ITEMS = [
   { label: 'Work Specifications Master', path: '/masters/work-specifications', section: 'Masters', icon: 'fa-solid fa-shapes' },
   { label: 'Memberships Master', path: '/masters/memberships', section: 'Masters', icon: 'fa-solid fa-id-card' },
   { label: 'Bank Accounts Master', path: '/masters/bank-accounts', section: 'Masters', icon: 'fa-solid fa-building-columns' },
+  { label: 'Raw Materials Master', path: '/masters/raw-materials', section: 'Masters', icon: 'fa-solid fa-boxes-stacked' },
   { label: 'Company Info Master', path: '/masters/info', section: 'Masters', icon: 'fa-solid fa-building' },
   { label: 'Karigar Management', path: '/karigars', section: 'Artisans', icon: 'fa-solid fa-people-group' },
   { label: 'Billing Dashboard', path: '/clients/billing', section: 'Clients', icon: 'fa-solid fa-receipt' },
@@ -465,7 +466,7 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
                         }`}
                     >
                       <div
-                        className={`w-8 h-8 rounded-xl shrink-0 flex items-center justify-center text-xs mt-0.5 shadow-2xs overflow-hidden ${
+                        className={`w-8 h-8 rounded-xl shrink-0 flex items-center justify-center text-xs mt-0.5 shadow-2xs ${
                           ['qc_submitted', 'submitted'].includes(n.type)
                             ? 'bg-blue-100 text-blue-700'
                             : ['qc_passed', 'approved', 'piece_received', 'inventory_posted', 'completed'].includes(n.type)
@@ -474,7 +475,7 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
                                 ? 'bg-rose-100 text-rose-700'
                                 : n.type === 'rework_resubmitted'
                                   ? 'bg-purple-100 text-purple-700'
-                                  : ['work_order_created', 'job_added'].includes(n.type)
+                                  : ['work_order_created', 'work_order_updated', 'job_added'].includes(n.type)
                                     ? 'bg-indigo-100 text-indigo-700'
                                     : n.type === 'progress_update'
                                       ? 'bg-blue-100 text-blue-700'
@@ -482,38 +483,23 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
                                         ? 'bg-green-100 text-green-700'
                                         : n.type === 'purchase_created'
                                           ? 'bg-cyan-100 text-cyan-700'
-                                          : n.type === 'system'
-                                            ? 'bg-amber-50 text-amber-900 border border-amber-200'
-                                            : 'bg-amber-100 text-amber-700'
+                                          : 'bg-amber-100 text-amber-700'
                         }`}
                       >
-                        {n.type === 'system' || n.data?.image_url || n.image_url ? (
-                          <>
-                            <img
-                              src={n.data?.image_url || n.image_url || '/logo_emblem.png'}
-                              alt="Logo"
-                              className="w-5 h-5 object-contain"
-                              onError={(e) => {
-                                e.currentTarget.style.display = 'none';
-                                const fb = e.currentTarget.parentElement?.querySelector('.fallback-header-notif-icon');
-                                if (fb) fb.style.display = 'flex';
-                              }}
-                            />
-                            <i className="fallback-header-notif-icon fa-solid fa-bell hidden"></i>
-                          </>
-                        ) : (
-                          <i
-                            className={`fa-solid ${
-                              ['qc_submitted', 'submitted'].includes(n.type)
-                                ? 'fa-paper-plane'
-                                : ['qc_passed', 'approved'].includes(n.type)
-                                  ? 'fa-check-double'
-                                  : n.type === 'returned'
-                                    ? 'fa-rotate-left'
-                                    : n.type === 'rework_resubmitted'
-                                      ? 'fa-arrows-rotate'
-                                      : n.type === 'work_order_created'
-                                        ? 'fa-file-lines'
+                        <i
+                          className={`fa-solid ${
+                            ['qc_submitted', 'submitted'].includes(n.type)
+                              ? 'fa-paper-plane'
+                              : ['qc_passed', 'approved'].includes(n.type)
+                                ? 'fa-check-double'
+                                : n.type === 'returned'
+                                  ? 'fa-rotate-left'
+                                  : n.type === 'rework_resubmitted'
+                                    ? 'fa-arrows-rotate'
+                                    : n.type === 'work_order_created'
+                                      ? 'fa-file-lines'
+                                      : n.type === 'work_order_updated'
+                                        ? 'fa-pen-to-square'
                                         : n.type === 'job_added'
                                           ? 'fa-circle-plus'
                                           : n.type === 'progress_update'
@@ -538,10 +524,11 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
                                                               ? 'fa-receipt'
                                                               : n.type === 'purchase_created'
                                                                 ? 'fa-cart-shopping'
-                                                                : 'fa-bell'
-                            }`}
-                          ></i>
-                        )}
+                                                                : n.type === 'stock_shortage'
+                                                                  ? 'fa-triangle-exclamation'
+                                                                  : 'fa-bell'
+                          }`}
+                        ></i>
                       </div>
                       <div className="flex-1 text-xs">
                         <div className="flex items-center justify-between gap-2">

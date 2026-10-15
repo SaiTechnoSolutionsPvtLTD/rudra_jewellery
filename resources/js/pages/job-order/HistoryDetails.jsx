@@ -47,14 +47,19 @@ export default function HistoryDetails() {
     return () => { mounted = false; };
   }, [location.search]);
 
-  const handleRowClick = async (order) => {
-    try {
-      const response = await api.get(`/work-orders/${order.id}`);
-      setSelectedOrder(response.data?.data || order);
-    } catch (e) {
-      setSelectedOrder(order);
-    }
+  const handleRowClick = (order) => {
+    setSelectedOrder(order);
     setShowTimelineModal(true);
+
+    api.get(`/work-orders/${order.id}`)
+      .then((response) => {
+        if (response.data?.data) {
+          setSelectedOrder(response.data.data);
+        }
+      })
+      .catch((e) => {
+        // Keep initial order data
+      });
   };
 
   const filteredOrders = completedOrders.filter(wo => {
@@ -380,15 +385,7 @@ export default function HistoryDetails() {
               </div>
             </div>
 
-            <div className="px-6 py-3 bg-stone-50 border-t border-stone-200 flex items-center justify-between">
-              <a
-                href={`/work-orders/${selectedOrder.id}/pdf`}
-                target="_blank"
-                rel="noreferrer"
-                className="px-3.5 py-1.5 bg-white border border-stone-300 text-stone-800 font-bold text-xs rounded-lg hover:bg-stone-100 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
-              >
-                <i className="fa-solid fa-print text-xs"></i> Print Audit PDF
-              </a>
+            <div className="px-6 py-3 bg-stone-50 border-t border-stone-200 flex items-center justify-end">
               <button
                 type="button"
                 onClick={() => setShowTimelineModal(false)}

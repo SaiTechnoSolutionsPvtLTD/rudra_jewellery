@@ -886,7 +886,7 @@ export default function ReportModule() {
               }
               @page {
                 size: A4 portrait;
-                margin: 10mm;
+                margin: 0 !important;
               }
             }
           `}</style>

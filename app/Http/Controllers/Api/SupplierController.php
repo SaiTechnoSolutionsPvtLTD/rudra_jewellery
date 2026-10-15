@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Supplier;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 
 class SupplierController extends Controller
@@ -14,6 +15,21 @@ class SupplierController extends Controller
      */
     public function index(Request $request)
     {
+        $hasFilters = $request->filled('search') ||
+            ($request->filled('supplier_type') && $request->input('supplier_type') !== 'all') ||
+            ($request->filled('status') && $request->input('status') !== 'all');
+
+        if (!$hasFilters) {
+            $suppliers = Cache::remember('masters_suppliers_all', 300, function () {
+                return Supplier::orderBy('id', 'desc')->get();
+            });
+
+            return response()->json([
+                'status' => 'success',
+                'data' => $suppliers
+            ]);
+        }
+
         $query = Supplier::query();
 
         // Search filter
@@ -52,22 +68,37 @@ class SupplierController extends Controller
      */
     public function store(Request $request)
     {
+        $sanitizePhone = function ($val) {
+            if (!$val) return $val;
+            $digits = preg_replace('/\D/', '', (string)$val);
+            if (strlen($digits) === 12 && str_starts_with($digits, '91')) {
+                $digits = substr($digits, 2);
+            } elseif (strlen($digits) === 11 && str_starts_with($digits, '0')) {
+                $digits = substr($digits, 1);
+            }
+            return strlen($digits) === 10 ? $digits : $val;
+        };
+
+        if ($request->has('phone')) {
+            $request->merge(['phone' => $sanitizePhone($request->phone)]);
+        }
+
         $validated = $request->validate([
             'supplier_code' => 'required|string|max:50|unique:suppliers,supplier_code',
-            'name' => 'required|string|max:255',
+            'name' => ['required', 'string', 'max:255', 'regex:/^[\p{L}\s.\'-]+$/u'],
             'company_name' => 'nullable|string|max:255',
             'supplier_type' => 'required|string|max:50',
-            'phone' => 'nullable|string|max:20',
+            'phone' => ['nullable', 'string', 'regex:/^[6-9]\d{9}$/'],
             'email' => 'nullable|email|max:255',
-            'gstin' => 'nullable|string|max:20',
-            'pan_number' => 'nullable|string|max:20',
+            'gstin' => ['nullable', 'string', 'regex:/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/i'],
+            'pan_number' => ['nullable', 'string', 'regex:/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/i'],
             'address' => 'nullable|string',
             'city' => 'nullable|string|max:100',
             'state' => 'nullable|string|max:100',
-            'pincode' => 'nullable|string|max:20',
+            'pincode' => ['nullable', 'string', 'regex:/^[1-9][0-9]{5}$/'],
             'bank_name' => 'nullable|string|max:100',
-            'account_number' => 'nullable|string|max:50',
-            'ifsc_code' => 'nullable|string|max:20',
+            'account_number' => ['nullable', 'string', 'regex:/^\d{9,18}$/'],
+            'ifsc_code' => ['nullable', 'string', 'regex:/^[A-Z]{4}0[A-Z0-9]{6}$/i'],
             'branch' => 'nullable|string|max:100',
             'status' => 'required|in:active,inactive',
             'notes' => 'nullable|string',
@@ -80,8 +111,12 @@ class SupplierController extends Controller
         if (!empty($validated['pan_number'])) {
             $validated['pan_number'] = strtoupper(trim($validated['pan_number']));
         }
+        if (!empty($validated['email'])) {
+            $validated['email'] = strtolower(trim($validated['email']));
+        }
 
         $supplier = Supplier::create($validated);
+        Cache::forget('masters_suppliers_all');
 
         return response()->json([
             'status' => 'success',
@@ -110,6 +145,10 @@ class SupplierController extends Controller
     {
         $supplier = Supplier::findOrFail($id);
 
+        if ($request->has('phone')) {
+            $request->merge(['phone' => $sanitizePhone($request->phone)]);
+        }
+
         $validated = $request->validate([
             'supplier_code' => [
                 'required',
@@ -117,20 +156,20 @@ class SupplierController extends Controller
                 'max:50',
                 Rule::unique('suppliers', 'supplier_code')->ignore($supplier->id),
             ],
-            'name' => 'required|string|max:255',
+            'name' => ['required', 'string', 'max:255', 'regex:/^[\p{L}\s.\'-]+$/u'],
             'company_name' => 'nullable|string|max:255',
             'supplier_type' => 'required|string|max:50',
-            'phone' => 'nullable|string|max:20',
+            'phone' => ['nullable', 'string', 'regex:/^[6-9]\d{9}$/'],
             'email' => 'nullable|email|max:255',
-            'gstin' => 'nullable|string|max:20',
-            'pan_number' => 'nullable|string|max:20',
+            'gstin' => ['nullable', 'string', 'regex:/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/i'],
+            'pan_number' => ['nullable', 'string', 'regex:/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/i'],
             'address' => 'nullable|string',
             'city' => 'nullable|string|max:100',
             'state' => 'nullable|string|max:100',
-            'pincode' => 'nullable|string|max:20',
+            'pincode' => ['nullable', 'string', 'regex:/^[1-9][0-9]{5}$/'],
             'bank_name' => 'nullable|string|max:100',
-            'account_number' => 'nullable|string|max:50',
-            'ifsc_code' => 'nullable|string|max:20',
+            'account_number' => ['nullable', 'string', 'regex:/^\d{9,18}$/'],
+            'ifsc_code' => ['nullable', 'string', 'regex:/^[A-Z]{4}0[A-Z0-9]{6}$/i'],
             'branch' => 'nullable|string|max:100',
             'status' => 'required|in:active,inactive',
             'notes' => 'nullable|string',
@@ -143,8 +182,12 @@ class SupplierController extends Controller
         if (!empty($validated['pan_number'])) {
             $validated['pan_number'] = strtoupper(trim($validated['pan_number']));
         }
+        if (!empty($validated['email'])) {
+            $validated['email'] = strtolower(trim($validated['email']));
+        }
 
         $supplier->update($validated);
+        Cache::forget('masters_suppliers_all');
 
         return response()->json([
             'status' => 'success',
@@ -160,6 +203,7 @@ class SupplierController extends Controller
     {
         $supplier = Supplier::findOrFail($id);
         $supplier->delete();
+        Cache::forget('masters_suppliers_all');
 
         return response()->json([
             'status' => 'success',

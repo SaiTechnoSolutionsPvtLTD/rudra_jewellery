@@ -14,10 +14,27 @@ export default function Pagination({
   const endItem = Math.min(currentPage * itemsPerPage, totalItems);
 
   const getPageNumbers = () => {
-    const pages = [];
-    for (let i = 1; i <= totalPages; i++) {
+    if (totalPages <= 7) {
+      const pages = [];
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+      return pages;
+    }
+
+    const pages = [1];
+    if (currentPage > 3) {
+      pages.push('...');
+    }
+    const start = Math.max(2, currentPage - 1);
+    const end = Math.min(totalPages - 1, currentPage + 1);
+    for (let i = start; i <= end; i++) {
       pages.push(i);
     }
+    if (currentPage < totalPages - 2) {
+      pages.push('...');
+    }
+    pages.push(totalPages);
     return pages;
   };
 
@@ -53,6 +70,7 @@ export default function Pagination({
       <div className="flex items-center gap-1">
         {/* Previous Button */}
         <button
+          type="button"
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage === 1}
           className={`px-3 py-1.5 rounded-lg border font-medium flex items-center gap-1 transition-colors ${
@@ -67,19 +85,26 @@ export default function Pagination({
 
         {/* Page Numbers */}
         <div className="flex items-center gap-1 mx-1">
-          {getPageNumbers().map(pageNum => (
-            <button
-              key={pageNum}
-              onClick={() => onPageChange(pageNum)}
-              className={`w-8 h-8 rounded-lg font-semibold flex items-center justify-center transition-colors ${
-                currentPage === pageNum
-                  ? 'bg-[#b01622] text-white shadow-sm'
-                  : 'bg-white text-gray-600 hover:bg-gray-100'
-              }`}
-            >
-              {pageNum}
-            </button>
-          ))}
+          {getPageNumbers().map((pageNum, idx) =>
+            pageNum === '...' ? (
+              <span key={`ellipsis-${idx}`} className="px-1.5 text-gray-400 font-bold select-none">
+                ...
+              </span>
+            ) : (
+              <button
+                key={pageNum}
+                type="button"
+                onClick={() => onPageChange(pageNum)}
+                className={`w-8 h-8 rounded-lg font-semibold flex items-center justify-center transition-colors ${
+                  currentPage === pageNum
+                    ? 'bg-[#b01622] text-white shadow-sm'
+                    : 'bg-white text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                {pageNum}
+              </button>
+            )
+          )}
         </div>
 
         {/* Next Button */}

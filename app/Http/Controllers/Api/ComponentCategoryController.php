@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ComponentCategory;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 
 class ComponentCategoryController extends Controller
@@ -25,9 +26,11 @@ class ComponentCategoryController extends Controller
 
     public function index()
     {
-        $this->ensureTable();
+        $items = Cache::remember('masters_component_categories_all', 300, function () {
+            $this->ensureTable();
+            return ComponentCategory::orderBy('sort_order')->orderBy('name')->get();
+        });
 
-        $items = ComponentCategory::orderBy('sort_order')->orderBy('name')->get();
         return response()->json($items);
     }
 
@@ -50,6 +53,7 @@ class ComponentCategoryController extends Controller
         }
 
         $item = ComponentCategory::create($validated);
+        Cache::forget('masters_component_categories_all');
 
         return response()->json([
             'message' => 'Component category created successfully.',
@@ -85,6 +89,7 @@ class ComponentCategoryController extends Controller
         }
 
         $item->update($validated);
+        Cache::forget('masters_component_categories_all');
 
         return response()->json([
             'message' => 'Component category updated successfully.',
@@ -98,6 +103,7 @@ class ComponentCategoryController extends Controller
 
         $item = ComponentCategory::findOrFail($id);
         $item->delete();
+        Cache::forget('masters_component_categories_all');
 
         return response()->json([
             'message' => 'Component category deleted successfully.',

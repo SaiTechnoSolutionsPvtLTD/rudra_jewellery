@@ -3,6 +3,22 @@ import { useNavigate, useParams, Link } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { handleIntegerKeyDown, handleDecimalKeyDown, sanitizeInteger, sanitizeDecimal } from '../../utils/numberInputUtils';
+import {
+  validateMobile,
+  handleMobileKeyDown,
+  sanitizeMobile,
+  validateEmail,
+  validatePersonName,
+  handlePersonNameKeyDown,
+  validatePincode,
+  handlePincodeKeyDown,
+  sanitizePincode,
+  validateGSTIN,
+  sanitizeGSTIN,
+  validatePAN,
+  sanitizePAN,
+  validateRequired
+} from '../../utils/validationUtils';
 
 export default function RegisterClient() {
   const { id } = useParams();
@@ -14,6 +30,7 @@ export default function RegisterClient() {
   const [saving, setSaving] = useState(false);
   const [generatingCode, setGeneratingCode] = useState(false);
   const [membershipPlans, setMembershipPlans] = useState([]);
+  const [formErrors, setFormErrors] = useState({});
 
   const [formData, setFormData] = useState({
     client_code: '',
@@ -134,16 +151,50 @@ export default function RegisterClient() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    const missing = [];
-    if (!formData.fullName?.trim()) missing.push('Full Name');
-    if (!formData.primaryPhone?.trim()) missing.push('Primary Mobile');
-    if (!formData.streetAddress?.trim()) missing.push('Street Address');
-    if (!formData.city?.trim()) missing.push('City');
-    if (!formData.state?.trim()) missing.push('State');
-    if (!formData.zipCode?.trim()) missing.push('Zip Code');
+    const errors = {};
+    const nameErr = validatePersonName(formData.fullName, 'Full Name', true);
+    if (nameErr) errors.fullName = nameErr;
 
-    if (missing.length > 0) {
-      showToast(`Please enter all required fields: ${missing.join(', ')}`, 'error', 'Validation Error');
+    const phoneErr = validateMobile(formData.primaryPhone, true);
+    if (phoneErr) errors.primaryPhone = phoneErr;
+
+    if (formData.secondaryPhone?.trim()) {
+      const secPhoneErr = validateMobile(formData.secondaryPhone, false);
+      if (secPhoneErr) errors.secondaryPhone = secPhoneErr;
+    }
+
+    if (formData.email?.trim()) {
+      const emailErr = validateEmail(formData.email, false);
+      if (emailErr) errors.email = emailErr;
+    }
+
+    if (formData.panNumber?.trim()) {
+      const panErr = validatePAN(formData.panNumber, false);
+      if (panErr) errors.panNumber = panErr;
+    }
+
+    if (formData.gstNumber?.trim()) {
+      const gstErr = validateGSTIN(formData.gstNumber, false);
+      if (gstErr) errors.gstNumber = gstErr;
+    }
+
+    const addrErr = validateRequired(formData.streetAddress, 'Street Address');
+    if (addrErr) errors.streetAddress = addrErr;
+
+    const cityErr = validateRequired(formData.city, 'City');
+    if (cityErr) errors.city = cityErr;
+
+    const stateErr = validateRequired(formData.state, 'State');
+    if (stateErr) errors.state = stateErr;
+
+    const pinErr = validatePincode(formData.zipCode, true);
+    if (pinErr) errors.zipCode = pinErr;
+
+    setFormErrors(errors);
+
+    if (Object.keys(errors).length > 0) {
+      const firstError = Object.values(errors)[0];
+      showToast(firstError, 'error', 'Validation Error');
       return;
     }
 
@@ -303,11 +354,16 @@ export default function RegisterClient() {
                     type="text"
                     name="fullName"
                     value={formData.fullName}
-                    onChange={handleChange}
+                    onKeyDown={handlePersonNameKeyDown}
+                    onChange={(e) => {
+                      setFormData(prev => ({ ...prev, fullName: e.target.value }));
+                      if (formErrors.fullName) setFormErrors(prev => ({ ...prev, fullName: null }));
+                    }}
                     placeholder="e.g. Alexandra Sterling"
                     required
-                    className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622]"
+                    className={`w-full px-3.5 py-2.5 bg-white border ${formErrors.fullName ? 'border-red-500' : 'border-gray-200'} rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622]`}
                   />
+                  {formErrors.fullName && <p className="text-red-500 text-xs mt-1">{formErrors.fullName}</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-2">Gender</label>
@@ -341,17 +397,57 @@ export default function RegisterClient() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-5">
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-2">Primary Phone <span className="text-red-500">*</span></label>
-                  <input type="text" name="primaryPhone" value={formData.primaryPhone} onChange={handleChange} placeholder="+91 98765 43210" required className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622]" />
+                  <input
+                    type="tel"
+                    name="primaryPhone"
+                    maxLength={10}
+                    onKeyDown={handleMobileKeyDown}
+                    value={formData.primaryPhone}
+                    onChange={(e) => {
+                      const clean = sanitizeMobile(e.target.value);
+                      setFormData(prev => ({ ...prev, primaryPhone: clean }));
+                      if (formErrors.primaryPhone) setFormErrors(prev => ({ ...prev, primaryPhone: null }));
+                    }}
+                    placeholder="9876543210"
+                    required
+                    className={`w-full px-3.5 py-2.5 bg-white border ${formErrors.primaryPhone ? 'border-red-500' : 'border-gray-200'} rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622]`}
+                  />
+                  {formErrors.primaryPhone && <p className="text-red-500 text-xs mt-1">{formErrors.primaryPhone}</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-2">Secondary Phone (Optional)</label>
-                  <input type="text" name="secondaryPhone" value={formData.secondaryPhone} onChange={handleChange} placeholder="+91 98765 43211" className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622]" />
+                  <input
+                    type="tel"
+                    name="secondaryPhone"
+                    maxLength={10}
+                    onKeyDown={handleMobileKeyDown}
+                    value={formData.secondaryPhone}
+                    onChange={(e) => {
+                      const clean = sanitizeMobile(e.target.value);
+                      setFormData(prev => ({ ...prev, secondaryPhone: clean }));
+                      if (formErrors.secondaryPhone) setFormErrors(prev => ({ ...prev, secondaryPhone: null }));
+                    }}
+                    placeholder="9876543211"
+                    className={`w-full px-3.5 py-2.5 bg-white border ${formErrors.secondaryPhone ? 'border-red-500' : 'border-gray-200'} rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622]`}
+                  />
+                  {formErrors.secondaryPhone && <p className="text-red-500 text-xs mt-1">{formErrors.secondaryPhone}</p>}
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-2">Email Address (Optional)</label>
-                <input type="email" name="email" value={formData.email} onChange={handleChange} placeholder="alexandra@example.com" className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622]" />
+                <input
+                  type="email"
+                  name="email"
+                  value={formData.email}
+                  onChange={(e) => {
+                    setFormData(prev => ({ ...prev, email: e.target.value.toLowerCase().replace(/\s+/g, '') }));
+                    if (formErrors.email) setFormErrors(prev => ({ ...prev, email: null }));
+                  }}
+                  placeholder="alexandra@example.com"
+                  className={`w-full px-3.5 py-2.5 bg-white border ${formErrors.email ? 'border-red-500' : 'border-gray-200'} rounded-lg text-sm lowercase text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622]`}
+                />
+                {formErrors.email && <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>}
               </div>
             </div>
 
@@ -365,41 +461,105 @@ export default function RegisterClient() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-5">
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-2">Aadhar Number (Optional)</label>
-                  <input type="text" name="aadharNumber" value={formData.aadharNumber} onChange={handleChange} placeholder="XXXX XXXX XXXX" className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622]" />
+                  <input
+                    type="text"
+                    maxLength={12}
+                    name="aadharNumber"
+                    onKeyDown={handleMobileKeyDown}
+                    value={formData.aadharNumber}
+                    onChange={(e) => setFormData(prev => ({ ...prev, aadharNumber: e.target.value.replace(/\D/g, '').slice(0, 12) }))}
+                    placeholder="12-digit Aadhar"
+                    className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622]"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-2">PAN Number (Optional)</label>
-                  <input type="text" name="panNumber" value={formData.panNumber} onChange={handleChange} placeholder="ABCDE1234F" className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622]" />
+                  <input
+                    type="text"
+                    maxLength={10}
+                    name="panNumber"
+                    value={formData.panNumber}
+                    onChange={(e) => {
+                      const clean = sanitizePAN(e.target.value);
+                      setFormData(prev => ({ ...prev, panNumber: clean }));
+                      if (formErrors.panNumber) setFormErrors(prev => ({ ...prev, panNumber: null }));
+                    }}
+                    placeholder="ABCDE1234F"
+                    className={`w-full px-3.5 py-2.5 bg-white border ${formErrors.panNumber ? 'border-red-500' : 'border-gray-200'} rounded-lg text-sm text-gray-900 placeholder-gray-400 uppercase focus:outline-none focus:border-[#b01622]`}
+                  />
+                  {formErrors.panNumber && <p className="text-red-500 text-xs mt-1">{formErrors.panNumber}</p>}
                 </div>
               </div>
 
               <div className="mb-5">
                 <label className="block text-xs font-semibold text-gray-700 mb-2">Street Address <span className="text-red-500">*</span></label>
-                <input type="text" name="streetAddress" value={formData.streetAddress} onChange={handleChange} placeholder="Flat No, Building, Street Name" required className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622]" />
+                <input
+                  type="text"
+                  name="streetAddress"
+                  value={formData.streetAddress}
+                  onChange={(e) => {
+                    setFormData(prev => ({ ...prev, streetAddress: e.target.value }));
+                    if (formErrors.streetAddress) setFormErrors(prev => ({ ...prev, streetAddress: null }));
+                  }}
+                  placeholder="Flat No, Building, Street Name"
+                  required
+                  className={`w-full px-3.5 py-2.5 bg-white border ${formErrors.streetAddress ? 'border-red-500' : 'border-gray-200'} rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622]`}
+                />
+                {formErrors.streetAddress && <p className="text-red-500 text-xs mt-1">{formErrors.streetAddress}</p>}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-2">City <span className="text-red-500">*</span></label>
-                  <input type="text" name="city" value={formData.city} onChange={handleChange} placeholder="e.g. Chennai" required className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]" />
+                  <input
+                    type="text"
+                    name="city"
+                    value={formData.city}
+                    onChange={(e) => {
+                      setFormData(prev => ({ ...prev, city: e.target.value }));
+                      if (formErrors.city) setFormErrors(prev => ({ ...prev, city: null }));
+                    }}
+                    placeholder="e.g. Chennai"
+                    required
+                    className={`w-full px-3.5 py-2.5 bg-white border ${formErrors.city ? 'border-red-500' : 'border-gray-200'} rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]`}
+                  />
+                  {formErrors.city && <p className="text-red-500 text-xs mt-1">{formErrors.city}</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-2">State <span className="text-red-500">*</span></label>
-                  <input type="text" name="state" value={formData.state} onChange={handleChange} placeholder="e.g. Tamil Nadu" required className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]" />
+                  <input
+                    type="text"
+                    name="state"
+                    value={formData.state}
+                    onChange={(e) => {
+                      setFormData(prev => ({ ...prev, state: e.target.value }));
+                      if (formErrors.state) setFormErrors(prev => ({ ...prev, state: null }));
+                    }}
+                    placeholder="e.g. Tamil Nadu"
+                    required
+                    className={`w-full px-3.5 py-2.5 bg-white border ${formErrors.state ? 'border-red-500' : 'border-gray-200'} rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]`}
+                  />
+                  {formErrors.state && <p className="text-red-500 text-xs mt-1">{formErrors.state}</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-2">Zip Code <span className="text-red-500">*</span></label>
                   <input
                     type="text"
                     inputMode="numeric"
-                    onKeyDown={handleIntegerKeyDown}
+                    maxLength={6}
+                    onKeyDown={handlePincodeKeyDown}
                     name="zipCode"
                     value={formData.zipCode}
-                    onChange={(e) => setFormData({ ...formData, zipCode: sanitizeInteger(e.target.value) })}
+                    onChange={(e) => {
+                      const clean = sanitizePincode(e.target.value);
+                      setFormData(prev => ({ ...prev, zipCode: clean }));
+                      if (formErrors.zipCode) setFormErrors(prev => ({ ...prev, zipCode: null }));
+                    }}
                     placeholder="600028"
                     required
-                    className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]"
+                    className={`w-full px-3.5 py-2.5 bg-white border ${formErrors.zipCode ? 'border-red-500' : 'border-gray-200'} rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]`}
                   />
+                  {formErrors.zipCode && <p className="text-red-500 text-xs mt-1">{formErrors.zipCode}</p>}
                 </div>
               </div>
             </div>
@@ -418,7 +578,20 @@ export default function RegisterClient() {
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-2">GST Number (Optional)</label>
-                  <input type="text" name="gstNumber" value={formData.gstNumber} onChange={handleChange} placeholder="33ABCDE1234F1Z5" className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:border-[#b01622]" />
+                  <input
+                    type="text"
+                    maxLength={15}
+                    name="gstNumber"
+                    value={formData.gstNumber}
+                    onChange={(e) => {
+                      const clean = sanitizeGSTIN(e.target.value);
+                      setFormData(prev => ({ ...prev, gstNumber: clean }));
+                      if (formErrors.gstNumber) setFormErrors(prev => ({ ...prev, gstNumber: null }));
+                    }}
+                    placeholder="33ABCDE1234F1Z5"
+                    className={`w-full px-3.5 py-2.5 bg-white border ${formErrors.gstNumber ? 'border-red-500' : 'border-gray-200'} rounded-lg text-sm text-gray-900 uppercase focus:outline-none focus:border-[#b01622]`}
+                  />
+                  {formErrors.gstNumber && <p className="text-red-500 text-xs mt-1">{formErrors.gstNumber}</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-2">GST Percentage (%) (Optional)</label>

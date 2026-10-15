@@ -1,6 +1,6 @@
-import React, { lazy, Suspense } from 'react';
+import React, { lazy, Suspense, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 
@@ -63,6 +63,7 @@ import WorkSpecifications from './pages/masters/WorkSpecifications';
 import BankAccounts from './pages/masters/BankAccounts';
 import Operations from './pages/masters/Operations';
 import CompanyInfoMaster from './pages/masters/CompanyInfoMaster';
+import RawMaterials from './pages/masters/RawMaterials';
 const KarigarManagement = lazyWithRetry(() => import('./pages/karigar/KarigarManagement'));
 const SalesModule = lazyWithRetry(() => import('./pages/sales/SalesModule'));
 const ReportModule = lazyWithRetry(() => import('./pages/reports/ReportModule'));
@@ -89,6 +90,7 @@ const JobOrderDelay = lazyWithRetry(() => import('./pages/job-order/JobOrderDela
 const JobOrderHub = lazyWithRetry(() => import('./pages/job-order/JobOrderHub'));
 const TagPrinting = lazyWithRetry(() => import('./pages/job-order/TagPrinting'));
 const NotificationsHistory = lazyWithRetry(() => import('./pages/notifications/NotificationsHistory'));
+const NotFound = lazyWithRetry(() => import('./pages/NotFound'));
 
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
@@ -223,10 +225,10 @@ class ErrorBoundary extends React.Component {
             <p className="text-xs text-stone-500 leading-relaxed">
               {isChunkError
                 ? 'The application has been updated with latest components. Please reload the page to load the newest version.'
-                : 'An unexpected error occurred while loading this section:'}
+                : 'A temporary display issue occurred while rendering this view. Please try reloading or return to the dashboard.'}
             </p>
-            <div className="bg-stone-50 border border-stone-200 rounded-lg p-3 text-left overflow-x-auto text-[11px] font-mono text-rose-700 max-h-32">
-              {this.state.error?.message || String(this.state.error)}
+            <div className="bg-stone-50 border border-stone-200 rounded-lg p-3 text-center text-xs text-stone-600">
+              <span className="font-semibold text-stone-700">Status:</span> System Error (500)
             </div>
             <div className="flex items-center justify-center gap-3 pt-2">
               <button
@@ -256,12 +258,138 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+/**
+ * Automatically updates document.title based on active route
+ */
+function PageTitleUpdater() {
+  const location = useLocation();
+
+  useEffect(() => {
+    const path = location.pathname.toLowerCase().replace(/\/+$/, '') || '/';
+
+    const titleMap = [
+      { pattern: /^\/login$/, title: 'Login' },
+      { pattern: /^\/(dashboard)?$/, title: 'Dashboard' },
+      { pattern: /^\/notifications$/, title: 'Notifications' },
+
+      // Job Order / Karigar Workflow
+      { pattern: /^\/job-creation(\/dashboard)?$/, title: 'Job Creation' },
+      { pattern: /^\/job-order\/new$/, title: 'New Work Order Creation' },
+      { pattern: /^\/job-order\/receive$/, title: 'Receive Work Order' },
+      { pattern: /^\/job-order\/tag-printing$/, title: 'Tag Printing' },
+      { pattern: /^\/job-order\/(work-in-progress|in-progress)$/, title: 'Work In Progress' },
+      { pattern: /^\/job-order\/(delay|delay-hold)$/, title: 'Delayed & On-Hold Jobs' },
+      { pattern: /^\/job-order\/quality-check$/, title: 'Quality Check' },
+      { pattern: /^\/job-order\/certification$/, title: 'Certification' },
+      { pattern: /^\/job-order\/hallmarking$/, title: 'Hallmarking' },
+      { pattern: /^\/job-order\/ready$/, title: 'Ready Orders' },
+      { pattern: /^\/job-order\/final-receive$/, title: 'Final Receive' },
+      { pattern: /^\/job-order\/history$/, title: 'Job History' },
+      { pattern: /^\/job-orders?$/, title: 'Work In Progress' },
+      { pattern: /^\/job-order\/[^\/]+(\/details)?$/, title: 'Work Order Details' },
+
+      // Inventory
+      { pattern: /^\/inventory$/, title: 'Inventory' },
+      { pattern: /^\/inventory\/bulk-upload$/, title: 'Bulk Inventory Upload' },
+      { pattern: /^\/inventory\/add-new\/category$/, title: 'Add Category' },
+      { pattern: /^\/inventory\/add-new\/subcategory$/, title: 'Add Subcategory' },
+      { pattern: /^\/inventory\/add-new\/upload$/, title: 'Add Product' },
+      { pattern: /^\/inventory\/(add-new\/complete|upload-complete)$/, title: 'Upload Complete' },
+      { pattern: /^\/inventory\/products\/[^\/]+\/edit$/, title: 'Edit Product' },
+      { pattern: /^\/inventory\/products\/[^\/]+\/jewellery-tag$/, title: 'Jewellery Tag' },
+      { pattern: /^\/inventory\/products\/[^\/]+\/barcode-tag$/, title: 'Barcode Tag' },
+      { pattern: /^\/inventory\/products\/[^\/]+$/, title: 'View Product' },
+
+      // Clients & Billing
+      { pattern: /^\/clients\/billing$/, title: 'Billing Dashboard' },
+      { pattern: /^\/clients\/create$/, title: 'Register Client' },
+      { pattern: /^\/clients\/[^\/]+\/edit$/, title: 'Edit Client' },
+      { pattern: /^\/clients(\/[^\/]+)?\/price-list$/, title: 'Client Price List' },
+      { pattern: /^\/clients\/removed$/, title: 'Removed Clients' },
+      { pattern: /^\/clients$/, title: 'Clients' },
+
+      // Sales
+      { pattern: /^\/sales$/, title: 'Sales Dashboard' },
+      { pattern: /^\/sales\/list$/, title: 'Sales List' },
+      { pattern: /^\/sales\/(create|customer)$/, title: 'New Sale' },
+      { pattern: /^\/sales\/profit(-per-invoice)?$/, title: 'Profit Per Invoice' },
+      { pattern: /^\/sales\/profit-per-metal$/, title: 'Profit Per Metal' },
+      { pattern: /^\/sales\/rates$/, title: 'Live Metal Rates' },
+      { pattern: /^\/sales\/customers$/, title: 'Customers' },
+      { pattern: /^\/sales\/customers\/[^\/]+$/, title: 'Customer Profile' },
+      { pattern: /^\/sales\/[^\/]+$/, title: 'Sale Invoice Details' },
+
+      // Reports & Karigars & Suppliers & Purchases
+      { pattern: /^\/reports(\/[^\/]+)?$/, title: 'Reports' },
+      { pattern: /^\/karigars$/, title: 'Karigar Management' },
+      { pattern: /^\/(stock-management\/)?suppliers$/, title: 'Supplier Management' },
+      { pattern: /^\/purchase\/(entry|new)$/, title: 'Purchase Entry' },
+      { pattern: /^\/purchase\/details$/, title: 'Purchase Details' },
+
+      // Product Upload
+      { pattern: /^\/product-upload(\/step1|\/upload)?$/, title: 'Product Upload' },
+      { pattern: /^\/product-upload(\/step2|\/catalog|\/selection)$/, title: 'Product Catalog' },
+      { pattern: /^\/product-upload(\/step3|\/step4|\/download)$/, title: 'Product Download' },
+
+      // Auth Management
+      { pattern: /^\/authentication\/users$/, title: 'User Management' },
+      { pattern: /^\/authentication\/roles$/, title: 'Roles Management' },
+      { pattern: /^\/authentication\/permissions$/, title: 'Permissions' },
+
+      // Masters
+      { pattern: /^\/masters\/(categories|category)$/, title: 'Categories Master' },
+      { pattern: /^\/masters\/subcategories$/, title: 'Subcategories Master' },
+      { pattern: /^\/masters\/items$/, title: 'Items Master' },
+      { pattern: /^\/masters\/karats$/, title: 'Karats Master' },
+      { pattern: /^\/masters\/stamps$/, title: 'Stamps Master' },
+      { pattern: /^\/masters\/units$/, title: 'Units Master' },
+      { pattern: /^\/masters\/component-categories$/, title: 'Component Categories' },
+      { pattern: /^\/masters\/memberships$/, title: 'Memberships Master' },
+      { pattern: /^\/(masters\/setting-styles|settings-style)$/, title: 'Setting Styles' },
+      { pattern: /^\/masters\/gold-types$/, title: 'Gold Types' },
+      { pattern: /^\/masters\/diamond-ranges$/, title: 'Diamond Ranges' },
+      { pattern: /^\/masters\/diamond-colors$/, title: 'Diamond Colors' },
+      { pattern: /^\/masters\/diamond-clarities$/, title: 'Diamond Clarities' },
+      { pattern: /^\/(masters\/work-specifications|masters\/specifications)$/, title: 'Work Specifications' },
+      { pattern: /^\/masters\/(operations|operation)$/, title: 'Operations Master' },
+      { pattern: /^\/masters\/bank-accounts$/, title: 'Bank Accounts' },
+      { pattern: /^\/masters\/(company-info|info)$/, title: 'Company Information' },
+      { pattern: /^\/masters\/raw-materials$/, title: 'Raw Materials Master' },
+    ];
+
+    let pageTitle = '';
+    for (const item of titleMap) {
+      if (item.pattern.test(path)) {
+        pageTitle = item.title;
+        break;
+      }
+    }
+
+    if (!pageTitle) {
+      const segments = path.split('/').filter(Boolean);
+      if (segments.length > 0) {
+        pageTitle = segments[segments.length - 1]
+          .split('-')
+          .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(' ');
+      } else {
+        pageTitle = 'Dashboard';
+      }
+    }
+
+    document.title = `Rudra Jewellery - ${pageTitle}`;
+  }, [location.pathname]);
+
+  return null;
+}
+
 function App() {
   return (
     <ErrorBoundary>
       <ToastProvider>
         <AuthProvider>
           <BrowserRouter>
+            <PageTitleUpdater />
             <Routes>
               <Route path="/login" element={
                 <GuestRoute>
@@ -347,6 +475,7 @@ function App() {
                 <Route path="/purchase/entry" element={<PurchaseEntry initialTab="new" />} />
                 <Route path="/purchase/new" element={<PurchaseEntry initialTab="new" />} />
                 <Route path="/purchase/details" element={<PurchaseEntry initialTab="details" />} />
+                <Route path="/purchase/stock" element={<PurchaseEntry initialTab="stock" />} />
                 <Route path="/product-upload" element={<Navigate to="/product-upload/step1" replace />} />
                 <Route path="/product-upload/step1" element={<Step1Upload />} />
                 <Route path="/product-upload/upload" element={<Step1Upload />} />
@@ -367,6 +496,7 @@ function App() {
                 <Route path="/masters/bank-accounts" element={<BankAccounts />} />
                 <Route path="/masters/info" element={<CompanyInfoMaster />} />
                 <Route path="/masters/company-info" element={<CompanyInfoMaster />} />
+                <Route path="/masters/raw-materials" element={<RawMaterials />} />
                 <Route path="/masters/specifications" element={<Navigate to="/masters/work-specifications" replace />} />
                 <Route path="/settings-style" element={<Navigate to="/masters/setting-styles" replace />} />
 
@@ -415,11 +545,8 @@ function App() {
                 </ProtectedRoute>
               } />
 
-              <Route path="*" element={
-                <ProtectedRoute>
-                  <Navigate to="/dashboard" replace />
-                </ProtectedRoute>
-              } />
+              <Route path="/404" element={<NotFound />} />
+              <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
         </AuthProvider>

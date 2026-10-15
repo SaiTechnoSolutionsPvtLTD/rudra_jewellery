@@ -2,25 +2,37 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { useToast } from '../context/ToastContext';
+import { normalizeNumericInput, handleNumericFocus } from '../utils/numberInputUtils';
 
-export default function MaterialAllocationModal({ isOpen, onClose, summaryData = {}, liveJobs = [] }) {
+export default function MaterialAllocationModal({
+  isOpen,
+  onClose,
+  summaryData = {},
+  liveJobs = [],
+  initialKarigarId = null,
+  initialTab = 'allocations'
+}) {
   const navigate = useNavigate();
   const { showToast } = useToast();
 
-  const [activeTab, setActiveTab] = useState('allocations'); // 'allocations' or 'karigar_management'
+  const [activeTab, setActiveTab] = useState(initialTab || 'allocations'); // 'allocations' or 'karigar_management'
   const [filterMaterial, setFilterMaterial] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
 
   // Karigar Management State
   const [karigarsList, setKarigarsList] = useState([]);
-  const [selectedKarigarId, setSelectedKarigarId] = useState('');
+  const [selectedKarigarId, setSelectedKarigarId] = useState(initialKarigarId ? String(initialKarigarId) : '');
   const [karigarLedger, setKarigarLedger] = useState(null);
   const [loadingLedger, setLoadingLedger] = useState(false);
   const [submittingAction, setSubmittingAction] = useState(false);
+  const [stampsList, setStampsList] = useState([]);
 
   // Material Action Form
   const [actionForm, setActionForm] = useState({
     action_type: 'additional_allocation',
+    material_type: 'gold',
+    purity: '',
+    stamp: '',
     weight: '',
     work_order_id: '',
     reason: '',
@@ -29,16 +41,35 @@ export default function MaterialAllocationModal({ isOpen, onClose, summaryData =
 
   useEffect(() => {
     if (isOpen) {
+      if (initialTab) {
+        setActiveTab(initialTab);
+      }
+      if (initialKarigarId) {
+        setSelectedKarigarId(String(initialKarigarId));
+      }
       fetchKarigars();
+      fetchStamps();
     }
-  }, [isOpen]);
+  }, [isOpen, initialKarigarId, initialTab]);
+
+  const fetchStamps = async () => {
+    try {
+      const res = await api.get('/stamps');
+      const list = Array.isArray(res.data) ? res.data : (res.data?.data || []);
+      setStampsList(list);
+    } catch (err) {
+      console.warn('Failed to load stamps:', err);
+    }
+  };
 
   const fetchKarigars = async () => {
     try {
       const res = await api.get('/karigar-materials');
       const list = res.data?.data || [];
       setKarigarsList(list);
-      if (list.length > 0 && !selectedKarigarId) {
+      if (initialKarigarId) {
+        setSelectedKarigarId(String(initialKarigarId));
+      } else if (list.length > 0 && !selectedKarigarId) {
         setSelectedKarigarId(String(list[0].id));
       }
     } catch (err) {
@@ -90,6 +121,9 @@ export default function MaterialAllocationModal({ isOpen, onClose, summaryData =
       setSubmittingAction(true);
       const payload = {
         action_type: actionForm.action_type,
+        material_type: actionForm.material_type || 'gold',
+        purity: actionForm.material_type === 'gold' ? (actionForm.purity?.trim() || null) : null,
+        stamp: (actionForm.material_type === 'diamond' || actionForm.material_type === 'colour_stone') ? (actionForm.stamp?.trim() || null) : null,
         weight: wt,
         work_order_id: actionForm.work_order_id || null,
         reason: actionForm.reason.trim(),
@@ -102,6 +136,8 @@ export default function MaterialAllocationModal({ isOpen, onClose, summaryData =
       // Reset form
       setActionForm((prev) => ({
         ...prev,
+        purity: '',
+        stamp: '',
         weight: '',
         reason: '',
       }));
@@ -128,14 +164,18 @@ export default function MaterialAllocationModal({ isOpen, onClose, summaryData =
 
   const goldWeightVal = Number(summaryData?.gold_weight ?? liveJobs.filter(j => !(j.material||'').toLowerCase().includes('silver') && !(j.material||'').toLowerCase().includes('diamond')).reduce((a, b) => a + Number(b.allotted_weight||0), 0));
   const silverWeightVal = Number(summaryData?.silver_weight ?? liveJobs.filter(j => (j.material||'').toLowerCase().includes('silver')).reduce((a, b) => a + Number(b.allotted_weight||0), 0));
-  const diamondWeightVal = Number(summaryData?.diamond_weight ?? liveJobs.filter(j => (j.material||'').toLowerCase().includes('diamond')).reduce((a, b) => a + Number(b.allotted_weight||0), 0));
+  const sumDiamondAllotted = liveJobs.reduce((acc, job) => acc + Math.max(0, Number(job.diamond_allotted || (job.material?.toLowerCase().includes('diamond') ? job.allotted_weight : 0))), 0);
+  const sumDiamondPending = liveJobs.reduce((acc, job) => acc + Math.max(0, Number(job.diamond_pending != null ? job.diamond_pending : Math.max(0, Number(job.diamond_allotted || 0) - Number(job.diamond_received || 0)))), 0);
+  const diamondWeightVal = Number(summaryData?.diamond_weight ?? sumDiamondPending);
 
   // Filter jobs
   const filteredJobs = liveJobs.filter((job) => {
     const mat = (job.material || job.material_type || '').toLowerCase();
+    const hasDia = Number(job.diamond_allotted || 0) > 0 || Number(job.diamond_pending || 0) > 0 || Boolean(job.has_diamonds);
+
     if (filterMaterial === 'gold' && !mat.includes('gold')) return false;
     if (filterMaterial === 'silver' && !mat.includes('silver')) return false;
-    if (filterMaterial === 'diamond' && !mat.includes('diamond')) return false;
+    if (filterMaterial === 'diamond' && !mat.includes('diamond') && !hasDia) return false;
 
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase();
@@ -251,14 +291,14 @@ export default function MaterialAllocationModal({ isOpen, onClose, summaryData =
                 {/* Diamond Allocated */}
                 <div className="bg-white p-3.5 rounded-xl border border-blue-200/80 shadow-2xs">
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">Diamond</span>
+                    <span className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">Diamond On Bench</span>
                     <span className="w-2 h-2 rounded-full bg-blue-500"></span>
                   </div>
                   <div className="text-xl font-black text-stone-900 font-mono mt-0.5">
-                    {diamondWeightVal.toFixed(3)} <span className="text-xs font-sans text-stone-500 font-bold">cts/g</span>
+                    {Math.max(0, diamondWeightVal).toFixed(3)} <span className="text-xs font-sans text-stone-500 font-bold">ct</span>
                   </div>
                   <div className="text-[11px] text-blue-700 font-medium mt-1">
-                    Precious stone allocation
+                    Allotted: <strong>{Math.max(0, sumDiamondAllotted).toFixed(3)} ct</strong>
                   </div>
                 </div>
 
@@ -360,9 +400,15 @@ export default function MaterialAllocationModal({ isOpen, onClose, summaryData =
                     <th className="py-3 px-4">Work Order #</th>
                     <th className="py-3 px-4">Product Name</th>
                     <th className="py-3 px-4">Material / Purity</th>
-                    <th className="py-3 px-4 text-right">Allotted Wt</th>
-                    <th className="py-3 px-4 text-right">Completed</th>
-                    <th className="py-3 px-4 text-right">Pending on Bench</th>
+                    <th className="py-3 px-4 text-right">
+                      {filterMaterial === 'diamond' ? 'Allotted Diamond' : 'Allotted Wt'}
+                    </th>
+                    <th className="py-3 px-4 text-right">
+                      {filterMaterial === 'diamond' ? 'Received Diamond' : 'Completed'}
+                    </th>
+                    <th className="py-3 px-4 text-right">
+                      {filterMaterial === 'diamond' ? 'Pending Diamond' : 'Pending on Bench'}
+                    </th>
                     <th className="py-3 px-4 text-center">Stage &amp; Status</th>
                     <th className="py-3 px-4 text-center">Actions</th>
                   </tr>
@@ -417,15 +463,26 @@ export default function MaterialAllocationModal({ isOpen, onClose, summaryData =
                               }`}></span>
                               {mat}
                             </span>
+                            {filterMaterial !== 'diamond' && (Number(job.diamond_allotted || 0) > 0 || Number(job.diamond_pending || 0) > 0) && (
+                              <span className="ml-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200/60">
+                                💎 {Math.max(0, Number(job.diamond_pending != null ? job.diamond_pending : job.diamond_allotted)).toFixed(3)} ct
+                              </span>
+                            )}
                           </td>
                           <td className="py-3 px-4 text-right font-mono font-bold text-stone-900 whitespace-nowrap">
-                            {allotted.toFixed(3)}g
+                            {filterMaterial === 'diamond'
+                              ? `${Math.max(0, Number(job.diamond_allotted || 0)).toFixed(3)} ct`
+                              : `${Math.max(0, allotted).toFixed(3)}g`}
                           </td>
                           <td className="py-3 px-4 text-right font-mono font-semibold text-emerald-700 whitespace-nowrap">
-                            {completed.toFixed(3)}g
+                            {filterMaterial === 'diamond'
+                              ? `${Math.max(0, Number(job.diamond_received || 0)).toFixed(3)} ct`
+                              : `${Math.max(0, completed).toFixed(3)}g`}
                           </td>
                           <td className="py-3 px-4 text-right font-mono font-bold text-[#b01622] whitespace-nowrap">
-                            {pending.toFixed(3)}g
+                            {filterMaterial === 'diamond'
+                              ? `${Math.max(0, Number(job.diamond_pending != null ? job.diamond_pending : Math.max(0, (job.diamond_allotted || 0) - (job.diamond_received || 0)))).toFixed(3)} ct`
+                              : `${Math.max(0, pending).toFixed(3)}g`}
                           </td>
                           <td className="py-3 px-4 text-center whitespace-nowrap">
                             <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200/60 px-2 py-0.5 rounded-full">
@@ -580,14 +637,42 @@ export default function MaterialAllocationModal({ isOpen, onClose, summaryData =
                     </div>
                   </div>
 
-                  {/* Clarification notes */}
-                  <div className="mt-2 text-[11px] text-stone-500 flex flex-wrap items-center justify-between gap-2 px-1">
-                    <span>
-                      <strong>Bench Metal:</strong> Physical company gold outstanding. Not affected by karigar-owned contributions.
-                    </span>
-                    <span>
-                      <strong>Negative Settlement Balance (-):</strong> Indicates company owes gold to Karigar (e.g. Karigar supplied own gold).
-                    </span>
+                  {/* Diamond Material Accounting Breakdown */}
+                  <div className="mt-4 pt-3 border-t border-stone-200">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-[11px] font-bold text-blue-900 uppercase tracking-wider flex items-center gap-1.5">
+                        <span>💎</span> Diamond Ledger &amp; Reception Tally
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      <div className="p-3 bg-blue-50/70 rounded-xl border border-blue-200 text-center">
+                        <span className="text-[9.5px] font-bold text-blue-800 uppercase block truncate">Diamond Allocated</span>
+                        <span className="font-mono font-black text-stone-900 text-sm mt-0.5 block">
+                          {Math.max(0, Number(karigarLedger.summary?.diamond_allocated || 0)).toFixed(3)} ct
+                        </span>
+                        <span className="text-[10px] text-blue-600 block mt-0.5 font-medium">
+                          Count: {Math.max(0, Number(karigarLedger.summary?.diamond_count_allocated || 0))} pcs
+                        </span>
+                      </div>
+                      <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-center">
+                        <span className="text-[9.5px] font-bold text-emerald-800 uppercase block truncate">Diamond Received</span>
+                        <span className="font-mono font-black text-emerald-950 text-sm mt-0.5 block">
+                          {Math.max(0, Number(karigarLedger.summary?.diamond_received || 0)).toFixed(3)} ct
+                        </span>
+                        <span className="text-[10px] text-emerald-600 block mt-0.5 font-medium">
+                          Count: {Math.max(0, Number(karigarLedger.summary?.diamond_count_received || 0))} pcs
+                        </span>
+                      </div>
+                      <div className="p-3 bg-cyan-50 rounded-xl border border-cyan-300 text-center shadow-2xs">
+                        <span className="text-[9.5px] font-black text-cyan-900 uppercase block truncate">Diamond On Bench</span>
+                        <span className="font-mono font-black text-cyan-950 text-sm mt-0.5 block">
+                          {Math.max(0, Number(karigarLedger.summary?.diamond_on_bench || 0)).toFixed(3)} ct
+                        </span>
+                        <span className="text-[10px] text-cyan-700 block mt-0.5 font-bold">
+                          Pending: {Math.max(0, Number(karigarLedger.summary?.diamond_count_on_bench || 0))} pcs
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -600,7 +685,7 @@ export default function MaterialAllocationModal({ isOpen, onClose, summaryData =
                     </h3>
                   </div>
 
-                  <form onSubmit={handleSubmitAction} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
+                  <form onSubmit={handleSubmitAction} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 text-xs">
                     <div>
                       <label className="font-bold text-stone-700 block mb-1">Action Type *</label>
                       <select
@@ -618,14 +703,62 @@ export default function MaterialAllocationModal({ isOpen, onClose, summaryData =
                     </div>
 
                     <div>
-                      <label className="font-bold text-stone-700 block mb-1">Weight (g) *</label>
+                      <label className="font-bold text-stone-700 block mb-1">Material *</label>
+                      <select
+                        value={actionForm.material_type || 'gold'}
+                        onChange={(e) => setActionForm({ ...actionForm, material_type: e.target.value })}
+                        className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl font-bold text-stone-800 focus:outline-hidden focus:border-[#b01622]"
+                      >
+                        <option value="gold">Gold (g)</option>
+                        <option value="diamond">Diamond (ct)</option>
+                        <option value="colour_stone">Colour Stone (ct)</option>
+                      </select>
+                    </div>
+
+                    {/* Conditional Purity for Gold OR Stamp Dropdown for Diamond / Colour Stone */}
+                    {actionForm.material_type === 'gold' ? (
+                      <div>
+                        <label className="font-bold text-stone-700 block mb-1">Purity</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. 91.6, 75.0, 22K"
+                          value={actionForm.purity}
+                          onChange={(e) => setActionForm({ ...actionForm, purity: e.target.value })}
+                          className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl font-medium text-stone-900 focus:outline-hidden focus:border-[#b01622]"
+                        />
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="font-bold text-stone-700 block mb-1">Stamp</label>
+                        <select
+                          value={actionForm.stamp}
+                          onChange={(e) => setActionForm({ ...actionForm, stamp: e.target.value })}
+                          className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl font-medium text-stone-900 focus:outline-hidden focus:border-[#b01622]"
+                        >
+                          <option value="">-- Select Stamp --</option>
+                          {stampsList.map((s) => (
+                            <option key={s.id} value={s.name}>
+                              {s.name} {s.code ? `(${s.code})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="font-bold text-stone-700 block mb-1">
+                        {actionForm.material_type === 'diamond' || actionForm.material_type === 'colour_stone'
+                          ? 'Carats (ct) *'
+                          : 'Weight (g) *'}
+                      </label>
                       <input
                         type="number"
                         step="0.001"
                         required
                         placeholder="0.000"
                         value={actionForm.weight}
-                        onChange={(e) => setActionForm({ ...actionForm, weight: e.target.value })}
+                        onFocus={handleNumericFocus}
+                        onChange={(e) => setActionForm(prev => ({ ...prev, weight: normalizeNumericInput(e.target.value, prev.weight) }))}
                         className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl font-mono font-bold text-stone-900 focus:outline-hidden focus:border-[#b01622] text-right"
                       />
                     </div>
@@ -656,7 +789,7 @@ export default function MaterialAllocationModal({ isOpen, onClose, summaryData =
                       />
                     </div>
 
-                    <div>
+                    <div className="sm:col-span-2 lg:col-span-3 xl:col-span-6">
                       <label className="font-bold text-stone-700 block mb-1">Reason / Notes *</label>
                       <input
                         type="text"
@@ -668,7 +801,7 @@ export default function MaterialAllocationModal({ isOpen, onClose, summaryData =
                       />
                     </div>
 
-                    <div className="sm:col-span-2 lg:col-span-5 flex justify-end pt-2">
+                    <div className="sm:col-span-2 lg:col-span-3 xl:col-span-6 flex justify-end pt-2">
                       <button
                         type="submit"
                         disabled={submittingAction}

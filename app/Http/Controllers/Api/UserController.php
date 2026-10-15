@@ -126,9 +126,9 @@ class UserController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => ['required', 'string', 'max:255', 'regex:/^[\p{L}\s.\'-]+$/u'],
             'email' => 'required|email|unique:users,email',
-            'mobile_number' => 'nullable|string|max:20',
+            'mobile_number' => ['nullable', 'string', 'regex:/^[6-9]\d{9}$/'],
             'role' => 'required|string',
             'status' => 'nullable|in:active,inactive',
             'password' => 'required|string|min:6',
@@ -140,7 +140,7 @@ class UserController extends Controller
 
         $user = User::create([
             'name' => $validated['name'],
-            'email' => $validated['email'],
+            'email' => strtolower(trim($validated['email'])),
             'mobile_number' => $validated['mobile_number'] ?? null,
             'role' => $validated['role'],
             'status' => $validated['status'] ?? 'active',
@@ -197,9 +197,9 @@ class UserController extends Controller
         $user = User::findOrFail($id);
 
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => ['required', 'string', 'max:255', 'regex:/^[\p{L}\s.\'-]+$/u'],
             'email' => 'required|email|unique:users,email,' . $id,
-            'mobile_number' => 'nullable|string|max:20',
+            'mobile_number' => ['nullable', 'string', 'regex:/^[6-9]\d{9}$/'],
             'role' => 'required|string',
             'status' => 'nullable|in:active,inactive',
             'password' => 'nullable|string|min:6',
@@ -211,7 +211,7 @@ class UserController extends Controller
 
         $updateData = [
             'name' => $validated['name'],
-            'email' => $validated['email'],
+            'email' => strtolower(trim($validated['email'])),
             'mobile_number' => $validated['mobile_number'] ?? null,
             'role' => $validated['role'],
             'status' => $validated['status'] ?? $user->status ?? 'active',

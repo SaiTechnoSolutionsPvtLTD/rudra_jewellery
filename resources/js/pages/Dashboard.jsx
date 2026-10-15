@@ -25,21 +25,8 @@ export default function Dashboard() {
   const [isBenchModalOpen, setIsBenchModalOpen] = useState(false);
   const [karigarsList, setKarigarsList] = useState([]);
 
-  const [data, setData] = useState(() => {
-    try {
-      const c = localStorage.getItem('rudhra_dashboard_data');
-      if (c) return JSON.parse(c);
-    } catch (e) { }
-    return null;
-  });
-
-  const [loading, setLoading] = useState(() => {
-    try {
-      const c = localStorage.getItem('rudhra_dashboard_data');
-      if (c) return false;
-    } catch (e) { }
-    return true;
-  });
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   const [timeRange, setTimeRange] = useState('Month');
   const [isFetchingPeriod, setIsFetchingPeriod] = useState(false);
@@ -65,39 +52,21 @@ export default function Dashboard() {
   };
 
 
-  // Live Job Order & Approval Cards State (with Instant LocalStorage Cache)
-  const [jobStats, setJobStats] = useState(() => {
-    try {
-      const c = localStorage.getItem('rudhra_job_stats');
-      if (c) {
-        const parsed = JSON.parse(c);
-        if (parsed?.live_jobs?.length > 0) return parsed;
-      }
-    } catch (e) { }
-    return {
-      summary: {
-        active_work_orders: 0,
-        allocated_weight: 0,
-        pending_weight: 0,
-        gold_weight: 0,
-        silver_weight: 0,
-        diamond_weight: 0,
-      },
-      live_jobs: [],
-      approval_cards: [],
-    };
+  // Live Job Order & Approval Cards State
+  const [jobStats, setJobStats] = useState({
+    summary: {
+      active_work_orders: 0,
+      allocated_weight: 0,
+      pending_weight: 0,
+      gold_weight: 0,
+      silver_weight: 0,
+      diamond_weight: 0,
+    },
+    live_jobs: [],
+    approval_cards: [],
   });
 
-  const [jobsLoading, setJobsLoading] = useState(() => {
-    try {
-      const c = localStorage.getItem('rudhra_job_stats');
-      if (c) {
-        const parsed = JSON.parse(c);
-        if (parsed?.live_jobs?.length > 0) return false;
-      }
-    } catch (e) { }
-    return true;
-  });
+  const [jobsLoading, setJobsLoading] = useState(true);
 
   const [approvingId, setApprovingId] = useState(null);
   const [liveRates, setLiveRates] = useState(null);
@@ -126,6 +95,11 @@ export default function Dashboard() {
   }, [jobStats]);
 
   useEffect(() => {
+    try {
+      localStorage.removeItem('rudhra_dashboard_data');
+      localStorage.removeItem('rudhra_job_stats');
+    } catch (e) { }
+
     fetchDashboardData();
     fetchJobStats();
     fetchKarigars();
@@ -182,9 +156,6 @@ export default function Dashboard() {
           approval_cards: res.data.approval_cards || payload.approval_cards || [],
         };
         setJobStats(newStats);
-        try {
-          localStorage.setItem('rudhra_job_stats', JSON.stringify(newStats));
-        } catch (e) { }
       }
     } catch (e) {
       console.error('Failed to load live job stats:', e);
@@ -243,9 +214,6 @@ export default function Dashboard() {
     try {
       const res = await api.get('/dashboard', { params: { period: p, refresh: 1 } });
       setData(res.data);
-      if (res.data) {
-        localStorage.setItem('rudhra_dashboard_data', JSON.stringify(res.data));
-      }
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
     } finally {
@@ -280,14 +248,22 @@ export default function Dashboard() {
       ];
     }
 
-    const maxValRaw = Math.max(...pts.map(p => Number(p.val || 0)), 1);
-    const maxChartVal = maxValRaw * 1.25;
+    const maxValRaw = Math.max(...pts.map(p => Number(p.val || 0)), 0);
+    const maxChartVal = maxValRaw > 0 ? maxValRaw * 1.25 : 0;
     const totalSalesVal = data?.summary?.todaysSaleRaw || data?.summary?.totalSalesRaw || 0;
-    const totalOrdersVal = parseInt(data?.summary?.ordersFormatted || data?.summary?.totalOrders || 0, 10) || 1;
+    const rawOrders = data?.summary?.ordersFormatted ?? data?.summary?.totalOrders ?? data?.summary?.ordersCount ?? 0;
+    const totalOrdersVal = parseInt(String(rawOrders).replace(/[^0-9]/g, '') || '0', 10);
     const computedAvgOrder = totalOrdersVal > 0 ? Math.round(totalSalesVal / totalOrdersVal) : 0;
 
     let yAxisLabels = [];
-    if (maxChartVal >= 100000) {
+    if (maxChartVal <= 0) {
+      yAxisLabels = [
+        { label: '', val: 0 },
+        { label: '', val: 0 },
+        { label: '', val: 0 },
+        { label: '₹0', val: 0 },
+      ];
+    } else if (maxChartVal >= 100000) {
       yAxisLabels = [
         { label: `₹${(maxChartVal / 100000).toFixed(1)}L`, val: maxChartVal },
         { label: `₹${((maxChartVal * 0.66) / 100000).toFixed(1)}L`, val: maxChartVal * 0.66 },
@@ -334,7 +310,7 @@ export default function Dashboard() {
   const points = salesPoints.map((p, i) => {
     const step = salesPoints.length > 1 ? usableWidth / (salesPoints.length - 1) : usableWidth / 2;
     const x = paddingLeft + i * step;
-    const y = chartHeight - 32 - (p.val / (maxVal || 1)) * (chartHeight - 55);
+    const y = maxVal > 0 ? chartHeight - 32 - (p.val / maxVal) * (chartHeight - 55) : chartHeight - 32;
     return { x, y, ...p };
   });
 
@@ -496,7 +472,7 @@ export default function Dashboard() {
               <span className="text-[10px] font-bold text-stone-400 uppercase tracking-tight truncate">Orders</span>
             </div>
             <div className="text-lg sm:text-xl font-extrabold text-stone-900 tracking-tight mt-3">
-              {data?.summary?.ordersFormatted || '₹0'}
+              {data?.summary?.ordersFormatted ?? (data?.summary?.totalOrders !== undefined ? String(data?.summary?.totalOrders) : '0')}
             </div>
           </div>
           {(() => {
@@ -609,7 +585,9 @@ export default function Dashboard() {
 
               {/* Y Axis Grid lines & labels */}
               {salesData.yAxisLabels.map((g, idx) => {
-                const y = chartHeight - 32 - (g.val / maxVal) * (chartHeight - 55);
+                const totalSteps = Math.max(1, salesData.yAxisLabels.length - 1);
+                const ratio = maxVal > 0 ? (g.val / maxVal) : (totalSteps - idx) / totalSteps;
+                const y = chartHeight - 32 - ratio * (chartHeight - 55);
                 return (
                   <g key={idx}>
                     <line
@@ -620,9 +598,11 @@ export default function Dashboard() {
                       stroke="#f5f5f4"
                       strokeDasharray="3 3"
                     />
-                    <text x="44" y={y + 3} textAnchor="end" className="text-[9px] fill-stone-400 font-medium font-mono">
-                      {g.label}
-                    </text>
+                    {g.label ? (
+                      <text x="44" y={y + 3} textAnchor="end" className="text-[9px] fill-stone-400 font-medium font-mono">
+                        {g.label}
+                      </text>
+                    ) : null}
                   </g>
                 );
               })}

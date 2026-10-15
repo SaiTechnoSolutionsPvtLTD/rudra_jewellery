@@ -122,35 +122,47 @@ class ClientController extends Controller
 
     public function store(Request $request)
     {
-        // Normalize request input keys so both snake_case and camelCase work seamlessly
+        $sanitizePhone = function ($val) {
+            if (!$val) return $val;
+            $digits = preg_replace('/\D/', '', (string)$val);
+            if (strlen($digits) === 12 && str_starts_with($digits, '91')) {
+                $digits = substr($digits, 2);
+            } elseif (strlen($digits) === 11 && str_starts_with($digits, '0')) {
+                $digits = substr($digits, 1);
+            }
+            return strlen($digits) === 10 ? $digits : $val;
+        };
+
         $fullName = $request->input('full_name') ?: $request->input('fullName');
-        $primaryPhone = $request->input('primary_phone') ?: $request->input('primaryPhone');
+        $primaryPhone = $sanitizePhone($request->input('primary_phone') ?: $request->input('primaryPhone'));
+        $secondaryPhone = $sanitizePhone($request->input('secondary_phone') ?: $request->input('secondaryPhone'));
 
         $request->merge([
             'full_name' => $fullName,
             'primary_phone' => $primaryPhone,
+            'secondary_phone' => $secondaryPhone,
         ]);
 
         $validated = $request->validate([
             'client_code' => 'nullable|string|max:50',
-            'full_name' => 'required|string|max:255',
-            'primary_phone' => 'required|string|max:50',
+            'full_name' => ['required', 'string', 'max:255', 'regex:/^[\p{L}\s.\'-]+$/u'],
+            'primary_phone' => ['required', 'string', 'regex:/^[6-9]\d{9}$/'],
             'gender' => 'nullable|string',
             'dob' => 'nullable|date',
             'anniversary_date' => 'nullable|date',
-            'secondary_phone' => 'nullable|string',
+            'secondary_phone' => ['nullable', 'string', 'regex:/^[6-9]\d{9}$/'],
             'email' => 'nullable|email|max:255',
-            'aadhar_number' => 'nullable|string',
-            'pan_number' => 'nullable|string',
-            'street_address' => 'nullable|string',
-            'city' => 'nullable|string',
-            'state' => 'nullable|string',
-            'zip_code' => 'nullable|string',
-            'company_name' => 'nullable|string',
-            'gst_number' => 'nullable|string',
-            'gst_percentage' => 'nullable|string',
-            'designation' => 'nullable|string',
-            'membership_tier' => 'nullable|string',
+            'aadhar_number' => ['nullable', 'string', 'regex:/^\d{12}$/'],
+            'pan_number' => ['nullable', 'string', 'regex:/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/i'],
+            'street_address' => 'nullable|string|max:500',
+            'city' => 'nullable|string|max:100',
+            'state' => 'nullable|string|max:100',
+            'zip_code' => ['nullable', 'string', 'regex:/^[1-9][0-9]{5}$/'],
+            'company_name' => 'nullable|string|max:255',
+            'gst_number' => ['nullable', 'string', 'regex:/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/i'],
+            'gst_percentage' => 'nullable|numeric|min:0|max:100',
+            'designation' => 'nullable|string|max:100',
+            'membership_tier' => 'nullable|string|max:50',
             'quick_notes' => 'nullable|string',
             'status' => 'nullable|string',
             'avatar' => 'nullable',
@@ -163,8 +175,8 @@ class ClientController extends Controller
             'dob' => $request->input('dob'),
             'anniversary_date' => $request->input('anniversary_date') ?: $request->input('anniversaryDate'),
             'primary_phone' => $primaryPhone,
-            'secondary_phone' => $request->input('secondary_phone') ?: $request->input('secondaryPhone'),
-            'email' => $request->input('email'),
+            'secondary_phone' => $secondaryPhone,
+            'email' => $request->filled('email') ? strtolower(trim($request->input('email'))) : null,
             'aadhar_number' => $request->input('aadhar_number') ?: $request->input('aadharNumber'),
             'pan_number' => $request->input('pan_number') ?: $request->input('panNumber'),
             'street_address' => $request->input('street_address') ?: $request->input('streetAddress'),
@@ -202,6 +214,7 @@ class ClientController extends Controller
                 return response()->json([
                     'status' => 'success',
                     'message' => 'Client registered successfully',
+                    'data' => $client,
                     'client' => $client
                 ], 201);
             }
@@ -234,6 +247,37 @@ class ClientController extends Controller
             if (Schema::hasTable('clients')) {
                 $client = Client::find($id);
                 if ($client) {
+                    $fullName = $request->input('full_name') ?: $request->input('fullName');
+                    $primaryPhone = $request->input('primary_phone') ?: $request->input('primaryPhone');
+                    $secondaryPhone = $request->input('secondary_phone') ?: $request->input('secondaryPhone');
+                    if ($fullName !== null) $request->merge(['full_name' => $fullName]);
+                    if ($primaryPhone !== null) $request->merge(['primary_phone' => $sanitizePhone($primaryPhone)]);
+                    if ($secondaryPhone !== null) $request->merge(['secondary_phone' => $sanitizePhone($secondaryPhone)]);
+
+                    $validated = $request->validate([
+                        'full_name' => ['sometimes', 'required', 'string', 'max:255', 'regex:/^[\p{L}\s.\'-]+$/u'],
+                        'primary_phone' => ['sometimes', 'required', 'string', 'regex:/^[6-9]\d{9}$/'],
+                        'gender' => 'nullable|string',
+                        'dob' => 'nullable|date',
+                        'anniversary_date' => 'nullable|date',
+                        'secondary_phone' => ['nullable', 'string', 'regex:/^[6-9]\d{9}$/'],
+                        'email' => 'nullable|email|max:255',
+                        'aadhar_number' => ['nullable', 'string', 'regex:/^\d{12}$/'],
+                        'pan_number' => ['nullable', 'string', 'regex:/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/i'],
+                        'street_address' => 'nullable|string|max:500',
+                        'city' => 'nullable|string|max:100',
+                        'state' => 'nullable|string|max:100',
+                        'zip_code' => ['nullable', 'string', 'regex:/^[1-9][0-9]{5}$/'],
+                        'company_name' => 'nullable|string|max:255',
+                        'gst_number' => ['nullable', 'string', 'regex:/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/i'],
+                        'gst_percentage' => 'nullable|numeric|min:0|max:100',
+                        'designation' => 'nullable|string|max:100',
+                        'membership_tier' => 'nullable|string|max:50',
+                        'quick_notes' => 'nullable|string',
+                        'status' => 'nullable|string',
+                        'avatar' => 'nullable',
+                    ]);
+
                     $data = [
                         'full_name' => $request->input('full_name') ?: $request->input('fullName', $client->full_name),
                         'gender' => $request->input('gender', $client->gender),
@@ -241,7 +285,7 @@ class ClientController extends Controller
                         'anniversary_date' => $request->input('anniversary_date') ?: $request->input('anniversaryDate', $client->anniversary_date),
                         'primary_phone' => $request->input('primary_phone') ?: $request->input('primaryPhone', $client->primary_phone),
                         'secondary_phone' => $request->input('secondary_phone') ?: $request->input('secondaryPhone', $client->secondary_phone),
-                        'email' => $request->input('email', $client->email),
+                        'email' => $request->has('email') ? ($request->filled('email') ? strtolower(trim($request->input('email'))) : null) : $client->email,
                         'aadhar_number' => $request->input('aadhar_number') ?: $request->input('aadharNumber', $client->aadhar_number),
                         'pan_number' => $request->input('pan_number') ?: $request->input('panNumber', $client->pan_number),
                         'street_address' => $request->input('street_address') ?: $request->input('streetAddress', $client->street_address),
@@ -860,7 +904,8 @@ class ClientController extends Controller
                 ]);
             }
         } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+            \Illuminate\Support\Facades\Log::error('Client overview stats error: ' . $e->getMessage());
+            return response()->json(['message' => 'Unable to load client overview statistics (500). Please try again later.'], 500);
         }
 
         return response()->json(['stats' => [], 'clients' => []]);

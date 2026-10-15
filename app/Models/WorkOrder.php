@@ -261,44 +261,50 @@ class WorkOrder extends Model
      */
     public function getImageUrlAttribute($value)
     {
-        // High-speed static sample mapping for demo orders
-        if ($this->work_order_number === 'WO-2026-0001' || str_contains($this->product_name ?? '', 'Peacock')) {
-            return '/images/samples/peacock_choker.jpg';
-        }
-        if ($this->work_order_number === 'WO-2026-0002' || str_contains($this->product_name ?? '', 'Kada')) {
-            return '/images/samples/kada_bangles.jpg';
-        }
-        if ($this->work_order_number === 'WO-2026-0003' || str_contains($this->product_name ?? '', 'Necklace')) {
-            return '/images/samples/gold_necklace.jpg';
-        }
-        if ($this->work_order_number === 'WO-2026-0004' || str_contains($this->product_name ?? '', 'Ring') || str_contains($this->product_name ?? '', 'Diamond')) {
-            return '/images/samples/diamond_ring.jpg';
-        }
-
         if (!empty($value)) {
             if (filter_var($value, FILTER_VALIDATE_URL) || str_starts_with($value, 'data:image')) {
                 return $value;
             }
-            if (str_starts_with($value, '/images/') || str_starts_with($value, 'images/')) {
-                return asset(ltrim($value, '/'));
+            if ($value === '/placeholder-jewelry.png' || $value === 'placeholder-jewelry.png') {
+                return null;
             }
             if (str_starts_with($value, '/storage/') || str_starts_with($value, 'storage/')) {
-                return asset(ltrim($value, '/'));
+                return '/' . ltrim($value, '/');
+            }
+            if (str_starts_with($value, '/images/') || str_starts_with($value, 'images/')) {
+                return '/' . ltrim($value, '/');
             }
             if (str_starts_with($value, 'products/')) {
-                return asset('storage/' . $value);
+                return '/storage/' . $value;
             }
             if (str_starts_with($value, '/')) {
                 return $value;
             }
-            return asset('storage/' . $value);
+            return '/storage/' . $value;
         }
 
         if ($this->relationLoaded('product') && $this->product) {
-            return $this->product->image_url ?? $this->product->thumbnail_url ?? '/placeholder-jewelry.png';
+            $prodImg = $this->product->image_url ?? $this->product->thumbnail_url ?? null;
+            if ($prodImg && !str_contains($prodImg, 'placeholder-jewelry.png')) {
+                return $prodImg;
+            }
         }
 
-        return '/placeholder-jewelry.png';
+        // Demo sample fallback strictly for initial sample seed orders
+        if ($this->work_order_number === 'WO-2026-0001') {
+            return '/images/samples/peacock_choker.jpg';
+        }
+        if ($this->work_order_number === 'WO-2026-0002') {
+            return '/images/samples/kada_bangles.jpg';
+        }
+        if ($this->work_order_number === 'WO-2026-0003') {
+            return '/images/samples/gold_necklace.jpg';
+        }
+        if ($this->work_order_number === 'WO-2026-0004') {
+            return '/images/samples/diamond_ring.jpg';
+        }
+
+        return null;
     }
 
     public function jobOrder()

@@ -39,6 +39,20 @@ class MaterialOpeningStock extends Model
         'created_by' => 'integer',
     ];
 
+    protected static function booted()
+    {
+        static::saving(function ($model) {
+            $model->weight = round(floatval($model->weight ?? 0), 3);
+            $model->carat_weight = round(floatval($model->carat_weight ?? 0), 3);
+            $model->quantity = round(floatval($model->quantity ?? 0), 3);
+            $model->rate = round(floatval($model->rate ?? 0), 2);
+            $model->total_value = round(floatval($model->total_value ?? 0), 2);
+            if (empty($model->unit)) {
+                $model->unit = (strtolower($model->material_type ?? '') === 'diamond') ? 'ct' : 'g';
+            }
+        });
+    }
+
     public function rawMaterial()
     {
         return $this->belongsTo(RawMaterial::class);

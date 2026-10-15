@@ -39,14 +39,22 @@ export function generateBarcodeSvgString(code = '', height = 30, color = '#00000
   return `<svg width="100%" height="${height}" preserveAspectRatio="none" viewBox="0 0 ${total} ${height}">${bars.join('')}</svg>`;
 }
 
+export function isMetalPurityStamp(val) {
+  if (!val) return false;
+  const str = String(val).trim().toLowerCase().replace(/^\++/, '');
+  // Metal purities like 916, 24, 22, 18, 14, 24k, 22k, 18k, 750, 14k, 585, 925, 999, etc.
+  return /^(?:24k?|22k?|18k?|14k?|10k?|916|750|585|925|999|99\.9|hallmark|bis|gold|silver|platinum)/i.test(str)
+    || /\b(916|750|585|925|999|22k?|24k?|18k?|14k?)\b/i.test(str);
+}
+
 export function formatTagDiamondSpec(piece) {
-  const rawWeight =
+  const numWeight = parseFloat(
     piece?.diamond_weight ??
     piece?.product?.attributes?.dia_wt_ct ??
     piece?.product?.attributes?.diamond_weight ??
-    null;
-  if (rawWeight == null || rawWeight === '') return '—';
-  const wt = parseFloat(rawWeight).toFixed(2);
+    0
+  );
+  const validWeight = !isNaN(numWeight) && numWeight > 0 ? numWeight : 0;
 
   // 2. Dynamic diamond count from piece or inventory product details
   let count = piece?.dynamic_dia_count;
@@ -57,49 +65,77 @@ export function formatTagDiamondSpec(piece) {
       count = parseInt(piece.product.attributes.diamond_count, 10);
     } else if (piece?.product?.attributes?.dia_count !== undefined) {
       count = parseInt(piece.product.attributes.dia_count, 10);
-    } else if (piece?.product?.attributes?.stone_count !== undefined) {
-      count = parseInt(piece.product.attributes.stone_count, 10);
     } else if (Array.isArray(piece?.product?.attributes?.components)) {
       const diaComp = piece.product.attributes.components.find((c) => {
-        const name = (c.category_name || c.item_name || '').toLowerCase();
-        return name.includes('diamond') || name.includes('dia');
+        const name = (c.category_name || c.item_name || c.component_type || '').toLowerCase();
+        return c.is_diamond || name.includes('diamond') || name.includes('dia');
       });
       if (diaComp) {
         count = parseInt(diaComp.no_of_pieces || diaComp.quantity || 0, 10);
       }
     }
   }
-  if (isNaN(count) || count === undefined || count === null) count = null;
+  const validCount = !isNaN(count) && count > 0 ? count : 0;
 
-  // 3. Dynamic stamp from inventory product details or piece
-  let stamp = piece?.dynamic_stamp || piece?.diamond_stamp;
-  if (!stamp) {
-    stamp = piece?.product?.attributes?.stamp ||
-      piece?.product?.stamp ||
-      piece?.product?.attributes?.diamond_stamp ||
-      piece?.stamp;
+  // If there are 0 diamonds (0 weight and 0 count), diamond stamp is strictly 0
+  if (validWeight <= 0 && validCount <= 0) {
+    return 'Dia-0.00/+0/0';
   }
-  if (!stamp && Array.isArray(piece?.product?.attributes?.components)) {
-    const diaComp = piece.product.attributes.components.find((c) => {
-      const name = (c.category_name || c.item_name || '').toLowerCase();
-      return (name.includes('diamond') || name.includes('dia')) && c.stamp;
+
+  // 3. Dynamic stamp strictly linked to diamonds (never metal hallmarks like 916, 24, 22, 750)
+  let stamp = null;
+
+  // 3a. Check piece diamond_stamp or dynamic_stamp
+  const candPieceStamp = piece?.diamond_stamp || piece?.dynamic_stamp;
+  if (candPieceStamp && !isMetalPurityStamp(candPieceStamp)) {
+    stamp = candPieceStamp;
+  }
+
+  // 3b. Check all attached components for diamond components specifically
+  const allComponents = [
+    ...(Array.isArray(piece?.product?.attributes?.components) ? piece.product.attributes.components : []),
+    ...(Array.isArray(piece?.components) ? piece.components : []),
+    ...(Array.isArray(piece?.product?.components) ? piece.product.components : []),
+    ...(Array.isArray(piece?.item?.components) ? piece.item.components : []),
+  ];
+
+  if (!stamp && allComponents.length > 0) {
+    const diaComp = allComponents.find((c) => {
+      const name = (c.category_name || c.item_name || c.component_type || c.type || '').toLowerCase();
+      return (c.is_diamond || name.includes('diamond') || name.includes('dia')) && c.stamp;
     });
-    if (diaComp?.stamp) {
+    if (diaComp?.stamp && !isMetalPurityStamp(diaComp.stamp)) {
       stamp = diaComp.stamp;
     }
   }
+
+  // 3c. Check attributes.diamond_stamp or product.diamond_stamp from product details
+  if (!stamp) {
+    const candAttrStamp = piece?.product?.attributes?.diamond_stamp || piece?.product?.diamond_stamp;
+    if (candAttrStamp && !isMetalPurityStamp(candAttrStamp)) {
+      stamp = candAttrStamp;
+    }
+  }
+
+  // 3d. Check diamond_details string if saved (e.g. Dia-0.09/+7/2 -> +7)
   if (!stamp && piece?.diamond_details) {
-    // If diamond_details was saved with a stamp, extract it (e.g. Dia-0.09/+6/2 -> 6)
     const m = String(piece.diamond_details).match(/\/(\+?[A-Za-z0-9]+)\//);
-    if (m && m[1] && m[1] !== '+7' && m[1] !== '7' && m[1] !== '+7U') {
+    if (m && m[1] && !isMetalPurityStamp(m[1])) {
       stamp = m[1];
     }
   }
-  // Clean stamp format: ensure single leading '+'
-  const cleanStamp = String(stamp).replace(/^\++/, '').trim();
-  const stampStr = cleanStamp ? `+${cleanStamp}` : '—';
 
-  return `Dia-${wt}/${stampStr}/${count ?? '—'}`;
+  // Format clean stamp: e.g. "7" -> "+7", "+7" -> "+7", "+8" -> "+8", "0" -> "+0"
+  let cleanStamp = String(stamp || '0').trim();
+  if (!cleanStamp || cleanStamp === '0' || cleanStamp === '+0') {
+    cleanStamp = '0';
+  }
+  const stampStr = cleanStamp.startsWith('+') || cleanStamp.startsWith('-')
+    ? cleanStamp
+    : (cleanStamp === '0' ? '+0' : `+${cleanStamp}`);
+  const wtStr = validWeight.toFixed(2);
+
+  return `Dia-${wtStr}/${stampStr}/${validCount}`;
 }
 
 export function formatTagTotalDia(piece) {
@@ -108,15 +144,17 @@ export function formatTagTotalDia(piece) {
     piece?.product?.attributes?.dia_wt_ct ??
     piece?.product?.attributes?.diamond_weight ??
     null;
-  if (rawWeight == null || rawWeight === '') return '—';
+  if (rawWeight == null || rawWeight === '' || parseFloat(rawWeight) <= 0) {
+    return '0.00Ct.';
+  }
   const wt = parseFloat(rawWeight).toFixed(2);
   return `${wt}Ct.`;
 }
 
 /**
  * Builds printable HTML for one or more tags matching exact specification:
- * Left: G.Wt, Design, Dia-spec, Karat, T.Dia
- * Right: Barcode -> Tag Number -> T.Dia -> Design No
+ * Left: G.Wt (top left), Design No (top right), Dia-spec (mid left), Karat (mid right), T.Dia (bottom left)
+ * Right: Barcode -> Tag Number -> Design No -> Total Dia
  */
 export function buildPrintableTagsHtml(items, title = 'Print Jewellery Tags') {
   const tagsHtml = items.map((piece) => {
@@ -148,7 +186,7 @@ export function buildPrintableTagsHtml(items, title = 'Print Jewellery Tags') {
         <!-- Vertical Dotted Separation Line before Barcode -->
         <div class="tag-divider"></div>
 
-        <!-- Right Barcode Section: Barcode -> Tag Number -> Total Dia -> Design No -->
+        <!-- Right Barcode Section: Barcode -> Tag Number -> Design No -> Total Dia -->
         <div class="tag-right">
           <div class="barcode-box">
             ${barcodeSvg}
@@ -156,11 +194,11 @@ export function buildPrintableTagsHtml(items, title = 'Print Jewellery Tags') {
           <div class="tag-no">
             ${tagNo || '—'}
           </div>
-          <div class="tdia-barcode">
-            T.Dia- ${totalDia}
-          </div>
           <div class="design-bottom">
             ${designNo}
+          </div>
+          <div class="tdia-barcode">
+            T.Dia- ${totalDia}
           </div>
         </div>
       </div>
@@ -171,14 +209,14 @@ export function buildPrintableTagsHtml(items, title = 'Print Jewellery Tags') {
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>${title} (${items.length})</title>
+  <title></title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: Arial, Helvetica, sans-serif;
       background: #ffffff;
       color: #000000;
-      padding: 10px;
+      padding: 10mm 12mm;
     }
     .tags-container {
       display: flex;
@@ -187,11 +225,11 @@ export function buildPrintableTagsHtml(items, title = 'Print Jewellery Tags') {
       align-items: flex-start;
     }
     .tag-card {
-      width: 105mm;
+      width: 125mm;
       height: 33mm;
       border: 2px solid #000000;
       border-radius: 4px;
-      padding: 2.5mm 3.5mm;
+      padding: 2.5mm 4mm;
       display: flex;
       align-items: stretch;
       justify-content: space-between;
@@ -200,13 +238,15 @@ export function buildPrintableTagsHtml(items, title = 'Print Jewellery Tags') {
       color: #000000;
       box-sizing: border-box;
       margin-bottom: 6mm;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
     .tag-left {
-      flex: 1.2;
+      flex: 1.35;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      padding-right: 3mm;
+      padding-right: 4mm;
       min-width: 0;
     }
     .tag-row {
@@ -215,33 +255,39 @@ export function buildPrintableTagsHtml(items, title = 'Print Jewellery Tags') {
       align-items: baseline;
       line-height: 1.1;
       white-space: nowrap;
+      gap: 3mm;
     }
     .gwt {
       font-weight: 900;
       font-size: 15px;
       letter-spacing: -0.3px;
+      flex-shrink: 0;
     }
     .design-top {
       font-weight: 900;
-      font-size: 15px;
+      font-size: 14px;
       text-transform: uppercase;
+      text-align: right;
+      letter-spacing: -0.2px;
     }
     .dia-spec {
       font-weight: 900;
       font-size: 14px;
       letter-spacing: -0.3px;
+      flex-shrink: 0;
     }
     .karat {
       font-weight: 900;
       font-size: 14px;
+      text-align: right;
     }
     .row-3 {
-      justify-content: flex-end;
+      justify-content: flex-start;
     }
     .tdia-spec {
       font-weight: 900;
       font-size: 13px;
-      text-align: right;
+      text-align: left;
     }
     .tag-divider {
       border-left: 2px dotted #000000;
@@ -275,14 +321,6 @@ export function buildPrintableTagsHtml(items, title = 'Print Jewellery Tags') {
       white-space: nowrap;
       margin-top: 1px;
     }
-    .tdia-barcode {
-      font-weight: 900;
-      font-size: 8.5pt;
-      color: #000000;
-      text-align: center;
-      white-space: nowrap;
-      margin-top: 1px;
-    }
     .design-bottom {
       font-weight: 900;
       font-size: 11pt;
@@ -293,11 +331,23 @@ export function buildPrintableTagsHtml(items, title = 'Print Jewellery Tags') {
       white-space: nowrap;
       margin-top: 1px;
     }
+    .tdia-barcode {
+      font-weight: 900;
+      font-size: 8.5pt;
+      color: #000000;
+      text-align: center;
+      white-space: nowrap;
+      margin-top: 1px;
+    }
+    @page {
+      size: auto;
+      margin: 0 !important;
+    }
     @media print {
       body {
-        padding: 0;
-        margin: 0;
-        background: transparent;
+        padding: 10mm 12mm !important;
+        margin: 0 !important;
+        background: transparent !important;
       }
       .no-print {
         display: none !important;
@@ -306,12 +356,14 @@ export function buildPrintableTagsHtml(items, title = 'Print Jewellery Tags') {
         gap: 0;
       }
       .tag-card {
-        margin: 0 0 4mm 0;
+        margin: 0 0 6mm 0;
         page-break-after: always;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
       }
       @page {
         size: auto;
-        margin: 4mm;
+        margin: 0 !important;
       }
     }
   </style>
@@ -322,6 +374,9 @@ export function buildPrintableTagsHtml(items, title = 'Print Jewellery Tags') {
   </div>
   <script>
     window.onload = function() {
+      try {
+        document.title = "";
+      } catch (e) {}
       setTimeout(function() {
         window.print();
       }, 300);
@@ -346,14 +401,14 @@ export default function JewelleryTagCard({ piece, id = 'jewellery-tag-card' }) {
       id={id}
       className="tag-label-card bg-white text-black font-['Arial',Helvetica,sans-serif] select-none border-2 border-black rounded-sm shadow-md"
       style={{
-        width: '105mm',
+        width: '125mm',
         minHeight: '33mm',
         maxHeight: '36mm',
         boxSizing: 'border-box',
         display: 'flex',
         alignItems: 'stretch',
         justifyContent: 'space-between',
-        padding: '8px 10px',
+        padding: '8px 12px',
         backgroundColor: '#ffffff',
         color: '#000000',
         pageBreakInside: 'avoid',
@@ -363,36 +418,36 @@ export default function JewelleryTagCard({ piece, id = 'jewellery-tag-card' }) {
       <div
         className="tag-left-section"
         style={{
-          flex: '1.2',
+          flex: '1.35',
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'space-between',
-          paddingRight: '8px',
+          paddingRight: '12px',
           minWidth: 0,
         }}
       >
         {/* Row 1: gross weight and design number */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-          <span style={{ fontWeight: '900', fontSize: '15px', color: '#000000', letterSpacing: '-0.3px', whiteSpace: 'nowrap' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
+          <span style={{ fontWeight: '900', fontSize: '15px', color: '#000000', letterSpacing: '-0.3px', whiteSpace: 'nowrap', flexShrink: 0 }}>
             G.Wt -{grossWt}
           </span>
-          <span style={{ fontWeight: '900', fontSize: '15px', color: '#000000', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+          <span style={{ fontWeight: '900', fontSize: '14px', color: '#000000', textTransform: 'uppercase', whiteSpace: 'nowrap', textAlign: 'right', letterSpacing: '-0.2px' }}>
             {designNo}
           </span>
         </div>
 
         {/* Row 2: Dia-0.09/+7U/3 (left), 22K (right) */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '2px' }}>
-          <span style={{ fontWeight: '900', fontSize: '14px', color: '#000000', letterSpacing: '-0.3px', whiteSpace: 'nowrap' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '2px', gap: '8px' }}>
+          <span style={{ fontWeight: '900', fontSize: '14px', color: '#000000', letterSpacing: '-0.3px', whiteSpace: 'nowrap', flexShrink: 0 }}>
             {diaSpec}
           </span>
-          <span style={{ fontWeight: '900', fontSize: '14px', color: '#000000', whiteSpace: 'nowrap' }}>
+          <span style={{ fontWeight: '900', fontSize: '14px', color: '#000000', whiteSpace: 'nowrap', textAlign: 'right' }}>
             {karat}
           </span>
         </div>
 
-        {/* Row 3: T.Dia- 0.09Ct. (right-aligned under 22K) */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'baseline', marginTop: '2px' }}>
+        {/* Row 3: T.Dia- 0.00Ct. (left-aligned below dia details) */}
+        <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'baseline', marginTop: '2px' }}>
           <span style={{ fontWeight: '900', fontSize: '13px', color: '#000000', whiteSpace: 'nowrap' }}>
             T.Dia- {totalDia}
           </span>
@@ -409,7 +464,7 @@ export default function JewelleryTagCard({ piece, id = 'jewellery-tag-card' }) {
         }}
       />
 
-      {/* Right Barcode Section: Barcode -> Tag Number -> Total Dia -> Design No */}
+      {/* Right Barcode Section: Barcode -> Tag Number -> Design No -> Total Dia */}
       <div
         className="tag-right-section"
         style={{
@@ -445,22 +500,7 @@ export default function JewelleryTagCard({ piece, id = 'jewellery-tag-card' }) {
           {tagNo}
         </div>
 
-        {/* 3. Then, Total Dia Value */}
-        <div
-          style={{
-            fontWeight: '900',
-            fontSize: '11.5px',
-            color: '#000000',
-            textAlign: 'center',
-            whiteSpace: 'nowrap',
-            lineHeight: '1.2',
-            marginTop: '1px',
-          }}
-        >
-          T.Dia- {totalDia}
-        </div>
-
-        {/* 4. And then, Design No */}
+        {/* 3. Then, Design No */}
         <div
           style={{
             textAlign: 'center',
@@ -475,6 +515,21 @@ export default function JewelleryTagCard({ piece, id = 'jewellery-tag-card' }) {
           }}
         >
           {designNo}
+        </div>
+
+        {/* 4. And then, Total Dia Value */}
+        <div
+          style={{
+            fontWeight: '900',
+            fontSize: '11.5px',
+            color: '#000000',
+            textAlign: 'center',
+            whiteSpace: 'nowrap',
+            lineHeight: '1.2',
+            marginTop: '1px',
+          }}
+        >
+          T.Dia- {totalDia}
         </div>
       </div>
     </div>

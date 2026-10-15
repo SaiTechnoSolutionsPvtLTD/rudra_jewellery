@@ -5,15 +5,11 @@ import { useToast } from '../../context/ToastContext';
 import ProductUploadStepNav from './ProductUploadStepNav';
 import ImageGalleryModal from '../../components/ImageGalleryModal';
 import ConfirmModal from '../../components/ConfirmModal';
-import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
-import { STAMP_OPTIONS, STONE_SIZE_OPTIONS, STONE_COLOR_OPTIONS } from '../../constants/productOptions';
 
 export default function Step1Upload() {
   const navigate = useNavigate();
   const { showToast } = useToast();
 
-  const [showStylesModal, setShowStylesModal] = useState(false);
-  const [showGoldTypesModal, setShowGoldTypesModal] = useState(false);
   const [designs, setDesigns] = useState([]);
   const [totalDesigns, setTotalDesigns] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
@@ -21,42 +17,16 @@ export default function Step1Upload() {
   const [perPage, setPerPage] = useState(10);
   const [loading, setLoading] = useState(true);
 
-  // Metadata (gold types, styles, diamond ranges)
-  const [goldTypes, setGoldTypes] = useState([]);
-  const [styles, setStyles] = useState([]);
-  const [diamondRanges, setDiamondRanges] = useState([]);
-
   // Add Modal State
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [filePreviews, setFilePreviews] = useState([]);
   const [formData, setFormData] = useState({
-    product_type: 'Gold & Diamond',
     design_no: '',
-    net_wt: '',
-    gold_type: '',
-    setting_style: '',
-    stamp: '+0',
-    stone_size: '',
-    stone_color: '',
-    dia_wt_range: '',
     dia_wt_ct: '',
-    variants: [],
-  });
-  const [newVariant, setNewVariant] = useState({
-    sku: '',
-    title: '',
-    size: '',
-    color: '',
     net_wt: '',
-    stock_qty: '1',
   });
-
-  const [customGoldTypeVisible, setCustomGoldTypeVisible] = useState(false);
-  const [customGoldTypeInput, setCustomGoldTypeInput] = useState('');
-  const [customStyleVisible, setCustomStyleVisible] = useState(false);
-  const [customStyleInput, setCustomStyleInput] = useState('');
 
   // Edit Modal State
   const [editDesign, setEditDesign] = useState(null);
@@ -65,29 +35,23 @@ export default function Step1Upload() {
   const [editFiles, setEditFiles] = useState([]);
   const [editFilePreviews, setEditFilePreviews] = useState([]);
   const [editFormData, setEditFormData] = useState({
-    product_type: 'Gold & Diamond',
     design_no: '',
-    net_wt: '',
-    gold_type: '',
-    setting_style: '',
-    stamp: '+0',
-    stone_size: '',
-    stone_color: '',
     dia_wt_ct: '',
-    variants: [],
-  });
-  const [editNewVariant, setEditNewVariant] = useState({
-    sku: '',
-    title: '',
-    size: '',
-    color: '',
     net_wt: '',
-    stock_qty: '1',
   });
 
   // Uniqueness Status State
   const [addDesignNoStatus, setAddDesignNoStatus] = useState({ checking: false, exists: false, message: '' });
   const [editDesignNoStatus, setEditDesignNoStatus] = useState({ checking: false, exists: false, message: '' });
+
+  // Delete State
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Gallery / Lightbox State
+  const [galleryImages, setGalleryImages] = useState([]);
+  const [galleryDetails, setGalleryDetails] = useState({});
+  const [galleryOpen, setGalleryOpen] = useState(false);
 
   // Real-time Uniqueness Checker
   const checkUniqueness = async (code, ignoreId = null, mode = 'add') => {
@@ -103,7 +67,7 @@ export default function Step1Upload() {
 
     try {
       const res = await api.get('/product-designs/check-design-no', {
-        params: { design_no: cleanCode, ignore_id: ignoreId }
+        params: { design_no: cleanCode, ignore_id: ignoreId },
       });
       const data = res?.data || {};
       if (mode === 'add') {
@@ -125,37 +89,16 @@ export default function Step1Upload() {
       const generatedCode = res?.data?.design_no;
       if (generatedCode) {
         if (mode === 'add') {
-          setFormData(prev => ({ ...prev, design_no: generatedCode }));
+          setFormData((prev) => ({ ...prev, design_no: generatedCode }));
           setAddDesignNoStatus({ checking: false, exists: false, message: 'Generated unique Design Number!' });
         } else {
-          setEditFormData(prev => ({ ...prev, design_no: generatedCode }));
+          setEditFormData((prev) => ({ ...prev, design_no: generatedCode }));
           setEditDesignNoStatus({ checking: false, exists: false, message: 'Generated unique Design Number!' });
         }
       }
     } catch (err) {
       console.error('Failed to generate design no', err);
       showToast('Failed to auto-generate code', 'error');
-    }
-  };
-
-  // Delete State
-  const [deleteTarget, setDeleteTarget] = useState(null);
-  const [deleting, setDeleting] = useState(false);
-
-  // Gallery / Lightbox State
-  const [galleryImages, setGalleryImages] = useState([]);
-  const [galleryDetails, setGalleryDetails] = useState({});
-  const [galleryOpen, setGalleryOpen] = useState(false);
-
-  // Fetch Metadata
-  const fetchMeta = async () => {
-    try {
-      const res = await api.get('/product-designs/meta');
-      if (res?.data?.gold_types && Array.isArray(res.data.gold_types)) setGoldTypes(res.data.gold_types);
-      if (res?.data?.styles && Array.isArray(res.data.styles)) setStyles(res.data.styles);
-      if (res?.data?.diamond_ranges && Array.isArray(res.data.diamond_ranges)) setDiamondRanges(res.data.diamond_ranges);
-    } catch (err) {
-      console.error('Failed to fetch metadata', err);
     }
   };
 
@@ -178,72 +121,55 @@ export default function Step1Upload() {
   const fetchDesigns = async (page = 1, requestedPerPage = perPage) => {
     try {
       setLoading(true);
-      const res = await api.get(`/product-designs?page=${page}&per_page=${requestedPerPage}`);
-      const payload = res?.data;
-      const dataArr = Array.isArray(payload) ? payload : (Array.isArray(payload?.data) ? payload.data : []);
-      setDesigns(dataArr);
-      setTotalDesigns(payload?.total ?? dataArr.length ?? 0);
-      setCurrentPage(payload?.current_page || 1);
-      setLastPage(payload?.last_page || 1);
+      const res = await api.get('/product-designs', {
+        params: {
+          page,
+          per_page: requestedPerPage,
+        },
+      });
+
+      setDesigns(res.data.data || []);
+      setTotalDesigns(res.data.total || 0);
+      setCurrentPage(res.data.current_page || 1);
+      setLastPage(res.data.last_page || 1);
     } catch (err) {
       console.error('Failed to fetch designs', err);
-      setDesigns([]);
+      showToast('Failed to load designs.', 'error');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchMeta();
-    fetchDesigns(1);
-  }, []);
+    fetchDesigns(currentPage, perPage);
+  }, [currentPage, perPage]);
 
-  // Handle File Selections
+  // Handle Image Selection for Add
   const handleFileChange = (e) => {
-    const files = Array.from(e.target.files || []);
-    setSelectedFiles(files);
+    const files = Array.from(e.target.files);
+    if (!files || files.length === 0) return;
 
-    const previews = files.map((file) => URL.createObjectURL(file));
+    const newFiles = [...selectedFiles, ...files];
+    setSelectedFiles(newFiles);
+
+    const previews = newFiles.map((file) => URL.createObjectURL(file));
     setFilePreviews(previews);
-  };
-
-  const handleEditFileChange = (e) => {
-    const files = Array.from(e.target.files || []);
-    setEditFiles(files);
-
-    const previews = files.map((file) => URL.createObjectURL(file));
-    setEditFilePreviews(previews);
   };
 
   const resetAddForm = () => {
     setFormData({
-      product_type: 'Gold & Diamond',
       design_no: '',
-      net_wt: '',
-      gold_type: '',
-      setting_style: '',
-      dia_wt_range: '',
       dia_wt_ct: '',
+      net_wt: '',
     });
     setSelectedFiles([]);
     setFilePreviews([]);
-    setCustomGoldTypeVisible(false);
-    setCustomGoldTypeInput('');
-    setCustomStyleVisible(false);
-    setCustomStyleInput('');
     setAddDesignNoStatus({ checking: false, exists: false, message: '' });
   };
 
+  // Submit Add Design
   const handleAddSubmit = async (e) => {
     e.preventDefault();
-
-    const finalGoldType = customGoldTypeVisible && customGoldTypeInput.trim()
-      ? customGoldTypeInput.trim()
-      : (formData.gold_type || (formData.product_type === 'Silver' ? 'Silver 925' : '18 Carat'));
-
-    const finalStyle = customStyleVisible && customStyleInput.trim()
-      ? customStyleInput.trim()
-      : formData.setting_style;
 
     if (selectedFiles.length === 0) {
       showToast('Please select at least one design image', 'error', 'Image Required');
@@ -261,24 +187,15 @@ export default function Step1Upload() {
       showToast('Please enter NET WT (G)', 'error', 'Net Weight Required');
       return;
     }
-    if (!finalGoldType) {
-      showToast('Please select or specify a Gold Type', 'error', 'Gold Type Required');
-      return;
-    }
-    if (!finalStyle) {
-      showToast('Please select or specify a Setting Style', 'error', 'Setting Style Required');
-      return;
-    }
 
     try {
       setIsUploading(true);
       const data = new FormData();
       data.append('design_no', formData.design_no.trim());
       data.append('net_wt', formData.net_wt);
-      data.append('gold_type', finalGoldType);
-      data.append('setting_style', finalStyle);
-      if (formData.dia_wt_range) data.append('dia_wt_range', formData.dia_wt_range);
-      if (formData.dia_wt_ct) data.append('dia_wt_ct', formData.dia_wt_ct);
+      if (formData.dia_wt_ct) {
+        data.append('dia_wt_ct', formData.dia_wt_ct);
+      }
 
       selectedFiles.forEach((file) => {
         data.append('image[]', file);
@@ -291,7 +208,6 @@ export default function Step1Upload() {
       showToast('Design uploaded successfully!', 'success', 'Success');
       setIsAddOpen(false);
       resetAddForm();
-      fetchMeta();
       fetchDesigns(1);
     } catch (err) {
       console.error(err);
@@ -302,25 +218,13 @@ export default function Step1Upload() {
     }
   };
 
+  // Open Edit Modal
   const openEditModal = (design) => {
     setEditDesign(design);
-    let inferredType = 'Gold & Diamond';
-    const gt = (design.gold_type || '').toLowerCase();
-    if (gt.includes('silver')) {
-      inferredType = 'Silver';
-    } else if (design.dia_wt_ct && (!design.gold_type || gt === '18 carat' || gt === '14 carat')) {
-      inferredType = 'Diamond';
-    } else if (design.gold_type && !design.dia_wt_ct) {
-      inferredType = 'Gold';
-    }
-
     setEditFormData({
-      product_type: inferredType,
       design_no: design.design_no || '',
-      net_wt: design.net_wt || '',
-      gold_type: design.gold_type || '',
-      setting_style: design.setting_style || '',
       dia_wt_ct: design.dia_wt_ct || '',
+      net_wt: design.net_wt || '',
     });
     setEditFiles([]);
     setEditFilePreviews([]);
@@ -328,12 +232,33 @@ export default function Step1Upload() {
     setIsEditOpen(true);
   };
 
+  // Handle Image Selection for Edit
+  const handleEditFileChange = (e) => {
+    const files = Array.from(e.target.files);
+    if (!files || files.length === 0) return;
+
+    const newFiles = [...editFiles, ...files];
+    setEditFiles(newFiles);
+
+    const previews = newFiles.map((file) => URL.createObjectURL(file));
+    setEditFilePreviews(previews);
+  };
+
+  // Submit Edit Design
   const handleEditSubmit = async (e) => {
     e.preventDefault();
     if (!editDesign) return;
 
+    if (!editFormData.design_no.trim()) {
+      showToast('Please enter a Design No', 'error', 'Design No Required');
+      return;
+    }
     if (editDesignNoStatus.exists) {
       showToast('This Design Number already exists! Please use a unique Design Number.', 'error', 'Duplicate Design No');
+      return;
+    }
+    if (!editFormData.net_wt) {
+      showToast('Please enter NET WT (G)', 'error', 'Net Weight Required');
       return;
     }
 
@@ -341,10 +266,10 @@ export default function Step1Upload() {
       setIsUpdating(true);
       const data = new FormData();
       data.append('design_no', editFormData.design_no.trim());
-      if (editFormData.net_wt) data.append('net_wt', editFormData.net_wt);
-      if (editFormData.gold_type) data.append('gold_type', editFormData.gold_type);
-      if (editFormData.setting_style) data.append('setting_style', editFormData.setting_style);
-      if (editFormData.dia_wt_ct) data.append('dia_wt_ct', editFormData.dia_wt_ct);
+      data.append('net_wt', editFormData.net_wt);
+      if (editFormData.dia_wt_ct !== undefined && editFormData.dia_wt_ct !== null) {
+        data.append('dia_wt_ct', editFormData.dia_wt_ct);
+      }
 
       if (editFiles.length > 0) {
         editFiles.forEach((file) => {
@@ -358,15 +283,19 @@ export default function Step1Upload() {
 
       showToast('Design updated successfully!', 'success', 'Updated');
       setIsEditOpen(false);
-      setEditDesign(null);
       fetchDesigns(currentPage);
     } catch (err) {
       console.error(err);
-      const msg = err.response?.data?.message || 'Failed to update design';
+      const msg = err.response?.data?.message || 'Failed to update design.';
       showToast(msg, 'error', 'Update Failed');
     } finally {
       setIsUpdating(false);
     }
+  };
+
+  // Delete Handlers
+  const handleDeleteClick = (design) => {
+    setDeleteTarget(design);
   };
 
   const handleDeleteConfirm = async () => {
@@ -374,7 +303,7 @@ export default function Step1Upload() {
     try {
       setDeleting(true);
       await api.delete(`/product-designs/${deleteTarget.id}`);
-      showToast(`Design ${deleteTarget.design_no} deleted successfully`, 'success', 'Deleted');
+      showToast('Design deleted successfully', 'success');
       setDeleteTarget(null);
       fetchDesigns(currentPage);
     } catch (err) {
@@ -385,10 +314,14 @@ export default function Step1Upload() {
     }
   };
 
+  // Open Gallery
   const openGallery = (design) => {
-    const urls = design.image_urls && design.image_urls.length > 0
-      ? design.image_urls
-      : (Array.isArray(design.image_path) ? design.image_path.map(p => `/storage/${p}`) : []);
+    const urls =
+      design.image_urls && design.image_urls.length > 0
+        ? design.image_urls
+        : Array.isArray(design.image_path)
+          ? design.image_path.map((p) => `/storage/${p}`)
+          : [];
 
     if (urls.length === 0) {
       showToast('No images available for this design', 'info');
@@ -413,7 +346,9 @@ export default function Step1Upload() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Design Upload</h1>
-          <p className="text-sm text-gray-500 mt-1">Upload multiple designs with specifications and images</p>
+          <p className="text-sm text-gray-500 mt-1">
+            Upload designs with image, design number, diamond weight, and net weight
+          </p>
         </div>
         <button
           type="button"
@@ -480,69 +415,64 @@ export default function Step1Upload() {
                         {firstImage ? (
                           <div
                             onClick={() => openGallery(design)}
-                            className="relative w-16 h-16 border border-gray-200 rounded-lg p-1 bg-gray-50 flex items-center justify-center cursor-pointer hover:border-[#b01622] transition-colors"
-                            title="Click to view full preview"
+                            className="relative group cursor-pointer w-12 h-12 rounded-lg overflow-hidden border border-gray-200 shadow-2xs hover:border-[#b01622] transition-colors"
                           >
-                            {firstImage ? (
-                              <img
-                                src={firstImage}
-                                alt={design.design_no}
-                                onError={(e) => {
-                                  e.target.onerror = null;
-                                  e.target.style.display = 'none';
-                                  if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex';
-                                }}
-                                className="max-w-full max-h-full object-contain mix-blend-multiply"
-                              />
-                            ) : null}
-                            <div className="flex flex-col items-center justify-center text-stone-300" style={{ display: firstImage ? 'none' : 'flex' }}>
-                              <i className="fa-solid fa-gem text-lg text-red-200"></i>
-                            </div>
+                            <img
+                              src={firstImage}
+                              alt={design.design_no}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                            />
                             {images.length > 1 && (
-                              <div className="absolute -top-2 -right-2 bg-gray-900 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-white">
+                              <span className="absolute bottom-0 right-0 bg-black/70 text-white text-[9px] font-bold px-1 rounded-tl">
                                 +{images.length - 1}
-                              </div>
+                              </span>
                             )}
                           </div>
                         ) : (
-                          <span className="text-xs text-gray-400">No Image</span>
+                          <div className="w-12 h-12 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-400">
+                            <i className="fa-regular fa-image text-xs"></i>
+                          </div>
                         )}
                       </td>
-                      <td className="px-6 py-4 font-bold text-gray-900 text-xs">{design.design_no}</td>
-                      <td className="px-6 py-4 text-gray-700 text-xs">{design.dia_wt_ct || '-'}</td>
-                      <td className="px-6 py-4 text-gray-700 text-xs">
-                        {design.net_wt ? Number(design.net_wt).toFixed(3) : '-'}
+                      <td className="px-6 py-4 font-semibold text-gray-900">
+                        {design.design_no}
+                      </td>
+                      <td className="px-6 py-4 text-gray-600">
+                        {design.dia_wt_ct ? `${design.dia_wt_ct} ct` : '—'}
+                      </td>
+                      <td className="px-6 py-4 text-gray-600">
+                        {design.net_wt ? `${parseFloat(design.net_wt).toFixed(3)} g` : '—'}
                       </td>
                       <td className="px-6 py-4">
-                        <span className="inline-flex items-center justify-center text-emerald-600 bg-emerald-50 text-xs font-bold px-3 py-1 rounded-full border border-emerald-100/50">
-                          {design.status || 'Uploaded'}
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          {design.status || 'Active'}
                         </span>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex items-center justify-center gap-3">
+                        <div className="flex items-center justify-center gap-2">
                           <button
                             type="button"
                             onClick={() => openGallery(design)}
-                            className="w-8 h-8 rounded-lg text-gray-500 hover:text-[#b01622] hover:bg-red-50 flex items-center justify-center transition-colors cursor-pointer"
-                            title="View Design"
+                            className="w-8 h-8 rounded-lg bg-gray-50 hover:bg-gray-100 text-gray-600 flex items-center justify-center transition-colors cursor-pointer"
+                            title="Preview Images"
                           >
-                            <i className="fa-solid fa-eye text-sm"></i>
+                            <i className="fa-regular fa-eye text-xs"></i>
                           </button>
                           <button
                             type="button"
                             onClick={() => openEditModal(design)}
-                            className="w-8 h-8 rounded-lg text-gray-500 hover:text-amber-600 hover:bg-amber-50 flex items-center justify-center transition-colors cursor-pointer"
+                            className="w-8 h-8 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 flex items-center justify-center transition-colors cursor-pointer"
                             title="Edit Design"
                           >
-                            <i className="fa-solid fa-pen-to-square text-sm"></i>
+                            <i className="fa-solid fa-pen-to-square text-xs"></i>
                           </button>
                           <button
                             type="button"
-                            onClick={() => setDeleteTarget(design)}
-                            className="w-8 h-8 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 flex items-center justify-center transition-colors cursor-pointer"
+                            onClick={() => handleDeleteClick(design)}
+                            className="w-8 h-8 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 flex items-center justify-center transition-colors cursor-pointer"
                             title="Delete Design"
                           >
-                            <i className="fa-solid fa-trash-can text-sm"></i>
+                            <i className="fa-regular fa-trash-can text-xs"></i>
                           </button>
                         </div>
                       </td>
@@ -555,78 +485,76 @@ export default function Step1Upload() {
         </div>
 
         {/* Pagination */}
-        <div className="p-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-4 text-xs text-gray-500 bg-gray-50/50">
-          <div className="flex items-center gap-3">
-            <span>
-              Showing {totalDesigns === 0 ? 0 : (currentPage - 1) * perPage + 1} to{' '}
-              {Math.min(currentPage * perPage, totalDesigns)} of {totalDesigns} designs
-            </span>
-            <div className="flex items-center gap-1.5 ml-2">
-              <span className="text-gray-400 font-normal">Per page:</span>
+        {totalDesigns > 0 && (
+          <div className="p-4 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-gray-500">
+            <div className="flex items-center gap-2">
+              <span>Show</span>
               <select
                 value={perPage}
                 onChange={(e) => {
-                  const newPerPage = Number(e.target.value);
-                  setPerPage(newPerPage);
-                  fetchDesigns(1, newPerPage);
+                  setPerPage(Number(e.target.value));
+                  setCurrentPage(1);
                 }}
-                className="px-2 py-1 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-gray-700 outline-none focus:border-[#b01622] cursor-pointer"
+                className="border border-gray-200 rounded px-2 py-1 bg-white text-gray-700"
               >
-                <option value={5}>5</option>
                 <option value={10}>10</option>
                 <option value={20}>20</option>
                 <option value={50}>50</option>
               </select>
+              <span>entries</span>
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                disabled={currentPage <= 1}
+                onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+                className="px-3 py-1.5 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                Previous
+              </button>
+
+              {getPageNumbers(currentPage, lastPage).map((p, i) =>
+                p === '...' ? (
+                  <span key={`dots-${i}`} className="px-2 py-1.5 text-gray-400">
+                    ...
+                  </span>
+                ) : (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setCurrentPage(p)}
+                    className={`px-3 py-1.5 rounded font-semibold cursor-pointer ${
+                      currentPage === p
+                        ? 'bg-[#b01622] text-white'
+                        : 'border border-gray-200 hover:bg-gray-50 text-gray-700'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                )
+              )}
+
+              <button
+                type="button"
+                disabled={currentPage >= lastPage}
+                onClick={() => setCurrentPage((p) => Math.min(p + 1, lastPage))}
+                className="px-3 py-1.5 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                Next
+              </button>
             </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              disabled={currentPage <= 1}
-              onClick={() => fetchDesigns(currentPage - 1)}
-              className="px-3.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed font-medium transition-colors cursor-pointer bg-white shadow-xs"
-            >
-              Previous
-            </button>
-            {getPageNumbers(currentPage, lastPage).map((p, idx) =>
-              p === '...' ? (
-                <span key={`ellipsis-${idx}`} className="px-2 py-1 text-gray-400">
-                  ...
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  key={p}
-                  onClick={() => fetchDesigns(p)}
-                  className={`w-8 h-8 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
-                    p === currentPage
-                      ? 'bg-[#b01622] text-white shadow-xs'
-                      : 'border border-gray-200 text-gray-600 hover:bg-gray-100 bg-white'
-                  }`}
-                >
-                  {p}
-                </button>
-              )
-            )}
-            <button
-              type="button"
-              disabled={currentPage >= lastPage}
-              onClick={() => fetchDesigns(currentPage + 1)}
-              className="px-3.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed font-medium transition-colors cursor-pointer bg-white shadow-xs"
-            >
-              Next
-            </button>
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* Bottom Actions */}
-      <div className="flex items-center justify-between pt-4">
+      {/* Bottom Nav / Next */}
+      <div className="flex items-center justify-between pt-2">
         <Link
-          to="/dashboard"
-          className="px-6 py-2.5 bg-white border border-gray-200 text-gray-600 text-sm font-semibold rounded-lg hover:bg-gray-50 transition-colors shadow-xs"
+          to="/inventory"
+          className="px-6 py-2.5 border border-gray-300 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-50 transition-colors"
         >
-          Cancel
+          &larr; Back to Inventory
         </Link>
         <button
           type="button"
@@ -637,10 +565,10 @@ export default function Step1Upload() {
         </button>
       </div>
 
-      {/* ── Add Design Modal ── */}
+      {/* ── Add Design Modal (Streamlined Single Form: Image, Design No, Diamond Wt, Net Wt) ── */}
       {isAddOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-xl my-8 overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-lg my-8 overflow-hidden">
             {/* Modal Header */}
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
@@ -649,60 +577,26 @@ export default function Step1Upload() {
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-gray-900 leading-tight">Add New Design</h2>
-                  <p className="text-xs text-gray-400">Fill in design specifications and upload images</p>
+                  <p className="text-xs text-gray-400">Upload design image and enter specifications</p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setIsAddOpen(false)}
-                className="text-gray-400 hover:text-gray-600 w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center transition-colors"
+                className="text-gray-400 hover:text-gray-600 w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center transition-colors cursor-pointer"
               >
                 <i className="fa-solid fa-xmark text-base"></i>
               </button>
             </div>
 
-            {/* Modal Form */}
+            {/* Streamlined Form */}
             <form onSubmit={handleAddSubmit} className="p-6 space-y-4">
-              {/* Product Material Category Selector */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                  Product Category / Material <span className="text-[#b01622]">*</span>
-                </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {[
-                    { id: 'Gold & Diamond', label: 'Gold & Diamond', icon: 'fa-gem' },
-                    { id: 'Gold', label: 'Gold Only', icon: 'fa-coins' },
-                    { id: 'Diamond', label: 'Diamond Only', icon: 'fa-ring' },
-                    { id: 'Silver', label: 'Silver', icon: 'fa-medal' },
-                  ].map((type) => (
-                    <button
-                      key={type.id}
-                      type="button"
-                      onClick={() => {
-                        let defaultGold = formData.gold_type;
-                        if (type.id === 'Silver') defaultGold = 'Silver 925 (92.5%)';
-                        else if (type.id === 'Gold' && (!defaultGold || defaultGold.toLowerCase().includes('silver'))) defaultGold = '22 Carat';
-                        else if (type.id === 'Diamond' && (!defaultGold || defaultGold.toLowerCase().includes('silver'))) defaultGold = '18 Carat';
-                        setFormData({ ...formData, product_type: type.id, gold_type: defaultGold });
-                      }}
-                      className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${formData.product_type === type.id
-                          ? 'bg-[#b01622] text-white border-[#b01622] shadow-sm ring-2 ring-red-100'
-                          : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100 hover:border-gray-300'
-                        }`}
-                    >
-                      <i className={`fa-solid ${type.icon} text-xs`}></i>
-                      <span>{type.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Image Input */}
+              {/* 1. Design Image */}
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1.5">
                   Design Image <span className="text-[#b01622]">*</span>
                 </label>
-                <div className="relative w-full h-[46px] border border-gray-300 rounded-lg bg-gray-50 hover:bg-white transition-colors overflow-hidden flex items-center px-3.5 cursor-pointer">
+                <div className="relative w-full h-[52px] border-2 border-dashed border-gray-300 hover:border-[#b01622] rounded-xl bg-gray-50/70 hover:bg-white transition-all flex items-center px-4 cursor-pointer">
                   <input
                     type="file"
                     multiple
@@ -710,89 +604,118 @@ export default function Step1Upload() {
                     onChange={handleFileChange}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                   />
-                  <div className="flex items-center gap-2 text-sm text-gray-500 truncate pointer-events-none">
-                    <i className="fa-regular fa-image text-gray-400"></i>
-                    <span className="truncate">
+                  <div className="flex items-center gap-3 text-sm text-gray-600 pointer-events-none truncate">
+                    <div className="w-8 h-8 rounded-lg bg-red-50 text-[#b01622] flex items-center justify-center shrink-0">
+                      <i className="fa-regular fa-image text-sm"></i>
+                    </div>
+                    <span className="truncate text-xs font-medium">
                       {selectedFiles.length > 0
                         ? `${selectedFiles.length} file(s) selected`
-                        : 'Choose files... (Multiple allowed)'}
+                        : 'Click or drop jewellery image here...'}
                     </span>
                   </div>
                 </div>
 
-                {/* Previews */}
+                {/* Previews with remove button */}
                 {filePreviews.length > 0 && (
-                  <div className="flex items-center gap-2 mt-2 overflow-x-auto py-1">
+                  <div className="flex items-center gap-2 mt-2.5 overflow-x-auto py-1">
                     {filePreviews.map((src, i) => (
-                      <img
-                        key={i}
-                        src={src}
-                        alt="Preview"
-                        className="w-12 h-12 rounded-md object-cover border border-gray-200"
-                      />
+                      <div key={i} className="relative group shrink-0">
+                        <img
+                          src={src}
+                          alt="Preview"
+                          className="w-14 h-14 rounded-lg object-cover border border-gray-200 shadow-2xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i));
+                            setFilePreviews((prev) => prev.filter((_, idx) => idx !== i));
+                          }}
+                          className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-600 text-white text-[10px] flex items-center justify-center opacity-90 hover:opacity-100 cursor-pointer"
+                        >
+                          ×
+                        </button>
+                      </div>
                     ))}
                   </div>
                 )}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Design No */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-semibold text-gray-700">
-                      Design No <span className="text-[#b01622]">*</span>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => handleAutoGenerateCode('add')}
-                      className="text-[11px] font-medium text-[#b01622] hover:text-[#90121b] hover:underline flex items-center gap-1 cursor-pointer"
-                      title="Auto-generate a guaranteed unique code"
-                    >
-                      <i className="fa-solid fa-wand-magic-sparkles text-[10px]"></i> Auto Generate
-                    </button>
-                  </div>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      required
-                      placeholder="Ex: RDP001"
-                      value={formData.design_no}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setFormData({ ...formData, design_no: val });
-                        checkUniqueness(val, null, 'add');
-                      }}
-                      className={`w-full px-3.5 h-[42px] bg-gray-50 border rounded-lg text-sm text-gray-800 focus:outline-none transition-colors ${addDesignNoStatus.exists
-                          ? 'border-red-500 bg-red-50/30 focus:border-red-600'
-                          : addDesignNoStatus.message && !addDesignNoStatus.exists
-                            ? 'border-emerald-500 focus:border-emerald-600'
-                            : 'border-gray-300 focus:border-[#b01622] focus:bg-white'
-                        }`}
-                    />
-                    {addDesignNoStatus.checking && (
-                      <div className="absolute right-3 top-3">
-                        <div className="w-4 h-4 border-2 border-[#b01622] border-t-transparent rounded-full animate-spin"></div>
-                      </div>
-                    )}
-                  </div>
-                  {addDesignNoStatus.exists && (
-                    <p className="text-[11px] text-red-600 mt-1 font-semibold flex items-center gap-1">
-                      <i className="fa-solid fa-circle-exclamation"></i>
-                      {addDesignNoStatus.message || 'This Design Number already exists!'}
-                    </p>
-                  )}
-                  {!addDesignNoStatus.exists && addDesignNoStatus.message && (
-                    <p className="text-[11px] text-emerald-600 mt-1 font-medium flex items-center gap-1">
-                      <i className="fa-solid fa-circle-check"></i>
-                      {addDesignNoStatus.message}
-                    </p>
+              {/* 2. Design No */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-semibold text-gray-700">
+                    Design No <span className="text-[#b01622]">*</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => handleAutoGenerateCode('add')}
+                    className="text-[11px] font-semibold text-[#b01622] hover:text-[#90121b] hover:underline flex items-center gap-1 cursor-pointer"
+                    title="Auto-generate a guaranteed unique code"
+                  >
+                    <i className="fa-solid fa-wand-magic-sparkles text-[10px]"></i> Auto Generate
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: DES-1001"
+                    value={formData.design_no}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormData({ ...formData, design_no: val });
+                      checkUniqueness(val, null, 'add');
+                    }}
+                    className={`w-full px-3.5 h-[42px] bg-gray-50 border rounded-lg text-sm text-gray-800 focus:outline-none transition-colors ${
+                      addDesignNoStatus.exists
+                        ? 'border-red-500 bg-red-50/30 focus:border-red-600'
+                        : addDesignNoStatus.message && !addDesignNoStatus.exists
+                          ? 'border-emerald-500 focus:border-emerald-600'
+                          : 'border-gray-300 focus:border-[#b01622] focus:bg-white'
+                    }`}
+                  />
+                  {addDesignNoStatus.checking && (
+                    <div className="absolute right-3 top-3">
+                      <div className="w-4 h-4 border-2 border-[#b01622] border-t-transparent rounded-full animate-spin"></div>
+                    </div>
                   )}
                 </div>
+                {addDesignNoStatus.exists && (
+                  <p className="text-[11px] text-red-600 mt-1 font-semibold flex items-center gap-1">
+                    <i className="fa-solid fa-circle-exclamation"></i>
+                    {addDesignNoStatus.message || 'This Design Number already exists!'}
+                  </p>
+                )}
+                {!addDesignNoStatus.exists && addDesignNoStatus.message && (
+                  <p className="text-[11px] text-emerald-600 mt-1 font-medium flex items-center gap-1">
+                    <i className="fa-solid fa-circle-check"></i>
+                    {addDesignNoStatus.message}
+                  </p>
+                )}
+              </div>
 
-                {/* NET WT (G) */}
+              {/* 3 & 4: Diamond Wt (Ct) and Net Wt (g) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Diamond Wt (Ct) */}
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                    NET WT (G) <span className="text-[#b01622]">*</span>
+                    Diamond Wt (Ct)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ex: 0.40"
+                    value={formData.dia_wt_ct}
+                    onChange={(e) => setFormData({ ...formData, dia_wt_ct: e.target.value })}
+                    className="w-full px-3.5 h-[42px] bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:border-[#b01622] focus:bg-white transition-colors"
+                  />
+                </div>
+
+                {/* Net Wt (g) */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                    Net Wt (g) <span className="text-[#b01622]">*</span>
                   </label>
                   <input
                     type="number"
@@ -804,140 +727,6 @@ export default function Step1Upload() {
                     className="w-full px-3.5 h-[42px] bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:border-[#b01622] focus:bg-white transition-colors"
                   />
                 </div>
-
-                {/* Metal Type / Purity */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-semibold text-gray-700">
-                      {formData.product_type === 'Silver'
-                        ? 'Silver Purity'
-                        : formData.product_type === 'Diamond'
-                          ? 'Metal Purity / Type'
-                          : 'Gold Type'}{' '}
-                      <span className="text-[#b01622]">*</span>
-                    </label>
-                    {formData.product_type !== 'Silver' && (
-                      <button
-                        type="button"
-                        onClick={() => setShowGoldTypesModal(true)}
-                        className="text-[11px] font-bold text-[#b01622] hover:underline flex items-center gap-1 cursor-pointer"
-                        title="Manage Gold Types Master list"
-                      >
-                        <i className="fa-solid fa-plus text-[9px]"></i>
-                        <span>Manage Gold Types</span>
-                      </button>
-                    )}
-                  </div>
-                  {formData.product_type === 'Silver' ? (
-                    <select
-                      value={formData.gold_type || 'Silver 925 (92.5%)'}
-                      onChange={(e) => setFormData({ ...formData, gold_type: e.target.value })}
-                      className="w-full px-3.5 h-[42px] bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:border-[#b01622] focus:bg-white transition-colors"
-                    >
-                      <option value="Silver 925 (92.5%)">Silver 925 (92.5% Sterling)</option>
-                      <option value="Silver 999 (Pure)">Silver 999 (Pure Silver)</option>
-                      <option value="Silver 900">Silver 900</option>
-                      <option value="Silver 800">Silver 800</option>
-                    </select>
-                  ) : (
-                    <select
-                      value={formData.gold_type}
-                      onChange={(e) => setFormData({ ...formData, gold_type: e.target.value })}
-                      className="w-full px-3.5 h-[42px] bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:border-[#b01622] focus:bg-white transition-colors"
-                    >
-                      <option value="">
-                        {formData.product_type === 'Diamond' ? 'Select Metal Type (Default: 18 Carat)' : 'Select Gold Type'}
-                      </option>
-                      {goldTypes.map((gt, idx) => {
-                        const val = typeof gt === 'object' && gt !== null ? (gt.name || gt.id) : String(gt);
-                        const key = typeof gt === 'object' && gt !== null ? (gt.id || idx) : gt;
-                        return (
-                          <option key={key} value={val}>
-                            {val}
-                          </option>
-                        );
-                      })}
-                    </select>
-                  )}
-                </div>
-
-                {/* Setting Style */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-semibold text-gray-700">
-                      Setting Style <span className="text-[#b01622]">*</span>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => setShowStylesModal(true)}
-                      className="text-[11px] font-bold text-[#b01622] hover:underline flex items-center gap-1 cursor-pointer"
-                      title="Manage Setting Styles Master list"
-                    >
-                      <i className="fa-solid fa-plus text-[9px]"></i>
-                      <span>Manage Styles</span>
-                    </button>
-                  </div>
-                  <select
-                    value={formData.setting_style}
-                    onChange={(e) => setFormData({ ...formData, setting_style: e.target.value })}
-                    className="w-full px-3.5 h-[42px] bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:border-[#b01622] focus:bg-white transition-colors"
-                  >
-                    <option value="">Select Setting Style</option>
-                    {styles.map((s, idx) => {
-                      const name = typeof s === 'object' && s !== null ? (s.name || s.id) : String(s);
-                      const key = typeof s === 'object' && s !== null ? (s.id || s.name || idx) : s;
-                      return (
-                        <option key={key} value={name}>
-                          {name}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-
-                {/* Diamond Wt Range */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                    Diamond Wt{' '}
-                    <span className="text-gray-400 font-normal">
-                      {formData.product_type === 'Diamond' || formData.product_type === 'Gold & Diamond' ? '(Range)' : '(Optional)'}
-                    </span>
-                  </label>
-                  <select
-                    value={formData.dia_wt_range}
-                    onChange={(e) => setFormData({ ...formData, dia_wt_range: e.target.value })}
-                    className="w-full px-3.5 h-[42px] bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:border-[#b01622] focus:bg-white transition-colors"
-                  >
-                    <option value="">None / Optional</option>
-                    {diamondRanges.map((dr, idx) => {
-                      const code = typeof dr === 'object' && dr !== null ? (dr.code || dr.id || dr.name) : String(dr);
-                      const label = typeof dr === 'object' && dr !== null ? (dr.name || dr.label || dr.code) : String(dr);
-                      const key = typeof dr === 'object' && dr !== null ? (dr.id || dr.code || idx) : dr;
-                      return (
-                        <option key={key} value={code}>
-                          {label}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-
-                {/* DIA WT (CT) */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                    DIA WT (CT){' '}
-                    {formData.product_type === 'Diamond' && (
-                      <span className="text-[#b01622] text-[11px] font-normal">(Carats)</span>
-                    )}
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ex: 0.40"
-                    value={formData.dia_wt_ct}
-                    onChange={(e) => setFormData({ ...formData, dia_wt_ct: e.target.value })}
-                    className="w-full px-3.5 h-[42px] bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:border-[#b01622] focus:bg-white transition-colors"
-                  />
-                </div>
               </div>
 
               {/* Modal Footer */}
@@ -945,7 +734,7 @@ export default function Step1Upload() {
                 <button
                   type="button"
                   onClick={() => setIsAddOpen(false)}
-                  className="px-5 py-2.5 text-sm font-semibold text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                  className="px-5 py-2.5 text-sm font-semibold text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -962,7 +751,7 @@ export default function Step1Upload() {
                   ) : (
                     <>
                       <i className="fa-solid fa-plus text-xs"></i>
-                      Upload Product
+                      Upload Design
                     </>
                   )}
                 </button>
@@ -972,10 +761,10 @@ export default function Step1Upload() {
         </div>
       )}
 
-      {/* ── Edit Design Modal ── */}
+      {/* ── Edit Design Modal (Streamlined Single Form) ── */}
       {isEditOpen && editDesign && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-xl my-8 overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-lg my-8 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
               <h2 className="text-base font-bold text-gray-900">
                 Edit Design: {editDesign.design_no}
@@ -983,50 +772,17 @@ export default function Step1Upload() {
               <button
                 type="button"
                 onClick={() => setIsEditOpen(false)}
-                className="text-gray-400 hover:text-gray-600 w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center"
+                className="text-gray-400 hover:text-gray-600 w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center cursor-pointer"
               >
                 <i className="fa-solid fa-xmark text-base"></i>
               </button>
             </div>
 
             <form onSubmit={handleEditSubmit} className="p-6 space-y-4">
-              {/* Product Material Category Selector */}
+              {/* Image Input */}
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                  Product Category / Material <span className="text-[#b01622]">*</span>
-                </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {[
-                    { id: 'Gold & Diamond', label: 'Gold & Diamond', icon: 'fa-gem' },
-                    { id: 'Gold', label: 'Gold Only', icon: 'fa-coins' },
-                    { id: 'Diamond', label: 'Diamond Only', icon: 'fa-ring' },
-                    { id: 'Silver', label: 'Silver', icon: 'fa-medal' },
-                  ].map((type) => (
-                    <button
-                      key={type.id}
-                      type="button"
-                      onClick={() => {
-                        let defaultGold = editFormData.gold_type;
-                        if (type.id === 'Silver') defaultGold = 'Silver 925 (92.5%)';
-                        else if (type.id === 'Gold' && (!defaultGold || defaultGold.toLowerCase().includes('silver'))) defaultGold = '22 Carat';
-                        else if (type.id === 'Diamond' && (!defaultGold || defaultGold.toLowerCase().includes('silver'))) defaultGold = '18 Carat';
-                        setEditFormData({ ...editFormData, product_type: type.id, gold_type: defaultGold });
-                      }}
-                      className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${editFormData.product_type === type.id
-                          ? 'bg-[#b01622] text-white border-[#b01622] shadow-sm ring-2 ring-red-100'
-                          : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100 hover:border-gray-300'
-                        }`}
-                    >
-                      <i className={`fa-solid ${type.icon} text-xs`}></i>
-                      <span>{type.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                  Update Images (Optional - Leave blank to keep existing)
+                  Update Images (Optional - leave blank to keep existing)
                 </label>
                 <input
                   type="file"
@@ -1035,7 +791,9 @@ export default function Step1Upload() {
                   onChange={handleEditFileChange}
                   className="w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-red-50 file:text-[#b01622] hover:file:bg-red-100 cursor-pointer"
                 />
-                {editFilePreviews.length > 0 && (
+
+                {/* Previews */}
+                {editFilePreviews.length > 0 ? (
                   <div className="flex items-center gap-2 mt-2 overflow-x-auto py-1">
                     {editFilePreviews.map((src, i) => (
                       <img
@@ -1046,147 +804,113 @@ export default function Step1Upload() {
                       />
                     ))}
                   </div>
+                ) : (
+                  editDesign.image_urls &&
+                  editDesign.image_urls.length > 0 && (
+                    <div className="flex items-center gap-2 mt-2 overflow-x-auto py-1">
+                      {editDesign.image_urls.map((src, i) => (
+                        <img
+                          key={i}
+                          src={src}
+                          alt="Current"
+                          className="w-12 h-12 rounded-md object-cover border border-gray-200 opacity-80"
+                        />
+                      ))}
+                    </div>
+                  )
                 )}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-semibold text-gray-700">
-                      Design No <span className="text-[#b01622]">*</span>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => handleAutoGenerateCode('edit')}
-                      className="text-[11px] font-medium text-[#b01622] hover:text-[#90121b] hover:underline flex items-center gap-1 cursor-pointer"
-                      title="Auto-generate a guaranteed unique code"
-                    >
-                      <i className="fa-solid fa-wand-magic-sparkles text-[10px]"></i> Auto Generate
-                    </button>
-                  </div>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      required
-                      value={editFormData.design_no}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setEditFormData({ ...editFormData, design_no: val });
-                        checkUniqueness(val, editDesign?.id, 'edit');
-                      }}
-                      className={`w-full px-3.5 h-[42px] bg-gray-50 border rounded-lg text-sm text-gray-800 focus:outline-none transition-colors ${editDesignNoStatus.exists
-                          ? 'border-red-500 bg-red-50/30 focus:border-red-600'
-                          : editDesignNoStatus.message && !editDesignNoStatus.exists
-                            ? 'border-emerald-500 focus:border-emerald-600'
-                            : 'border-gray-300 focus:border-[#b01622] focus:bg-white'
-                        }`}
-                    />
-                    {editDesignNoStatus.checking && (
-                      <div className="absolute right-3 top-3">
-                        <div className="w-4 h-4 border-2 border-[#b01622] border-t-transparent rounded-full animate-spin"></div>
-                      </div>
-                    )}
-                  </div>
-                  {editDesignNoStatus.exists && (
-                    <p className="text-[11px] text-red-600 mt-1 font-semibold flex items-center gap-1">
-                      <i className="fa-solid fa-circle-exclamation"></i>
-                      {editDesignNoStatus.message || 'This Design Number already exists!'}
-                    </p>
-                  )}
-                  {!editDesignNoStatus.exists && editDesignNoStatus.message && (
-                    <p className="text-[11px] text-emerald-600 mt-1 font-medium flex items-center gap-1">
-                      <i className="fa-solid fa-circle-check"></i>
-                      {editDesignNoStatus.message}
-                    </p>
+              {/* Design No */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-semibold text-gray-700">
+                    Design No <span className="text-[#b01622]">*</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => handleAutoGenerateCode('edit')}
+                    className="text-[11px] font-semibold text-[#b01622] hover:text-[#90121b] hover:underline flex items-center gap-1 cursor-pointer"
+                    title="Auto-generate a guaranteed unique code"
+                  >
+                    <i className="fa-solid fa-wand-magic-sparkles text-[10px]"></i> Auto Generate
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type="text"
+                    required
+                    value={editFormData.design_no}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setEditFormData({ ...editFormData, design_no: val });
+                      checkUniqueness(val, editDesign?.id, 'edit');
+                    }}
+                    className={`w-full px-3.5 h-[42px] bg-gray-50 border rounded-lg text-sm text-gray-800 focus:outline-none transition-colors ${
+                      editDesignNoStatus.exists
+                        ? 'border-red-500 bg-red-50/30 focus:border-red-600'
+                        : editDesignNoStatus.message && !editDesignNoStatus.exists
+                          ? 'border-emerald-500 focus:border-emerald-600'
+                          : 'border-gray-300 focus:border-[#b01622] focus:bg-white'
+                    }`}
+                  />
+                  {editDesignNoStatus.checking && (
+                    <div className="absolute right-3 top-3">
+                      <div className="w-4 h-4 border-2 border-[#b01622] border-t-transparent rounded-full animate-spin"></div>
+                    </div>
                   )}
                 </div>
+                {editDesignNoStatus.exists && (
+                  <p className="text-[11px] text-red-600 mt-1 font-semibold flex items-center gap-1">
+                    <i className="fa-solid fa-circle-exclamation"></i>
+                    {editDesignNoStatus.message || 'This Design Number already exists!'}
+                  </p>
+                )}
+                {!editDesignNoStatus.exists && editDesignNoStatus.message && (
+                  <p className="text-[11px] text-emerald-600 mt-1 font-medium flex items-center gap-1">
+                    <i className="fa-solid fa-circle-check"></i>
+                    {editDesignNoStatus.message}
+                  </p>
+                )}
+              </div>
 
+              {/* Diamond Wt and Net Wt */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">NET WT (G)</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                    Diamond Wt (Ct)
+                  </label>
                   <input
-                    type="number"
-                    step="0.001"
-                    value={editFormData.net_wt}
-                    onChange={(e) => setEditFormData({ ...editFormData, net_wt: e.target.value })}
+                    type="text"
+                    placeholder="Ex: 0.40"
+                    value={editFormData.dia_wt_ct}
+                    onChange={(e) => setEditFormData({ ...editFormData, dia_wt_ct: e.target.value })}
                     className="w-full px-3.5 h-[42px] bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:border-[#b01622] focus:bg-white"
                   />
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                    {editFormData.product_type === 'Silver'
-                      ? 'Silver Purity'
-                      : editFormData.product_type === 'Diamond'
-                        ? 'Metal Purity / Type'
-                        : 'Gold Type'}
+                    Net Wt (g) <span className="text-[#b01622]">*</span>
                   </label>
-                  {editFormData.product_type === 'Silver' ? (
-                    <select
-                      value={editFormData.gold_type || 'Silver 925 (92.5%)'}
-                      onChange={(e) => setEditFormData({ ...editFormData, gold_type: e.target.value })}
-                      className="w-full px-3.5 h-[42px] bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:border-[#b01622] focus:bg-white"
-                    >
-                      <option value="Silver 925 (92.5%)">Silver 925 (92.5% Sterling)</option>
-                      <option value="Silver 999 (Pure)">Silver 999 (Pure Silver)</option>
-                      <option value="Silver 900">Silver 900</option>
-                      <option value="Silver 800">Silver 800</option>
-                    </select>
-                  ) : (
-                    <select
-                      value={editFormData.gold_type}
-                      onChange={(e) => setEditFormData({ ...editFormData, gold_type: e.target.value })}
-                      className="w-full px-3.5 h-[42px] bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:border-[#b01622] focus:bg-white"
-                    >
-                      <option value="">Select Metal Type</option>
-                      {goldTypes.map((gt, idx) => {
-                        const val = typeof gt === 'object' && gt !== null ? (gt.name || gt.id) : String(gt);
-                        const key = typeof gt === 'object' && gt !== null ? (gt.id || idx) : gt;
-                        return (
-                          <option key={key} value={val}>
-                            {val}
-                          </option>
-                        );
-                      })}
-                    </select>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">Setting Style</label>
-                  <select
-                    value={editFormData.setting_style}
-                    onChange={(e) => setEditFormData({ ...editFormData, setting_style: e.target.value })}
-                    className="w-full px-3.5 h-[42px] bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:border-[#b01622] focus:bg-white"
-                  >
-                    <option value="">Select Setting Style</option>
-                    {styles.map((s, idx) => {
-                      const name = typeof s === 'object' && s !== null ? (s.name || s.id) : String(s);
-                      const key = typeof s === 'object' && s !== null ? (s.id || s.name || idx) : s;
-                      return (
-                        <option key={key} value={name}>
-                          {name}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">DIA WT (CT)</label>
                   <input
-                    type="text"
-                    value={editFormData.dia_wt_ct}
-                    onChange={(e) => setEditFormData({ ...editFormData, dia_wt_ct: e.target.value })}
+                    type="number"
+                    step="0.001"
+                    required
+                    placeholder="Ex: 5.850"
+                    value={editFormData.net_wt}
+                    onChange={(e) => setEditFormData({ ...editFormData, net_wt: e.target.value })}
                     className="w-full px-3.5 h-[42px] bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:border-[#b01622] focus:bg-white"
                   />
                 </div>
               </div>
 
+              {/* Modal Footer */}
               <div className="pt-4 border-t border-gray-100 flex items-center justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => setIsEditOpen(false)}
-                  className="px-5 py-2.5 text-sm font-semibold text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                  className="px-5 py-2.5 text-sm font-semibold text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -1195,7 +919,17 @@ export default function Step1Upload() {
                   disabled={isUpdating || editDesignNoStatus.exists}
                   className="px-8 py-2.5 bg-[#b01622] text-white text-sm font-bold rounded-lg hover:bg-[#90121b] transition-colors shadow-md inline-flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isUpdating ? 'Saving...' : 'Update Design'}
+                  {isUpdating ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <i className="fa-solid fa-check text-xs"></i>
+                      Save Changes
+                    </>
+                  )}
                 </button>
               </div>
             </form>
@@ -1219,39 +953,6 @@ export default function Step1Upload() {
         message={`Are you sure you want to permanently delete design "${deleteTarget?.design_no}"? All associated images will also be removed.`}
         onConfirm={handleDeleteConfirm}
         onCancel={() => setDeleteTarget(null)}
-      />
-
-      {/* Quick Dropdown CRUD Modal for Setting Styles */}
-      <QuickDropdownCrudModal
-        isOpen={showStylesModal}
-        onClose={() => setShowStylesModal(false)}
-        type="setting_style"
-        onItemSelect={(newStyleName) => {
-          setFormData((prev) => ({ ...prev, setting_style: newStyleName }));
-          fetchMeta();
-          fetchDesigns(currentPage);
-        }}
-        onRefresh={() => {
-          fetchMeta();
-          fetchDesigns(currentPage);
-        }}
-      />
-
-      {/* Quick Dropdown CRUD Modal for Gold Types */}
-      <QuickDropdownCrudModal
-        isOpen={showGoldTypesModal}
-        onClose={() => setShowGoldTypesModal(false)}
-        type="gold_type"
-        onItemSelect={(newGoldType) => {
-          setFormData((prev) => ({ ...prev, gold_type: newGoldType }));
-          setEditFormData((prev) => ({ ...prev, gold_type: newGoldType }));
-          fetchMeta();
-          fetchDesigns(currentPage);
-        }}
-        onRefresh={() => {
-          fetchMeta();
-          fetchDesigns(currentPage);
-        }}
       />
     </div>
   );

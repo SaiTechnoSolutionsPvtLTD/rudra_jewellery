@@ -1,4 +1,4 @@
-export const STAMP_OPTIONS = [
+export const DIAMOND_STAMP_OPTIONS = [
   '+0',
   '+1',
   '+2',
@@ -10,17 +10,28 @@ export const STAMP_OPTIONS = [
   '+8',
   '+9',
   '+10',
+  '+11',
+  '+12',
+  '+14',
   '-1',
   '-2',
   '-3',
   '-4',
   '-5',
+];
+
+export const GOLD_STAMP_OPTIONS = [
   '916 BIS Hallmark',
   '750 Hallmark',
   '22K Gold Stamp',
   '18K Gold Stamp',
   'Silver 925 Stamp',
   '950 Platinum Stamp',
+];
+
+export const STAMP_OPTIONS = [
+  ...DIAMOND_STAMP_OPTIONS,
+  ...GOLD_STAMP_OPTIONS,
 ];
 
 export const STONE_SIZE_OPTIONS = [

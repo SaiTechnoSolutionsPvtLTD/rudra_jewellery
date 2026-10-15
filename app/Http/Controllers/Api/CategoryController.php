@@ -53,18 +53,19 @@ class CategoryController extends Controller
     public function index(Request $request)
     {
         try {
-            if (Schema::hasTable('categories')) {
-                $categories = Category::orderBy('id', 'desc')->get();
-                foreach ($categories as $cat) {
+            $categories = Cache::remember('master_categories_list', 300, function () {
+                $cats = Category::orderBy('id', 'desc')->get();
+                foreach ($cats as $cat) {
                     if (empty($cat->form_schema)) {
                         $cat->form_schema = $this->getDefaultFormSchema($cat->code);
                         $cat->save();
                     }
                 }
-                return response()->json($categories);
-            }
+                return $cats;
+            });
+            return response()->json($categories);
         } catch (\Exception $e) {
-            // Log or ignore
+            // Fallback
         }
 
         return response()->json([]);
@@ -94,6 +95,7 @@ class CategoryController extends Controller
                 }
 
                 $category = Category::create($validated);
+                Cache::forget('master_categories_list');
                 return response()->json([
                     'status' => 'success',
                     'message' => 'Category created successfully',
@@ -101,7 +103,8 @@ class CategoryController extends Controller
                 ], 201);
             }
         } catch (\Exception $e) {
-            return response()->json(['message' => 'Failed to create category: ' . $e->getMessage()], 500);
+            \Illuminate\Support\Facades\Log::error('Failed to create category: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to create category (500). Please try again later.'], 500);
         }
 
         return response()->json(['message' => 'Categories table not found.'], 500);
@@ -147,6 +150,7 @@ class CategoryController extends Controller
                     }
 
                     $category->update($validated);
+                    Cache::forget('master_categories_list');
                     return response()->json([
                         'status' => 'success',
                         'message' => 'Category updated successfully',
@@ -168,6 +172,7 @@ class CategoryController extends Controller
                 $category = Category::find($id);
                 if ($category) {
                     $category->delete();
+                    Cache::forget('master_categories_list');
                     return response()->json([
                         'status' => 'success',
                         'message' => 'Category deleted successfully'

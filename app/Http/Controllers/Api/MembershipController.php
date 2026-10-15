@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Membership;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 
 class MembershipController extends Controller
@@ -12,16 +13,18 @@ class MembershipController extends Controller
     public function index(Request $request)
     {
         try {
-            if (Schema::hasTable('memberships')) {
-                $query = Membership::query();
-
-                if ($request->has('status') && !empty($request->status) && $request->status !== 'all') {
-                    $query->where('status', $request->status);
-                }
-
-                $memberships = $query->orderBy('id', 'asc')->get();
+            $hasFilters = $request->has('status') && !empty($request->status) && $request->status !== 'all';
+            if (!$hasFilters) {
+                $memberships = Cache::remember('masters_memberships_all', 300, function () {
+                    return Membership::orderBy('id', 'asc')->get();
+                });
                 return response()->json($memberships);
             }
+
+            $query = Membership::query();
+            $query->where('status', $request->status);
+            $memberships = $query->orderBy('id', 'asc')->get();
+            return response()->json($memberships);
         } catch (\Exception $e) {
             // Fallback
         }
@@ -47,6 +50,7 @@ class MembershipController extends Controller
         try {
             if (Schema::hasTable('memberships')) {
                 $membership = Membership::create($validated);
+                Cache::forget('masters_memberships_all');
                 return response()->json([
                     'status' => 'success',
                     'message' => 'Membership plan created successfully',
@@ -96,6 +100,7 @@ class MembershipController extends Controller
                 $membership = Membership::find($id);
                 if ($membership) {
                     $membership->update($validated);
+                    Cache::forget('masters_memberships_all');
                     return response()->json([
                         'status' => 'success',
                         'message' => 'Membership plan updated successfully',
@@ -117,6 +122,7 @@ class MembershipController extends Controller
                 $membership = Membership::find($id);
                 if ($membership) {
                     $membership->delete();
+                    Cache::forget('masters_memberships_all');
                     return response()->json([
                         'status' => 'success',
                         'message' => 'Membership plan deleted successfully'

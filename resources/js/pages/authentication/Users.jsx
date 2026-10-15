@@ -4,6 +4,14 @@ import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import ConfirmModal from '../../components/ConfirmModal';
 import Pagination from '../../components/Pagination';
+import {
+  validatePersonName,
+  handlePersonNameKeyDown,
+  validateMobile,
+  handleMobileKeyDown,
+  sanitizeMobile,
+  validateEmail
+} from '../../utils/validationUtils';
 
 export default function Users() {
   const [users, setUsers] = useState([]);
@@ -21,6 +29,7 @@ export default function Users() {
   const [editingId, setEditingId] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const [avatarFile, setAvatarFile] = useState(null);
+  const [formErrors, setFormErrors] = useState({});
 
   // Delete Confirm Modal State
   const [deleteTargetUser, setDeleteTargetUser] = useState(null);
@@ -70,6 +79,7 @@ export default function Users() {
   const handleOpenCreateModal = () => {
     setEditingId(null);
     setAvatarFile(null);
+    setFormErrors({});
     setFormData({
       name: '',
       email: '',
@@ -86,6 +96,7 @@ export default function Users() {
   const handleOpenEditModal = (user) => {
     setEditingId(user.id);
     setAvatarFile(null);
+    setFormErrors({});
     setFormData({
       name: user.name || '',
       email: user.email || '',
@@ -121,39 +132,134 @@ export default function Users() {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    let finalValue = value;
+    if (name === 'email') {
+      finalValue = String(value || '').toLowerCase().replace(/\s+/g, '');
+    } else if (name === 'mobile_number') {
+      finalValue = sanitizeMobile(value);
+    }
+    setFormData(prev => ({ ...prev, [name]: finalValue }));
+
+    // Dynamic field validation
+    if (name === 'name') {
+      const err = validatePersonName(finalValue, 'Full Name', true);
+      setFormErrors(prev => ({ ...prev, name: err }));
+    } else if (name === 'email') {
+      const err = validateEmail(finalValue, 'Email Address', true);
+      setFormErrors(prev => ({ ...prev, email: err }));
+    } else if (name === 'mobile_number') {
+      const err = validateMobile(finalValue, 'Mobile Number', false);
+      setFormErrors(prev => ({ ...prev, mobile_number: err }));
+    } else if (name === 'confirm_password' || name === 'password') {
+      if (formErrors.confirm_password || formErrors.password) {
+        setFormErrors(prev => ({ ...prev, password: null, confirm_password: null }));
+      }
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Form Validations
-    if (!formData.name.trim()) {
-      showToast('Please enter User Name', 'error', 'Validation Error');
-      return;
-    }
-    if (!formData.email.trim()) {
-      showToast('Please enter User Email', 'error', 'Validation Error');
-      return;
-    }
+    // Comprehensive field validations
+    const errors = {};
+    const nameErr = validatePersonName(formData.name, 'Full Name', true);
+    if (nameErr) errors.name = nameErr;
+
+    const emailErr = validateEmail(formData.email, 'Email Address', true);
+    if (emailErr) errors.email = emailErr;
+
+    const mobileErr = validateMobile(formData.mobile_number, 'Mobile Number', false);
+    if (mobileErr) errors.mobile_number = mobileErr;
+
     if (!editingId) {
       if (!formData.password) {
-        showToast('Please enter a Password for the user', 'error', 'Validation Error');
-        return;
+        errors.password = 'Please enter a Password for the user';
+      } else if (formData.password.length < 6) {
+        errors.password = 'Password must be at least 6 characters long';
       }
-      if (formData.password.length < 6) {
-        showToast('Password must be at least 6 characters long', 'error', 'Validation Error');
-        return;
-      }
-      if (formData.password !== formData.confirm_password) {
-        showToast('Password and Confirm Password do not match!', 'error', 'Password Mismatch');
-        return;
+      if (formData.password && formData.confirm_password && formData.password !== formData.confirm_password) {
+        errors.confirm_password = 'Password and Confirm Password do not match!';
       }
     } else {
-      if (formData.password && formData.password !== formData.confirm_password) {
-        showToast('Password and Confirm Password do not match!', 'error', 'Password Mismatch');
-        return;
+      if (formData.password) {
+        if (formData.password.length < 6) {
+          errors.password = 'Password must be at least 6 characters long';
+        }
+        if (formData.password !== formData.confirm_password) {
+          errors.confirm_password = 'Password and Confirm Password do not match!';
+        }
       }
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      showToast(Object.values(errors)[0], 'error', 'Validation Error');
+      return;
+    }
+
+    if (editingId) {
+      // 1. Immediately close modal and update table data with zero delay
+      setShowModal(false);
+
+      const previousUsers = [...users];
+      setUsers(prev => prev.map(u => {
+        if (u.id === editingId) {
+          return {
+            ...u,
+            name: formData.name,
+            email: formData.email,
+            mobile_number: formData.mobile_number,
+            role: formData.role,
+            status: formData.status || 'active',
+            avatar: formData.avatar || u.avatar,
+            avatar_url: formData.avatar || u.avatar_url,
+          };
+        }
+        return u;
+      }));
+
+      // 2. Persist update in background
+      (async () => {
+        try {
+          const payload = new FormData();
+          payload.append('name', formData.name);
+          payload.append('email', formData.email);
+          payload.append('mobile_number', formData.mobile_number || '');
+          payload.append('role', formData.role);
+          payload.append('status', formData.status || 'active');
+
+          if (formData.password) {
+            payload.append('password', formData.password);
+          }
+
+          if (avatarFile) {
+            payload.append('avatar_file', avatarFile);
+            payload.append('avatar', avatarFile);
+          } else if (formData.avatar) {
+            payload.append('avatar', formData.avatar);
+          } else {
+            payload.append('avatar', '');
+          }
+
+          payload.append('_method', 'PUT');
+          const res = await api.post(`/users/${editingId}`, payload, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+          });
+          const savedUser = res.data?.user || res.data;
+          if (savedUser) {
+            setUsers(prev => prev.map(u => u.id === editingId ? { ...u, ...savedUser } : u));
+            if (currentUser && (currentUser.id === editingId || currentUser.email === formData.email || currentUser.name === formData.name)) {
+              if (updateUser) updateUser(savedUser);
+            }
+          }
+          showToast(`User "${formData.name}" updated successfully!`, 'success', 'Updated');
+        } catch (err) {
+          console.error(err);
+          setUsers(previousUsers);
+          showToast(err.response?.data?.message || 'Failed to update user details', 'error', 'Operation Failed');
+        }
+      })();
+      return;
     }
 
     try {
@@ -177,35 +283,15 @@ export default function Users() {
         payload.append('avatar', '');
       }
 
-      let savedUser = null;
-      if (editingId) {
-        payload.append('_method', 'PUT');
-        const res = await api.post(`/users/${editingId}`, payload, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        });
-        savedUser = res.data?.user || res.data;
-        showToast(`User "${formData.name}" updated successfully!`, 'success', 'Updated');
-      } else {
-        const res = await api.post('/users', payload, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        });
-        savedUser = res.data?.user || res.data;
-        showToast(`New user "${formData.name}" created successfully!`, 'success', 'Created');
-      }
-
-      // Immediately update local users state and active user context
+      const res = await api.post('/users', payload, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      const savedUser = res.data?.user || res.data;
       if (savedUser) {
-        setUsers(prev => prev.map(u => u.id === (savedUser.id || editingId) ? { ...u, ...savedUser } : u));
+        setUsers(prev => [savedUser, ...prev]);
       }
-
-      if (currentUser && (currentUser.id === editingId || currentUser.email === formData.email || currentUser.name === formData.name)) {
-        if (updateUser && savedUser) {
-          updateUser(savedUser);
-        }
-      }
-
       setShowModal(false);
-      await fetchUsers();
+      showToast(`New user "${formData.name}" created successfully!`, 'success', 'Created');
     } catch (err) {
       console.error(err);
       showToast(err.response?.data?.message || 'Failed to save user details', 'error', 'Operation Failed');
@@ -524,23 +610,29 @@ export default function Users() {
               {/* Name */}
               <div>
                 <label className="block text-xs font-bold text-gray-700 mb-1.5">
-                  Full Name
+                  Full Name <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   name="name"
                   value={formData.name}
                   onChange={handleChange}
+                  onKeyDown={handlePersonNameKeyDown}
                   placeholder="e.g. Arvind Varma"
                   required
-                  className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
+                  className={`w-full px-4 py-2.5 bg-white border rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none transition-colors ${
+                    formErrors.name ? 'border-red-500 bg-red-50/20' : 'border-gray-200 focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622]'
+                  }`}
                 />
+                {formErrors.name && (
+                  <p className="text-[11px] text-red-500 mt-1 font-medium">{formErrors.name}</p>
+                )}
               </div>
 
               {/* Email */}
               <div>
                 <label className="block text-xs font-bold text-gray-700 mb-1.5">
-                  Email Address
+                  Email Address <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="email"
@@ -549,8 +641,13 @@ export default function Users() {
                   onChange={handleChange}
                   placeholder="e.g. arvind@rudrajewellers.com"
                   required
-                  className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
+                  className={`w-full px-4 py-2.5 bg-white border rounded-xl text-sm lowercase text-gray-900 placeholder-gray-400 focus:outline-none transition-colors ${
+                    formErrors.email ? 'border-red-500 bg-red-50/20' : 'border-gray-200 focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622]'
+                  }`}
                 />
+                {formErrors.email && (
+                  <p className="text-[11px] text-red-500 mt-1 font-medium">{formErrors.email}</p>
+                )}
               </div>
 
               {/* Mobile Number */}
@@ -563,9 +660,16 @@ export default function Users() {
                   name="mobile_number"
                   value={formData.mobile_number}
                   onChange={handleChange}
-                  placeholder="e.g. +91 98765 43210"
-                  className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
+                  onKeyDown={handleMobileKeyDown}
+                  maxLength={10}
+                  placeholder="10-digit mobile number (e.g. 9876543210)"
+                  className={`w-full px-4 py-2.5 bg-white border rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none transition-colors ${
+                    formErrors.mobile_number ? 'border-red-500 bg-red-50/20' : 'border-gray-200 focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622]'
+                  }`}
                 />
+                {formErrors.mobile_number && (
+                  <p className="text-[11px] text-red-500 mt-1 font-medium">{formErrors.mobile_number}</p>
+                )}
               </div>
 
               {/* Role & Status */}
@@ -618,7 +722,9 @@ export default function Users() {
                       onChange={handleChange}
                       placeholder="••••••••"
                       required={!editingId}
-                      className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors pr-10"
+                      className={`w-full px-4 py-2.5 bg-white border rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none transition-colors pr-10 ${
+                        formErrors.password ? 'border-red-500 bg-red-50/20' : 'border-gray-200 focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622]'
+                      }`}
                     />
                     <button
                       type="button"
@@ -628,6 +734,9 @@ export default function Users() {
                       <i className={`fa-solid ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
                     </button>
                   </div>
+                  {formErrors.password && (
+                    <p className="text-[11px] text-red-500 mt-1 font-medium">{formErrors.password}</p>
+                  )}
                 </div>
 
                 <div>
@@ -642,13 +751,15 @@ export default function Users() {
                     placeholder="••••••••"
                     required={!editingId && !!formData.password}
                     className={`w-full px-4 py-2.5 bg-white border rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none transition-colors ${
-                      formData.confirm_password && formData.password !== formData.confirm_password
+                      formErrors.confirm_password || (formData.confirm_password && formData.password !== formData.confirm_password)
                         ? 'border-red-500 bg-red-50/20'
                         : 'border-gray-200 focus:border-[#b01622]'
                     }`}
                   />
-                  {formData.confirm_password && formData.password !== formData.confirm_password && (
-                    <p className="text-[10px] text-red-500 font-semibold mt-1">Passwords do not match</p>
+                  {(formErrors.confirm_password || (formData.confirm_password && formData.password !== formData.confirm_password)) && (
+                    <p className="text-[10px] text-red-500 font-semibold mt-1">
+                      {formErrors.confirm_password || 'Passwords do not match'}
+                    </p>
                   )}
                 </div>
               </div>

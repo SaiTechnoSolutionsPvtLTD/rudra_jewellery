@@ -11,6 +11,8 @@ use App\Models\PurchaseEntry;
 use App\Models\InventoryMovement;
 use App\Models\SaleItem;
 use App\Models\User;
+use App\Services\ProductBulkUploadService;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -270,13 +272,19 @@ class InventoryController extends Controller
         $rawDiamondRec = \App\Models\RawMaterial::where('material_type', 'diamond')->first();
         $rawStoneRec = \App\Models\RawMaterial::where('material_type', 'stone')->first();
 
-        $rawGoldKg = $rawGoldRec ? (float)$rawGoldRec->current_balance : 0.0;
-        $rawSilverKg = $rawSilverRec ? (float)$rawSilverRec->current_balance : 0.0;
+        $rawGoldBal = $rawGoldRec ? (float)$rawGoldRec->current_balance : 0.0;
+        $rawGoldKg = ($rawGoldRec && strtolower($rawGoldRec->unit) === 'g') ? round($rawGoldBal / 1000, 3) : round($rawGoldBal, 3);
+        $rawGoldGrams = ($rawGoldRec && strtolower($rawGoldRec->unit) === 'kg') ? ($rawGoldBal * 1000) : $rawGoldBal;
+
+        $rawSilverBal = $rawSilverRec ? (float)$rawSilverRec->current_balance : 0.0;
+        $rawSilverKg = ($rawSilverRec && strtolower($rawSilverRec->unit) === 'g') ? round($rawSilverBal / 1000, 3) : round($rawSilverBal, 3);
+        $rawSilverGrams = ($rawSilverRec && strtolower($rawSilverRec->unit) === 'kg') ? ($rawSilverBal * 1000) : $rawSilverBal;
+
         $rawDiamondCt = $rawDiamondRec ? (float)$rawDiamondRec->current_balance : 0.0;
         $rawStoneUnits = $rawStoneRec ? (int)$rawStoneRec->current_balance : 0;
 
-        $rawGoldVal = round($rawGoldKg * 1000 * $goldRatePerGram);
-        $rawSilverVal = round($rawSilverKg * 1000 * $silverRatePerGram);
+        $rawGoldVal = round($rawGoldGrams * $goldRatePerGram);
+        $rawSilverVal = round($rawSilverGrams * $silverRatePerGram);
         $rawDiamondVal = round($rawDiamondCt * $diamondRatePerCt);
         $rawStoneVal = round($rawStoneUnits * $stoneRatePerUnit);
 
@@ -353,71 +361,121 @@ class InventoryController extends Controller
         $jewelDiamondTotalVal = 0.0;
         $jewelStoneTotalVal = 0.0;
 
+        $formatMetalWeight = function ($grams) {
+            $grams = (float) $grams;
+            if ($grams <= 0) return '0.000 g';
+            if ($grams >= 1000) {
+                return number_format($grams / 1000, 3, '.', '') . ' kg';
+            }
+            return number_format($grams, 3, '.', '') . ' g';
+        };
+
+        $formatDiamondWeight = function ($cts) {
+            $cts = (float) $cts;
+            if ($cts <= 0) return '0.000 ct';
+            return number_format($cts, 3, '.', '') . ' ct';
+        };
+
         foreach ($inStockProducts as $p) {
             $catName = strtolower($p->category->name ?? '');
             $catCode = strtolower($p->category->code ?? '');
             $pName = strtolower($p->name ?? '');
             $qty = max(1, (int) $p->current_stock_qty);
 
-            $w = (float) ($p->opening_stock_weight ?: ($p->weight ?: 0));
             $attrs = is_array($p->attributes) ? $p->attributes : (json_decode($p->attributes ?? '[]', true) ?: []);
-            $pVal = $calcProdVal($p);
+            
+            // Weight derivation strictly from attributes or product record
+            $grossWt = (float) ($attrs['gross_wt'] ?? $attrs['unit_gross_wt'] ?? $p->opening_stock_weight ?? 0);
+            $netWt = (float) ($attrs['net_wt'] ?? $attrs['unit_net_wt'] ?? $grossWt);
 
+            // Auto-detect if weight was entered in kg (< 0.1g for a finished jewellery item e.g. 0.014 kg = 14g)
+            if ($grossWt > 0 && $grossWt < 0.1) {
+                $grossWt = $grossWt * 1000;
+            }
+            if ($netWt > 0 && $netWt < 0.1) {
+                $netWt = $netWt * 1000;
+            }
+
+            if ($netWt <= 0 && $grossWt > 0) $netWt = $grossWt;
+            if ($grossWt <= 0 && $netWt > 0) $grossWt = $netWt;
+
+            $pVal = $calcProdVal($p);
             $comps = $attrs['components'] ?? [];
+
+            $hasMetalComp = false;
+            $hasDiamondComp = false;
+            $hasStoneComp = false;
             if (!empty($comps) && is_array($comps)) {
                 foreach ($comps as $c) {
                     $cCat = strtolower($c['category_name'] ?? $c['item_name'] ?? '');
                     $cGross = (float) ($c['gross_wt'] ?? $c['net_wt'] ?? 0);
+                    $cNet = (float) ($c['net_wt'] ?? $c['gross_wt'] ?? $cGross);
                     $cVal = (float) ($c['sale_value'] ?? 0);
-                    if ($cVal <= 0) {
-                        $cRate = (float) ($c['sale_rate'] ?? $c['gold_rate'] ?? 0);
-                        $cVal = $cGross * $cRate;
-                    }
 
                     if (str_contains($cCat, 'silver')) {
-                        $jewelSilverGrams += ($cGross * $qty);
-                        $jewelSilverTotalVal += ($cVal * $qty);
-                    } elseif (str_contains($cCat, 'diamond') || str_contains($cCat, 'solitaire')) {
-                        $cCarat = (float) ($c['net_wt'] ?? $c['gross_wt'] ?? 0);
+                        $hasMetalComp = true;
+                        $jewelSilverGrams += ($cNet * $qty);
+                        $jewelSilverTotalVal += ($cVal > 0 ? ($cVal * $qty) : ($cNet * $qty * $silverRatePerGram));
+                    } elseif (str_contains($cCat, 'diam') || str_contains($cCat, 'dia') || str_contains($cCat, 'solitaire')) {
+                        $hasDiamondComp = true;
+                        // Diamond weight in carats (never fallback to metal net_wt)
+                        $cCarat = (float) ($c['diamond_weight'] ?? $c['stone_weight'] ?? $c['dia_wt_ct'] ?? $c['carat'] ?? 0);
+                        if ($cCarat <= 0 && isset($c['gross_wt']) && (float)$c['gross_wt'] <= 2.0) {
+                            $cCarat = (float) $c['gross_wt'];
+                        }
+                        if ($cCarat <= 0 && !empty($attrs['dia_wt_ct'])) {
+                            $cCarat = (float) $attrs['dia_wt_ct'];
+                        }
                         $jewelDiamondCts += ($cCarat * $qty);
-                        $jewelDiamondTotalVal += ($cVal * $qty);
+                        $jewelDiamondTotalVal += ($cVal > 0 ? ($cVal * $qty) : ($cCarat * $qty * $diamondRatePerCt));
                     } elseif (str_contains($cCat, 'stone')) {
+                        $hasStoneComp = true;
                         $cPcs = (int) ($c['no_of_pieces'] ?? 1);
                         $jewelStoneUnits += ($cPcs * $qty);
-                        $jewelStoneTotalVal += ($cVal * $qty);
-                    } else {
-                        // Default to Gold for metal components
-                        $jewelGoldGrams += ($cGross * $qty);
-                        $jewelGoldTotalVal += ($cVal * $qty);
+                        $jewelStoneTotalVal += ($cVal > 0 ? ($cVal * $qty) : ($cPcs * $qty * $stoneRatePerUnit));
+                    } elseif (str_contains($cCat, 'gold') || str_contains($cCat, 'metal') || str_contains($cCat, 'ring') || str_contains($cCat, 'chain')) {
+                        $hasMetalComp = true;
+                        $jewelGoldGrams += ($cNet * $qty);
+                        $jewelGoldTotalVal += ($cVal > 0 ? ($cVal * $qty) : ($cNet * $qty * ($goldRatePerGram * 22 / 24)));
                     }
                 }
-            } else {
+            }
+
+            // If components didn't specify metal, but product has main metal weight:
+            if (!$hasMetalComp && $netWt > 0) {
                 if (str_contains($catName, 'silver') || str_contains($catCode, 'silver') || str_contains($pName, 'silver')) {
-                    $jewelSilverGrams += ($w * $qty);
-                    $jewelSilverTotalVal += $pVal;
-                } elseif (str_contains($catName, 'diamond') || str_contains($catCode, 'diamond') || str_contains($pName, 'diamond')) {
-                    $diamondWt = floatval($attrs['diamond_wt'] ?? $attrs['carat'] ?? $w);
-                    $jewelDiamondCts += ($diamondWt * $qty);
-                    $jewelDiamondTotalVal += $pVal;
+                    $jewelSilverGrams += ($netWt * $qty);
+                    $jewelSilverTotalVal += ($netWt * $qty * $silverRatePerGram);
+                } elseif (str_contains($catName, 'diam') || str_contains($catCode, 'diam') || str_contains($pName, 'diam')) {
+                    $jewelDiamondCts += ($netWt * $qty);
+                    $jewelDiamondTotalVal += ($netWt * $qty * $diamondRatePerCt);
                 } elseif (str_contains($catName, 'stone') || str_contains($catCode, 'stone') || str_contains($pName, 'stone')) {
                     $jewelStoneUnits += ($qty * intval($attrs['stone_pieces'] ?? 1));
-                    $jewelStoneTotalVal += $pVal;
+                    $jewelStoneTotalVal += ($qty * $stoneRatePerUnit);
                 } else {
-                    $jewelGoldGrams += ($w * $qty);
-                    $jewelGoldTotalVal += $pVal;
+                    // Default to Gold
+                    $jewelGoldGrams += ($netWt * $qty);
+                    $jewelGoldTotalVal += ($netWt * $qty * ($goldRatePerGram * 22 / 24));
                 }
+            }
+
+            // Also check direct diamond/stone attributes on parent if not already captured from components
+            if (!$hasDiamondComp && (!empty($attrs['diamond_weight']) || !empty($attrs['dia_wt_ct']))) {
+                $dWt = (float) ($attrs['diamond_weight'] ?? $attrs['dia_wt_ct'] ?? 0);
+                $jewelDiamondCts += ($dWt * $qty);
+                $jewelDiamondTotalVal += ($dWt * $qty * $diamondRatePerCt);
+            }
+            if (!empty($attrs['stone_pieces']) && empty($hasStoneComp)) {
+                $sPcs = (int) $attrs['stone_pieces'];
+                $jewelStoneUnits += ($sPcs * $qty);
+                $jewelStoneTotalVal += ($sPcs * $qty * $stoneRatePerUnit);
             }
         }
 
-        $jewelGoldKg = round($jewelGoldGrams / 1000, 3);
-        $jewelSilverKg = round($jewelSilverGrams / 1000, 3);
-        $jewelDiamondDisplayCt = round($jewelDiamondCts, 2);
-        $jewelStoneDisplayUnits = $jewelStoneUnits;
-
-        $jewelGoldVal = round($jewelGoldTotalVal ?: ($jewelGoldKg * 1000 * $goldRatePerGram));
-        $jewelSilverVal = round($jewelSilverTotalVal ?: ($jewelSilverKg * 1000 * $silverRatePerGram));
-        $jewelDiamondVal = round($jewelDiamondTotalVal ?: ($jewelDiamondDisplayCt * $diamondRatePerCt));
-        $jewelStoneVal = round($jewelStoneTotalVal ?: ($jewelStoneDisplayUnits * $stoneRatePerUnit));
+        $jewelGoldVal = round($jewelGoldTotalVal ?: ($jewelGoldGrams * ($goldRatePerGram * 22 / 24)));
+        $jewelSilverVal = round($jewelSilverTotalVal ?: ($jewelSilverGrams * $silverRatePerGram));
+        $jewelDiamondVal = round($jewelDiamondTotalVal ?: ($jewelDiamondCts * $diamondRatePerCt));
+        $jewelStoneVal = round($jewelStoneTotalVal ?: ($jewelStoneUnits * $stoneRatePerUnit));
 
         // Previous period Jewel values for calculation
         $currProductsVal = Product::when($currentStart, fn($q) => $q->whereBetween('created_at', [$currentStart, $currentEnd]))->sum('opening_stock_rate') ?? 0;
@@ -457,21 +515,37 @@ class InventoryController extends Controller
         $rawMaterialsAll = \App\Models\RawMaterial::all();
         foreach ($rawMaterialsAll as $rm) {
             $bal = (float) $rm->current_balance;
-            $unit = $rm->unit;
+            $unit = strtolower($rm->unit ?: 'g');
+            $matType = strtolower($rm->material_type ?: '');
 
             $isLow = false;
-            if ($unit === 'kg' && $bal <= 5.0) $isLow = true;
-            if ($unit === 'ct' && $bal <= 20.0) $isLow = true;
-            if ($unit === 'units' && $bal <= 100) $isLow = true;
+            if ($bal <= 0) {
+                $isLow = true;
+            } elseif ($unit === 'kg' && $bal <= 5.0) {
+                $isLow = true;
+            } elseif ($unit === 'g' && $bal <= 500.0) {
+                $isLow = true;
+            } elseif ($unit === 'ct' && $bal <= 20.0) {
+                $isLow = true;
+            } elseif ($unit === 'units' && $bal <= 100) {
+                $isLow = true;
+            }
 
             if ($isLow) {
+                $displayUnit = $rm->unit ?: ($matType === 'diamond' ? 'ct' : ($matType === 'stone' ? 'units' : 'g'));
+                $statusLabel = $bal <= 0
+                    ? 'Out of Stock (00)'
+                    : 'Current Vault: ' . $bal . ' ' . $displayUnit;
+
                 $lowStockAlerts[] = [
                     'id' => 'raw_' . $rm->id,
-                    'name' => 'Raw ' . ucfirst($rm->material_type) . ' (Raw Vault)',
-                    'product_code' => 'RAW-' . strtoupper($rm->material_type),
+                    'raw_material_id' => $rm->id,
+                    'material_type' => $matType,
+                    'name' => 'Raw ' . ucfirst($matType) . ' (Raw Vault)',
+                    'product_code' => 'RAW-' . strtoupper($matType),
                     'stock_qty' => $bal,
-                    'unit' => $unit,
-                    'status_label' => $bal <= 0 ? 'Out of Stock (00)' : 'Current Vault: ' . $bal . ' ' . $unit,
+                    'unit' => $displayUnit,
+                    'status_label' => $statusLabel,
                     'is_out_of_stock' => $bal <= 0,
                     'is_raw_material' => true,
                 ];
@@ -501,10 +575,38 @@ class InventoryController extends Controller
                     'silver_2' => ['weight' => "{$rawSilverKg} kg", 'amount' => '₹' . number_format($rawSilverVal), 'change' => $rawSilverChange['change'], 'is_increase' => $rawSilverChange['is_increase']],
                 ],
                 'jewel_values' => [
-                    'gold' => ['weight' => "{$jewelGoldKg} kg", 'amount' => '₹' . number_format($jewelGoldVal), 'change' => $jewelGoldChange['change'], 'is_increase' => $jewelGoldChange['is_increase']],
-                    'stone' => ['weight' => "{$jewelStoneDisplayUnits} units", 'amount' => '₹' . number_format($jewelStoneVal), 'change' => $jewelStoneChange['change'], 'is_increase' => $jewelStoneChange['is_increase']],
-                    'silver' => ['weight' => "{$jewelSilverKg} kg", 'amount' => '₹' . number_format($jewelSilverVal), 'change' => $jewelSilverChange['change'], 'is_increase' => $jewelSilverChange['is_increase']],
-                    'diamond' => ['weight' => "{$jewelDiamondDisplayCt} ct", 'amount' => '₹' . number_format($jewelDiamondVal), 'change' => $jewelDiamondChange['change'], 'is_increase' => $jewelDiamondChange['is_increase']],
+                    'gold' => [
+                        'weight' => $formatMetalWeight($jewelGoldGrams),
+                        'weight_raw' => round($jewelGoldGrams, 3),
+                        'amount' => '₹' . number_format($jewelGoldVal),
+                        'amount_raw' => $jewelGoldVal,
+                        'change' => $jewelGoldChange['change'],
+                        'is_increase' => $jewelGoldChange['is_increase']
+                    ],
+                    'stone' => [
+                        'weight' => "{$jewelStoneUnits} units",
+                        'weight_raw' => $jewelStoneUnits,
+                        'amount' => '₹' . number_format($jewelStoneVal),
+                        'amount_raw' => $jewelStoneVal,
+                        'change' => $jewelStoneChange['change'],
+                        'is_increase' => $jewelStoneChange['is_increase']
+                    ],
+                    'silver' => [
+                        'weight' => $formatMetalWeight($jewelSilverGrams),
+                        'weight_raw' => round($jewelSilverGrams, 3),
+                        'amount' => '₹' . number_format($jewelSilverVal),
+                        'amount_raw' => $jewelSilverVal,
+                        'change' => $jewelSilverChange['change'],
+                        'is_increase' => $jewelSilverChange['is_increase']
+                    ],
+                    'diamond' => [
+                        'weight' => $formatDiamondWeight($jewelDiamondCts),
+                        'weight_raw' => round($jewelDiamondCts, 3),
+                        'amount' => '₹' . number_format($jewelDiamondVal),
+                        'amount_raw' => $jewelDiamondVal,
+                        'change' => $jewelDiamondChange['change'],
+                        'is_increase' => $jewelDiamondChange['is_increase']
+                    ],
                 ],
                 'low_stock_alerts' => $lowStockAlerts,
             ],
@@ -600,16 +702,17 @@ class InventoryController extends Controller
         $formatLocalTime = function ($dt) use ($now) {
             if (!$dt) return $now->format('d M Y, h:i A');
             try {
-                if ($dt instanceof \Illuminate\Support\Carbon || $dt instanceof \Carbon\Carbon) {
-                    $cStr = $dt->toDateTimeString();
-                    return \Carbon\Carbon::createFromFormat('Y-m-d H:i:s', $cStr, 'UTC')
-                        ->setTimezone('Asia/Kolkata')
-                        ->format('d M Y, h:i A');
+                if ($dt instanceof \Carbon\CarbonInterface) {
+                    return $dt->copy()->setTimezone('Asia/Kolkata')->format('d M Y, h:i A');
                 }
-                $cStr = is_string($dt) ? $dt : date('Y-m-d H:i:s', strtotime($dt));
-                return \Carbon\Carbon::createFromFormat('Y-m-d H:i:s', substr($cStr, 0, 19), 'UTC')
-                    ->setTimezone('Asia/Kolkata')
-                    ->format('d M Y, h:i A');
+                $str = trim((string) $dt);
+                if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $str)) {
+                    return \Carbon\Carbon::parse($str, 'Asia/Kolkata')->format('d M Y') . ', 09:00 AM';
+                }
+                if (preg_match('/[+-]\d{2}:\d{2}|Z$/', $str)) {
+                    return \Carbon\Carbon::parse($str)->setTimezone('Asia/Kolkata')->format('d M Y, h:i A');
+                }
+                return \Carbon\Carbon::parse($str, 'Asia/Kolkata')->format('d M Y, h:i A');
             } catch (\Throwable $e) {
                 return $now->format('d M Y, h:i A');
             }
@@ -673,11 +776,12 @@ class InventoryController extends Controller
         }
 
         foreach ($purchaseEntries as $pe) {
-            $pDate = $formatLocalTime($pe->purchase_date);
+            $exactPurchaseDt = $pe->created_at ?: $pe->purchase_date;
+            $pDate = $formatLocalTime($exactPurchaseDt);
             $supplierName = $pe->supplier->name ?? 'Kesav';
             $allEvents[] = [
                 'id' => 'pur-' . $pe->id,
-                'created_at_dt' => $pe->created_at ?? $pe->purchase_date,
+                'created_at_dt' => $exactPurchaseDt,
                 'date_time' => $pDate,
                 'action_type' => 'Purchase ' . $pe->purchase_no,
                 'badge_color' => 'bg-amber-50 text-amber-700 border-amber-200',
@@ -954,6 +1058,17 @@ class InventoryController extends Controller
 
                 $designNo = !empty($itemData['design_no']) ? trim($itemData['design_no']) : null;
 
+                $diaComp = collect($processedComponents)->first(function ($c) {
+                    $cName = strtolower($c['category_name'] ?? $c['item_name'] ?? $c['component_type'] ?? '');
+                    return !empty($c['is_diamond']) || str_contains($cName, 'diamond') || str_contains($cName, 'dia');
+                });
+                $diaStampVal = $itemData['diamond_stamp'] ?? ($diaComp['stamp'] ?? null);
+                if ($diaStampVal && preg_match('/^(?:24k?|22k?|18k?|14k?|10k?|916|750|585|925|999|gold|silver|hallmark|bis)/i', $diaStampVal)) {
+                    $diaStampVal = null;
+                }
+                $diaWtVal = $itemData['dia_wt_ct'] ?? $itemData['diamond_weight'] ?? ($diaComp ? ($diaComp['stone_weight'] ?? $diaComp['gross_wt'] ?? null) : null);
+                $diaCountVal = $itemData['diamond_count'] ?? ($diaComp ? ($diaComp['no_of_pieces'] ?? null) : null);
+
                 // Compile attributes
                 $attributes = [
                     'source' => 'inventory',
@@ -965,10 +1080,13 @@ class InventoryController extends Controller
                     'purity' => $itemData['purity'] ?? null,
                     'karat' => $itemData['karat'] ?? null,
                     'stamp' => $itemData['stamp'] ?? null,
+                    'diamond_stamp' => $diaStampVal,
+                    'diamond_weight' => $diaWtVal,
+                    'diamond_count' => $diaCountVal,
                     'unit' => $itemData['unit'] ?? null,
                     'gold_type' => $itemData['gold_type'] ?? $itemData['purity'] ?? null,
                     'setting_style' => $itemData['setting_style'] ?? null,
-                    'dia_wt_ct' => $itemData['dia_wt_ct'] ?? $itemData['diamond_wt'] ?? null,
+                    'dia_wt_ct' => $diaWtVal,
                     'size' => $itemData['size'] ?? null,
                     'stone_size' => $itemData['stone_size'] ?? null,
                     'stone_color' => $itemData['stone_color'] ?? null,
@@ -1024,8 +1142,9 @@ class InventoryController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
+            \Illuminate\Support\Facades\Log::error('Failed to save product(s): ' . $e->getMessage());
             return response()->json([
-                'message' => 'Failed to save product(s): ' . $e->getMessage()
+                'message' => 'Failed to save product(s) (500). Please check your data and try again.'
             ], 500);
         }
     }
@@ -1058,7 +1177,7 @@ class InventoryController extends Controller
         $attrs['gold_type'] = $request->input('gold_type', $attrs['gold_type'] ?? '22K');
         $attrs['setting_style'] = $request->input('setting_style', $attrs['setting_style'] ?? null);
         $attrs['dia_wt_ct'] = $request->input('dia_wt_ct', $attrs['dia_wt_ct'] ?? null);
-        $attrs['stamp'] = $request->input('stamp', $attrs['stamp'] ?? '+0');
+        $attrs['stamp'] = $request->input('stamp', $attrs['stamp'] ?? '916');
         $attrs['huid'] = $request->input('huid', $attrs['huid'] ?? null);
         $attrs['size'] = $request->input('size', $attrs['size'] ?? null);
         $attrs['stone_size'] = $request->input('stone_size', $attrs['stone_size'] ?? null);
@@ -1072,8 +1191,28 @@ class InventoryController extends Controller
         $attrs['vendor_id'] = $request->input('vendor_id', $attrs['vendor_id'] ?? null);
         $attrs['quality'] = $request->input('quality', $attrs['quality'] ?? null);
 
+        if ($request->has('diamond_stamp')) {
+            $diaSt = $request->input('diamond_stamp');
+            if ($diaSt && preg_match('/^(?:24k?|22k?|18k?|14k?|10k?|916|750|585|925|999|gold|silver|hallmark|bis)/i', $diaSt)) {
+                $diaSt = null;
+            }
+            $attrs['diamond_stamp'] = $diaSt;
+        }
+
         if ($request->has('components')) {
             $attrs['components'] = $request->input('components');
+            if (is_array($attrs['components'])) {
+                $diaComp = collect($attrs['components'])->first(function ($c) {
+                    $cName = strtolower($c['category_name'] ?? $c['item_name'] ?? $c['component_type'] ?? '');
+                    return !empty($c['is_diamond']) || str_contains($cName, 'diamond') || str_contains($cName, 'dia');
+                });
+                if ($diaComp && !empty($diaComp['stamp'])) {
+                    $cSt = $diaComp['stamp'];
+                    if (!preg_match('/^(?:24k?|22k?|18k?|14k?|10k?|916|750|585|925|999|gold|silver|hallmark|bis)/i', $cSt)) {
+                        $attrs['diamond_stamp'] = $cSt;
+                    }
+                }
+            }
         }
 
         if ($request->has('images')) {
@@ -1176,7 +1315,7 @@ class InventoryController extends Controller
      * CASE A: category_id provided in request (overrides file)
      * CASE B: category_id not provided (identifies and validates category from file row)
      */
-    public function bulkUpload(Request $request)
+    public function bulkUploadCsvLegacy(Request $request)
     {
         $request->validate([
             'file' => 'required|file|mimes:csv,txt|max:10240',
@@ -1371,14 +1510,15 @@ class InventoryController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Bulk insert failed: ' . $e->getMessage()], 500);
+            \Illuminate\Support\Facades\Log::error('Bulk insert failed: ' . $e->getMessage());
+            return response()->json(['message' => 'Bulk upload processing failed (500). Please check your file format and try again.'], 500);
         }
     }
 
     /**
      * Download sample bulk upload CSV template
      */
-    public function downloadSampleCsv()
+    public function downloadSampleCsvLegacy()
     {
         $headers = [
             'Content-Type' => 'text/csv',
@@ -1509,4 +1649,74 @@ class InventoryController extends Controller
 
         return response()->json($categories);
     }
+
+    /**
+     * Preview bulk upload file (Excel or CSV) with grouped multi-component breakdown and validation
+     */
+    public function bulkUploadPreview(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|file|max:20480',
+            'category_id' => 'nullable|integer',
+        ]);
+
+        $service = new ProductBulkUploadService();
+        $preview = $service->preview($request->file('file'), $request->input('category_id'));
+
+        return response()->json([
+            'success' => true,
+            'preview' => $preview,
+        ]);
+    }
+
+    /**
+     * Commit bulk upload products and components to database
+     */
+    public function bulkUpload(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|file|max:20480',
+            'category_id' => 'nullable|integer',
+        ]);
+
+        $service = new ProductBulkUploadService();
+        $result = $service->import($request->file('file'), $request->input('category_id'));
+
+        if (!$result['success']) {
+            return response()->json($result, 422);
+        }
+
+        return response()->json($result, 201);
+    }
+
+    /**
+     * Download multi-component Excel template
+     */
+    public function downloadSampleExcel()
+    {
+        $service = new ProductBulkUploadService();
+        $spreadsheet = $service->generateSampleExcel();
+
+        $writer = new Xlsx($spreadsheet);
+        return response()->streamDownload(function () use ($writer) {
+            $writer->save('php://output');
+        }, 'rudhra_products_bulk_upload_sample.xlsx', [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
+    }
+
+    /**
+     * Download multi-component CSV template
+     */
+    public function downloadSampleCsv()
+    {
+        $service = new ProductBulkUploadService();
+        $csv = $service->generateSampleCsvContent();
+
+        return response($csv, 200, [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="rudhra_products_bulk_upload_sample.csv"',
+        ]);
+    }
 }
+

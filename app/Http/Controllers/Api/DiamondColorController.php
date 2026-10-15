@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\DiamondColor;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class DiamondColorController extends Controller
 {
@@ -13,7 +14,9 @@ class DiamondColorController extends Controller
      */
     public function index()
     {
-        $colors = DiamondColor::orderBy('sort_order')->orderBy('name')->get();
+        $colors = Cache::remember('masters_diamond_colors_all', 300, function () {
+            return DiamondColor::orderBy('sort_order')->orderBy('name')->get();
+        });
         return response()->json($colors);
     }
 
@@ -42,6 +45,7 @@ class DiamondColorController extends Controller
         }
 
         $color = DiamondColor::create($validated);
+        Cache::forget('masters_diamond_colors_all');
 
         return response()->json([
             'message' => 'Diamond color created successfully.',
@@ -77,6 +81,7 @@ class DiamondColorController extends Controller
         }
 
         $diamondColor->update($validated);
+        Cache::forget('masters_diamond_colors_all');
 
         return response()->json([
             'message' => 'Diamond color updated successfully.',
@@ -90,6 +95,7 @@ class DiamondColorController extends Controller
     public function destroy(DiamondColor $diamondColor)
     {
         $diamondColor->delete();
+        Cache::forget('masters_diamond_colors_all');
 
         return response()->json([
             'message' => 'Diamond color deleted successfully.',

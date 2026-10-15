@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\DiamondClarity;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class DiamondClarityController extends Controller
 {
@@ -13,7 +14,9 @@ class DiamondClarityController extends Controller
      */
     public function index()
     {
-        $clarities = DiamondClarity::orderBy('sort_order')->orderBy('name')->get();
+        $clarities = Cache::remember('masters_diamond_clarities_all', 300, function () {
+            return DiamondClarity::orderBy('sort_order')->orderBy('name')->get();
+        });
         return response()->json($clarities);
     }
 
@@ -42,6 +45,7 @@ class DiamondClarityController extends Controller
         }
 
         $clarity = DiamondClarity::create($validated);
+        Cache::forget('masters_diamond_clarities_all');
 
         return response()->json([
             'message' => 'Diamond clarity created successfully.',
@@ -77,6 +81,7 @@ class DiamondClarityController extends Controller
         }
 
         $diamondClarity->update($validated);
+        Cache::forget('masters_diamond_clarities_all');
 
         return response()->json([
             'message' => 'Diamond clarity updated successfully.',
@@ -90,6 +95,7 @@ class DiamondClarityController extends Controller
     public function destroy(DiamondClarity $diamondClarity)
     {
         $diamondClarity->delete();
+        Cache::forget('masters_diamond_clarities_all');
 
         return response()->json([
             'message' => 'Diamond clarity deleted successfully.',

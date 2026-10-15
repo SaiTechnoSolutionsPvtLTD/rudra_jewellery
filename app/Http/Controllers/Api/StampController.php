@@ -5,31 +5,37 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Stamp;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class StampController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Stamp::query();
+        $material = $request->input('material_type', $request->input('applicable_for', 'all'));
+        $cacheKey = 'masters_stamps_' . md5($material ?: 'all');
 
-        // Optional filtering by material type (Gold, Diamond, Stone)
-        $material = $request->input('material_type', $request->input('applicable_for'));
-        if (!empty($material) && strtolower($material) !== 'all') {
-            $matStr = ucfirst(strtolower(trim($material)));
-            if (str_contains(strtolower($matStr), 'gold')) $matStr = 'Gold';
-            elseif (str_contains(strtolower($matStr), 'diamond')) $matStr = 'Diamond';
-            elseif (str_contains(strtolower($matStr), 'stone')) $matStr = 'Stone';
-            elseif (str_contains(strtolower($matStr), 'silver')) $matStr = 'Silver';
+        $items = Cache::remember($cacheKey, 300, function () use ($request, $material) {
+            $query = Stamp::query();
 
-            $query->where(function($q) use ($matStr) {
-                $q->where('applicable_for', 'like', "%{$matStr}%")
-                  ->orWhere('applicable_for', 'like', '%All%')
-                  ->orWhereNull('applicable_for')
-                  ->orWhere('applicable_for', '');
-            });
-        }
+            // Optional filtering by material type (Gold, Diamond, Stone)
+            if (!empty($material) && strtolower($material) !== 'all') {
+                $matStr = ucfirst(strtolower(trim($material)));
+                if (str_contains(strtolower($matStr), 'gold')) $matStr = 'Gold';
+                elseif (str_contains(strtolower($matStr), 'diamond')) $matStr = 'Diamond';
+                elseif (str_contains(strtolower($matStr), 'stone')) $matStr = 'Stone';
+                elseif (str_contains(strtolower($matStr), 'silver')) $matStr = 'Silver';
 
-        $items = $query->orderBy('sort_order')->orderBy('name')->get();
+                $query->where(function($q) use ($matStr) {
+                    $q->where('applicable_for', 'like', "%{$matStr}%")
+                      ->orWhere('applicable_for', 'like', '%All%')
+                      ->orWhereNull('applicable_for')
+                      ->orWhere('applicable_for', '');
+                });
+            }
+
+            return $query->orderBy('sort_order')->orderBy('name')->get();
+        });
+
         return response()->json($items);
     }
 
@@ -58,6 +64,7 @@ class StampController extends Controller
         }
 
         $stamp = Stamp::create($validated);
+        Cache::flush();
 
         return response()->json([
             'message' => 'Stamp created successfully.',
@@ -96,6 +103,7 @@ class StampController extends Controller
         }
 
         $stamp->update($validated);
+        Cache::flush();
 
         return response()->json([
             'message' => 'Stamp updated successfully.',
@@ -106,6 +114,7 @@ class StampController extends Controller
     public function destroy(Stamp $stamp)
     {
         $stamp->delete();
+        Cache::flush();
 
         return response()->json([
             'message' => 'Stamp deleted successfully.',

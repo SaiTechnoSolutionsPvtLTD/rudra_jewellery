@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use Tests\TestCase;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use App\Models\User;
 use App\Models\Category;
 use App\Models\Subcategory;
@@ -14,12 +15,23 @@ use App\Models\InventoryMovement;
 
 class InventoryCategoryAndPurchaseEntryEnhancementTest extends TestCase
 {
+    use RefreshDatabase;
+
     protected $user;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->user = User::first() ?: User::factory()->create();
+
+        $cat = Category::firstOrCreate(
+            ['code' => 'GOLD'],
+            ['name' => 'Gold Jewellery', 'status' => 'active']
+        );
+        Subcategory::firstOrCreate(
+            ['code' => 'RING', 'category_id' => $cat->id],
+            ['name' => 'Gold Ring', 'status' => 'active']
+        );
     }
 
     /** @test */
