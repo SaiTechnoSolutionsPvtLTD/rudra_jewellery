@@ -48,6 +48,32 @@ class NotificationController extends Controller
             $query->where('type', $request->query('type'));
         }
 
+        // Filter by category
+        if ($request->filled('category') && $request->query('category') !== 'all') {
+            $cat = $request->query('category');
+            if ($cat === 'qc') {
+                $query->whereIn('type', ['qc_submitted', 'submitted', 'qc_passed', 'approved', 'returned', 'rework_resubmitted']);
+            } elseif ($cat === 'work_order') {
+                $query->whereIn('type', ['work_order_created', 'work_order_updated', 'assigned', 'progress_update', 'delay', 'completed', 'job_added']);
+            } elseif ($cat === 'receive') {
+                $query->whereIn('type', ['ready_for_receive', 'piece_received', 'certification_completed', 'hallmarking_completed', 'inventory_posted']);
+            } elseif ($cat === 'sales_purchase') {
+                $query->whereIn('type', ['sales_created', 'purchase_created', 'stock_shortage']);
+            }
+        }
+
+        // Search in title, message, or linked work order number
+        if ($request->filled('search')) {
+            $search = trim($request->query('search'));
+            $query->where(function ($q) use ($search) {
+                $q->where('title', 'like', "%{$search}%")
+                  ->orWhere('message', 'like', "%{$search}%")
+                  ->orWhereHas('workOrder', function ($wq) use ($search) {
+                      $wq->where('work_order_number', 'like', "%{$search}%");
+                  });
+            });
+        }
+
         // Compute unread count for current user
         $unreadCountQuery = WorkOrderNotification::where('is_read', false);
         if ($user->isSuperAdmin() || in_array(strtolower(str_replace(' ', '_', $user->role ?? '')), ['super_admin', 'admin'])) {
@@ -63,7 +89,8 @@ class NotificationController extends Controller
         // Pagination or feed limit
         if ($request->boolean('paginate')) {
             $perPage = min(100, max(5, (int) $request->query('per_page', 20)));
-            $paginated = $query->paginate($perPage);
+            $page = max(1, (int) $request->query('page', 1));
+            $paginated = $query->paginate($perPage, ['*'], 'page', $page);
 
             return response()->json([
                 'status' => 'success',

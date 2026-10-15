@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import Pagination from '../../components/Pagination';
 
 export default function NotificationsHistory() {
   const navigate = useNavigate();
@@ -13,18 +14,36 @@ export default function NotificationsHistory() {
   const [activeTab, setActiveTab] = useState('all'); // all, unread, read
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState({ current_page: 1, last_page: 1, total: 0 });
+  const [perPage, setPerPage] = useState(10);
+  const [pagination, setPagination] = useState({ current_page: 1, last_page: 1, total: 0, per_page: 10 });
 
-  const fetchNotifications = useCallback(async (targetPage = 1) => {
+  // Debounce search input by 300ms
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  const fetchNotifications = useCallback(async (targetPage = page, targetPerPage = perPage) => {
     try {
       setLoading(true);
       const params = {
         paginate: 1,
         page: targetPage,
-        per_page: 15,
+        per_page: targetPerPage,
         filter: activeTab,
       };
+
+      if (selectedCategory && selectedCategory !== 'all') {
+        params.category = selectedCategory;
+      }
+      if (debouncedSearch && debouncedSearch.trim()) {
+        params.search = debouncedSearch.trim();
+      }
 
       const res = await api.get('/notifications', { params });
       if (res.data?.status === 'success') {
@@ -41,11 +60,11 @@ export default function NotificationsHistory() {
     } finally {
       setLoading(false);
     }
-  }, [activeTab, showToast]);
+  }, [activeTab, selectedCategory, debouncedSearch, page, perPage, showToast]);
 
   useEffect(() => {
-    fetchNotifications(1);
-  }, [fetchNotifications]);
+    fetchNotifications(page, perPage);
+  }, [page, perPage, activeTab, selectedCategory, debouncedSearch]);
 
   const handleMarkRead = async (notif, e) => {
     e?.stopPropagation();
@@ -139,23 +158,6 @@ export default function NotificationsHistory() {
     }
   };
 
-  const filteredNotifications = notifications.filter(n => {
-    if (selectedCategory !== 'all') {
-      if (selectedCategory === 'qc' && !['qc_submitted', 'qc_passed', 'returned', 'rework_resubmitted'].includes(n.type)) return false;
-      if (selectedCategory === 'work_order' && !['work_order_created', 'assigned', 'progress_update', 'delay', 'completed', 'job_added'].includes(n.type)) return false;
-      if (selectedCategory === 'receive' && !['ready_for_receive', 'piece_received', 'certification_completed', 'hallmarking_completed', 'inventory_posted'].includes(n.type)) return false;
-      if (selectedCategory === 'sales_purchase' && !['sales_created', 'purchase_created'].includes(n.type)) return false;
-    }
-    if (searchTerm.trim()) {
-      const q = searchTerm.toLowerCase();
-      const matchTitle = n.title?.toLowerCase().includes(q);
-      const matchMsg = n.message?.toLowerCase().includes(q);
-      const matchWo = n.work_order?.work_order_number?.toLowerCase().includes(q);
-      return matchTitle || matchMsg || matchWo;
-    }
-    return true;
-  });
-
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6 font-['Inter',sans-serif]">
       {/* Page Header */}
@@ -183,7 +185,7 @@ export default function NotificationsHistory() {
             </button>
           )}
           <button
-            onClick={() => fetchNotifications(page)}
+            onClick={() => fetchNotifications(page, perPage)}
             className="px-3.5 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
             title="Refresh"
           >
@@ -198,7 +200,7 @@ export default function NotificationsHistory() {
         {/* Status Tabs */}
         <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-xl">
           <button
-            onClick={() => setActiveTab('all')}
+            onClick={() => { setActiveTab('all'); setPage(1); }}
             className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
               activeTab === 'all' ? 'bg-white text-stone-900 shadow-2xs' : 'text-stone-500 hover:text-stone-900'
             }`}
@@ -206,7 +208,7 @@ export default function NotificationsHistory() {
             All
           </button>
           <button
-            onClick={() => setActiveTab('unread')}
+            onClick={() => { setActiveTab('unread'); setPage(1); }}
             className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
               activeTab === 'unread' ? 'bg-white text-[#b01622] shadow-2xs' : 'text-stone-500 hover:text-stone-900'
             }`}
@@ -219,7 +221,7 @@ export default function NotificationsHistory() {
             )}
           </button>
           <button
-            onClick={() => setActiveTab('read')}
+            onClick={() => { setActiveTab('read'); setPage(1); }}
             className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
               activeTab === 'read' ? 'bg-white text-stone-900 shadow-2xs' : 'text-stone-500 hover:text-stone-900'
             }`}
@@ -232,7 +234,7 @@ export default function NotificationsHistory() {
         <div className="flex flex-col sm:flex-row items-center gap-2">
           <select
             value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
+            onChange={(e) => { setSelectedCategory(e.target.value); setPage(1); }}
             className="w-full sm:w-auto bg-stone-50 border border-stone-300 rounded-xl px-3 py-1.5 text-xs font-semibold text-stone-800 focus:border-[#b01622]"
           >
             <option value="all">All Modules</option>
@@ -262,7 +264,7 @@ export default function NotificationsHistory() {
             <i className="fa-solid fa-spinner fa-spin text-2xl text-[#b01622] mb-3 block"></i>
             Loading notifications history...
           </div>
-        ) : filteredNotifications.length === 0 ? (
+        ) : notifications.length === 0 ? (
           <div className="p-16 text-center text-stone-400">
             <div className="w-14 h-14 bg-stone-100 rounded-2xl flex items-center justify-center text-2xl text-stone-400 mx-auto mb-3">
               <i className="fa-regular fa-bell-slash"></i>
@@ -274,7 +276,7 @@ export default function NotificationsHistory() {
           </div>
         ) : (
           <div className="divide-y divide-stone-100">
-            {filteredNotifications.map((notif) => {
+            {notifications.map((notif) => {
               const badge = getTypeBadge(notif.type);
               return (
                 <div
@@ -365,29 +367,20 @@ export default function NotificationsHistory() {
         )}
 
         {/* Pagination Footer */}
-        {pagination.last_page > 1 && (
-          <div className="p-4 bg-stone-50 border-t border-stone-200 flex items-center justify-between text-xs text-stone-600">
-            <div>
-              Showing page <span className="font-bold text-stone-900">{pagination.current_page}</span> of{' '}
-              <span className="font-bold text-stone-900">{pagination.last_page}</span> ({pagination.total} total)
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                disabled={pagination.current_page <= 1}
-                onClick={() => fetchNotifications(pagination.current_page - 1)}
-                className="px-3 py-1.5 bg-white border border-stone-300 rounded-lg font-semibold hover:bg-stone-100 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
-              >
-                Previous
-              </button>
-              <button
-                disabled={pagination.current_page >= pagination.last_page}
-                onClick={() => fetchNotifications(pagination.current_page + 1)}
-                className="px-3 py-1.5 bg-white border border-stone-300 rounded-lg font-semibold hover:bg-stone-100 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
-              >
-                Next
-              </button>
-            </div>
-          </div>
+        {pagination.total > 0 && (
+          <Pagination
+            currentPage={pagination.current_page}
+            totalPages={pagination.last_page}
+            totalItems={pagination.total}
+            itemsPerPage={pagination.per_page || perPage}
+            onPageChange={(newPage) => {
+              setPage(newPage);
+            }}
+            onItemsPerPageChange={(newPerPage) => {
+              setPerPage(newPerPage);
+              setPage(1);
+            }}
+          />
         )}
       </div>
     </div>
