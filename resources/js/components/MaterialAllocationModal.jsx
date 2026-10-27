@@ -142,6 +142,68 @@ export default function MaterialAllocationModal({
     }
   };
 
+  // Dynamically filter stamps matching material type (Gold, Diamond, Platinum, Silver, Stone)
+  const getFilteredStamps = (matType) => {
+    if (!matType) return stampsList || [];
+    const type = String(matType).toLowerCase().trim();
+
+    const filtered = (stampsList || []).filter((s) => {
+      const app = String(s.applicable_for || '').toLowerCase();
+      if (!app) return false;
+      if (app === 'all') return true;
+
+      if (type === 'gold') {
+        return app.includes('gold');
+      } else if (type === 'diamond') {
+        return app.includes('diamond');
+      } else if (type === 'platinum') {
+        return app.includes('platinum');
+      } else if (type === 'silver') {
+        return app.includes('silver');
+      } else if (type === 'stone' || type === 'colour_stone') {
+        return app.includes('stone') || app.includes('gem');
+      }
+      return false;
+    });
+
+    if (filtered.length > 0) return filtered;
+
+    // Standard fallback stamps by material if user hasn't added custom ones yet
+    if (type === 'gold') {
+      return [
+        { id: 'f-g1', name: '916', code: '916' },
+        { id: 'f-g2', name: '999', code: '999' },
+        { id: 'f-g3', name: '750', code: '750' },
+        { id: 'f-g4', name: '585', code: '585' },
+        { id: 'f-g5', name: 'HM', code: 'HM' },
+      ];
+    }
+    if (type === 'platinum') {
+      return [
+        { id: 'f-pt1', name: 'PT950', code: 'PT950' },
+        { id: 'f-pt2', name: 'PT900', code: 'PT900' },
+        { id: 'f-pt3', name: '950', code: '950' },
+        { id: 'f-pt4', name: '900', code: '900' },
+      ];
+    }
+    if (type === 'silver') {
+      return [
+        { id: 'f-s1', name: '925', code: '925' },
+        { id: 'f-s2', name: '999', code: '999' },
+      ];
+    }
+    if (type === 'diamond') {
+      return [
+        { id: 'f-d1', name: '+3', code: '+3' },
+        { id: 'f-d2', name: '+4', code: '+4' },
+        { id: 'f-d3', name: '+5', code: '+5' },
+        { id: 'f-d4', name: '+6', code: '+6' },
+      ];
+    }
+
+    return [];
+  };
+
   const fetchKarigars = async () => {
     try {
       const res = await api.get('/karigar-materials');
@@ -189,6 +251,9 @@ export default function MaterialAllocationModal({
       const row = { ...updated[index], [field]: value };
 
       if (field === 'material_type') {
+        row.stamp = '';
+        row.sieve_size = '';
+        row.stamp_id = null;
         if (value === 'gold') {
           row.unit = 'g';
           if (!row.purity) row.purity = '24K';
@@ -198,8 +263,23 @@ export default function MaterialAllocationModal({
           row.purity = '';
           row.touch = 0;
           row.fine_weight = 0;
+        } else if (value === 'platinum') {
+          row.unit = 'g';
+          row.purity = '';
+          row.touch = 0;
+          row.fine_weight = 0;
+        } else if (value === 'silver') {
+          row.unit = 'g';
+          row.purity = '';
+          row.touch = 0;
+          row.fine_weight = 0;
         } else if (value === 'stone' || value === 'colour_stone') {
           row.unit = 'pcs';
+          row.purity = '';
+          row.touch = 0;
+          row.fine_weight = 0;
+        } else {
+          row.unit = 'g';
           row.purity = '';
           row.touch = 0;
           row.fine_weight = 0;
@@ -208,11 +288,19 @@ export default function MaterialAllocationModal({
 
       if (field === 'purity' && row.material_type === 'gold') {
         const p = String(value).toUpperCase();
-        if (p.includes('24K') || p.includes('999')) row.touch = 100.0;
-        else if (p.includes('22K') || p.includes('916')) row.touch = 91.6;
-        else if (p.includes('18K') || p.includes('750')) row.touch = 75.0;
-        else if (p.includes('14K') || p.includes('585')) row.touch = 58.5;
-        else {
+        if (p.includes('24K') || p.includes('999')) {
+          row.touch = 100.0;
+          if (!row.stamp || ['916', '750', '585'].includes(row.stamp)) row.stamp = '999';
+        } else if (p.includes('22K') || p.includes('916')) {
+          row.touch = 91.6;
+          if (!row.stamp || ['999', '750', '585'].includes(row.stamp)) row.stamp = '916';
+        } else if (p.includes('18K') || p.includes('750')) {
+          row.touch = 75.0;
+          if (!row.stamp || ['999', '916', '585'].includes(row.stamp)) row.stamp = '750';
+        } else if (p.includes('14K') || p.includes('585')) {
+          row.touch = 58.5;
+          if (!row.stamp || ['999', '916', '750'].includes(row.stamp)) row.stamp = '585';
+        } else {
           const num = parseFloat(p.replace(/[^0-9.]/g, ''));
           if (!isNaN(num) && num > 0) row.touch = num <= 1.0 ? num * 100 : num;
         }
@@ -1319,44 +1407,40 @@ export default function MaterialAllocationModal({
                                   )}
                                 </td>
                                 <td className="py-2 px-2">
-                                  {row.material_type === 'diamond' ? (
-                                    <div className="relative">
-                                      <input
-                                        type="text"
-                                        list={`stamp-options-${rIdx}`}
-                                        placeholder="Stamp/Sieve"
-                                        value={row.stamp || row.sieve_size || ''}
-                                        onChange={(e) => {
-                                          const val = e.target.value;
-                                          const matched = stampsList.find(s => s.name?.toLowerCase() === val.toLowerCase() || s.code?.toLowerCase() === val.toLowerCase());
-                                          updateAllocationRow(rIdx, 'stamp', val);
-                                          updateAllocationRow(rIdx, 'sieve_size', val);
-                                          if (matched) {
-                                            updateAllocationRow(rIdx, 'stamp_id', matched.id);
-                                          }
-                                        }}
-                                        className="w-full px-2 py-1.5 bg-white border border-stone-300 rounded-lg text-xs font-mono font-bold text-stone-900 focus:outline-hidden focus:border-[#b01622]"
-                                      />
-                                      <datalist id={`stamp-options-${rIdx}`}>
-                                        {stampsList.map((st) => (
-                                          <option key={st.id} value={st.name}>
-                                            {st.code ? `[${st.code}] ` : ''}{st.name}
-                                          </option>
-                                        ))}
-                                      </datalist>
-                                    </div>
-                                  ) : (
+                                  <div className="relative">
                                     <input
                                       type="text"
-                                      placeholder={row.material_type === 'gold' ? '24K / Pure' : 'Stamp/Size'}
+                                      list={`stamp-options-${rIdx}`}
+                                      placeholder={
+                                        row.material_type === 'gold' ? '24K / Pure' :
+                                        row.material_type === 'diamond' ? 'Stamp/Sieve' :
+                                        row.material_type === 'platinum' ? 'PT950 / Size' :
+                                        row.material_type === 'silver' ? '925 / Size' :
+                                        row.material_type === 'stone' ? 'Stamp/Size' : 'Stamp/Size'
+                                      }
                                       value={row.stamp || row.sieve_size || ''}
                                       onChange={(e) => {
-                                        updateAllocationRow(rIdx, 'stamp', e.target.value);
-                                        updateAllocationRow(rIdx, 'sieve_size', e.target.value);
+                                        const val = e.target.value;
+                                        const availableStamps = getFilteredStamps(row.material_type);
+                                        const matched = availableStamps.find(s => s.name?.toLowerCase() === val.toLowerCase() || s.code?.toLowerCase() === val.toLowerCase());
+                                        updateAllocationRow(rIdx, 'stamp', val);
+                                        updateAllocationRow(rIdx, 'sieve_size', val);
+                                        if (matched && typeof matched.id === 'number') {
+                                          updateAllocationRow(rIdx, 'stamp_id', matched.id);
+                                        } else {
+                                          updateAllocationRow(rIdx, 'stamp_id', null);
+                                        }
                                       }}
                                       className="w-full px-2 py-1.5 bg-white border border-stone-300 rounded-lg text-xs font-mono font-bold text-stone-900 focus:outline-hidden focus:border-[#b01622]"
                                     />
-                                  )}
+                                    <datalist id={`stamp-options-${rIdx}`}>
+                                      {getFilteredStamps(row.material_type).map((st) => (
+                                        <option key={st.id} value={st.name}>
+                                          {st.code && st.code !== st.name ? `[${st.code}] ` : ''}{st.name}
+                                        </option>
+                                      ))}
+                                    </datalist>
+                                  </div>
                                 </td>
                                 <td className="py-2 px-2">
                                   <input

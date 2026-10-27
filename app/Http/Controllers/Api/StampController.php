@@ -24,6 +24,7 @@ class StampController extends Controller
                 elseif (str_contains(strtolower($matStr), 'diamond')) $matStr = 'Diamond';
                 elseif (str_contains(strtolower($matStr), 'stone')) $matStr = 'Stone';
                 elseif (str_contains(strtolower($matStr), 'silver')) $matStr = 'Silver';
+                elseif (str_contains(strtolower($matStr), 'platinum')) $matStr = 'Platinum';
 
                 $query->where(function($q) use ($matStr) {
                     $q->where('applicable_for', 'like', "%{$matStr}%")

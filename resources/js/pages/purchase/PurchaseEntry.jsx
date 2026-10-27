@@ -8,6 +8,20 @@ import PurchaseDetailsModal from '../../components/PurchaseDetailsModal';
 import ConvertPurchasePaymentModeModal from '../../components/ConvertPurchasePaymentModeModal';
 import { handleIntegerKeyDown, handleDecimalKeyDown, sanitizeInteger, sanitizeDecimal, normalizeNumericInput, handleNumericFocus } from '../../utils/numberInputUtils';
 
+// Helper to cleanly format karat dropdown labels without awkward redundant codes like "24k (24)"
+const formatKaratLabel = (k) => {
+  if (!k) return '';
+  if (!k.code) return k.name || '';
+  const nameTrim = (k.name || '').trim();
+  const codeTrim = (k.code || '').trim();
+  const nameNorm = nameTrim.toLowerCase().replace(/k$/, '').trim();
+  const codeNorm = codeTrim.toLowerCase().replace(/k$/, '').trim();
+  if (codeTrim.toLowerCase() === nameTrim.toLowerCase() || nameNorm === codeNorm) {
+    return k.name;
+  }
+  return `${k.name} (${k.code})`;
+};
+
 export default function PurchaseEntry({ initialTab }) {
   const { showToast, showConfirm } = useToast();
   const location = useLocation();
@@ -536,7 +550,7 @@ export default function PurchaseEntry({ initialTab }) {
     });
     return dia.length > 0 ? dia : stampsList.filter(s => {
       const app = (s?.applicable_for || '').toLowerCase();
-      return !app.includes('gold') && !app.includes('silver') && !app.includes('stone');
+      return !app.includes('gold') && !app.includes('silver') && !app.includes('stone') && !app.includes('platinum');
     });
   }, [stampsList]);
 
@@ -548,7 +562,7 @@ export default function PurchaseEntry({ initialTab }) {
     });
     return filtered.length > 0 ? filtered : stampsList.filter(s => {
       const app = (s?.applicable_for || '').toLowerCase();
-      return !app.includes('gold') && !app.includes('silver') && !app.includes('diamond');
+      return !app.includes('gold') && !app.includes('silver') && !app.includes('diamond') && !app.includes('platinum');
     });
   }, [stampsList]);
 
@@ -556,27 +570,39 @@ export default function PurchaseEntry({ initialTab }) {
     if (!stampsList || stampsList.length === 0) return [];
     const gold = stampsList.filter(s => {
       const app = (s?.applicable_for || '').toLowerCase();
-      return !app || app.includes('gold') || app.includes('all');
+      return app.includes('gold') || app.includes('all');
     });
-    return gold.length > 0 ? gold : stampsList;
+    return gold.length > 0 ? gold : [
+      { id: 'def-g1', name: '916', code: '916' },
+      { id: 'def-g2', name: '999', code: '999' },
+      { id: 'def-g3', name: '750', code: '750' },
+      { id: 'def-g4', name: '585', code: '585' },
+    ];
   }, [stampsList]);
 
   const silverMasterStamps = React.useMemo(() => {
     if (!stampsList || stampsList.length === 0) return [];
     const silver = stampsList.filter(s => {
       const app = (s?.applicable_for || '').toLowerCase();
-      return !app || app.includes('silver') || app.includes('all');
+      return app.includes('silver') || app.includes('all');
     });
-    return silver.length > 0 ? silver : stampsList;
+    return silver.length > 0 ? silver : [
+      { id: 'def-s1', name: '925', code: '925' },
+      { id: 'def-s2', name: '999', code: '999' },
+    ];
   }, [stampsList]);
 
   const platinumMasterStamps = React.useMemo(() => {
     if (!stampsList || stampsList.length === 0) return [];
     const plat = stampsList.filter(s => {
       const app = (s?.applicable_for || '').toLowerCase();
-      return !app || app.includes('platinum') || app.includes('all');
+      return app.includes('platinum') || app.includes('all');
     });
-    return plat.length > 0 ? plat : stampsList;
+    return plat.length > 0 ? plat : [
+      { id: 'def-pt1', name: 'PT950', code: 'PT950' },
+      { id: 'def-pt2', name: 'PT900', code: 'PT900' },
+      { id: 'def-pt3', name: '950', code: '950' },
+    ];
   }, [stampsList]);
 
   const metalUnits = React.useMemo(() => {
@@ -1998,7 +2024,7 @@ export default function PurchaseEntry({ initialTab }) {
                       <option value="">-- Select Karat from Master --</option>
                       {karatsList.map(k => (
                         <option key={k.id} value={k.name}>
-                          {k.name} {k.code && k.code !== k.name ? `(${k.code})` : ''}
+                          {formatKaratLabel(k)}
                         </option>
                       ))}
                     </select>
@@ -2940,7 +2966,7 @@ export default function PurchaseEntry({ initialTab }) {
                       <option value="">-- Karat Master --</option>
                       {karatsList.map(k => (
                         <option key={k.id} value={k.name}>
-                          {k.name} {k.code && k.code !== k.name ? `(${k.code})` : ''}
+                          {formatKaratLabel(k)}
                         </option>
                       ))}
                     </select>
@@ -3835,7 +3861,7 @@ export default function PurchaseEntry({ initialTab }) {
                       <option value="">-- Select Karat Master --</option>
                       {karatsList.map(k => (
                         <option key={k.id} value={k.name}>
-                          {k.name} {k.code && k.code !== k.name ? `(${k.code})` : ''}
+                          {formatKaratLabel(k)}
                         </option>
                       ))}
                     </select>

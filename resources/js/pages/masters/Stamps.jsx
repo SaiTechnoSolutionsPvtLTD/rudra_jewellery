@@ -74,7 +74,7 @@ export default function Stamps() {
     let appArr = [];
     if (item.applicable_for) {
       if (item.applicable_for === 'All') {
-        appArr = ['Gold', 'Silver', 'Diamond', 'Stone'];
+        appArr = ['Gold', 'Silver', 'Platinum', 'Diamond', 'Stone'];
       } else {
         appArr = item.applicable_for.split(',').map((s) => s.trim()).filter(Boolean);
       }
@@ -107,7 +107,7 @@ export default function Stamps() {
       return;
     }
     if (!formData.applicable_for || formData.applicable_for.length === 0) {
-      showToast('Please select at least one material type (Gold, Silver, Diamond, or Stone)', 'error');
+      showToast('Please select at least one material type (Gold, Platinum, Silver, Diamond, or Stone)', 'error');
       return;
     }
 
@@ -157,13 +157,18 @@ export default function Stamps() {
   const renderMaterialBadges = (applicableStr) => {
     if (!applicableStr) return null;
     const raw = applicableStr;
-    const list = raw === 'All' ? ['Gold', 'Silver', 'Diamond', 'Stone'] : raw.split(',').map((s) => s.trim());
+    const list = raw === 'All' ? ['Gold', 'Silver', 'Platinum', 'Diamond', 'Stone'] : raw.split(',').map((s) => s.trim());
 
     return (
       <div className="flex flex-wrap gap-1 mt-2">
         {list.includes('Gold') && (
           <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
             <i className="fa-solid fa-coins mr-1 text-[9px] text-amber-600"></i>Gold
+          </span>
+        )}
+        {list.includes('Platinum') && (
+          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-teal-100 text-teal-900 border border-teal-300">
+            <i className="fa-solid fa-ring mr-1 text-[9px] text-teal-600"></i>Platinum
           </span>
         )}
         {list.includes('Silver') && (
@@ -191,7 +196,7 @@ export default function Stamps() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Stamp Master</h1>
-          <p className="text-sm text-gray-500 mt-1">Manage hallmarking stamps, purity marks, and link with Gold, Diamond, or Stone</p>
+          <p className="text-sm text-gray-500 mt-1">Manage hallmarking stamps, purity marks, and link with Gold, Platinum, Silver, Diamond, or Stone</p>
         </div>
         <button
           type="button"
@@ -314,12 +319,12 @@ export default function Stamps() {
                 />
               </div>
 
-              {/* Link With Gold / Silver / Diamond / Stone Checkbox Selector */}
+              {/* Link With Gold / Platinum / Silver / Diamond / Stone Checkbox Selector */}
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1.5">
                   Link With Material Type <span className="text-[#b01622]">*</span>
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-stone-50 p-3 rounded-xl border border-stone-200">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 bg-stone-50 p-3 rounded-xl border border-stone-200">
                   <label className="flex items-center gap-2 text-xs font-bold text-gray-800 cursor-pointer select-none">
                     <input
                       type="checkbox"
@@ -329,6 +334,18 @@ export default function Stamps() {
                     />
                     <span className="flex items-center gap-1 text-amber-900">
                       <i className="fa-solid fa-coins text-amber-600"></i> Gold
+                    </span>
+                  </label>
+
+                  <label className="flex items-center gap-2 text-xs font-bold text-gray-800 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={(formData.applicable_for || []).includes('Platinum')}
+                      onChange={() => toggleApplicableMaterial('Platinum')}
+                      className="w-4 h-4 rounded text-[#b01622] focus:ring-[#b01622] cursor-pointer"
+                    />
+                    <span className="flex items-center gap-1 text-teal-900">
+                      <i className="fa-solid fa-ring text-teal-600"></i> Platinum
                     </span>
                   </label>
 

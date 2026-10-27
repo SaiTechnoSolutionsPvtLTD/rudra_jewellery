@@ -363,9 +363,14 @@ export default function QuickDropdownCrudModal({
                       {karats.length > 0 ? (
                         karats.map((k) => {
                           const kVal = k.name || k.code;
+                          const nameTrim = (k.name || '').trim();
+                          const codeTrim = (k.code || '').trim();
+                          const nameNorm = nameTrim.toLowerCase().replace(/k$/, '').trim();
+                          const codeNorm = codeTrim.toLowerCase().replace(/k$/, '').trim();
+                          const isRedundant = !k.code || codeTrim.toLowerCase() === nameTrim.toLowerCase() || nameNorm === codeNorm;
                           return (
                             <option key={k.id || kVal} value={kVal}>
-                              {k.name} {k.code && k.code !== k.name ? `(${k.code})` : ''}
+                              {k.name}{!isRedundant ? ` (${k.code})` : ''}
                             </option>
                           );
                         })
@@ -392,8 +397,8 @@ export default function QuickDropdownCrudModal({
                   <label className="block text-xs font-semibold text-gray-700 mb-1">
                     Link With Material Type <span className="text-[#b01622]">*</span>
                   </label>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-white p-2.5 rounded-lg border border-gray-300">
-                    {['Gold', 'Silver', 'Diamond', 'Stone'].map((mat) => {
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 bg-white p-2.5 rounded-lg border border-gray-300">
+                    {['Gold', 'Platinum', 'Silver', 'Diamond', 'Stone'].map((mat) => {
                       const list = formData.applicable_for || [];
                       const isChecked = list.includes(mat);
                       return (

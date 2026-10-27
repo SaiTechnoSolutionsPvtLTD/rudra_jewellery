@@ -50,5 +50,38 @@ class EnsureCoreMastersSeeder extends Seeder
         foreach ($units as $u) {
             \App\Models\Unit::firstOrCreate(['name' => $u['name']], $u);
         }
+
+        // Ensure default Stamp masters across all material types if missing
+        $defaultStamps = [
+            // Gold Stamps
+            ['name' => '916', 'code' => '916', 'applicable_for' => 'Gold', 'sort_order' => 1],
+            ['name' => '999', 'code' => '999', 'applicable_for' => 'Gold', 'sort_order' => 2],
+            ['name' => '750', 'code' => '750', 'applicable_for' => 'Gold', 'sort_order' => 3],
+            ['name' => '585', 'code' => '585', 'applicable_for' => 'Gold', 'sort_order' => 4],
+            ['name' => 'HM', 'code' => 'HM', 'applicable_for' => 'Gold', 'sort_order' => 5],
+            
+            // Platinum Stamps
+            ['name' => 'PT950', 'code' => 'PT950', 'applicable_for' => 'Platinum', 'sort_order' => 6],
+            ['name' => 'PT900', 'code' => 'PT900', 'applicable_for' => 'Platinum', 'sort_order' => 7],
+            ['name' => '950', 'code' => '950', 'applicable_for' => 'Platinum', 'sort_order' => 8],
+            
+            // Silver Stamps
+            ['name' => '925', 'code' => '925', 'applicable_for' => 'Silver', 'sort_order' => 9],
+            
+            // Diamond Stamps
+            ['name' => '+3', 'code' => '+3', 'applicable_for' => 'Diamond', 'sort_order' => 10],
+            ['name' => '+4', 'code' => '+4', 'applicable_for' => 'Diamond', 'sort_order' => 11],
+            ['name' => '+5', 'code' => '+5', 'applicable_for' => 'Diamond', 'sort_order' => 12],
+            ['name' => '+6', 'code' => '+6', 'applicable_for' => 'Diamond', 'sort_order' => 13],
+            ['name' => 'IGI Certified', 'code' => 'IGI', 'applicable_for' => 'Diamond', 'sort_order' => 14],
+            ['name' => 'GIA Certified', 'code' => 'GIA', 'applicable_for' => 'Diamond', 'sort_order' => 15],
+            
+            // Stone Stamps
+            ['name' => 'Certified Stone', 'code' => 'CST', 'applicable_for' => 'Stone', 'sort_order' => 16],
+        ];
+
+        foreach ($defaultStamps as $st) {
+            \App\Models\Stamp::firstOrCreate(['name' => $st['name']], $st);
+        }
     }
 }
