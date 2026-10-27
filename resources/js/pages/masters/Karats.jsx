@@ -161,9 +161,16 @@ export default function Karats() {
                         </div>
                         <div>
                           <h3 className="font-bold text-gray-900 text-sm leading-snug">{item.name}</h3>
-                          <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-md mt-0.5 bg-stone-100 text-stone-600 font-mono">
-                            Sort: #{item.sort_order || item.id}
-                          </span>
+                          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                            <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-md bg-stone-100 text-stone-600 font-mono">
+                              Sort: #{item.sort_order || item.id}
+                            </span>
+                            {item.code && (
+                              <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-md bg-stone-100 text-stone-500 font-mono">
+                                Code: {item.code}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
 
@@ -243,11 +250,12 @@ export default function Karats() {
                   <label className="block text-xs font-semibold text-gray-700 mb-1.5">Code (Optional)</label>
                   <input
                     type="text"
-                    placeholder="e.g. 22K"
+                    placeholder="e.g. 24K (leave blank if same as name)"
                     value={formData.code}
                     onChange={(e) => setFormData({ ...formData, code: e.target.value })}
                     className="w-full px-3.5 h-[42px] bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:border-[#b01622]"
                   />
+                  <p className="text-[10px] text-gray-400 mt-1">Leave blank unless you need a distinct code</p>
                 </div>
 
                 <div>

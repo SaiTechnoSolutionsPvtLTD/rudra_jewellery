@@ -186,25 +186,54 @@ class WorkOrderReceivedPiece extends Model
     public static function generateTagNumber(): string
     {
         $year = date('Y');
-        $latestPiece = self::where('tag_number', 'like', "TAG-{$year}-%")
-            ->lockForUpdate()
-            ->orderBy('id', 'desc')
-            ->first();
+        $isMySql = str_contains(\Illuminate\Support\Facades\DB::connection()->getDriverName(), 'mysql');
+        $lockName = "generate_tag_number_lock_{$year}";
 
-        $nextNum = 1;
-        if ($latestPiece && preg_match("/TAG-{$year}-(\d+)/", $latestPiece->tag_number, $matches)) {
-            $nextNum = (int)$matches[1] + 1;
-        } else {
-            $countTag = self::whereYear('created_at', $year)->count();
-            $nextNum = $countTag + 1;
+        if ($isMySql) {
+            try {
+                \Illuminate\Support\Facades\DB::statement("SELECT GET_LOCK('{$lockName}', 10)");
+            } catch (\Throwable $e) {
+                // If lock acquisition statement fails, proceed with table query
+            }
         }
 
-        // Ensure absolute uniqueness if existing tag exists
-        while (self::where('tag_number', "TAG-{$year}-" . str_pad($nextNum, 6, '0', STR_PAD_LEFT))->exists()) {
-            $nextNum++;
-        }
+        try {
+            // Find highest existing numeric suffix for the current year
+            $existingTags = self::where('tag_number', 'like', "TAG-{$year}-%")
+                ->pluck('tag_number');
 
-        return "TAG-{$year}-" . str_pad($nextNum, 6, '0', STR_PAD_LEFT);
+            $maxNum = 0;
+            foreach ($existingTags as $tag) {
+                if (preg_match("/TAG-{$year}-(\d+)/", $tag, $matches)) {
+                    $val = (int) $matches[1];
+                    if ($val > $maxNum) {
+                        $maxNum = $val;
+                    }
+                }
+            }
+
+            if ($maxNum === 0) {
+                $countTag = self::whereYear('created_at', $year)->count();
+                $nextNum = max(1, $countTag + 1);
+            } else {
+                $nextNum = $maxNum + 1;
+            }
+
+            // Ensure absolute uniqueness
+            $candidate = "TAG-{$year}-" . str_pad($nextNum, 6, '0', STR_PAD_LEFT);
+            while (self::where('tag_number', $candidate)->exists()) {
+                $nextNum++;
+                $candidate = "TAG-{$year}-" . str_pad($nextNum, 6, '0', STR_PAD_LEFT);
+            }
+
+            return $candidate;
+        } finally {
+            if ($isMySql) {
+                try {
+                    \Illuminate\Support\Facades\DB::statement("SELECT RELEASE_LOCK('{$lockName}')");
+                } catch (\Throwable $e) {}
+            }
+        }
     }
 
     /**
@@ -213,24 +242,52 @@ class WorkOrderReceivedPiece extends Model
     public static function generateReceiveOrderNumber(): string
     {
         $year = date('Y');
-        $latestRwo = self::where('receive_order_number', 'like', "RWO-{$year}-%")
-            ->lockForUpdate()
-            ->orderBy('id', 'desc')
-            ->first();
+        $isMySql = str_contains(\Illuminate\Support\Facades\DB::connection()->getDriverName(), 'mysql');
+        $lockName = "generate_rwo_number_lock_{$year}";
 
-        $nextRwoNum = 1;
-        if ($latestRwo && preg_match("/RWO-{$year}-(\d+)/", $latestRwo->receive_order_number, $matches)) {
-            $nextRwoNum = (int)$matches[1] + 1;
-        } else {
-            $countRwo = self::whereYear('created_at', $year)->count();
-            $nextRwoNum = $countRwo + 1;
+        if ($isMySql) {
+            try {
+                \Illuminate\Support\Facades\DB::statement("SELECT GET_LOCK('{$lockName}', 10)");
+            } catch (\Throwable $e) {
+                // Proceed with table query
+            }
         }
 
-        while (self::where('receive_order_number', "RWO-{$year}-" . str_pad($nextRwoNum, 6, '0', STR_PAD_LEFT))->exists()) {
-            $nextRwoNum++;
-        }
+        try {
+            $existingRwos = self::where('receive_order_number', 'like', "RWO-{$year}-%")
+                ->pluck('receive_order_number');
 
-        return "RWO-{$year}-" . str_pad($nextRwoNum, 6, '0', STR_PAD_LEFT);
+            $maxRwoNum = 0;
+            foreach ($existingRwos as $rwo) {
+                if (preg_match("/RWO-{$year}-(\d+)/", $rwo, $matches)) {
+                    $val = (int) $matches[1];
+                    if ($val > $maxRwoNum) {
+                        $maxRwoNum = $val;
+                    }
+                }
+            }
+
+            if ($maxRwoNum === 0) {
+                $countRwo = self::whereYear('created_at', $year)->count();
+                $nextRwoNum = max(1, $countRwo + 1);
+            } else {
+                $nextRwoNum = $maxRwoNum + 1;
+            }
+
+            $candidate = "RWO-{$year}-" . str_pad($nextRwoNum, 6, '0', STR_PAD_LEFT);
+            while (self::where('receive_order_number', $candidate)->exists()) {
+                $nextRwoNum++;
+                $candidate = "RWO-{$year}-" . str_pad($nextRwoNum, 6, '0', STR_PAD_LEFT);
+            }
+
+            return $candidate;
+        } finally {
+            if ($isMySql) {
+                try {
+                    \Illuminate\Support\Facades\DB::statement("SELECT RELEASE_LOCK('{$lockName}')");
+                } catch (\Throwable $e) {}
+            }
+        }
     }
 
     public function isDelivered(): bool

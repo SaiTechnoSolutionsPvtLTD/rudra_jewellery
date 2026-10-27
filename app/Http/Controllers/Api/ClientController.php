@@ -1103,4 +1103,29 @@ class ClientController extends Controller
             ]);
         }
     }
+
+    /**
+     * Record on-account customer payment allocated across invoices or customer credit
+     */
+    public function recordPayment(Request $request, $id, \App\Services\SaleService $saleService)
+    {
+        $client = Client::findOrFail($id);
+        $validated = $request->validate([
+            'amount' => 'required|numeric|min:0.01',
+            'payment_method' => 'nullable|string|max:50',
+            'reference' => 'nullable|string|max:255',
+            'paid_at' => 'nullable|date',
+            'notes' => 'nullable|string|max:500',
+            'invoice_ids' => 'nullable|array',
+            'invoice_ids.*' => 'integer|exists:invoices,id',
+        ]);
+
+        $result = $saleService->recordClientPayment($client, $validated, $request->user()?->id);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Customer payment recorded and allocated successfully.',
+            'data' => $result,
+        ], 200);
+    }
 }

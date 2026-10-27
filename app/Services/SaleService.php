@@ -250,6 +250,28 @@ class SaleService
             $paid = max(0, (float) ($data['paid_amount'] ?? $data['amount_received'] ?? 0));
             $due = max(0, round($total - $paid - $totalOldGoldCredit, 2));
 
+            $surplusOldGold = max(0, round($totalOldGoldCredit - $total, 2));
+            if ($surplusOldGold > 0) {
+                $extraNote = "[Old Gold Surplus: ₹" . number_format($surplusOldGold, 2) . " credited to customer]";
+                $data['notes'] = !empty($data['notes']) ? ($data['notes'] . " | " . $extraNote) : $extraNote;
+                if (!$isDraft && $client) {
+                    $currOp = (float) ($client->opening_balance ?: 0);
+                    $currType = strtolower((string) ($client->balance_type ?: 'receivable'));
+                    if ($currType === 'receivable' && $currOp > 0) {
+                        if ($surplusOldGold >= $currOp) {
+                            $client->opening_balance = round($surplusOldGold - $currOp, 2);
+                            $client->balance_type = 'credit';
+                        } else {
+                            $client->opening_balance = round($currOp - $surplusOldGold, 2);
+                        }
+                    } else {
+                        $client->opening_balance = round($currOp + $surplusOldGold, 2);
+                        $client->balance_type = 'credit';
+                    }
+                    $client->save();
+                }
+            }
+
             $status = ($due <= 0 && !$isDraft) ? 'paid' : (($paid > 0 || $totalOldGoldCredit > 0) ? 'partial' : 'pending');
             $saleStatus = $isDraft ? 'draft' : ($due <= 0 ? 'completed' : 'partial');
 
@@ -595,7 +617,19 @@ class SaleService
                 }
             }
 
-            // 5. Update invoice state
+            // 5. Ensure initial payment record exists if draft had payment attached
+            if ((float) $invoice->paid_amount > 0 && $invoice->payments()->doesntExist()) {
+                SalePayment::create([
+                    'invoice_id' => $invoice->id,
+                    'amount' => (float) $invoice->paid_amount,
+                    'payment_method' => $invoice->payment_method ?: 'cash',
+                    'reference' => 'Initial payment upon invoice creation',
+                    'paid_at' => $invoice->invoice_date ?: now(),
+                    'received_by' => $userId,
+                ]);
+            }
+
+            // 6. Update invoice state
             $invoice->sale_status = 'completed';
             $invoice->status = $invoice->due_amount <= 0 ? 'paid' : ($invoice->paid_amount > 0 ? 'partial' : 'pending');
             $invoice->save();
@@ -621,6 +655,20 @@ class SaleService
             if ($amount <= 0 || $amount > round($due + 0.01, 2)) {
                 throw ValidationException::withMessages(['amount' => 'Payment must be greater than zero and cannot exceed the outstanding balance.']);
             }
+
+            // Ensure baseline payment is recorded in sale_payments if historical paid_amount exists without payment rows
+            $existingPaymentsSum = (float) $invoice->payments()->sum('amount');
+            if ($existingPaymentsSum <= 0 && (float) $invoice->paid_amount > 0) {
+                SalePayment::create([
+                    'invoice_id' => $invoice->id,
+                    'amount' => (float) $invoice->paid_amount,
+                    'payment_method' => $invoice->payment_method ?: 'cash',
+                    'reference' => 'Initial payment upon invoice creation',
+                    'paid_at' => $invoice->invoice_date ?: $invoice->created_at ?: now(),
+                    'received_by' => $userId,
+                ]);
+            }
+
             SalePayment::create([
                 'invoice_id' => $invoice->id,
                 'amount' => $amount,
@@ -637,6 +685,116 @@ class SaleService
             $invoice->payment_method = $data['payment_method'];
             $invoice->save();
             return $invoice->load(['payments.receiver', 'client', 'itemsRelation']);
+        });
+    }
+
+    /**
+     * Record customer on-account payment and allocate across invoices or customer credit balance
+     */
+    public function recordClientPayment(\App\Models\Client $client, array $data, ?int $userId = null): array
+    {
+        return DB::transaction(function () use ($client, $data, $userId) {
+            $client = \App\Models\Client::whereKey($client->id)->lockForUpdate()->firstOrFail();
+            $totalAmount = (float) $data['amount'];
+            if ($totalAmount <= 0) {
+                throw ValidationException::withMessages(['amount' => 'Payment amount must be greater than zero.']);
+            }
+
+            $paymentMethod = $data['payment_method'] ?? 'cash';
+            $reference = $data['reference'] ?? null;
+            $paidAt = $data['paid_at'] ?? now();
+            $notes = $data['notes'] ?? null;
+
+            // Find open invoices to allocate against
+            $invoicesQuery = Invoice::where('client_id', $client->id)
+                ->where('sale_status', '!=', 'cancelled')
+                ->where('due_amount', '>', 0)
+                ->orderBy('invoice_date', 'asc')
+                ->orderBy('id', 'asc')
+                ->lockForUpdate();
+
+            if (!empty($data['invoice_ids']) && is_array($data['invoice_ids'])) {
+                $invoicesQuery->whereIn('id', $data['invoice_ids']);
+            }
+
+            $invoices = $invoicesQuery->get();
+
+            $remaining = $totalAmount;
+            $allocatedInvoices = [];
+
+            foreach ($invoices as $inv) {
+                if ($remaining <= 0) break;
+
+                // Ensure baseline payment exists if invoice already had partial payment
+                if ((float) $inv->paid_amount > 0 && $inv->payments()->doesntExist()) {
+                    SalePayment::create([
+                        'invoice_id' => $inv->id,
+                        'amount' => (float) $inv->paid_amount,
+                        'payment_method' => $inv->payment_method ?: $paymentMethod,
+                        'reference' => 'Initial payment upon invoice creation',
+                        'paid_at' => $inv->invoice_date ?: $inv->created_at ?: now(),
+                        'received_by' => $userId,
+                    ]);
+                }
+
+                $due = (float) $inv->due_amount;
+                if ($due <= 0) continue;
+
+                $apply = min($remaining, $due);
+                SalePayment::create([
+                    'invoice_id' => $inv->id,
+                    'amount' => $apply,
+                    'payment_method' => $paymentMethod,
+                    'reference' => $reference ?: ("Customer on-account payment" . ($notes ? " - {$notes}" : "")),
+                    'paid_at' => $paidAt,
+                    'received_by' => $userId,
+                ]);
+
+                $totalPaid = (float) $inv->payments()->sum('amount');
+                $inv->paid_amount = $totalPaid;
+                $inv->due_amount = max(0, round((float) $inv->total_amount - $totalPaid - (float) ($inv->old_gold_amount ?? 0), 2));
+                $inv->status = $inv->due_amount <= 0 ? 'paid' : 'partial';
+                $inv->save();
+
+                $allocatedInvoices[] = [
+                    'invoice_id' => $inv->id,
+                    'invoice_no' => $inv->invoice_no,
+                    'allocated_amount' => $apply,
+                    'remaining_due' => $inv->due_amount,
+                    'status' => $inv->status,
+                ];
+
+                $remaining = round($remaining - $apply, 2);
+            }
+
+            // If any funds remain after paying all open invoices, record as customer on-account credit
+            $unallocatedCredit = max(0.0, round($remaining, 2));
+            if ($unallocatedCredit > 0) {
+                $currOp = (float) ($client->opening_balance ?: 0);
+                $currType = strtolower((string) ($client->balance_type ?: 'receivable'));
+
+                if ($currType === 'receivable' && $currOp > 0) {
+                    if ($unallocatedCredit >= $currOp) {
+                        $client->opening_balance = round($unallocatedCredit - $currOp, 2);
+                        $client->balance_type = 'credit';
+                    } else {
+                        $client->opening_balance = round($currOp - $unallocatedCredit, 2);
+                    }
+                } else {
+                    $client->opening_balance = round($currOp + $unallocatedCredit, 2);
+                    $client->balance_type = 'credit';
+                }
+                $client->save();
+            }
+
+            return [
+                'client_id' => $client->id,
+                'client_name' => $client->full_name,
+                'total_payment' => $totalAmount,
+                'allocated_amount' => round($totalAmount - $unallocatedCredit, 2),
+                'unallocated_credit' => $unallocatedCredit,
+                'allocated_invoices' => $allocatedInvoices,
+            ];
         });
     }
 

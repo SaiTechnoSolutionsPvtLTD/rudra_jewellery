@@ -45,6 +45,7 @@ tests/
     ├── ReceiveCompletionImageAndOpeningStockTest.php             # Work order piece receiving, images & opening tags
     ├── SalesWorkflowTest.php                                     # Retail sale, Old Gold intake, credit payment
     ├── SupplierMetalLedgerAndMultiSieveWorkflowTest.php          # Diamond sieve purchasing & metal debt ledgers
+    ├── SystemGapsAndHardeningVerificationTest.php                # System gap closure & hardening verification suite (5/5 passed)
     ├── TagGenerationLifecycleVerificationTest.php                # Barcode generation, printing history & audit trail
     ├── TagMultiDiamondVariantsTest.php                           # Diamond combinations, clarity, cut & carat tags
     ├── WipColorStoneAndReceiveFlowTest.php                       # Color stone issuing, setting & receiving

@@ -83,10 +83,11 @@ export default function CustomerDetailDrawer({ client, isOpen, onClose, onRefres
       setPaymentTargetInvoiceId(preselectedInvoice.id);
       setPaymentAmount(preselectedInvoice.due_amount || '');
     } else if (outstandingInvoices.length > 0) {
-      setPaymentTargetInvoiceId(outstandingInvoices[0].id);
-      setPaymentAmount(outstandingInvoices[0].due_amount || '');
+      setPaymentTargetInvoiceId('auto_all');
+      const totalDue = outstandingInvoices.reduce((sum, inv) => sum + Number(inv.due_amount || 0), 0);
+      setPaymentAmount(totalDue > 0 ? totalDue.toFixed(2) : '');
     } else {
-      setPaymentTargetInvoiceId('');
+      setPaymentTargetInvoiceId('auto_all');
       setPaymentAmount('');
     }
     setPaymentMethod('cash');
@@ -96,10 +97,6 @@ export default function CustomerDetailDrawer({ client, isOpen, onClose, onRefres
 
   const handleRecordPaymentSubmit = async (e) => {
     e.preventDefault();
-    if (!paymentTargetInvoiceId) {
-      showToast?.('Please select an invoice with an outstanding balance.', 'error');
-      return;
-    }
     const amt = parseFloat(paymentAmount);
     if (!amt || amt <= 0) {
       showToast?.('Please enter a valid payment amount greater than zero.', 'error');
@@ -108,13 +105,23 @@ export default function CustomerDetailDrawer({ client, isOpen, onClose, onRefres
 
     setRecordingPayment(true);
     try {
-      await api.post(`/sales/${paymentTargetInvoiceId}/payments`, {
-        amount: amt,
-        payment_method: paymentMethod,
-        reference: paymentReference,
-        paid_at: new Date().toISOString(),
-      });
-      showToast?.('Payment successfully recorded and allocated to invoice.', 'success');
+      if (paymentTargetInvoiceId === 'auto_all' || !paymentTargetInvoiceId) {
+        await api.post(`/clients/${client.id}/payments`, {
+          amount: amt,
+          payment_method: paymentMethod,
+          reference: paymentReference,
+          paid_at: new Date().toISOString(),
+        });
+        showToast?.('Customer payment recorded and allocated across outstanding balances.', 'success');
+      } else {
+        await api.post(`/sales/${paymentTargetInvoiceId}/payments`, {
+          amount: amt,
+          payment_method: paymentMethod,
+          reference: paymentReference,
+          paid_at: new Date().toISOString(),
+        });
+        showToast?.('Payment successfully recorded and allocated to invoice.', 'success');
+      }
       setShowRecordPaymentModal(false);
       await fetchCustomerDetails();
       onRefreshClients?.();
@@ -925,13 +932,18 @@ export default function CustomerDetailDrawer({ client, isOpen, onClose, onRefres
                   onChange={(e) => {
                     const id = e.target.value;
                     setPaymentTargetInvoiceId(id);
-                    const matched = outstandingInvoices.find((i) => i.id === Number(id));
-                    if (matched) setPaymentAmount(matched.due_amount);
+                    if (id === 'auto_all') {
+                      const totalDue = outstandingInvoices.reduce((sum, inv) => sum + Number(inv.due_amount || 0), 0);
+                      setPaymentAmount(totalDue > 0 ? totalDue.toFixed(2) : '');
+                    } else {
+                      const matched = outstandingInvoices.find((i) => i.id === Number(id));
+                      if (matched) setPaymentAmount(matched.due_amount);
+                    }
                   }}
                   className="w-full px-3 py-2 border border-stone-200 rounded-lg bg-white font-mono"
                   required
                 >
-                  <option value="">-- Choose Invoice --</option>
+                  <option value="auto_all">⚡ Auto-Allocate Across Open Invoices (FIFO / On-Account)</option>
                   {outstandingInvoices.map((inv) => (
                     <option key={inv.id} value={inv.id}>
                       {inv.invoice_no} — Due: ₹{Number(inv.due_amount).toLocaleString('en-IN')} (Total: ₹{Number(inv.total_amount).toLocaleString('en-IN')})

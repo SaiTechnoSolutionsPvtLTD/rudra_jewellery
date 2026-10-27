@@ -100,6 +100,7 @@ export default function ReportModule() {
   // Daily Gold Rates State
   const [goldRates, setGoldRates] = useState([]);
   const [goldRatesLoading, setGoldRatesLoading] = useState(false);
+  const [goldRatesPerPage, setGoldRatesPerPage] = useState(10);
   const [showGoldRateModal, setShowGoldRateModal] = useState(false);
   const [showGoldRatePrintModal, setShowGoldRatePrintModal] = useState(false);
   const [savingGoldRate, setSavingGoldRate] = useState(false);
@@ -2418,13 +2419,17 @@ export default function ReportModule() {
 
                   const opGold = Number(s.opening_gold_fine ?? s.opening_fine_gold_24k ?? 0);
                   const purGold = Number(s.purchases_gold_fine ?? s.period_unpriced_gold_fine ?? 0);
+                  const totGoldPurchasedFine = Number(s.total_gold_fine_purchased ?? purGold);
+                  const totGoldGross = Number(s.total_gold_gross_purchased ?? 0);
                   const setGold = Number(s.settlements_gold_fine ?? s.period_gold_settled_24k ?? 0);
                   const clGold = Number(s.closing_gold_fine ?? s.closing_fine_gold_24k ?? 0);
 
                   const opSil = Number(s.opening_silver ?? s.opening_silver_weight ?? 0);
                   const purSil = Number(s.purchases_silver ?? 0);
+                  const totSilPurchased = Number(s.total_silver_net_purchased ?? purSil);
                   const setSil = Number(s.settlements_silver ?? 0);
                   const clSil = Number(s.closing_silver ?? s.closing_silver_weight ?? 0);
+                  const totDiaCts = Number(s.total_diamond_carats_purchased ?? 0);
 
                   const isCashDiffZero = Math.abs((opCash + purCash - setCash) - clCash) < 0.01;
                   const isGoldDiffZero = Math.abs((opGold + purGold - setGold) - clGold) < 0.001;
@@ -2434,34 +2439,46 @@ export default function ReportModule() {
 
                   return (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-gradient-to-r from-stone-900 via-stone-800 to-stone-900 text-white p-4 rounded-2xl shadow-sm border border-stone-700">
-                      {/* Metric 1: 24K Pure Gold Due */}
+                      {/* Metric 1: 24K Pure Gold */}
                       <div className="p-3 bg-white/5 rounded-xl border border-white/10 hover:border-amber-400/40 transition-colors">
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] text-amber-400 uppercase font-bold tracking-wider block">24K Pure Gold Payable</span>
-                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-400/10 text-amber-300 font-mono">METAL DUE</span>
+                          <span className="text-[10px] text-amber-400 uppercase font-bold tracking-wider block">
+                            {clGold > 0 ? '24K Gold Bullion Payable' : '24K Pure Gold Purchased'}
+                          </span>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded font-mono ${
+                            clGold > 0 ? 'bg-amber-400/10 text-amber-300' : (totGoldPurchasedFine > 0 ? 'bg-emerald-400/10 text-emerald-300' : 'bg-stone-500/10 text-stone-400')
+                          }`}>
+                            {clGold > 0 ? 'METAL DUE' : (totGoldPurchasedFine > 0 ? 'STOCK RECEIVED' : 'NO DUE')}
+                          </span>
                         </div>
                         <div className="mt-1 text-lg font-mono font-extrabold text-amber-200">
-                          {clGold.toFixed(3)} g
+                          {clGold > 0 ? `${clGold.toFixed(3)} g` : `${totGoldPurchasedFine.toFixed(3)} g`}
                         </div>
                         <div className="text-[10px] text-stone-400 mt-1 font-mono flex items-center justify-between">
                           <span>Op: {opGold.toFixed(3)}g</span>
-                          <span>+Pur: {purGold.toFixed(3)}g</span>
+                          <span>+Pur: {(totGoldPurchasedFine > 0 ? totGoldPurchasedFine : purGold).toFixed(3)}g</span>
                           <span>-Set: {setGold.toFixed(3)}g</span>
                         </div>
                       </div>
 
-                      {/* Metric 2: Silver Bullion Due */}
+                      {/* Metric 2: Silver / Diamonds */}
                       <div className="p-3 bg-white/5 rounded-xl border border-white/10 hover:border-slate-300/40 transition-colors">
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] text-slate-300 uppercase font-bold tracking-wider block">Silver Bullion Payable</span>
-                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-300/10 text-slate-200 font-mono">SILVER DUE</span>
+                          <span className="text-[10px] text-slate-300 uppercase font-bold tracking-wider block">
+                            {totDiaCts > 0 && clSil === 0 ? 'Diamonds Purchased' : 'Silver Bullion Payable'}
+                          </span>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded font-mono ${
+                            clSil > 0 ? 'bg-slate-300/10 text-slate-200' : (totDiaCts > 0 ? 'bg-cyan-400/10 text-cyan-300' : 'bg-stone-500/10 text-stone-400')
+                          }`}>
+                            {clSil > 0 ? 'SILVER DUE' : (totDiaCts > 0 ? 'DIAMONDS' : 'NO DUE')}
+                          </span>
                         </div>
                         <div className="mt-1 text-lg font-mono font-extrabold text-slate-200">
-                          {clSil.toFixed(3)} g
+                          {totDiaCts > 0 && clSil === 0 ? `${totDiaCts.toFixed(3)} ct` : `${clSil.toFixed(3)} g`}
                         </div>
                         <div className="text-[10px] text-stone-400 mt-1 font-mono flex items-center justify-between">
                           <span>Op: {opSil.toFixed(3)}g</span>
-                          <span>+Pur: {purSil.toFixed(3)}g</span>
+                          <span>+Pur: {(totSilPurchased > 0 ? totSilPurchased : purSil).toFixed(3)}g</span>
                           <span>-Set: {setSil.toFixed(3)}g</span>
                         </div>
                       </div>
@@ -2550,6 +2567,17 @@ export default function ReportModule() {
                         ? Boolean(rec.gold_reconciled)
                         : (Math.abs((opGold + ppGold - psGold) - clGold) < 0.001);
 
+                      // Physical metal & material totals received from supplier in period
+                      const totGoldFine = Number(pp.total_gold_fine_24k ?? item.period_totals?.gold_fine_24k ?? ppGold);
+                      const totGoldGross = Number(pp.total_gold_gross_wt ?? item.period_totals?.gold_gross_weight ?? 0);
+                      const totGoldNet = Number(pp.total_gold_net_wt ?? item.period_totals?.gold_net_weight ?? 0);
+                      const totSilGross = Number(pp.total_silver_gross_wt ?? item.period_totals?.silver_gross_weight ?? 0);
+                      const totSilNet = Number(pp.total_silver_net_wt ?? item.period_totals?.silver_net_weight ?? 0);
+                      const totDiaCarats = Number(pp.diamond_carats ?? item.period_totals?.diamond_carats ?? 0);
+                      const totDiaPieces = Number(pp.diamond_pieces ?? item.period_totals?.diamond_stones ?? 0);
+                      const goldPurities = item.breakdowns?.gold_by_purity || [];
+                      const diamondStamps = item.breakdowns?.diamonds_by_stamp || [];
+
                       const opSil = Number(op.silver_grams ?? op.silver_weight ?? 0);
                       const ppSil = Number(pp.silver_grams ?? pp.unpriced_silver_purchased ?? 0);
                       const psSil = Number(ps.silver_grams ?? pp.silver_settled ?? 0);
@@ -2602,11 +2630,27 @@ export default function ReportModule() {
                                     </span>
                                   )}
                                 </div>
-                                <div className="text-[11px] text-stone-500 mt-0.5 flex items-center gap-3">
+                                <div className="text-[11px] text-stone-500 mt-0.5 flex items-center gap-2.5 flex-wrap">
                                   {s.company_name && <span>{s.company_name}</span>}
                                   {s.phone && <span>&bull; {s.phone}</span>}
                                   <span>&bull; Purchases in Period: <strong className="text-stone-800">{purchasesCount}</strong></span>
                                   <span>&bull; Settlements in Period: <strong className="text-stone-800">{settlementsCount}</strong></span>
+                                  {totGoldFine > 0 && (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-300 flex items-center gap-1 font-mono">
+                                      <i className="fa-solid fa-cube text-amber-600 text-[9px]"></i>
+                                      Gold: {totGoldFine.toFixed(3)}g 24K ({totGoldNet.toFixed(3)}g Net)
+                                    </span>
+                                  )}
+                                  {totSilNet > 0 && (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-800 border border-slate-300 font-mono">
+                                      Silver: {totSilNet.toFixed(3)}g
+                                    </span>
+                                  )}
+                                  {totDiaCarats > 0 && (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-50 text-cyan-800 border border-cyan-300 font-mono">
+                                      Dia: {totDiaCarats.toFixed(3)}ct ({totDiaPieces} pcs)
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -2649,21 +2693,52 @@ export default function ReportModule() {
                               <tbody className="divide-y divide-stone-100 font-medium">
                                 {/* Row 1: 24K Pure Gold */}
                                 <tr className="hover:bg-stone-50/50">
-                                  <td className="py-2.5 px-4 font-bold text-amber-950 flex items-center gap-1.5">
-                                    <i className="fa-solid fa-cube text-amber-600 text-[11px]"></i>
-                                    24K Pure Gold Fine Weight (g)
+                                  <td className="py-2.5 px-4 text-amber-950">
+                                    <div className="font-bold flex items-center gap-1.5">
+                                      <i className="fa-solid fa-cube text-amber-600 text-[11px]"></i>
+                                      24K Pure Gold Fine Weight (g)
+                                    </div>
+                                    {totGoldNet > 0 && (
+                                      <div className="text-[10px] text-stone-500 font-mono pl-4 mt-0.5">
+                                        Physical Metal Received: Gross {totGoldGross.toFixed(3)}g &bull; Net {totGoldNet.toFixed(3)}g
+                                      </div>
+                                    )}
                                   </td>
                                   <td className="py-2.5 px-4 text-right font-mono text-stone-700">
                                     {opGold.toFixed(3)} g
                                   </td>
-                                  <td className="py-2.5 px-4 text-right font-mono font-bold text-amber-900">
-                                    +{ppGold.toFixed(3)} g
+                                  <td className="py-2.5 px-4 text-right">
+                                    <span className="font-mono font-bold text-amber-900 block">
+                                      +{(totGoldFine > 0 ? totGoldFine : ppGold).toFixed(3)} g
+                                    </span>
+                                    {ppCash > 0 && ppGold === 0 && (
+                                      <span className="text-[9.5px] font-bold text-emerald-700 block font-mono">
+                                        Priced (₹{formatINR(ppCash)})
+                                      </span>
+                                    )}
+                                    {ppGold > 0 && (
+                                      <span className="text-[9.5px] font-bold text-amber-700 block font-mono">
+                                        Unpriced Bullion Due: +{ppGold.toFixed(3)}g
+                                      </span>
+                                    )}
                                   </td>
                                   <td className="py-2.5 px-4 text-right font-mono font-bold text-emerald-700">
-                                    -{psGold.toFixed(3)} g
+                                    <span>-{psGold.toFixed(3)} g</span>
+                                    {ppCash > 0 && psGold === 0 && (
+                                      <span className="text-[9.5px] text-stone-400 block font-sans font-normal">
+                                        Settled via Cash Bill
+                                      </span>
+                                    )}
                                   </td>
-                                  <td className="py-2.5 px-4 text-right font-mono font-extrabold text-amber-950 text-sm">
-                                    {clGold.toFixed(3)} g
+                                  <td className="py-2.5 px-4 text-right">
+                                    <span className="font-mono font-extrabold text-amber-950 text-sm block">
+                                      {clGold.toFixed(3)} g
+                                    </span>
+                                    {clGold === 0 && totGoldFine > 0 && (
+                                      <span className="text-[9.5px] text-emerald-600 font-semibold block">
+                                        Metal Stocked (Cash Debt)
+                                      </span>
+                                    )}
                                   </td>
                                   <td className="py-2.5 px-4 text-center">
                                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
@@ -2674,47 +2749,85 @@ export default function ReportModule() {
                                   </td>
                                 </tr>
 
-                                {/* Row 2: Silver Bullion */}
-                                <tr className="hover:bg-stone-50/50">
-                                  <td className="py-2.5 px-4 font-bold text-slate-800 flex items-center gap-1.5">
-                                    <i className="fa-solid fa-coins text-slate-500 text-[11px]"></i>
-                                    Silver Bullion Weight (g)
-                                  </td>
-                                  <td className="py-2.5 px-4 text-right font-mono text-stone-700">
-                                    {opSil.toFixed(3)} g
-                                  </td>
-                                  <td className="py-2.5 px-4 text-right font-mono font-bold text-slate-800">
-                                    +{ppSil.toFixed(3)} g
-                                  </td>
-                                  <td className="py-2.5 px-4 text-right font-mono font-bold text-emerald-700">
-                                    -{psSil.toFixed(3)} g
-                                  </td>
-                                  <td className="py-2.5 px-4 text-right font-mono font-extrabold text-slate-900 text-sm">
-                                    {clSil.toFixed(3)} g
-                                  </td>
-                                  <td className="py-2.5 px-4 text-center">
-                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                                      isSilverReconciled ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'
-                                    }`}>
-                                      {isSilverReconciled ? 'Reconciled' : 'Mismatch'}
-                                    </span>
-                                  </td>
-                                </tr>
+                                {/* Row 1B: Breakdown of Purities Purchased in Period (e.g. 24K, 22K, 18K) */}
+                                {goldPurities.map((gb, gbIdx) => (
+                                  <tr key={`purity-${gbIdx}`} className="hover:bg-amber-50/40 bg-amber-50/15 text-[11.5px]">
+                                    <td className="py-2 px-4 pl-7 text-stone-800">
+                                      <div className="flex items-center gap-2">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
+                                        <span className="font-bold text-stone-900">Gold Karat: {gb.purity}</span>
+                                        <span className="text-[10px] text-stone-500 font-mono">({gb.count} {gb.count === 1 ? 'entry' : 'entries'})</span>
+                                      </div>
+                                      <div className="text-[10px] text-stone-500 font-mono pl-3.5">
+                                        Gross: {Number(gb.gross_weight).toFixed(3)}g &bull; Net: {Number(gb.net_weight).toFixed(3)}g
+                                      </div>
+                                    </td>
+                                    <td className="py-2 px-4 text-right font-mono text-stone-400 text-xs">—</td>
+                                    <td className="py-2 px-4 text-right font-mono font-bold text-amber-950 text-xs">
+                                      +{Number(gb.fine_weight_24k).toFixed(3)} g (24K)
+                                    </td>
+                                    <td className="py-2 px-4 text-right font-mono text-stone-400 text-xs">—</td>
+                                    <td className="py-2 px-4 text-right font-mono font-bold text-stone-800 text-xs">
+                                      {gb.total_amount > 0 ? formatINR(gb.total_amount) : `${Number(gb.fine_weight_24k).toFixed(3)}g Metal`}
+                                    </td>
+                                    <td className="py-2 px-4 text-center">
+                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold border bg-amber-50 text-amber-900 border-amber-300">
+                                        Vault Stocked
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+
+                                {/* Row 2: Silver Bullion (only if silver balance exists or silver was purchased) */}
+                                {(opSil > 0 || ppSil > 0 || psSil > 0 || clSil > 0 || totSilNet > 0) && (
+                                  <tr className="hover:bg-stone-50/50">
+                                    <td className="py-2.5 px-4 text-slate-800">
+                                      <div className="font-bold flex items-center gap-1.5">
+                                        <i className="fa-solid fa-coins text-slate-500 text-[11px]"></i>
+                                        Silver Bullion Weight (g)
+                                      </div>
+                                      {totSilNet > 0 && (
+                                        <div className="text-[10px] text-stone-500 font-mono pl-4 mt-0.5">
+                                          Physical Silver: Net {totSilNet.toFixed(3)}g {totSilGross > 0 ? `• Gross ${totSilGross.toFixed(3)}g` : ''}
+                                        </div>
+                                      )}
+                                    </td>
+                                    <td className="py-2.5 px-4 text-right font-mono text-stone-700">
+                                      {opSil.toFixed(3)} g
+                                    </td>
+                                    <td className="py-2.5 px-4 text-right font-mono font-bold text-slate-800">
+                                      +{(totSilNet > 0 ? totSilNet : ppSil).toFixed(3)} g
+                                    </td>
+                                    <td className="py-2.5 px-4 text-right font-mono font-bold text-emerald-700">
+                                      -{psSil.toFixed(3)} g
+                                    </td>
+                                    <td className="py-2.5 px-4 text-right font-mono font-extrabold text-slate-900 text-sm">
+                                      {clSil.toFixed(3)} g
+                                    </td>
+                                    <td className="py-2.5 px-4 text-center">
+                                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                        isSilverReconciled ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'
+                                      }`}>
+                                        {isSilverReconciled ? 'Reconciled' : 'Mismatch'}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                )}
 
                                 {/* Row 3: Diamonds */}
-                                {(Number(pp.diamond_carats || 0) > 0 || Number(pp.diamond_pieces || 0) > 0) && (
-                                  <tr className="hover:bg-stone-50/50">
+                                {(totDiaCarats > 0 || totDiaPieces > 0) && (
+                                  <tr className="hover:bg-stone-50/50 bg-cyan-50/10">
                                     <td className="py-2.5 px-4 font-bold text-cyan-900 flex items-center gap-1.5">
                                       <i className="fa-solid fa-gem text-cyan-600 text-[11px]"></i>
                                       Diamonds Purchased in Period
                                     </td>
                                     <td className="py-2.5 px-4 text-right font-mono text-stone-400">—</td>
                                     <td className="py-2.5 px-4 text-right font-mono font-bold text-cyan-900">
-                                      +{Number(pp.diamond_carats || 0).toFixed(3)} ct ({pp.diamond_pieces || 0} pcs)
+                                      +{totDiaCarats.toFixed(3)} ct ({totDiaPieces} pcs)
                                     </td>
                                     <td className="py-2.5 px-4 text-right font-mono text-stone-400">—</td>
                                     <td className="py-2.5 px-4 text-right font-mono font-extrabold text-cyan-950 text-sm">
-                                      {Number(pp.diamond_carats || 0).toFixed(3)} ct
+                                      {totDiaCarats.toFixed(3)} ct
                                     </td>
                                     <td className="py-2.5 px-4 text-center">
                                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold border bg-cyan-50 text-cyan-800 border-cyan-200">

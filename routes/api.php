@@ -104,6 +104,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/clients/generate-code', [ClientController::class, 'generateCode']);
     Route::get('/clients/removed', [ClientController::class, 'removedClients']);
     Route::post('/clients/{id}/metal-deposit', [ClientController::class, 'recordMetalDeposit']);
+    Route::post('/clients/{id}/payments', [ClientController::class, 'recordPayment']);
     Route::post('/clients/{id}/remove', [ClientController::class, 'removeClient']);
     Route::post('/clients/{id}/restore', [ClientController::class, 'restoreClient']);
     Route::get('/clients/{client}/price-list', [ClientPriceListController::class, 'show']);

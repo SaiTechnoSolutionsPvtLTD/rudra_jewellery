@@ -1344,12 +1344,27 @@ class ReportController extends Controller
             // Total weights purchased during period
             $periodGoldPurchases = $periodPurchases->filter(fn($p) => in_array(strtolower($p->metal_type ?? 'gold'), ['gold', 'metal', null]));
             $periodGoldGrossWt = round((float) $periodGoldPurchases->sum('weight'), 3);
-            $periodGoldNetWt = round((float) $periodGoldPurchases->sum('net_weight'), 3);
-            $periodGoldFine24k = round((float) $periodGoldPurchases->sum('fine_weight'), 3);
+            $periodGoldNetWt = round((float) $periodGoldPurchases->sum(fn($p) => floatval($p->net_weight > 0 ? $p->net_weight : $p->weight)), 3);
+            $periodGoldFine24k = round((float) $periodGoldPurchases->sum(function($p) {
+                if (floatval($p->fine_weight ?? 0) > 0) {
+                    return floatval($p->fine_weight);
+                }
+                $base = floatval($p->net_weight > 0 ? $p->net_weight : $p->weight);
+                $touch = floatval($p->touch ?? 0);
+                if ($touch > 0) {
+                    return round($base * ($touch / 100.0), 3);
+                }
+                $k = strtolower(trim((string)($p->gold_karat ?: $p->purity)));
+                if (str_contains($k, '24') || str_contains($k, '999')) return $base;
+                if (str_contains($k, '22') || str_contains($k, '916')) return round($base * (22.0 / 24.0), 3);
+                if (str_contains($k, '18') || str_contains($k, '750')) return round($base * (18.0 / 24.0), 3);
+                if (str_contains($k, '14') || str_contains($k, '585')) return round($base * (14.0 / 24.0), 3);
+                return $base;
+            }), 3);
 
             $periodSilverPurchases = $periodPurchases->filter(fn($p) => strtolower($p->metal_type ?? '') === 'silver');
             $periodSilverGrossWt = round((float) $periodSilverPurchases->sum('weight'), 3);
-            $periodSilverNetWt = round((float) $periodSilverPurchases->sum('net_weight'), 3);
+            $periodSilverNetWt = round((float) $periodSilverPurchases->sum(fn($p) => floatval($p->net_weight > 0 ? $p->net_weight : $p->weight)), 3);
 
             // Diamond stamp-wise tally for the period
             $diamondPurchases = $periodPurchases->filter(fn($p) => strtolower($p->metal_type ?? '') === 'diamond' || $p->unit === 'ct');
@@ -1409,18 +1424,27 @@ class ReportController extends Controller
             // Purity breakdown for gold in period
             $goldPurityBreakdown = [];
             foreach ($periodGoldPurchases as $gp) {
-                $pur = trim((string)($gp->purity ?: ($gp->gold_karat ?: '22K')));
+                $pur = trim((string)($gp->gold_karat ?: ($gp->purity ?: '24K')));
                 if (!isset($goldPurityBreakdown[$pur])) {
                     $goldPurityBreakdown[$pur] = [
                         'purity' => $pur,
                         'gross_weight' => 0.0,
                         'net_weight' => 0.0,
                         'fine_weight_24k' => 0.0,
+                        'total_amount' => 0.0,
+                        'rate' => floatval($gp->rate ?? 0),
+                        'count' => 0,
                     ];
                 }
+                $gpBase = floatval($gp->net_weight > 0 ? $gp->net_weight : $gp->weight);
+                $gpFine = floatval($gp->fine_weight ?? 0) > 0 ? floatval($gp->fine_weight) : (
+                    floatval($gp->touch ?? 0) > 0 ? round($gpBase * (floatval($gp->touch) / 100.0), 3) : $gpBase
+                );
                 $goldPurityBreakdown[$pur]['gross_weight'] = round($goldPurityBreakdown[$pur]['gross_weight'] + floatval($gp->weight), 3);
-                $goldPurityBreakdown[$pur]['net_weight'] = round($goldPurityBreakdown[$pur]['net_weight'] + floatval($gp->net_weight > 0 ? $gp->net_weight : $gp->weight), 3);
-                $goldPurityBreakdown[$pur]['fine_weight_24k'] = round($goldPurityBreakdown[$pur]['fine_weight_24k'] + floatval($gp->fine_weight), 3);
+                $goldPurityBreakdown[$pur]['net_weight'] = round($goldPurityBreakdown[$pur]['net_weight'] + $gpBase, 3);
+                $goldPurityBreakdown[$pur]['fine_weight_24k'] = round($goldPurityBreakdown[$pur]['fine_weight_24k'] + $gpFine, 3);
+                $goldPurityBreakdown[$pur]['total_amount'] = round($goldPurityBreakdown[$pur]['total_amount'] + floatval($gp->total_amount ?? 0), 2);
+                $goldPurityBreakdown[$pur]['count'] += 1;
             }
 
             // 5. Strict Closing Balance Reconciliation Formula
@@ -1451,7 +1475,12 @@ class ReportController extends Controller
                     'monetary_purchased' => $periodTotalMonetary,
                     'cash_paid_at_purchase' => $periodCashPaidAtPurchase,
                     'gold_fine_grams' => $periodUnpricedGoldFine,
+                    'total_gold_fine_24k' => $periodGoldFine24k,
+                    'total_gold_gross_wt' => $periodGoldGrossWt,
+                    'total_gold_net_wt' => $periodGoldNetWt,
                     'silver_grams' => $periodUnpricedSilverWeight,
+                    'total_silver_gross_wt' => $periodSilverGrossWt,
+                    'total_silver_net_wt' => $periodSilverNetWt,
                     'diamond_carats' => round($totalPeriodDiaCarats, 3),
                     'diamond_pieces' => $totalPeriodDiaStones,
                     'diamond_value' => round($totalPeriodDiaValue, 2),
@@ -1539,6 +1568,11 @@ class ReportController extends Controller
             'closing_fine_gold_24k' => round(collect($allReports)->sum('closing_balance.gold_fine_grams'), 3),
             'opening_silver_weight' => round(collect($allReports)->sum('opening_balance.silver_grams'), 3),
             'closing_silver_weight' => round(collect($allReports)->sum('closing_balance.silver_grams'), 3),
+            'total_gold_fine_purchased' => round(collect($allReports)->sum('period_purchases.total_gold_fine_24k'), 3),
+            'total_gold_gross_purchased' => round(collect($allReports)->sum('period_purchases.total_gold_gross_wt'), 3),
+            'total_gold_net_purchased' => round(collect($allReports)->sum('period_purchases.total_gold_net_wt'), 3),
+            'total_silver_net_purchased' => round(collect($allReports)->sum('period_purchases.total_silver_net_wt'), 3),
+            'total_diamond_carats_purchased' => round(collect($allReports)->sum('period_purchases.diamond_carats'), 3),
             'period_monetary_purchased' => round(collect($allReports)->sum('period_purchases.monetary_purchased'), 2),
             'period_monetary_payable' => round(collect($allReports)->sum('period_purchases.cash_balance'), 2),
             'period_cash_settled' => round(collect($allReports)->sum('period_settlements.cash_paid'), 2),

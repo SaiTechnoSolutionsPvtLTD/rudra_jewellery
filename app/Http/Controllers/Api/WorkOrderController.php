@@ -3875,10 +3875,29 @@ class WorkOrderController extends Controller
             $piecePayload['qc_submission_data'] = $existingQcData;
 
             if ($targetPiece) {
-                $targetPiece->update($piecePayload);
-                $receivedPiece = $targetPiece;
+                try {
+                    $targetPiece->update($piecePayload);
+                    $receivedPiece = $targetPiece;
+                } catch (\Illuminate\Database\QueryException $qe) {
+                    if (str_contains($qe->getMessage(), 'Duplicate entry') && str_contains($qe->getMessage(), 'tag_number')) {
+                        $piecePayload['tag_number'] = WorkOrderReceivedPiece::generateTagNumber();
+                        $targetPiece->update($piecePayload);
+                        $receivedPiece = $targetPiece;
+                    } else {
+                        throw $qe;
+                    }
+                }
             } else {
-                $receivedPiece = WorkOrderReceivedPiece::create($piecePayload);
+                try {
+                    $receivedPiece = WorkOrderReceivedPiece::create($piecePayload);
+                } catch (\Illuminate\Database\QueryException $qe) {
+                    if (str_contains($qe->getMessage(), 'Duplicate entry') && str_contains($qe->getMessage(), 'tag_number')) {
+                        $piecePayload['tag_number'] = WorkOrderReceivedPiece::generateTagNumber();
+                        $receivedPiece = WorkOrderReceivedPiece::create($piecePayload);
+                    } else {
+                        throw $qe;
+                    }
+                }
             }
 
             // Update work order quantities
@@ -4380,7 +4399,9 @@ class WorkOrderController extends Controller
             }
         }
 
-        $query = WorkOrderReceivedPiece::whereHas('workOrder')
+        $query = WorkOrderReceivedPiece::where(function ($q) {
+                $q->whereHas('workOrder')->orWhereNotNull('product_id');
+            })
             ->with([
                 'workOrder.client', 'workOrder.karigar', 'workOrder.product', 'workOrder.jobOrder',
                 'item', 'product', 'karigar', 'client', 'qcChecker'
@@ -4855,7 +4876,9 @@ class WorkOrderController extends Controller
             }
         });
 
-        $query = WorkOrderReceivedPiece::whereHas('workOrder')
+        $query = WorkOrderReceivedPiece::where(function ($q) {
+                $q->whereHas('workOrder')->orWhereNotNull('product_id');
+            })
             ->with(['workOrder.jobOrder', 'item.product', 'product', 'client', 'karigar', 'receiver'])
             ->whereNotNull('tag_number')
             ->where('tag_number', '!=', '');

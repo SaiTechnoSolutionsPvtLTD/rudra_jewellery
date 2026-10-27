@@ -214,9 +214,15 @@ class WorkOrder extends Model
                 return $v;
             }
         }
-        if ($this->relationLoaded('items') && $this->items->isNotEmpty()) {
-            foreach ($this->items as $itm) {
+        $loadedItems = $this->relationLoaded('items') ? $this->getRelation('items') : null;
+        if ($loadedItems instanceof \Illuminate\Support\Collection && $loadedItems->isNotEmpty()) {
+            foreach ($loadedItems as $itm) {
                 if (!empty($itm->karat)) return $itm->karat;
+            }
+        } elseif (is_array($loadedItems) && !empty($loadedItems)) {
+            foreach ($loadedItems as $itm) {
+                $karat = is_array($itm) ? ($itm['karat'] ?? null) : ($itm->karat ?? null);
+                if (!empty($karat)) return $karat;
             }
         }
         return '22K';

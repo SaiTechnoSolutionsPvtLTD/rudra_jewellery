@@ -1424,22 +1424,35 @@ class KarigarMaterialController extends Controller
             ->where('material_type', 'gold')
             ->get();
 
+        $extractFineGold = function ($t, $fallbackField = 'weight') {
+            if ((float)$t->fine_weight > 0) {
+                return (float)$t->fine_weight;
+            }
+            if ((float)$t->company_gold_weight > 0) {
+                return (float)$t->company_gold_weight;
+            }
+            $raw = (float)($t->$fallbackField > 0 ? $t->$fallbackField : ($t->net_weight > 0 ? $t->net_weight : $t->weight));
+            if ($raw <= 0) return 0.0;
+            $purity = $t->purity ?: ($t->touch ? $t->touch . '%' : '22K');
+            return \App\Helpers\GoldConversionHelper::convertTo24kPureWeight($raw, $purity, $t->touch);
+        };
+
         // 1. Vault issues: source != 'bench'
         $vaultIssued = (float) $goldTxs->whereIn('transaction_type', ['allocation', 'additional_allocation', 'issue'])
             ->filter(fn ($t) => $t->source !== 'bench')
-            ->sum(fn ($t) => $t->fine_weight > 0 ? $t->fine_weight : ($t->company_gold_weight > 0 ? $t->company_gold_weight : $t->weight));
+            ->sum(fn ($t) => $extractFineGold($t));
 
         // 2. Production consumption: finished pieces received or consumed
         $productionConsumed = (float) $goldTxs->whereIn('transaction_type', ['finished_received', 'production_consumption'])
-            ->sum(fn ($t) => $t->fine_weight > 0 ? $t->fine_weight : ($t->company_gold_weight > 0 ? $t->company_gold_weight : $t->weight));
+            ->sum(fn ($t) => $extractFineGold($t));
 
         // 3. Approved wastage
         $approvedWastage = (float) $goldTxs->where('transaction_type', 'approved_wastage')
-            ->sum(fn ($t) => $t->fine_weight > 0 ? $t->fine_weight : ($t->wastage_weight > 0 ? $t->wastage_weight : $t->weight));
+            ->sum(fn ($t) => $extractFineGold($t, 'wastage_weight'));
 
         // 4. Physical returns to vault
         $vaultReturned = (float) $goldTxs->whereIn('transaction_type', ['unused_returned', 'vault_return', 'physical_return', 'return', 'scrap'])
-            ->sum(fn ($t) => $t->fine_weight > 0 ? $t->fine_weight : ($t->company_gold_weight > 0 ? $t->company_gold_weight : $t->weight));
+            ->sum(fn ($t) => $extractFineGold($t));
 
         // 5. Adjustments
         $manualAdjustments = (float) $goldTxs->where('transaction_type', 'adjustment')->sum('signed_change');
