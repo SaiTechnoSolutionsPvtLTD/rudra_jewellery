@@ -192,54 +192,7 @@ class RoleAndUserSeeder extends Seeder
             ]
         );
 
-        // Karigar Artisan Records (without user logins)
-        $masterKarigarRecord = Karigar::updateOrCreate(
-            ['karigar_code' => 'K-1001'],
-            [
-                'user_id' => null,
-                'name' => 'Rajesh Varma (Master)',
-                'primary_phone' => '+91 98765 43214',
-                'email' => 'masterkarigar.test@rudrajewellers.com',
-                'specialization' => 'Gold Casting & Filing',
-                'experience_years' => 15,
-                'workshop_name' => 'Varma Artisans',
-                'status' => 'active',
-                'standard_wastage_percent' => 1.5,
-                'making_charge_per_gram' => 120.0,
-            ]
-        );
-
-        $karigarARecord = Karigar::updateOrCreate(
-            ['karigar_code' => 'K-1002'],
-            [
-                'user_id' => null,
-                'name' => 'Suresh Goldsmith (Karigar A)',
-                'primary_phone' => '+91 98765 43215',
-                'email' => 'karigara.test@rudrajewellers.com',
-                'specialization' => 'Plain Gold Jewelry',
-                'experience_years' => 10,
-                'workshop_name' => 'Suresh Craft Workshop',
-                'status' => 'active',
-                'standard_wastage_percent' => 1.8,
-                'making_charge_per_gram' => 100.0,
-            ]
-        );
-
-        $karigarBRecord = Karigar::updateOrCreate(
-            ['karigar_code' => 'K-1003'],
-            [
-                'user_id' => null,
-                'name' => 'Ramesh Artisan (Karigar B)',
-                'primary_phone' => '+91 98765 43216',
-                'email' => 'karigarb.test@rudrajewellers.com',
-                'specialization' => 'Diamond Setting & Polishing',
-                'experience_years' => 8,
-                'workshop_name' => 'Ramesh Polishing Hub',
-                'status' => 'active',
-                'standard_wastage_percent' => 2.0,
-                'making_charge_per_gram' => 150.0,
-            ]
-        );
+        // Karigar Artisan Records: removed so user can manually add their own karigars.
 
         // Inactive Account
         User::updateOrCreate(

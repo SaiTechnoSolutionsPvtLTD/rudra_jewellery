@@ -193,14 +193,22 @@
 <body>
 
     <!-- Header -->
+    @php
+        $company = \App\Models\CompanyInfo::first();
+        $companyName = $company?->company_name ?: 'RUDRA JEWELLERY';
+        $tagline = $company?->tagline ?: 'Heritage Gold, Diamond & Fine Jewellery Crafts';
+        $address = $company ? collect([$company->address_line1, $company->address_line2, $company->city, $company->pincode])->filter()->implode(', ') : 'Plot No 14, Usman Road, T. Nagar, Chennai - 600017';
+        $gstin = $company?->gstin ?: '33AAAAA0000A1Z5';
+        $phone = $company?->phone ?: '+91 98765 43210';
+    @endphp
     <table class="header-table" cellpadding="0" cellspacing="0">
         <tr>
             <td style="width: 60%; vertical-align: top;">
-                <div class="logo-text">RUDHRA JEWELLERS</div>
-                <div class="tagline">Heritage Gold, Diamond & Fine Jewellery Crafts</div>
+                <div class="logo-text">{{ $companyName }}</div>
+                <div class="tagline">{{ $tagline }}</div>
                 <div class="store-info">
-                    Plot No 14, Usman Road, T. Nagar, Chennai - 600017<br>
-                    GSTIN: 33AAAAA0000A1Z5 | Phone: +91 98765 43210
+                    {{ $address }}<br>
+                    GSTIN: {{ $gstin }} | Phone: {{ $phone }}
                 </div>
             </td>
             <td class="doc-title" style="width: 40%; vertical-align: top;">
@@ -285,15 +293,12 @@
                 <th style="width: 4%; text-align: center; border: 1px solid #d8c8b0; white-space: nowrap;">IMAGE</th>
                 <th style="width: 6%; border: 1px solid #d8c8b0; white-space: nowrap;">GOLD PURITY</th>
                 <th style="width: 6%; border: 1px solid #d8c8b0; white-space: nowrap;">SETTING</th>
-                <th style="width: 5%; text-align: right; border: 1px solid #d8c8b0; white-space: nowrap;">DIA WT</th>
-                <th style="width: 5%; text-align: right; border: 1px solid #d8c8b0; white-space: nowrap;">DIA FROM</th>
-                <th style="width: 5%; text-align: right; border: 1px solid #d8c8b0; white-space: nowrap;">DIA TO</th>
-                <th style="width: 5%; text-align: right; border: 1px solid #d8c8b0; white-space: nowrap;">GOLD WT</th>
-                <th style="width: 5%; text-align: right; border: 1px solid #d8c8b0; white-space: nowrap;">GOLD FROM</th>
-                <th style="width: 5%; text-align: right; border: 1px solid #d8c8b0; white-space: nowrap;">GOLD TO</th>
+                <th style="width: 6%; text-align: right; border: 1px solid #d8c8b0; white-space: nowrap;">DIA WT</th>
+                <th style="width: 6%; text-align: right; border: 1px solid #d8c8b0; white-space: nowrap;">GOLD WT</th>
                 <th style="width: 4%; text-align: center; border: 1px solid #d8c8b0; white-space: nowrap;">PCS</th>
-                <th style="width: 5%; text-align: center; border: 1px solid #d8c8b0; white-space: nowrap;">DIA PCS</th>
-                <th style="width: 5%; text-align: center; border: 1px solid #d8c8b0; white-space: nowrap;">STONES</th>
+                <th style="width: 4%; text-align: center; border: 1px solid #d8c8b0; white-space: nowrap;">DIA PCS</th>
+                <th style="width: 10%; text-align: center; border: 1px solid #d8c8b0; white-space: nowrap;">DIAMOND DETAILS (STAMP / PCS / WT)</th>
+                <th style="width: 4%; text-align: center; border: 1px solid #d8c8b0; white-space: nowrap;">STONES</th>
                 <th style="width: 6%; text-align: right; border: 1px solid #d8c8b0; white-space: nowrap;">GROSS WT</th>
                 <th style="width: 6%; text-align: right; border: 1px solid #d8c8b0; white-space: nowrap;">DIA CTS</th>
                 <th style="width: 7%; border: 1px solid #d8c8b0; white-space: nowrap;">REMARKS</th>
@@ -339,16 +344,54 @@
                             <span style="font-size: 7px; color: #888;">N/A</span>
                         @endif
                     </td>
-                    <td style="border: 1px solid #e8e8e8; white-space: nowrap;">{{ $row['gold_purity'] ?? $row['gold_priory'] ?? '-' }}</td>
+                    <td style="border: 1px solid #e8e8e8; white-space: nowrap;">{{ $row['gold_purity'] ?? $row['gold_priory'] ?? '-' }}@if(!empty($row['gold_stamp'])) <span style="font-size: 6.5px; color: #888;">({{ $row['gold_stamp'] }})</span>@endif</td>
                     <td style="border: 1px solid #e8e8e8; white-space: nowrap;">{{ $row['setting_type'] ?? 'Prong' }}</td>
-                    <td style="text-align: right; font-family: monospace; border: 1px solid #e8e8e8; white-space: nowrap;">{{ number_format($dwGrams, 3) }}g</td>
-                    <td style="text-align: right; font-family: monospace; color: #666; border: 1px solid #e8e8e8; white-space: nowrap;">{{ number_format((float)($row['diamond_wt_from'] ?? 0.1), 3) }}</td>
-                    <td style="text-align: right; font-family: monospace; color: #666; border: 1px solid #e8e8e8; white-space: nowrap;">{{ number_format((float)($row['diamond_wt_to'] ?? 0.5), 3) }}</td>
+                    <td style="text-align: right; font-family: monospace; color: #047857; font-weight: bold; border: 1px solid #e8e8e8; white-space: nowrap;">{{ number_format($diaCts, 3) }}ct</td>
                     <td style="text-align: right; font-family: monospace; font-weight: bold; border: 1px solid #e8e8e8; white-space: nowrap;">{{ number_format($gw, 3) }}g</td>
-                    <td style="text-align: right; font-family: monospace; color: #666; border: 1px solid #e8e8e8; white-space: nowrap;">{{ number_format((float)($row['gold_wt_from'] ?? 8), 3) }}</td>
-                    <td style="text-align: right; font-family: monospace; color: #666; border: 1px solid #e8e8e8; white-space: nowrap;">{{ number_format((float)($row['gold_wt_to'] ?? 10), 3) }}</td>
                     <td style="text-align: center; font-weight: bold; border: 1px solid #e8e8e8; white-space: nowrap;">{{ $pcs }}</td>
                     <td style="text-align: center; font-weight: bold; color: #047857; border: 1px solid #e8e8e8; white-space: nowrap;">{{ $diaPcs }}</td>
+                    <td style="text-align: center; font-family: monospace; font-size: 7px; border: 1px solid #e8e8e8; padding: 2px;">
+                        @php
+                            $sieves = [];
+                            if (!empty($row['diamond_sieves']) && is_array($row['diamond_sieves'])) {
+                                $sieves = $row['diamond_sieves'];
+                            } elseif (!empty($row['stone_details']) && is_string($row['stone_details']) && str_starts_with(trim($row['stone_details']), '[')) {
+                                $sieves = json_decode($row['stone_details'], true) ?: [];
+                            } elseif (!empty($row['stone_details']) && is_array($row['stone_details'])) {
+                                $sieves = $row['stone_details'];
+                            } elseif (!empty($row['diamond_components']) && is_array($row['diamond_components'])) {
+                                $sieves = $row['diamond_components'];
+                            }
+                            $validSieves = array_filter($sieves, function($s) {
+                                return !empty($s['stamp']) || !empty($s['count']) || !empty($s['weight']) || !empty($s['pieces']) || !empty($s['carats']);
+                            });
+                        @endphp
+                        @if(!empty($validSieves))
+                            @foreach($validSieves as $sv)
+                                @php
+                                    $st = $sv['stamp'] ?? ($sv['sieve'] ?? '—');
+                                    $cnt = (int)($sv['count'] ?? ($sv['pieces'] ?? ($sv['no_of_diamonds'] ?? 0)));
+                                    $wt = (float)($sv['weight'] ?? ($sv['carats'] ?? ($sv['diamond_weight'] ?? 0)));
+                                @endphp
+                                <div style="background-color: #f3e8ff; border: 1px solid #d8b4fe; padding: 1px 3px; border-radius: 2px; margin-bottom: 1px; display: inline-block; white-space: nowrap;">
+                                    <strong style="color: #581c87;">{{ $st }}</strong> / <span style="color: #065f46;">{{ $cnt }} pcs</span> / <span style="color: #312e81;">{{ number_format($wt, 3) }}ct</span>
+                                </div>
+                            @endforeach
+                        @else
+                            @php
+                                $stmp = $row['diamond_stamp'] ?? ($row['stamp_and_no'] ?? ($row['stamp_details'] ?? null));
+                                $cnt = (int)($row['no_of_diamonds'] ?? ($row['diamond_count'] ?? 0));
+                                $wt = (float)($row['diamond_weight'] ?? 0);
+                            @endphp
+                            @if($stmp || $cnt > 0 || $wt > 0)
+                                <div style="background-color: #f3e8ff; border: 1px solid #d8b4fe; padding: 1px 3px; border-radius: 2px; display: inline-block; white-space: nowrap;">
+                                    <strong style="color: #581c87;">{{ $stmp ?: '—' }}</strong> / <span style="color: #065f46;">{{ $cnt }} pcs</span> / <span style="color: #312e81;">{{ number_format($wt, 3) }}ct</span>
+                                </div>
+                            @else
+                                <span style="color: #999;">—</span>
+                            @endif
+                        @endif
+                    </td>
                     <td style="text-align: center; font-weight: bold; color: #6b21a8; border: 1px solid #e8e8e8; white-space: nowrap;">{{ $cstones }}</td>
                     <td style="text-align: right; font-family: monospace; font-weight: bold; color: #881337; border: 1px solid #e8e8e8; white-space: nowrap;">{{ number_format($gross, 3) }}g</td>
                     <td style="text-align: right; font-family: monospace; font-weight: bold; color: #047857; border: 1px solid #e8e8e8; white-space: nowrap;">{{ number_format($diaCts, 3) }}ct</td>
@@ -359,12 +402,11 @@
         <tfoot>
             <tr style="background-color: #eedfce; color: #3b3228; font-weight: bold; border-top: 2px solid #881337;">
                 <td colSpan="7" style="text-transform: uppercase; border: 1px solid #d8c8b0; padding: 4px; white-space: nowrap;">TOTAL SUMMARY</td>
-                <td style="text-align: right; font-family: monospace; border: 1px solid #d8c8b0; white-space: nowrap;">{{ number_format(array_reduce($items, function($a, $r){ $cts = (float)($r['total_dia_cts'] ?? ($r['diamond_weight'] ?? 0)); return $a + (float)($r['diamond_weight_grams'] ?? ($cts * 0.2)); }, 0), 3) }}g</td>
-                <td colSpan="2" style="border: 1px solid #d8c8b0; white-space: nowrap;"></td>
+                <td style="text-align: right; font-family: monospace; color: #047857; border: 1px solid #d8c8b0; white-space: nowrap;">{{ number_format($totDiaCts, 3) }}ct</td>
                 <td style="text-align: right; font-family: monospace; border: 1px solid #d8c8b0; white-space: nowrap;">{{ number_format($totGold, 3) }}g</td>
-                <td colSpan="2" style="border: 1px solid #d8c8b0; white-space: nowrap;"></td>
                 <td style="text-align: center; color: #881337; border: 1px solid #d8c8b0; white-space: nowrap;">{{ $totPcs }}</td>
                 <td style="text-align: center; color: #047857; border: 1px solid #d8c8b0; white-space: nowrap;">{{ $totDiaPcs }}</td>
+                <td style="border: 1px solid #d8c8b0; white-space: nowrap;"></td>
                 <td style="text-align: center; color: #6b21a8; border: 1px solid #d8c8b0; white-space: nowrap;">{{ $totStones }}</td>
                 <td style="text-align: right; font-family: monospace; color: #881337; border: 1px solid #d8c8b0; white-space: nowrap;">{{ number_format($totGross, 3) }}g</td>
                 <td style="text-align: right; font-family: monospace; color: #047857; border: 1px solid #d8c8b0; white-space: nowrap;">{{ number_format($totDiaCts, 3) }}ct</td>

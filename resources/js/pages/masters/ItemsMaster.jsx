@@ -211,6 +211,10 @@ export default function ItemsMaster() {
 
   const activeCount = useMemo(() => items.filter(i => (i.status || 'active') === 'active').length, [items]);
 
+  const linkedSubcategoriesCount = useMemo(() => {
+    const uniqueSubIds = new Set(items.map(i => i.subcategory_id).filter(Boolean));
+    return uniqueSubIds.size;
+  }, [items]);
   return (
     <div className="w-full space-y-6 pb-16 font-sans">
       
@@ -263,7 +267,7 @@ export default function ItemsMaster() {
         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs flex items-center justify-between">
           <div>
             <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Linked Subcategories</div>
-            <div className="text-2xl font-bold text-blue-600 mt-1">{subcategories.length}</div>
+            <div className="text-2xl font-bold text-blue-600 mt-1">{linkedSubcategoriesCount}</div>
           </div>
           <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-lg">
             <i className="fa-solid fa-diagram-project"></i>
@@ -351,6 +355,7 @@ export default function ItemsMaster() {
           <table className="w-full text-left border-collapse">
             <thead className="bg-gray-100/80 border-b border-gray-200 text-[11px] font-bold uppercase tracking-wider text-gray-600">
               <tr>
+                <th className="py-3.5 px-4 text-center w-14">S.No</th>
                 <th className="py-3.5 px-4">Item Code</th>
                 <th className="py-3.5 px-4">Item Name</th>
                 <th className="py-3.5 px-4">Linked Category</th>
@@ -362,23 +367,27 @@ export default function ItemsMaster() {
             <tbody className="divide-y divide-gray-200 text-xs">
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="py-12 text-center text-gray-500 font-semibold">
+                  <td colSpan="7" className="py-12 text-center text-gray-500 font-semibold">
                     <i className="fa-solid fa-circle-notch fa-spin text-xl text-[#b01622] mr-2"></i>
                     Loading Master Items...
                   </td>
                 </tr>
               ) : paginatedItems.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="py-12 text-center text-gray-500">
+                  <td colSpan="7" className="py-12 text-center text-gray-500">
                     <i className="fa-solid fa-box-open text-3xl text-gray-300 mb-2 block"></i>
                     <p className="font-semibold text-gray-700">No Item Masters found</p>
                     <p className="text-xs text-gray-400 mt-1">Try changing filters or add a new Item Master above.</p>
                   </td>
                 </tr>
               ) : (
-                paginatedItems.map((item) => (
+                paginatedItems.map((item, idx) => (
                   <tr key={item.id} className="hover:bg-gray-50/80 transition-colors">
-                    
+                    {/* S.No */}
+                    <td className="py-3.5 px-4 text-center font-mono text-gray-500 font-semibold">
+                      {(currentPage - 1) * itemsPerPage + idx + 1}
+                    </td>
+
                     {/* Item Code */}
                     <td className="py-3.5 px-4 font-mono">
                       <span className="bg-gray-100 text-gray-800 font-bold px-2 py-0.5 rounded border border-gray-200 text-[11px]">

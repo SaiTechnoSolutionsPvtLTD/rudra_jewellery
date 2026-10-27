@@ -5,6 +5,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Client;
 use App\Models\Invoice;
+use App\Models\WorkOrderReceivedPiece;
+use App\Models\WorkOrder;
+use App\Models\Product;
+use App\Models\SaleItem;
+use App\Models\InventoryMovement;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -47,33 +52,18 @@ class ClientController extends Controller
                     };
 
                     if ($fromDate) {
-                        $query->where(function($q) use ($fromDate, $period) {
-                            if ($period === 'today' || $period === '1d') {
-                                $q->whereDate('created_at', Carbon::today())
-                                  ->orWhereDate('last_visit', Carbon::today())
-                                  ->orWhereHas('invoices', function($iq) {
-                                      $iq->whereDate('created_at', Carbon::today());
-                                  });
-                            } else {
-                                $q->where('created_at', '>=', $fromDate)
-                                  ->orWhere('last_visit', '>=', $fromDate)
-                                  ->orWhereHas('invoices', function($iq) use ($fromDate) {
-                                      $iq->where('created_at', '>=', $fromDate);
-                                  });
+                        $recentClientIds = Invoice::where('created_at', '>=', $fromDate)->pluck('client_id')->filter()->unique()->all();
+                        $query->where(function($q) use ($fromDate, $recentClientIds) {
+                            $q->where('created_at', '>=', $fromDate)
+                              ->orWhere('last_visit', '>=', $fromDate);
+                            if (!empty($recentClientIds)) {
+                                $q->orWhereIn('id', $recentClientIds);
                             }
                         });
                     }
                 }
 
                 $clients = (clone $query)->orderBy('id', 'desc')->get();
-
-                // Compute stats dynamically
-                $totalCount = (clone $baseQuery)->count();
-                $todayCount = (clone $baseQuery)->where(function($q) {
-                    $q->whereDate('created_at', Carbon::today())
-                      ->orWhereDate('last_visit', Carbon::today());
-                })->count();
-                $activeMembersCount = (clone $baseQuery)->where('status', 'active')->count();
 
                 $period = strtolower($request->input('period', 'month'));
                 $newRegFrom = match ($period) {
@@ -83,14 +73,22 @@ class ClientController extends Controller
                     default => Carbon::now()->startOfMonth(),
                 };
 
-                $newRegCount = (clone $baseQuery)->where('created_at', '>=', $newRegFrom)->count();
+                // Fast single-pass dynamic stats aggregation
+                $todayDate = Carbon::today()->toDateString();
+                $regFromStr = $newRegFrom->toDateTimeString();
+                $statsRow = (clone $baseQuery)->reorder()->selectRaw("
+                    COUNT(*) as totalClients,
+                    COUNT(CASE WHEN DATE(created_at) = '{$todayDate}' OR DATE(last_visit) = '{$todayDate}' THEN 1 END) as todayClients,
+                    COUNT(CASE WHEN status = 'active' THEN 1 END) as activeMembers,
+                    COUNT(CASE WHEN created_at >= '{$regFromStr}' THEN 1 END) as newReg
+                ")->first();
 
                 return response()->json([
                     'stats' => [
-                        'todayClients' => $todayCount,
-                        'totalClients' => $totalCount,
-                        'activeMembers' => $activeMembersCount,
-                        'newReg' => $newRegCount,
+                        'todayClients' => (int) ($statsRow->todayClients ?? 0),
+                        'totalClients' => (int) ($statsRow->totalClients ?? 0),
+                        'activeMembers' => (int) ($statsRow->activeMembers ?? 0),
+                        'newReg' => (int) ($statsRow->newReg ?? 0),
                     ],
                     'clients' => $clients
                 ]);
@@ -120,22 +118,23 @@ class ClientController extends Controller
         return response()->json(['client_code' => $code]);
     }
 
+    protected function sanitizePhone($val)
+    {
+        if (!$val) return $val;
+        $digits = preg_replace('/\D/', '', (string)$val);
+        if (strlen($digits) === 12 && str_starts_with($digits, '91')) {
+            $digits = substr($digits, 2);
+        } elseif (strlen($digits) === 11 && str_starts_with($digits, '0')) {
+            $digits = substr($digits, 1);
+        }
+        return strlen($digits) === 10 ? $digits : $val;
+    }
+
     public function store(Request $request)
     {
-        $sanitizePhone = function ($val) {
-            if (!$val) return $val;
-            $digits = preg_replace('/\D/', '', (string)$val);
-            if (strlen($digits) === 12 && str_starts_with($digits, '91')) {
-                $digits = substr($digits, 2);
-            } elseif (strlen($digits) === 11 && str_starts_with($digits, '0')) {
-                $digits = substr($digits, 1);
-            }
-            return strlen($digits) === 10 ? $digits : $val;
-        };
-
         $fullName = $request->input('full_name') ?: $request->input('fullName');
-        $primaryPhone = $sanitizePhone($request->input('primary_phone') ?: $request->input('primaryPhone'));
-        $secondaryPhone = $sanitizePhone($request->input('secondary_phone') ?: $request->input('secondaryPhone'));
+        $primaryPhone = $this->sanitizePhone($request->input('primary_phone') ?: $request->input('primaryPhone'));
+        $secondaryPhone = $this->sanitizePhone($request->input('secondary_phone') ?: $request->input('secondaryPhone'));
 
         $request->merge([
             'full_name' => $fullName,
@@ -191,6 +190,8 @@ class ClientController extends Controller
             'preferred_communication' => $request->input('preferred_communication') ?: ($request->input('preferredCommunication') ?: 'Email'),
             'quick_notes' => $request->input('quick_notes') ?: $request->input('quickNotes'),
             'status' => $request->input('status', 'active'),
+            'opening_balance' => (float) $request->input('opening_balance', 0),
+            'balance_type' => in_array(strtolower((string) $request->input('balance_type', 'receivable')), ['payable', 'credit']) ? 'payable' : 'receivable',
             'last_visit' => Carbon::now(),
             'total_purchases' => 0.00
         ];
@@ -200,6 +201,31 @@ class ClientController extends Controller
             $latest = Client::orderBy('id', 'desc')->first();
             $nextId = $latest ? ($latest->id + 1001) : 1001;
             $data['client_code'] = $prefix . '-' . $nextId;
+        }
+
+        // Prevent accidental duplicate customer registration using primary phone, PAN, Aadhar, or client code
+        $existingDuplicate = Client::where(function ($q) {
+            $q->whereNull('is_removed')->orWhere('is_removed', false);
+        })->where(function ($q) use ($primaryPhone, $request) {
+            $q->where('primary_phone', $primaryPhone);
+            if ($request->filled('pan_number')) {
+                $q->orWhere('pan_number', strtoupper(trim($request->pan_number)));
+            }
+            if ($request->filled('aadhar_number')) {
+                $q->orWhere('aadhar_number', trim($request->aadhar_number));
+            }
+            if ($request->filled('client_code')) {
+                $q->orWhere('client_code', trim($request->client_code));
+            }
+        })->first();
+
+        if ($existingDuplicate) {
+            return response()->json([
+                'status' => 'error',
+                'message' => "Customer already exists with matching phone ({$primaryPhone}) or identifier: {$existingDuplicate->full_name} ({$existingDuplicate->client_code}).",
+                'existing_customer' => $existingDuplicate,
+                'client' => $existingDuplicate,
+            ], 422);
         }
 
         // Handle Avatar File Upload
@@ -251,8 +277,8 @@ class ClientController extends Controller
                     $primaryPhone = $request->input('primary_phone') ?: $request->input('primaryPhone');
                     $secondaryPhone = $request->input('secondary_phone') ?: $request->input('secondaryPhone');
                     if ($fullName !== null) $request->merge(['full_name' => $fullName]);
-                    if ($primaryPhone !== null) $request->merge(['primary_phone' => $sanitizePhone($primaryPhone)]);
-                    if ($secondaryPhone !== null) $request->merge(['secondary_phone' => $sanitizePhone($secondaryPhone)]);
+                    if ($primaryPhone !== null) $request->merge(['primary_phone' => $this->sanitizePhone($primaryPhone)]);
+                    if ($secondaryPhone !== null) $request->merge(['secondary_phone' => $this->sanitizePhone($secondaryPhone)]);
 
                     $validated = $request->validate([
                         'full_name' => ['sometimes', 'required', 'string', 'max:255', 'regex:/^[\p{L}\s.\'-]+$/u'],
@@ -276,7 +302,12 @@ class ClientController extends Controller
                         'quick_notes' => 'nullable|string',
                         'status' => 'nullable|string',
                         'avatar' => 'nullable',
+                        'opening_balance' => 'nullable|numeric',
+                        'balance_type' => 'nullable|string|in:debit,credit,receivable,payable',
                     ]);
+
+                    $rawBalanceType = $request->input('balance_type', $client->balance_type ?? 'receivable');
+                    $normalizedBalanceType = in_array(strtolower((string) $rawBalanceType), ['payable', 'credit']) ? 'payable' : 'receivable';
 
                     $data = [
                         'full_name' => $request->input('full_name') ?: $request->input('fullName', $client->full_name),
@@ -297,9 +328,11 @@ class ClientController extends Controller
                         'gst_percentage' => $request->input('gst_percentage') !== null ? $request->input('gst_percentage') : $request->input('gstPercentage', $client->gst_percentage),
                         'designation' => $request->input('designation', $client->designation),
                         'membership_tier' => $request->input('membership_tier') ?: $request->input('membershipTier', $client->membership_tier),
-                        'preferred_communication' => $request->input('preferred_communication') ?: $request->input('preferredCommunication', $client->preferred_communication),
+                        'preferred_communication' => $request->input('preferred_communication') ?: ($request->input('preferredCommunication', $client->preferred_communication)),
                         'quick_notes' => $request->input('quick_notes') ?: $request->input('quickNotes', $client->quick_notes),
                         'status' => $request->input('status', $client->status),
+                        'opening_balance' => $request->has('opening_balance') ? (float) $request->input('opening_balance') : ($client->opening_balance ?? 0),
+                        'balance_type' => $normalizedBalanceType,
                     ];
 
                     if ($request->hasFile('avatar')) {
@@ -317,8 +350,11 @@ class ClientController extends Controller
                     ]);
                 }
             }
+        } catch (\Illuminate\Validation\ValidationException $ve) {
+            throw $ve;
         } catch (\Exception $e) {
-            // Fallback
+            \Illuminate\Support\Facades\Log::error("Client update error: " . $e->getMessage());
+            return response()->json(['message' => 'Failed to update client: ' . $e->getMessage()], 500);
         }
 
         return response()->json(['message' => 'Client not found'], 404);
@@ -429,17 +465,16 @@ class ClientController extends Controller
                     }
                 }
 
-                $rawInvoices = (clone $query)->orderBy('id', 'desc')->get();
+                $rawInvoices = (clone $query)->with(['client'])->orderBy('id', 'desc')->get();
 
-                $invoices = $rawInvoices->map(function($inv) {
+                $missingClientNames = $rawInvoices->whereNull('client')->pluck('client_name')->filter()->unique();
+                $clientsByName = $missingClientNames->isNotEmpty() 
+                    ? Client::whereIn('full_name', $missingClientNames)->get()->keyBy('full_name')
+                    : collect();
+
+                $invoices = $rawInvoices->map(function($inv) use ($clientsByName) {
                     $dateObj = $inv->invoice_date ? Carbon::parse($inv->invoice_date) : ($inv->created_at ? Carbon::parse($inv->created_at) : Carbon::now());
-                    $client = $inv->client;
-                    if (!$client && $inv->client_id) {
-                        $client = Client::find($inv->client_id);
-                    }
-                    if (!$client && $inv->client_name) {
-                        $client = Client::where('full_name', $inv->client_name)->orWhere('client_code', $inv->client_name)->first();
-                    }
+                    $client = $inv->client ?: ($inv->client_name ? $clientsByName->get($inv->client_name) : null);
 
                     $clientName = $client ? $client->full_name : $inv->client_name;
                     $clientEmail = $client ? ($client->email ?: $inv->client_email) : $inv->client_email;
@@ -455,21 +490,10 @@ class ClientController extends Controller
                         if (str_starts_with($avatarUrl, 'http://localhost/storage/')) {
                             $avatarUrl = str_replace('http://localhost/storage/', '/storage/', $avatarUrl);
                         }
-                        if (str_starts_with($avatarUrl, '/storage/')) {
-                            $relPath = str_replace('/storage/', '', $avatarUrl);
-                            if (!file_exists(public_path('storage/' . $relPath))) {
-                                $avatarUrl = null;
-                            }
-                        }
                     }
 
                     if (!$avatarUrl && $clientName) {
-                        $matchedClient = Client::where('full_name', $clientName)->whereNotNull('avatar')->where('avatar', '!=', '')->first();
-                        if ($matchedClient && $matchedClient->avatar_url) {
-                            $avatarUrl = $matchedClient->avatar_url;
-                        } else {
-                            $avatarUrl = 'https://ui-avatars.com/api/?name=' . urlencode($clientName) . '&background=801824&color=ffffff&bold=true&size=128';
-                        }
+                        $avatarUrl = 'https://ui-avatars.com/api/?name=' . urlencode($clientName) . '&background=801824&color=ffffff&bold=true&size=128';
                     }
 
                     return [
@@ -481,11 +505,11 @@ class ClientController extends Controller
                         'client_name' => $clientName,
                         'client_code' => $clientCode,
                         'client_phone' => $clientPhone,
-                        'client_address' => $clientAddress ?: 'Chennai, Tamil Nadu',
-                        'client_gst' => $clientGst ?: '33AAAAA0000A1Z5',
+                        'client_address' => $clientAddress ?: null,
+                        'client_gst' => $clientGst ?: null,
                         'client_company' => $clientCompany,
                         'avatar_url' => $avatarUrl,
-                        'email' => $clientEmail ?: (strtolower(str_replace(' ', '.', $clientName)) . '@regal.com'),
+                        'email' => $clientEmail ?: null,
                         'tier' => strtoupper($clientTier ?: 'SILVER'),
                         'tierKey' => strtolower($clientTier ?: 'silver'),
                         'initials' => $inv->client_initials ?: collect(explode(' ', $clientName))->map(fn($part) => strtoupper(substr($part, 0, 1)))->take(2)->implode(''),
@@ -511,11 +535,15 @@ class ClientController extends Controller
                 $pendingBillsSum = (float) $rawInvoices->where('status', '!=', 'paid')->sum('total_amount');
                 $totalRevenueSum = (float) $rawInvoices->where('status', 'paid')->sum('total_amount') + ((float)$rawInvoices->where('status', 'partial')->sum('total_amount') * 0.5);
 
-                $yesterdayInvoicesCount = Invoice::whereDate('invoice_date', Carbon::yesterday())->count();
+                $yesterdayStats = Invoice::whereDate('invoice_date', Carbon::yesterday())
+                    ->selectRaw('COUNT(*) as cnt, SUM(total_amount) as total')
+                    ->first();
+                $yesterdayInvoicesCount = (int) ($yesterdayStats->cnt ?? 0);
+                $yesterdayBillingSum = (float) ($yesterdayStats->total ?? 0);
+
                 $todayInvoicesGrowthPct = $yesterdayInvoicesCount > 0 ? round((($todayInvoicesCount - $yesterdayInvoicesCount) / $yesterdayInvoicesCount) * 100, 1) : ($todayInvoicesCount > 0 ? 100.0 : 0.0);
                 $todayInvoicesGrowth = ($todayInvoicesGrowthPct >= 0 ? '+' : '') . number_format($todayInvoicesGrowthPct, 1) . '%';
 
-                $yesterdayBillingSum = Invoice::whereDate('invoice_date', Carbon::yesterday())->sum('total_amount');
                 $todayBillingsGrowthPct = $yesterdayBillingSum > 0 ? round((($todayBillingSum - $yesterdayBillingSum) / $yesterdayBillingSum) * 100, 1) : ($todayBillingSum > 0 ? 100.0 : 0.0);
                 $todayBillingsGrowth = ($todayBillingsGrowthPct >= 0 ? '+' : '') . number_format($todayBillingsGrowthPct, 1) . '%';
 
@@ -603,7 +631,7 @@ class ClientController extends Controller
             'invoice_no' => $invoiceNo,
             'client_id' => $validated['client_id'] ?? null,
             'client_name' => $clientName,
-            'client_email' => $validated['client_email'] ?? (strtolower(str_replace(' ', '.', $clientName)) . '@regal.com'),
+            'client_email' => $validated['client_email'] ?? null,
             'client_tier' => strtoupper($validated['client_tier'] ?? 'ELITE'),
             'client_initials' => $initials,
             'invoice_date' => Carbon::now(),
@@ -616,6 +644,68 @@ class ClientController extends Controller
             'notes' => $validated['notes'] ?? null,
             'items' => $validated['items'] ?? null,
         ]);
+
+        // Link and process piece tags if present in items
+        if (!empty($validated['items']) && is_array($validated['items'])) {
+            foreach ($validated['items'] as $item) {
+                $pieceId = $item['piece_id'] ?? null;
+                $tagNumber = $item['tag_number'] ?? null;
+
+                $piece = null;
+                if ($pieceId) {
+                    $piece = WorkOrderReceivedPiece::find($pieceId);
+                } elseif ($tagNumber) {
+                    $piece = WorkOrderReceivedPiece::where('tag_number', $tagNumber)->first();
+                }
+
+                if ($piece && $piece->status !== 'sold') {
+                    $piece->status = 'sold';
+                    $piece->invoice_id = $invoice->id;
+                    $piece->client_id = $invoice->client_id;
+                    $piece->save();
+
+                    if ($piece->product_id) {
+                        Product::whereKey($piece->product_id)->decrement('current_stock_qty', 1);
+                        InventoryMovement::create([
+                            'product_id' => $piece->product_id,
+                            'invoice_id' => $invoice->id,
+                            'movement_type' => 'sale',
+                            'quantity' => -1,
+                            'weight' => -((float) ($piece->gross_weight ?: 0)),
+                            'notes' => "Sold via Client Invoice {$invoice->invoice_no} (Tag: {$piece->tag_number})",
+                        ]);
+                    }
+
+                    if ($piece->work_order_id) {
+                        $wo = WorkOrder::find($piece->work_order_id);
+                        if ($wo && $wo->receivedPieces()->count() > 0 && $wo->receivedPieces()->where('status', 'sold')->count() >= $wo->receivedPieces()->count()) {
+                            $wo->status = 'delivered';
+                            $wo->current_stage = 'delivered';
+                            $wo->invoice_id = $invoice->id;
+                            $wo->save();
+                        }
+                    }
+                }
+
+                SaleItem::create([
+                    'invoice_id' => $invoice->id,
+                    'product_id' => $piece?->product_id ?? ($item['product_id'] ?? null),
+                    'product_name' => $item['desc'] ?? $piece?->product_name ?? 'Jewellery Item',
+                    'product_code' => $item['code'] ?? $piece?->design_no ?? 'RJ-ITM',
+                    'quantity' => 1,
+                    'gross_weight' => (float) ($item['gross_wt'] ?? $piece?->gross_weight ?? 0),
+                    'net_weight' => (float) ($item['net_wt'] ?? $piece?->net_gold_weight ?? 0),
+                    'rate' => (float) ($item['rate'] ?? 0),
+                    'making_charge' => (float) ($item['making'] ?? 0),
+                    'line_total' => (float) ($item['taxable'] ?? 0),
+                    'details' => [
+                        'tag_number' => $piece?->tag_number ?? $tagNumber,
+                        'work_order_number' => $piece?->workOrder?->work_order_number ?? ($item['work_order_number'] ?? null),
+                        'karigar_name' => $piece?->karigar?->name ?? ($item['karigar_name'] ?? null),
+                    ],
+                ]);
+            }
+        }
 
         // When invoice is created for an existing client, update client total_purchases and last_visit
         if (!empty($validated['client_id'])) {
@@ -699,15 +789,9 @@ class ClientController extends Controller
         }
 
         if ($invoice) {
-            if ($invoice->client_id) {
-                $client = Client::find($invoice->client_id);
-                if ($client) {
-                    $client->total_purchases = max(0, (float)($client->total_purchases ?: 0) - (float)$invoice->total_amount);
-                    $client->save();
-                }
-            }
+            app(\App\Services\SaleService::class)->cancel($invoice, 'Invoice deleted from Billing', \Illuminate\Support\Facades\Auth::id());
             $invoice->delete();
-            return response()->json(['message' => 'Invoice deleted successfully.']);
+            return response()->json(['message' => 'Invoice deleted successfully and inventory restored.']);
         }
 
         return response()->json(['message' => 'Invoice not found.'], 404);
@@ -958,5 +1042,65 @@ class ClientController extends Controller
             'message' => 'Client restored successfully.',
             'client' => $client,
         ]);
+    }
+
+    /**
+     * Record gold/metal deposit by client (with or without rate)
+     * If rate is provided: Cash value calculated & credited to client account
+     * If rate is NOT provided (0/empty): Retained purely as Gold (grams) in client's metal balance!
+     */
+    public function recordMetalDeposit(Request $request, $id)
+    {
+        $client = Client::findOrFail($id);
+
+        $validated = $request->validate([
+            'metal_type' => 'nullable|string|in:gold,silver',
+            'gross_weight' => 'required|numeric|min:0.001',
+            'touch' => 'nullable|numeric|min:0|max:100',
+            'purity' => 'nullable|string',
+            'rate' => 'nullable|numeric|min:0',
+            'remarks' => 'nullable|string',
+            'transaction_date' => 'nullable|date',
+        ]);
+
+        $metalType = strtolower($validated['metal_type'] ?? 'gold');
+        $grossWt = floatval($validated['gross_weight']);
+        $touch = floatval($validated['touch'] ?? ($metalType === 'gold' ? 91.6 : 92.5));
+        $fineWeight = round($grossWt * ($touch / 100), 3);
+        $rate = floatval($validated['rate'] ?? 0);
+        $txDate = $validated['transaction_date'] ?? Carbon::now()->toDateString();
+        $remarks = $validated['remarks'] ?? 'Metal Deposit / Advance';
+
+        if ($rate > 0) {
+            // Rate provided: Convert to cash credit
+            $cashAmount = round($fineWeight * $rate, 2);
+            $client->total_purchases = floatval($client->total_purchases) - $cashAmount;
+            $client->save();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => "Successfully credited ₹" . number_format($cashAmount, 2) . " to client account ({$fineWeight}g fine @ ₹{$rate}/g).",
+                'type' => 'cash_credit',
+                'cash_amount' => $cashAmount,
+                'client' => $client,
+            ]);
+        } else {
+            // No rate provided: Retained purely as Gold / Silver grams in client's metal balance!
+            if ($metalType === 'silver') {
+                $client->silver_balance_grams = round(floatval($client->silver_balance_grams) + $fineWeight, 3);
+            } else {
+                $client->gold_balance_grams = round(floatval($client->gold_balance_grams) + $fineWeight, 3);
+            }
+            $client->save();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => "Successfully credited {$fineWeight}g pure {$metalType} to client metal balance (held as pure metal, not converted to cash).",
+                'type' => 'metal_credit',
+                'fine_weight' => $fineWeight,
+                'metal_type' => $metalType,
+                'client' => $client,
+            ]);
+        }
     }
 }

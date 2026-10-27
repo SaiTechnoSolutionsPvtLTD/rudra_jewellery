@@ -8,13 +8,18 @@ import BenchMetalModal from '../components/BenchMetalModal';
 
 const resolveItemImage = (item) => {
   const raw = item?.image_url || item?.product?.image_url || item?.product?.image || item?.image;
-  if (!raw) return 'https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?auto=format&fit=crop&w=400&q=80';
+  if (!raw) return '/images/placeholder-jewelry.svg';
   if (raw.startsWith('http') || raw.startsWith('data:') || raw.startsWith('/images/')) return raw;
   if (raw.startsWith('/storage/')) return raw;
   if (raw.startsWith('storage/')) return `/${raw}`;
   if (raw.startsWith('products/')) return `/storage/${raw}`;
   if (raw.startsWith('/')) return raw;
   return `/storage/${raw}`;
+};
+
+const formatINR = (val) => {
+  const num = Number(val || 0);
+  return '₹' + num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
 export default function Dashboard() {
@@ -208,11 +213,13 @@ export default function Dashboard() {
     }
   };
 
-  const fetchDashboardData = async (overridePeriod) => {
+  const fetchDashboardData = async (overridePeriod, forceRefresh = false) => {
     const p = overridePeriod || timeRange;
     setIsFetchingPeriod(true);
     try {
-      const res = await api.get('/dashboard', { params: { period: p, refresh: 1 } });
+      const params = { period: p };
+      if (forceRefresh) params.refresh = 1;
+      const res = await api.get('/dashboard', { params });
       setData(res.data);
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
@@ -226,7 +233,7 @@ export default function Dashboard() {
     return (
       <div className="flex items-center justify-center h-80 text-stone-400 font-['Inter',sans-serif]">
         <i className="fa-solid fa-circle-notch fa-spin text-2xl text-[#b01622] mr-3"></i>
-        <span className="text-xs font-semibold">Loading Rudhra Jewellers Executive Dashboard...</span>
+        <span className="text-xs font-semibold">Loading Rudra Jewellery Executive Dashboard...</span>
       </div>
     );
   }
@@ -494,10 +501,13 @@ export default function Dashboard() {
               <div className="w-8.5 h-8.5 rounded-xl bg-pink-50 text-pink-600 flex items-center justify-center text-sm shrink-0">
                 <i className="fa-solid fa-store"></i>
               </div>
-              <span className="text-[10px] font-bold text-stone-400 uppercase tracking-tight truncate">Inventory Products</span>
+              <span className="text-[10px] font-bold text-stone-400 uppercase tracking-tight truncate">Inventory Products (Total Stock)</span>
             </div>
-            <div className="text-lg sm:text-xl font-extrabold text-stone-900 tracking-tight mt-3">
-              {data?.summary?.inventoryProductsFormatted ?? (data?.summary?.inventoryProductsCount !== undefined ? String(data?.summary?.inventoryProductsCount) : (data?.summary?.inventoryValueFormatted || '0'))}
+            <div className="flex items-baseline gap-2 mt-3">
+              <div className="text-lg sm:text-xl font-extrabold text-stone-900 tracking-tight">
+                {data?.summary?.inventoryProductsFormatted ?? (data?.summary?.inventoryProductsCount !== undefined ? String(data?.summary?.inventoryProductsCount) : (data?.summary?.inventoryValueFormatted || '0'))}
+              </div>
+              <span className="text-[10px] font-bold text-stone-400 uppercase">Units</span>
             </div>
           </div>
           {(() => {
@@ -806,15 +816,17 @@ export default function Dashboard() {
               <table className="w-full text-left border-collapse text-xs align-top table-fixed">
                 <thead>
                   <tr className="text-[11px] font-semibold text-stone-400 border-b border-stone-100">
-                    <th className="pb-3 text-stone-400 font-semibold w-[34%] pr-2">Order ID</th>
-                    <th className="pb-3 text-stone-400 font-semibold w-[36%] pr-2">Customer</th>
-                    <th className="pb-3 text-stone-400 font-semibold text-right w-[30%]">Status</th>
+                    <th className="pb-3 text-stone-400 font-semibold w-10 text-center">S.No</th>
+                    <th className="pb-3 text-stone-400 font-semibold w-[30%] pr-2">Order ID</th>
+                    <th className="pb-3 text-stone-400 font-semibold w-[34%] pr-2">Customer</th>
+                    <th className="pb-3 text-stone-400 font-semibold text-right w-[26%]">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
                   {data?.recentOrders && data.recentOrders.length > 0 ? (
                     data.recentOrders.map((row, idx) => (
                       <tr key={idx} className="hover:bg-stone-50/50 transition-colors">
+                        <td className="py-3 text-center font-mono text-stone-400 text-xs">{idx + 1}</td>
                         <td className="py-3 font-mono text-stone-700 font-bold text-xs truncate pr-2" title={row.id}>{row.id}</td>
                         <td className="py-3 font-semibold text-stone-900 text-xs truncate pr-2" title={row.name}>{row.name}</td>
                         <td className="py-3 text-right whitespace-nowrap">
@@ -849,15 +861,17 @@ export default function Dashboard() {
               <table className="w-full text-left border-collapse text-xs align-top table-fixed">
                 <thead>
                   <tr className="text-[11px] font-semibold text-stone-400 border-b border-stone-100">
-                    <th className="pb-3 text-stone-400 font-semibold w-[42%] pr-1">Category</th>
-                    <th className="pb-3 text-stone-400 font-semibold text-right w-[32%] pr-1">Sales (₹)</th>
-                    <th className="pb-3 text-stone-400 font-semibold text-right w-[26%]">Growth</th>
+                    <th className="pb-3 text-stone-400 font-semibold w-10 text-center">S.No</th>
+                    <th className="pb-3 text-stone-400 font-semibold w-[38%] pr-1">Category</th>
+                    <th className="pb-3 text-stone-400 font-semibold text-right w-[28%] pr-1">Sales (₹)</th>
+                    <th className="pb-3 text-stone-400 font-semibold text-right w-[24%]">Growth</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
                   {topCatData && topCatData.length > 0 ? (
                     topCatData.map((row, idx) => (
                       <tr key={idx} className="hover:bg-stone-50/50 transition-colors">
+                        <td className="py-2.5 text-center font-mono text-stone-400 text-xs">{idx + 1}</td>
                         <td className="py-2.5 font-semibold text-stone-900 text-xs truncate pr-1" title={row.name}>
                           <span className="inline-flex items-center gap-1.5 truncate max-w-full">
                             <span className="text-sm shrink-0">{row.icon}</span>
@@ -893,15 +907,17 @@ export default function Dashboard() {
               <table className="w-full text-left border-collapse text-xs align-top table-fixed">
                 <thead>
                   <tr className="text-[11px] font-semibold text-stone-400 border-b border-stone-100">
-                    <th className="pb-3 text-stone-400 font-semibold w-[42%] pr-1">Category</th>
-                    <th className="pb-3 text-stone-400 font-semibold text-right w-[32%] pr-1">Sales (₹)</th>
-                    <th className="pb-3 text-stone-400 font-semibold text-right w-[26%]">Growth</th>
+                    <th className="pb-3 text-stone-400 font-semibold w-10 text-center">S.No</th>
+                    <th className="pb-3 text-stone-400 font-semibold w-[38%] pr-1">Category</th>
+                    <th className="pb-3 text-stone-400 font-semibold text-right w-[28%] pr-1">Sales (₹)</th>
+                    <th className="pb-3 text-stone-400 font-semibold text-right w-[24%]">Growth</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
                   {actionReqData && actionReqData.length > 0 ? (
                     actionReqData.map((row, idx) => (
                       <tr key={idx} className="hover:bg-stone-50/50 transition-colors">
+                        <td className="py-2.5 text-center font-mono text-stone-400 text-xs">{idx + 1}</td>
                         <td className="py-2.5 font-semibold text-stone-900 text-xs truncate pr-1" title={row.name}>
                           <span className="inline-flex items-center gap-1.5 truncate max-w-full">
                             <span className="text-sm shrink-0">{row.icon}</span>
@@ -956,6 +972,7 @@ export default function Dashboard() {
               <table className="w-full text-left text-xs border-collapse min-w-[720px] my-auto">
                 <thead>
                   <tr className="border-b border-stone-100 bg-stone-50/60 text-stone-600 font-semibold text-[11px]">
+                    <th className="py-3 px-3 text-center w-12 whitespace-nowrap">S.NO</th>
                     <th className="py-3 px-3.5 whitespace-nowrap">WORK ORDER NO</th>
                     <th className="py-3 px-3 whitespace-nowrap">Product</th>
                     <th className="py-3 px-3 whitespace-nowrap">Aachari</th>
@@ -970,6 +987,7 @@ export default function Dashboard() {
                   {jobsLoading && jobStats.live_jobs.length === 0 ? (
                     [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
                       <tr key={n} className="animate-pulse">
+                        <td className="py-4 px-3 text-center"><div className="h-3.5 bg-stone-200/80 rounded w-6 mx-auto"></div></td>
                         <td className="py-4 px-3.5"><div className="h-3.5 bg-stone-200/80 rounded w-24"></div></td>
                         <td className="py-4 px-3"><div className="h-3.5 bg-stone-200/80 rounded w-28"></div></td>
                         <td className="py-4 px-3"><div className="h-3.5 bg-stone-200/80 rounded w-20"></div></td>
@@ -982,7 +1000,7 @@ export default function Dashboard() {
                     ))
                   ) : jobStats.live_jobs.length === 0 ? (
                     <tr>
-                      <td colSpan="8" className="py-12 text-center text-stone-400 font-medium">
+                      <td colSpan="9" className="py-12 text-center text-stone-400 font-medium">
                         No active live jobs found.
                       </td>
                     </tr>
@@ -991,47 +1009,53 @@ export default function Dashboard() {
                       const totalLive = jobStats.live_jobs.length;
                       const paginatedJobs = jobStats.live_jobs.slice((liveJobsPage - 1) * itemsPerPage, liveJobsPage * itemsPerPage);
 
-                      return paginatedJobs.map((wo) => (
-                        <tr
-                          key={wo.id}
-                          onClick={() => navigate('/job-order')}
-                          className="hover:bg-stone-50/60 transition-colors cursor-pointer group"
-                        >
-                          <td className="py-4 px-3.5 font-mono font-bold text-[#b01622] group-hover:underline whitespace-nowrap">
-                            {wo.work_order_number}
-                          </td>
-                          <td className="py-4 px-3 font-bold text-gray-900 truncate max-w-[140px]" title={wo.product_name || wo.item_type}>
-                            {wo.product_name || wo.item_type || wo.product?.name || '-'}
-                          </td>
-                          <td className="py-4 px-3 text-stone-700 whitespace-nowrap font-medium truncate max-w-[130px]" title={wo.karigar_name || wo.artisan_name || wo.karigar?.name}>
-                            {wo.karigar_name || wo.artisan_name || wo.karigar?.name || '-'}
-                          </td>
-                          <td className="py-4 px-3 text-right font-mono font-bold text-gray-900 whitespace-nowrap">
-                            {Number(wo.allotted_weight).toFixed(3)}g
-                          </td>
-                          <td className="py-4 px-3 text-right font-mono font-semibold text-emerald-700 whitespace-nowrap">
-                            {Number(wo.completed_weight).toFixed(3)}g
-                          </td>
-                          <td className="py-4 px-3 text-right font-mono font-bold text-[#b01622] whitespace-nowrap">
-                            {Number(wo.pending_weight).toFixed(3)}g
-                          </td>
-                          <td className="py-4 px-3 whitespace-nowrap">
-                            <span className="text-[10px] font-bold text-stone-600 bg-stone-100 px-2 py-0.5 rounded">
-                              {wo.current_stage ? wo.current_stage.replace(/_/g, ' ') : 'Created'}
-                            </span>
-                          </td>
-                          <td className="py-4 px-3 text-center whitespace-nowrap">
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${wo.status === 'pending_approval'
-                              ? 'bg-amber-100 text-amber-900'
-                              : wo.status === 'approved' || wo.status === 'ready'
-                                ? 'bg-emerald-100 text-emerald-900'
-                                : 'bg-blue-50 text-blue-900'
-                              }`}>
-                              {wo.status ? wo.status.replace(/_/g, ' ') : 'ongoing'}
-                            </span>
-                          </td>
-                        </tr>
-                      ));
+                      return paginatedJobs.map((wo, idx) => {
+                        const rowNum = (liveJobsPage - 1) * itemsPerPage + idx + 1;
+                        return (
+                          <tr
+                            key={wo.id}
+                            onClick={() => navigate('/job-order')}
+                            className="hover:bg-stone-50/60 transition-colors cursor-pointer group"
+                          >
+                            <td className="py-4 px-3 text-center font-mono text-stone-400 font-medium whitespace-nowrap">
+                              {rowNum}
+                            </td>
+                            <td className="py-4 px-3.5 font-mono font-bold text-[#b01622] group-hover:underline whitespace-nowrap">
+                              {wo.work_order_number}
+                            </td>
+                            <td className="py-4 px-3 font-bold text-gray-900 truncate max-w-[140px]" title={wo.product_name || wo.item_type}>
+                              {wo.product_name || wo.item_type || wo.product?.name || '-'}
+                            </td>
+                            <td className="py-4 px-3 text-stone-700 whitespace-nowrap font-medium truncate max-w-[130px]" title={wo.karigar_name || wo.artisan_name || wo.karigar?.name}>
+                              {wo.karigar_name || wo.artisan_name || wo.karigar?.name || '-'}
+                            </td>
+                            <td className="py-4 px-3 text-right font-mono font-bold text-gray-900 whitespace-nowrap">
+                              {Number(wo.allotted_weight).toFixed(3)}g
+                            </td>
+                            <td className="py-4 px-3 text-right font-mono font-semibold text-emerald-700 whitespace-nowrap">
+                              {Number(wo.completed_weight).toFixed(3)}g
+                            </td>
+                            <td className="py-4 px-3 text-right font-mono font-bold text-[#b01622] whitespace-nowrap">
+                              {Number(wo.pending_weight).toFixed(3)}g
+                            </td>
+                            <td className="py-4 px-3 whitespace-nowrap">
+                              <span className="text-[10px] font-bold text-stone-600 bg-stone-100 px-2 py-0.5 rounded">
+                                {wo.current_stage ? wo.current_stage.replace(/_/g, ' ') : 'Created'}
+                              </span>
+                            </td>
+                            <td className="py-4 px-3 text-center whitespace-nowrap">
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${wo.status === 'pending_approval'
+                                ? 'bg-amber-100 text-amber-900'
+                                : wo.status === 'approved' || wo.status === 'ready'
+                                  ? 'bg-emerald-100 text-emerald-900'
+                                  : 'bg-blue-50 text-blue-900'
+                                }`}>
+                                {wo.status ? wo.status.replace(/_/g, ' ') : 'ongoing'}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      });
                     })()
                   )}
                 </tbody>
@@ -1118,6 +1142,16 @@ export default function Dashboard() {
             activeList.length
           );
 
+          // Fine Gold 24K Pure equivalent (converting 22K: 22/24, 18K: 18/24, etc.)
+          const fineGoldAllocatedVal = Number(
+            jobStats.summary?.fine_gold_weight ??
+            activeList.reduce((acc, j) => acc + (j.fine_weight || (Number(j.allotted_weight || 0) * (22 / 24))), 0)
+          );
+          const fineGoldPendingVal = Number(
+            jobStats.summary?.fine_gold_pending_weight ??
+            activeList.reduce((acc, j) => acc + (j.fine_pending_weight || (Number(j.pending_weight || 0) * (22 / 24))), 0)
+          );
+
           // Dynamic calculation per material if jobStats values aren't explicitly non-zero
           const calcGoldFromJobs = activeList.filter(j => {
             const m = (j.material || j.material_type || '').toLowerCase();
@@ -1129,10 +1163,25 @@ export default function Dashboard() {
             return m.includes('silver');
           }).reduce((acc, j) => acc + Number(j.allotted_weight || 0), 0);
 
-          const calcDiamondFromJobs = activeList.filter(j => {
-            const m = (j.material || j.material_type || '').toLowerCase();
-            return m.includes('diamond');
-          }).reduce((acc, j) => acc + Number(j.allotted_weight || 0), 0);
+          const calcDiamondFromJobs = activeList.reduce((acc, j) => {
+            const dia = Number(j.diamond_allotted || (String(j.material || j.material_type || '').toLowerCase().includes('diamond') ? j.allotted_weight : 0));
+            return acc + Math.max(0, dia);
+          }, 0);
+
+          const diamondPiecesVal = Number(
+            jobStats.summary?.diamond_pieces ??
+            activeList.reduce((acc, j) => acc + Number(j.diamond_count || 0), 0)
+          );
+          const diamondPiecesPendingVal = Number(
+            jobStats.summary?.diamond_pieces_pending ??
+            activeList.reduce((acc, j) => acc + Number(j.diamond_pending_count || j.diamond_count || 0), 0)
+          );
+
+          // Artisan Total Cash Balances
+          const totalCashBalanceVal = Number(
+            jobStats.summary?.total_karigar_cash_balance ??
+            karigarsList.reduce((acc, k) => acc + Number(k.cash_balance || 0), 0)
+          );
 
           const goldWeightVal = jobStats.summary?.gold_weight !== undefined && jobStats.summary?.gold_weight !== null ? Number(jobStats.summary.gold_weight) : calcGoldFromJobs;
           const silverWeightVal = jobStats.summary?.silver_weight !== undefined && jobStats.summary?.silver_weight !== null ? Number(jobStats.summary.silver_weight) : calcSilverFromJobs;
@@ -1151,15 +1200,18 @@ export default function Dashboard() {
             return m.includes('silver');
           }).reduce((acc, j) => acc + Number(j.pending_weight || 0), 0);
 
-          const diamondPendingFromJobs = activeList.filter(j => {
-            const m = (j.material || j.material_type || '').toLowerCase();
-            return m.includes('diamond');
-          }).reduce((acc, j) => acc + Number(j.pending_weight || 0), 0);
+          const diamondPendingFromJobs = activeList.reduce((acc, j) => {
+            const diaPending = j.diamond_pending != null
+              ? Number(j.diamond_pending)
+              : Math.max(0, Number(j.diamond_allotted || (String(j.material || j.material_type || '').toLowerCase().includes('diamond') ? j.allotted_weight : 0)) - Number(j.diamond_received || 0));
+            return acc + Math.max(0, diaPending);
+          }, 0);
 
           const benchGoldVal = goldPendingFromJobs > 0 ? goldPendingFromJobs : sumBaseKarigarGold;
           const benchSilverVal = silverPendingFromJobs;
-          const benchDiamondVal = diamondPendingFromJobs;
-          const totalBenchGramEquiv = benchGoldVal + benchSilverVal;
+          const benchDiamondVal = diamondPendingFromJobs > 0
+            ? diamondPendingFromJobs
+            : Number(jobStats.summary?.diamond_pending ?? jobStats.summary?.diamond_weight ?? 0);
 
           return (
             <div className="flex flex-col gap-4">
@@ -1170,36 +1222,46 @@ export default function Dashboard() {
                 title="Click to open pop-up displaying material allocation per karigar"
               >
                 <div>
-                  <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5 group-hover:text-[#b01622] transition-colors">
                       <span>Total Materials Allocated</span>
                       <i className="fa-solid fa-up-right-from-square text-[10px] text-stone-400 opacity-0 group-hover:opacity-100 transition-opacity"></i>
                     </h3>
-                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60">
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60">
                       Active Vault
                     </span>
                   </div>
 
                   {/* Total Allocated Banner */}
-                  <div className="bg-gradient-to-br from-red-50/60 to-amber-50/60 rounded-2xl p-4 border border-red-100 mb-4">
-                    <div className="text-[11px] font-bold text-stone-500 uppercase tracking-tight">TOTAL ALLOTTED METAL WEIGHT</div>
-                    <div className="text-2xl font-black text-gray-900 font-mono tracking-tight mt-1">
-                      {allocatedWeightVal.toFixed(3)} <span className="text-sm font-sans font-bold text-stone-500">grams</span>
+                  <div className="bg-gradient-to-br from-red-50/60 to-amber-50/60 rounded-2xl p-4 border border-red-100 mb-3.5">
+                    <div className="text-[10px] font-bold text-stone-500 uppercase tracking-tight">TOTAL ALLOTTED GROSS WEIGHT</div>
+                    <div className="text-2xl font-black text-gray-900 font-mono tracking-tight mt-0.5">
+                      {allocatedWeightVal.toFixed(3)} <span className="text-xs font-sans font-bold text-stone-500">grams</span>
                     </div>
-                    <div className="flex items-center justify-between text-[11px] text-stone-500 font-medium mt-1">
+                    {/* Converted Pure 24K Fine Gold Badge */}
+                    <div className="mt-2 pt-2 border-t border-red-200/60 flex items-center justify-between text-[11px]">
+                      <span className="font-bold text-amber-900 flex items-center gap-1">
+                        <i className="fa-solid fa-gem text-amber-600 text-[10px]"></i>
+                        <span>Pure 24K Fine Gold:</span>
+                      </span>
+                      <span className="font-mono font-black text-amber-950 bg-amber-100/90 px-1.5 py-0.5 rounded">
+                        {fineGoldAllocatedVal.toFixed(3)} g
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[10.5px] text-stone-500 font-medium mt-1.5">
                       <span>Active Runs: <strong className="text-gray-900">{activeJobsCount} Jobs</strong></span>
-                      <span>Pending: <strong className="text-[#b01622]">{pendingWeightVal.toFixed(3)}g</strong></span>
+                      <span>Pending Fine: <strong className="text-[#b01622]">{fineGoldPendingVal.toFixed(3)}g</strong></span>
                     </div>
                   </div>
 
                   {/* Material Breakdown Gauges */}
-                  <div className="space-y-3.5 text-xs">
+                  <div className="space-y-3 text-xs">
                     {/* Gold */}
                     <div>
                       <div className="flex justify-between font-semibold text-stone-700 mb-1">
                         <span className="flex items-center gap-1.5">
                           <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                          <span>Gold 22K / 18K Allocated</span>
+                          <span>Gold (22K / 18K Allocated)</span>
                         </span>
                         <span className="font-mono font-bold text-gray-900">{goldWeightVal.toFixed(3)} g</span>
                       </div>
@@ -1235,7 +1297,9 @@ export default function Dashboard() {
                           <span className="w-2 h-2 rounded-full bg-blue-500"></span>
                           <span>Diamond Embellishments</span>
                         </span>
-                        <span className="font-mono font-bold text-gray-900">{diamondWeightVal.toFixed(3)} ct</span>
+                        <span className="font-mono font-bold text-gray-900">
+                          {diamondWeightVal.toFixed(3)} ct <span className="text-[10px] text-stone-400">({diamondPiecesVal} pcs)</span>
+                        </span>
                       </div>
                       <div className="w-full h-2 rounded-full bg-stone-100 overflow-hidden">
                         <div
@@ -1244,10 +1308,22 @@ export default function Dashboard() {
                         ></div>
                       </div>
                     </div>
+
+                    {/* Cash Balances Strip */}
+                    <div className="pt-2 border-t border-stone-100 flex items-center justify-between text-[11px] bg-emerald-50/50 p-2 rounded-xl border border-emerald-100">
+                      <span className="font-bold text-emerald-800 flex items-center gap-1.5">
+                        <i className="fa-solid fa-coins text-emerald-600"></i>
+                        <span>Karigar Cash Balance:</span>
+                      </span>
+                      <span className="font-mono font-black text-emerald-900 text-xs">
+                        {formatINR(Math.abs(totalCashBalanceVal))}
+                        <span className="text-[9.5px] font-sans ml-1 text-emerald-700">({totalCashBalanceVal >= 0 ? 'Payable' : 'Advance'})</span>
+                      </span>
+                    </div>
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-stone-100 mt-4" onClick={(e) => e.stopPropagation()}>
+                <div className="pt-3 border-t border-stone-100 mt-3" onClick={(e) => e.stopPropagation()}>
                   <Link
                     to="/job-order/new"
                     className="w-full py-2.5 bg-[#b01622] hover:bg-[#8f1019] text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer"
@@ -1258,7 +1334,7 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* CARD 2: METAL ON BENCH (ALL MATERIALS DISPLAYED) */}
+              {/* CARD 2: METAL ON BENCH (ALL MATERIALS & CASH DISPLAYED) */}
               <div
                 onClick={() => setIsBenchModalOpen(true)}
                 className="bg-white rounded-2xl border border-stone-200/80 shadow-2xs p-5 flex flex-col justify-between hover:border-amber-400 hover:shadow-md transition-all cursor-pointer group"
@@ -1267,7 +1343,7 @@ export default function Dashboard() {
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-xs font-bold text-stone-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <span>METAL & MATERIALS ON BENCH</span>
+                      <span>METAL &amp; MATERIALS ON BENCH</span>
                       <i className="fa-solid fa-up-right-from-square text-[10px] text-stone-400 opacity-0 group-hover:opacity-100 transition-opacity"></i>
                     </div>
                     <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200/60">
@@ -1275,27 +1351,40 @@ export default function Dashboard() {
                     </span>
                   </div>
 
-                  <div className="text-3xl font-black text-stone-900 font-sans tracking-tight leading-none flex items-baseline gap-1 mt-1">
-                    <span>{benchGoldVal.toFixed(3)}</span>
-                    <span className="text-sm font-bold text-amber-700">g</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <div className="text-3xl font-black text-stone-900 font-sans tracking-tight leading-none flex items-baseline gap-1">
+                      <span>{benchGoldVal.toFixed(3)}</span>
+                      <span className="text-sm font-bold text-amber-700">g</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] font-bold text-stone-400 uppercase block">24K Fine Equivalent</span>
+                      <span className="text-sm font-black text-amber-900 font-mono">
+                        {(fineGoldPendingVal > 0 ? fineGoldPendingVal : benchGoldVal * (22 / 24)).toFixed(3)}g
+                      </span>
+                    </div>
                   </div>
                   <div className="text-xs text-stone-500 font-medium mt-1">
-                    Primary 24K / 22K gold balance on bench
+                    Primary 24K / 22K gold held by working artisans
                   </div>
 
-                  {/* All Materials Pill Badges */}
-                  <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-stone-100 text-xs">
+                  {/* All Materials & Cash 4 Pill Badges */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4 pt-3 border-t border-stone-100 text-xs">
                     <div className="bg-amber-50/70 p-2 rounded-xl border border-amber-200/60 text-center">
-                      <span className="text-[9.5px] font-bold text-amber-800 uppercase block truncate">Gold 24K/22K</span>
-                      <span className="font-mono font-black text-stone-900 text-xs">{benchGoldVal.toFixed(3)}g</span>
+                      <span className="text-[9px] font-bold text-amber-800 uppercase block truncate">Gold 24K Fine</span>
+                      <span className="font-mono font-black text-stone-900 text-xs">{(fineGoldPendingVal > 0 ? fineGoldPendingVal : benchGoldVal * (22 / 24)).toFixed(3)}g</span>
                     </div>
                     <div className="bg-stone-100/70 p-2 rounded-xl border border-stone-200/60 text-center">
-                      <span className="text-[9.5px] font-bold text-stone-600 uppercase block truncate">Silver 925</span>
+                      <span className="text-[9px] font-bold text-stone-600 uppercase block truncate">Silver 925</span>
                       <span className="font-mono font-black text-stone-900 text-xs">{benchSilverVal.toFixed(3)}g</span>
                     </div>
                     <div className="bg-blue-50/70 p-2 rounded-xl border border-blue-200/60 text-center">
-                      <span className="text-[9.5px] font-bold text-blue-700 uppercase block truncate">Diamonds</span>
+                      <span className="text-[9px] font-bold text-blue-700 uppercase block truncate">Diamonds</span>
                       <span className="font-mono font-black text-stone-900 text-xs">{benchDiamondVal.toFixed(3)}ct</span>
+                      <span className="text-[8.5px] text-stone-400 block font-mono">{diamondPiecesPendingVal} pcs</span>
+                    </div>
+                    <div className="bg-emerald-50/70 p-2 rounded-xl border border-emerald-200/60 text-center">
+                      <span className="text-[9px] font-bold text-emerald-800 uppercase block truncate">Artisan Cash</span>
+                      <span className="font-mono font-black text-emerald-900 text-[11px] truncate block">{formatINR(totalCashBalanceVal)}</span>
                     </div>
                   </div>
                 </div>

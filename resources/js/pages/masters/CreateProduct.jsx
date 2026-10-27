@@ -63,6 +63,7 @@ export default function CreateProduct() {
   // Preview URLs
   const [imagePreview, setImagePreview] = useState(null);
   const [thumbnailPreview, setThumbnailPreview] = useState(null);
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const fetchSku = async (catId, subId) => {
     try {
@@ -252,10 +253,26 @@ export default function CreateProduct() {
     }));
   };
 
+  const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+  const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 MB
+
   // Image Upload Handlers
   const handleImageChange = (e) => {
     const file = e.target.files[0];
     if (file) {
+      if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+        showToast('Please upload a supported image format (JPEG, PNG, or WebP).', 'error', 'Validation Error');
+        setFieldErrors(prev => ({ ...prev, image: 'Please upload a supported image format (JPEG, PNG, or WebP).' }));
+        e.target.value = '';
+        return;
+      }
+      if (file.size > MAX_IMAGE_SIZE) {
+        showToast('Image size must not exceed the allowed limit of 5 MB.', 'error', 'Validation Error');
+        setFieldErrors(prev => ({ ...prev, image: 'Image size must not exceed the allowed limit of 5 MB.' }));
+        e.target.value = '';
+        return;
+      }
+      setFieldErrors(prev => ({ ...prev, image: null }));
       setImageFile(file);
       setImagePreview(URL.createObjectURL(file));
     }
@@ -264,6 +281,19 @@ export default function CreateProduct() {
   const handleThumbnailChange = (e) => {
     const file = e.target.files[0];
     if (file) {
+      if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+        showToast('Please upload a supported image format (JPEG, PNG, or WebP).', 'error', 'Validation Error');
+        setFieldErrors(prev => ({ ...prev, thumbnail: 'Please upload a supported image format (JPEG, PNG, or WebP).' }));
+        e.target.value = '';
+        return;
+      }
+      if (file.size > MAX_IMAGE_SIZE) {
+        showToast('Image size must not exceed the allowed limit of 5 MB.', 'error', 'Validation Error');
+        setFieldErrors(prev => ({ ...prev, thumbnail: 'Image size must not exceed the allowed limit of 5 MB.' }));
+        e.target.value = '';
+        return;
+      }
+      setFieldErrors(prev => ({ ...prev, thumbnail: null }));
       setThumbnailFile(file);
       setThumbnailPreview(URL.createObjectURL(file));
     }
@@ -272,29 +302,35 @@ export default function CreateProduct() {
   const removeImage = () => {
     setImageFile(null);
     setImagePreview(null);
+    setFieldErrors(prev => ({ ...prev, image: null }));
   };
 
   const removeThumbnail = () => {
     setThumbnailFile(null);
     setThumbnailPreview(null);
+    setFieldErrors(prev => ({ ...prev, thumbnail: null }));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    const errs = {};
     if (!formData.category_id) {
-      showToast('Please select a Category', 'error', 'Validation Error');
-      return;
+      errs.category_id = 'This field is required.';
     }
-    if (!formData.name.trim()) {
-      showToast('Please enter a Product Name', 'error', 'Validation Error');
-      return;
+    if (!formData.name?.trim()) {
+      errs.name = 'This field is required.';
     }
-    if (!formData.product_code.trim()) {
-      showToast('Please enter a Product Code / SKU', 'error', 'Validation Error');
+    if (!formData.product_code?.trim()) {
+      errs.product_code = 'This field is required.';
+    }
+    if (Object.keys(errs).length > 0) {
+      setFieldErrors(errs);
+      showToast('This field is required.', 'error', 'Validation Error');
       return;
     }
 
+    setFieldErrors({});
     setSaving(true);
 
     try {
@@ -354,7 +390,15 @@ export default function CreateProduct() {
       navigate('/inventory');
     } catch (err) {
       console.error(err);
-      const errorMsg = err.response?.data?.message || 'Error saving product details.';
+      if (err.response?.data?.errors) {
+        const rawErrors = err.response.data.errors;
+        const normalized = {};
+        Object.keys(rawErrors).forEach(key => {
+          normalized[key] = Array.isArray(rawErrors[key]) ? rawErrors[key][0] : rawErrors[key];
+        });
+        setFieldErrors(normalized);
+      }
+      const errorMsg = err.response?.data?.message || 'Unable to connect to the server. Please try again later.';
       showToast(errorMsg, 'error', 'Operation Failed');
     } finally {
       setSaving(false);
@@ -433,6 +477,9 @@ export default function CreateProduct() {
                   </option>
                 ))}
               </select>
+              {fieldErrors.category_id && (
+                <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.category_id}</p>
+              )}
             </div>
 
             {/* Subcategory Selection */}
@@ -497,8 +544,11 @@ export default function CreateProduct() {
                 onChange={handleInputChange}
                 placeholder="e.g. 22K Traditional Antique Gold Necklace"
                 required
-                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
+                className={`w-full px-4 py-3 bg-white border ${fieldErrors.name ? 'border-red-400' : 'border-gray-200'} rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors`}
               />
+              {fieldErrors.name && (
+                <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.name}</p>
+              )}
             </div>
 
             {/* Product Code / SKU */}
@@ -526,7 +576,7 @@ export default function CreateProduct() {
                   onChange={handleInputChange}
                   placeholder="e.g. PRD-GOLD-0001"
                   required
-                  className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-mono text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
+                  className={`w-full px-4 py-3 bg-white border ${fieldErrors.product_code ? 'border-red-400' : 'border-gray-200'} rounded-xl text-sm font-mono text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors`}
                 />
                 {generatingSku && (
                   <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-gray-400">
@@ -534,6 +584,9 @@ export default function CreateProduct() {
                   </div>
                 )}
               </div>
+              {fieldErrors.product_code && (
+                <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.product_code}</p>
+              )}
             </div>
           </div>
 
@@ -592,10 +645,13 @@ export default function CreateProduct() {
                       <i className="fa-solid fa-[#b01622] fa-cloud-arrow-up text-lg"></i>
                     </div>
                     <p className="text-xs font-bold text-gray-700 mb-1">Click to upload Main Image</p>
-                    <p className="text-[11px] text-gray-400">High resolution product photo</p>
+                    <p className="text-[11px] text-gray-400">Supported: JPEG, PNG, WebP (Max: 5 MB)</p>
                   </div>
-                  <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
+                  <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleImageChange} className="hidden" />
                 </label>
+              )}
+              {fieldErrors.image && (
+                <p className="text-xs text-red-600 font-medium">{fieldErrors.image}</p>
               )}
             </div>
 
@@ -624,10 +680,13 @@ export default function CreateProduct() {
                       <i className="fa-solid fa-photo-film text-lg"></i>
                     </div>
                     <p className="text-xs font-bold text-gray-700 mb-1">Click to upload Thumbnail</p>
-                    <p className="text-[11px] text-gray-400">Small square icon / table preview</p>
+                    <p className="text-[11px] text-gray-400">Supported: JPEG, PNG, WebP (Max: 5 MB)</p>
                   </div>
-                  <input type="file" accept="image/*" onChange={handleThumbnailChange} className="hidden" />
+                  <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleThumbnailChange} className="hidden" />
                 </label>
+              )}
+              {fieldErrors.thumbnail && (
+                <p className="text-xs text-red-600 font-medium">{fieldErrors.thumbnail}</p>
               )}
             </div>
 
@@ -906,6 +965,9 @@ export default function CreateProduct() {
                   placeholder="0.000"
                   className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-bold text-amber-700 placeholder-gray-400 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
                 />
+                {fieldErrors.opening_stock_weight && (
+                  <p className="mt-1 text-xs text-red-600 font-medium">{fieldErrors.opening_stock_weight}</p>
+                )}
               </div>
 
               <div>

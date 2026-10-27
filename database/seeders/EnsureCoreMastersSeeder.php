@@ -11,117 +11,7 @@ class EnsureCoreMastersSeeder extends Seeder
 {
     public function run(): void
     {
-        $categories = [
-            [
-                'name' => 'Gold',
-                'code' => 'GOLD',
-                'description' => 'Fine Gold Jewelry & Hallmarked Ornaments',
-                'status' => 'active',
-                'subcategories' => [
-                    ['name' => 'Chain', 'code' => 'CHA'],
-                    ['name' => 'Rings', 'code' => 'GLD-RNG'],
-                    ['name' => 'Bangles', 'code' => 'GLD-BNG'],
-                    ['name' => 'Necklaces', 'code' => 'GLD-NCK'],
-                    ['name' => 'Earrings', 'code' => 'GLD-EAR'],
-                ]
-            ],
-            [
-                'name' => 'Diamond',
-                'code' => 'DIAMOND',
-                'description' => 'Certified Diamond Jewelry & Solitaires',
-                'status' => 'active',
-                'subcategories' => [
-                    ['name' => 'Solitaire Rings', 'code' => 'DIA-SLR'],
-                    ['name' => 'Diamond Pendants', 'code' => 'DIA-PND'],
-                    ['name' => 'Diamond Earrings', 'code' => 'DIA-EAR'],
-                    ['name' => 'Tennis Bracelets', 'code' => 'DIA-BRC'],
-                ]
-            ],
-            [
-                'name' => 'Silver',
-                'code' => 'SILVER',
-                'description' => '925 Sterling Silver Jewelry & Articles',
-                'status' => 'active',
-                'subcategories' => [
-                    ['name' => 'Silver Anklets', 'code' => 'SLV-ANK'],
-                    ['name' => 'Silver Kadas', 'code' => 'SLV-KDA'],
-                    ['name' => 'Silver Pooja Articles', 'code' => 'SLV-PJA'],
-                    ['name' => 'Silver Rings', 'code' => 'SLV-RNG'],
-                ]
-            ],
-            [
-                'name' => 'Ornaments',
-                'code' => 'ORNAMENTS',
-                'description' => 'Luxury handcrafted ornaments for every occasion',
-                'status' => 'active',
-                'subcategories' => [
-                    ['name' => 'Bridal Set', 'code' => 'ORN-BRD'],
-                    ['name' => 'Antique Choker', 'code' => 'ORN-CHK'],
-                    ['name' => 'Temple Haram', 'code' => 'ORN-HRM'],
-                    ['name' => 'Traditional Kada', 'code' => 'ORN-KDA'],
-                ]
-            ],
-            [
-                'name' => 'Stone',
-                'code' => 'STONE',
-                'description' => 'Precious & semi-precious gemstones with lasting brilliance',
-                'status' => 'active',
-                'subcategories' => [
-                    ['name' => 'Ruby Jewelry', 'code' => 'STN-RBY'],
-                    ['name' => 'Emerald Jewelry', 'code' => 'STN-EMR'],
-                    ['name' => 'Sapphire Jewelry', 'code' => 'STN-SPH'],
-                    ['name' => 'Navratna Sets', 'code' => 'STN-NAV'],
-                ]
-            ],
-            [
-                'name' => 'Platinum',
-                'code' => 'PLATINUM',
-                'description' => 'Platinum 950 Love Bands & Contemporary Creations',
-                'status' => 'active',
-                'subcategories' => [
-                    ['name' => 'Love Bands', 'code' => 'PLT-BND'],
-                    ['name' => 'Platinum Chains', 'code' => 'PLT-CHN'],
-                    ['name' => 'Platinum Pendants', 'code' => 'PLT-PND'],
-                ]
-            ],
-        ];
-
-        foreach ($categories as $catData) {
-            $subcats = $catData['subcategories'];
-            unset($catData['subcategories']);
-
-            $category = Category::where('code', $catData['code'])
-                ->orWhere('name', $catData['name'])
-                ->first();
-
-            if (!$category) {
-                $category = Category::create($catData);
-            } else {
-                $category->update([
-                    'status' => 'active',
-                    'description' => $category->description ?: $catData['description']
-                ]);
-            }
-
-            foreach ($subcats as $subData) {
-                $sub = Subcategory::where('category_id', $category->id)
-                    ->where(function ($q) use ($subData) {
-                        $q->where('code', $subData['code'])
-                          ->orWhere('name', $subData['name']);
-                    })->first();
-
-                if (!$sub) {
-                    Subcategory::create([
-                        'category_id' => $category->id,
-                        'name' => $subData['name'],
-                        'code' => $subData['code'],
-                        'status' => 'active',
-                    ]);
-                } else {
-                    $sub->update(['status' => 'active']);
-                }
-            }
-        }
+        // Note: Categories and subcategories should be added manually by the user, not auto-seeded.
 
         // Also ensure raw material default masters
         $rawMaterials = [
@@ -147,6 +37,18 @@ class EnsureCoreMastersSeeder extends Seeder
                     'current_count' => 0,
                 ]);
             }
+        }
+
+        // Ensure default Unit masters if missing
+        $units = [
+            ['name' => 'Grams', 'code' => 'g', 'sort_order' => 1, 'description' => 'Standard metric weight in grams (g)'],
+            ['name' => 'Carats', 'code' => 'ct', 'sort_order' => 2, 'description' => 'Gemstone & Diamond carats (1 ct = 0.2g)'],
+            ['name' => 'Pieces', 'code' => 'pcs', 'sort_order' => 3, 'description' => 'Countable quantity pieces (pcs)'],
+            ['name' => 'Kilograms', 'code' => 'kg', 'sort_order' => 4, 'description' => 'Bulk metric weight in kilograms (kg)'],
+            ['name' => 'Milligrams', 'code' => 'mg', 'sort_order' => 5, 'description' => 'Precision weight in milligrams (mg)'],
+        ];
+        foreach ($units as $u) {
+            \App\Models\Unit::firstOrCreate(['name' => $u['name']], $u);
         }
     }
 }

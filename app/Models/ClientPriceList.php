@@ -15,6 +15,7 @@ class ClientPriceList extends Model
         'status',
         'effective_from',
         'effective_to',
+        'gold_rates',
         'diamond_stone_rates',
         'color_stone_charges',
         'additional_charges',
@@ -24,6 +25,7 @@ class ClientPriceList extends Model
     ];
 
     protected $casts = [
+        'gold_rates' => 'array',
         'diamond_stone_rates' => 'array',
         'color_stone_charges' => 'array',
         'additional_charges' => 'array',

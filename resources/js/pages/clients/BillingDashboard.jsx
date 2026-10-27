@@ -40,7 +40,268 @@ function numberToWordsINR(amount) {
     words += inWords(rem) + ' ';
   }
 
-  return 'Rupees ' + words.trim() + ' Only';
+  return ('Rupees ' + words.trim() + ' Only').trim();
+}
+
+// Physical Piece Tag Selection Modal for Client Invoicing
+function PieceTagSelectionModal({ isOpen, onClose, availablePieces = [], loading = false, onSelectPieces }) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('All');
+  const [selectedPieceIds, setSelectedPieceIds] = useState([]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setSelectedPieceIds([]);
+      setSearchTerm('');
+      setCategoryFilter('All');
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const categories = ['All', 'Necklaces', 'Bangles', 'Rings', 'Earrings', 'Bracelets', 'Pendants', 'Mangalsutras', 'Coins'];
+
+  const filteredPieces = (availablePieces || []).filter((piece) => {
+    const s = searchTerm.toLowerCase();
+    const tagMatch = String(piece.tag_number || '').toLowerCase().includes(s);
+    const designMatch = String(piece.design_no || '').toLowerCase().includes(s);
+    const nameMatch = String(piece.product_name || '').toLowerCase().includes(s);
+    const woMatch = String(piece.work_order_number || '').toLowerCase().includes(s);
+    const karigarMatch = String(piece.karigar_name || '').toLowerCase().includes(s);
+    const purityMatch = String(piece.purity || '').toLowerCase().includes(s);
+    const categoryMatch = String(piece.category || '').toLowerCase().includes(s);
+
+    const matchesSearch = !s || tagMatch || designMatch || nameMatch || woMatch || karigarMatch || purityMatch || categoryMatch;
+    const matchesCat = categoryFilter === 'All' || categoryMatch;
+    return matchesSearch && matchesCat;
+  });
+
+  const handleTogglePiece = (id) => {
+    setSelectedPieceIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAllFiltered = () => {
+    const allIds = filteredPieces.map((p) => p.id);
+    setSelectedPieceIds((prev) => Array.from(new Set([...prev, ...allIds])));
+  };
+
+  const handleClearSelected = () => {
+    setSelectedPieceIds([]);
+  };
+
+  const handleConfirm = () => {
+    const chosen = (availablePieces || []).filter((p) => selectedPieceIds.includes(p.id));
+    if (chosen.length > 0 && onSelectPieces) {
+      onSelectPieces(chosen);
+    }
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+      <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="p-4 sm:p-5 border-b border-gray-200 flex items-center justify-between bg-gray-50/80">
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-[#a91d22]/10 text-[#a91d22] flex items-center justify-center font-bold">
+                <i className="fa-solid fa-barcode text-sm"></i>
+              </div>
+              <h2 className="text-base font-bold text-gray-900">Select Physical Piece Tags (Live Stock)</h2>
+              <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-red-100 text-red-800">
+                {availablePieces.length} Available
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 mt-0.5 ml-10">
+              Pick verified physical jewellery pieces produced from work orders to add directly to client invoice
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg hover:bg-gray-200 flex items-center justify-center text-gray-500 hover:text-gray-800 transition-colors cursor-pointer"
+          >
+            <i className="fa-solid fa-xmark text-sm"></i>
+          </button>
+        </div>
+
+        {/* Search & Actions Toolbar */}
+        <div className="p-4 border-b border-gray-100 space-y-3 bg-white">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="relative w-full sm:w-96">
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search Tag ID, Design No, Karigar, WO #..."
+                className="w-full pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-xl focus:outline-hidden focus:border-[#a91d22]"
+              />
+              <i className="fa-solid fa-magnifying-glass absolute left-3 top-3 text-xs text-gray-400"></i>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSelectAllFiltered}
+                className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors cursor-pointer"
+              >
+                Select All Filtered
+              </button>
+              <button
+                type="button"
+                onClick={handleClearSelected}
+                className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors cursor-pointer"
+              >
+                Clear Selection
+              </button>
+              <span className="text-xs text-gray-500 pl-2">
+                Selected: <strong className="text-[#a91d22] font-mono font-bold">{selectedPieceIds.length}</strong>
+              </span>
+            </div>
+          </div>
+
+          {/* Categories */}
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setCategoryFilter(cat)}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${categoryFilter === cat
+                  ? 'bg-[#a91d22] text-white shadow-2xs'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Piece Cards Grid */}
+        <div className="p-4 overflow-y-auto flex-1 max-h-[55vh]">
+          {loading ? (
+            <div className="py-16 text-center text-gray-400 text-sm font-medium">
+              <i className="fa-solid fa-circle-notch fa-spin text-2xl text-[#a91d22] mb-3 block"></i>
+              Loading live piece tags...
+            </div>
+          ) : filteredPieces.length === 0 ? (
+            <div className="py-16 text-center text-gray-400 text-sm font-medium">
+              No eligible physical pieces found matching your search.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {filteredPieces.map((piece) => {
+                const isSelected = selectedPieceIds.includes(piece.id);
+                return (
+                  <div
+                    key={piece.id}
+                    onClick={() => handleTogglePiece(piece.id)}
+                    className={`border rounded-xl p-3.5 transition-all flex flex-col justify-between cursor-pointer select-none ${isSelected
+                      ? 'border-[#a91d22] bg-red-50/30 shadow-md ring-2 ring-[#a91d22]/30'
+                      : 'border-gray-200 hover:border-gray-300 bg-white hover:shadow-xs'
+                      }`}
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => { }}
+                            className="w-4 h-4 rounded text-[#a91d22] accent-[#a91d22] cursor-pointer"
+                          />
+                          <span className="font-mono text-xs font-bold text-[#a91d22] bg-red-50 border border-red-200 px-2 py-0.5 rounded-md">
+                            {piece.tag_number}
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          In Stock
+                        </span>
+                      </div>
+
+                      <div>
+                        <div className="text-[11px] font-mono font-bold text-gray-600">
+                          {piece.design_no}
+                        </div>
+                        <h3 className="font-bold text-xs text-gray-900 line-clamp-1">
+                          {piece.product_name || 'Gold Ornament'}
+                        </h3>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                        {piece.work_order_number && (
+                          <span className="text-[10px] font-mono bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded font-semibold border border-gray-200">
+                            WO: {piece.work_order_number}
+                          </span>
+                        )}
+                        {piece.karigar_name && (
+                          <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-100 px-1.5 py-0.5 rounded font-semibold flex items-center gap-1">
+                            <i className="fa-solid fa-user-gear text-[9px]"></i>
+                            {piece.karigar_name}
+                          </span>
+                        )}
+                        {piece.hallmarking_status === 'passed' && (
+                          <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded font-bold">
+                            BIS 916
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-gray-100 text-gray-600">
+                        <div>
+                          <span className="text-[10px] text-gray-400 block">Gross Wt</span>
+                          <span className="font-mono font-bold text-gray-900">{piece.gross_weight || '0.000'} g</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-gray-400 block">Net Gold Wt</span>
+                          <span className="font-mono font-bold text-gray-900">{piece.net_gold_weight || piece.gross_weight || '0.000'} g</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-gray-400 block">Purity</span>
+                          <span className="font-semibold text-gray-800">{piece.purity || '22K'} ({piece.purity_touch || '916'})</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-gray-400 block">Category</span>
+                          <span className="font-semibold text-gray-800">{piece.category || 'Jewellery'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Modal Footer */}
+        <div className="p-4 border-t border-gray-200 flex items-center justify-between bg-gray-50/80">
+          <span className="text-xs text-gray-600">
+            {selectedPieceIds.length === 0 ? 'No pieces selected' : `${selectedPieceIds.length} piece(s) selected`}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 border border-gray-300 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-100 cursor-pointer transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={selectedPieceIds.length === 0}
+              onClick={handleConfirm}
+              className="px-5 py-2 bg-[#a91d22] text-white rounded-xl text-xs font-bold hover:bg-[#8e111a] cursor-pointer shadow-sm disabled:opacity-50 transition-colors"
+            >
+              Add Selected Pieces to Invoice
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function BillingDashboard() {
@@ -123,6 +384,9 @@ export default function BillingDashboard() {
   const [invoiceMode, setInvoiceMode] = useState('itemized'); // 'itemized' | 'quick'
   const [advancePaid, setAdvancePaid] = useState('');
   const [availableProducts, setAvailableProducts] = useState([]);
+  const [availablePieces, setAvailablePieces] = useState([]);
+  const [loadingPieces, setLoadingPieces] = useState(false);
+  const [showPieceModal, setShowPieceModal] = useState(false);
   const [invoiceItems, setInvoiceItems] = useState([
     {
       sno: 1,
@@ -215,6 +479,18 @@ export default function BillingDashboard() {
         row.rate = String(prod.opening_stock_rate);
       }
 
+      // Auto-populate making charges from client price list if available
+      if (clientPriceList?.making_charges?.length) {
+        const mc = clientPriceList.making_charges.find(m => m.gold_purity && row.purity.includes(m.gold_purity)) || clientPriceList.making_charges[0];
+        if (mc?.labour_charge) {
+          const parsed = parseFloat(String(mc.labour_charge).replace(/[^0-9.]/g, ''));
+          if (parsed > 0) {
+            const netWeight = parseFloat(row.net_wt) || 1;
+            row.making = String(Math.round(parsed * netWeight));
+          }
+        }
+      }
+
       const net = parseFloat(row.net_wt) || 0;
       const rate = parseFloat(row.rate) || 6850;
       const making = parseFloat(row.making) || 3500;
@@ -223,6 +499,118 @@ export default function BillingDashboard() {
       copy[index] = row;
       return copy;
     });
+  };
+
+  const fetchAvailablePieces = () => {
+    setLoadingPieces(true);
+    api.get('/sales/available-pieces')
+      .then(res => {
+        const fetched = res?.data?.data || res?.data || [];
+        setAvailablePieces(Array.isArray(fetched) ? fetched : []);
+      })
+      .catch(err => console.error('Failed to load available pieces:', err))
+      .finally(() => setLoadingPieces(false));
+  };
+
+  const handleSelectPieceForItem = (index, pieceId) => {
+    if (!pieceId) return;
+    const piece = availablePieces.find(p => String(p.id) === String(pieceId));
+    if (!piece) return;
+
+    setInvoiceItems(prev => {
+      const copy = [...prev];
+      const row = { ...copy[index] };
+      row.desc = `${piece.product_name || 'Gold Ornament'} [${piece.design_no || piece.tag_number}]`;
+      row.code = piece.design_no || piece.tag_number || `TAG-${piece.id}`;
+      row.hsn = piece.hsn || '711319';
+      row.purity = piece.purity ? `${piece.purity} (${piece.purity_touch || '916'})` : '22KT (916)';
+      row.gross_wt = String(piece.gross_weight || '0.000');
+      row.net_wt = String(piece.net_gold_weight || piece.gross_weight || '0.000');
+
+      let pieceGoldRate = 6850;
+      if (clientPriceList?.gold_rates) {
+        const gr = clientPriceList.gold_rates;
+        const pStr = String(row.purity).toUpperCase();
+        if ((pStr.includes('24') || pStr.includes('999')) && Number(gr.rate_24k) > 0) pieceGoldRate = Number(gr.rate_24k);
+        else if ((pStr.includes('22') || pStr.includes('916')) && Number(gr.rate_22k) > 0) pieceGoldRate = Number(gr.rate_22k);
+        else if ((pStr.includes('18') || pStr.includes('750')) && Number(gr.rate_18k) > 0) pieceGoldRate = Number(gr.rate_18k);
+        else if (pStr.includes('14') && Number(gr.rate_14k) > 0) pieceGoldRate = Number(gr.rate_14k);
+      }
+      row.rate = row.rate || String(pieceGoldRate);
+      row.making = row.making || '3500';
+      row.piece_id = piece.id;
+      row.tag_number = piece.tag_number;
+      row.work_order_number = piece.work_order_number;
+      row.karigar_name = piece.karigar_name;
+
+      const net = parseFloat(row.net_wt) || 0;
+      const rate = parseFloat(row.rate) || pieceGoldRate;
+      const making = parseFloat(row.making) || 3500;
+      row.taxable = Math.round((net * rate) + making);
+
+      copy[index] = row;
+      return copy;
+    });
+  };
+
+  const handleUnlinkTag = (index) => {
+    setInvoiceItems(prev => {
+      const copy = [...prev];
+      const row = { ...copy[index] };
+      delete row.piece_id;
+      delete row.tag_number;
+      delete row.work_order_number;
+      delete row.karigar_name;
+      copy[index] = row;
+      return copy;
+    });
+  };
+
+  const handleAddPiecesToInvoice = (chosenPieces) => {
+    if (!chosenPieces || chosenPieces.length === 0) return;
+    setInvoiceItems(prev => {
+      const existingValid = prev.filter(it => it.desc || it.gross_wt || it.tag_number);
+      const startSno = existingValid.length;
+
+      const newItems = chosenPieces.map((piece, idx) => {
+        const gross = parseFloat(piece.gross_weight || 0);
+        const net = parseFloat(piece.net_gold_weight || piece.gross_weight || 0);
+
+        let pieceGoldRate = 6850;
+        if (clientPriceList?.gold_rates) {
+          const gr = clientPriceList.gold_rates;
+          const pStr = String(piece.purity || '').toUpperCase();
+          if ((pStr.includes('24') || pStr.includes('999')) && Number(gr.rate_24k) > 0) pieceGoldRate = Number(gr.rate_24k);
+          else if ((pStr.includes('22') || pStr.includes('916')) && Number(gr.rate_22k) > 0) pieceGoldRate = Number(gr.rate_22k);
+          else if ((pStr.includes('18') || pStr.includes('750')) && Number(gr.rate_18k) > 0) pieceGoldRate = Number(gr.rate_18k);
+          else if (pStr.includes('14') && Number(gr.rate_14k) > 0) pieceGoldRate = Number(gr.rate_14k);
+        }
+        const rate = pieceGoldRate;
+        const making = 3500;
+        const taxable = Math.round((net * rate) + making);
+
+        return {
+          sno: startSno + idx + 1,
+          desc: `${piece.product_name || 'Gold Ornament'} [${piece.design_no || piece.tag_number}]`,
+          code: piece.design_no || piece.tag_number,
+          hsn: '711319',
+          purity: piece.purity ? `${piece.purity} (${piece.purity_touch || '916'})` : '22KT (916)',
+          gross_wt: gross.toFixed(3),
+          net_wt: net.toFixed(3),
+          dia_wt: '-',
+          rate: String(rate),
+          making: String(making),
+          taxable: taxable,
+          piece_id: piece.id,
+          tag_number: piece.tag_number,
+          work_order_number: piece.work_order_number,
+          karigar_name: piece.karigar_name
+        };
+      });
+
+      return [...existingValid, ...newItems];
+    });
+    showToast(`Added ${chosenPieces.length} physical piece tag(s) to invoice`, 'success', 'Tags Added');
   };
 
   const [quickSelectedProductIds, setQuickSelectedProductIds] = useState([]);
@@ -267,6 +655,9 @@ export default function BillingDashboard() {
     });
   };
 
+  // Client Price List for dynamic rate pre-filling
+  const [clientPriceList, setClientPriceList] = useState(null);
+
   // New invoice form
   const [formData, setFormData] = useState({
     client_id: '',
@@ -292,6 +683,7 @@ export default function BillingDashboard() {
   const selectClientForInvoice = (client) => {
     if (!client) {
       setSelectedClientObj(null);
+      setClientPriceList(null);
       setFormData(prev => ({
         ...prev,
         client_id: '',
@@ -312,12 +704,44 @@ export default function BillingDashboard() {
     const address = client.street_address ? (client.street_address + (client.city ? ', ' + client.city : '')) : (client.city || '');
 
     setSelectedClientObj(client);
+
+    // Fetch this client's configured price list to prefill diamond rates and making charges
+    api.get(`/clients/${client.id}/price-list`)
+      .then(res => {
+        if (res.data?.price_list) {
+          const pl = res.data.price_list;
+          setClientPriceList(pl);
+          if (pl.gold_rates?.rate_22k > 0) {
+            setInvoiceItems(prev => prev.map(it => {
+              if (!it.rate || it.rate === '6850') {
+                const pStr = String(it.purity || '').toUpperCase();
+                let newRate = Number(pl.gold_rates.rate_22k);
+                if ((pStr.includes('24') || pStr.includes('999')) && Number(pl.gold_rates.rate_24k) > 0) newRate = Number(pl.gold_rates.rate_24k);
+                else if ((pStr.includes('18') || pStr.includes('750')) && Number(pl.gold_rates.rate_18k) > 0) newRate = Number(pl.gold_rates.rate_18k);
+                else if (pStr.includes('14') && Number(pl.gold_rates.rate_14k) > 0) newRate = Number(pl.gold_rates.rate_14k);
+                const net = parseFloat(it.net_wt) || 0;
+                const making = parseFloat(it.making) || 0;
+                return {
+                  ...it,
+                  rate: String(newRate),
+                  taxable: Math.round((net * newRate) + making)
+                };
+              }
+              return it;
+            }));
+          }
+        } else {
+          setClientPriceList(null);
+        }
+      })
+      .catch(() => setClientPriceList(null));
+
     setFormData(prev => ({
       ...prev,
       client_id: client.id,
       client_name: clientName,
       client_code: client.client_code || ('RJ-CL-' + client.id),
-      client_email: client.email || `${clientName.toLowerCase().replace(/\s+/g, '.')}@regal.com`,
+      client_email: client.email || '',
       client_phone: client.primary_phone || '',
       client_tier: (client.membership_tier || client.tier || 'ELITE').toUpperCase(),
       client_gst: client.gst_number || '',
@@ -355,8 +779,6 @@ export default function BillingDashboard() {
   }, [selectedMonth]);
 
   useEffect(() => {
-    fetchBillingData(selectedMonth);
-
     // Fetch clients for invoice generation
     api.get('/clients')
       .then(res => {
@@ -377,15 +799,24 @@ export default function BillingDashboard() {
         }
       })
       .catch(err => console.error('Failed to load clients list:', err));
-
-    // Fetch product catalog for auto-populating items
-    api.get('/products')
-      .then(res => {
-        const pList = Array.isArray(res.data) ? res.data : (res.data?.data || []);
-        setAvailableProducts(pList);
-      })
-      .catch(err => console.error('Failed to load products list:', err));
   }, [clientIdParam, createParam]);
+
+  // Load products and physical piece tags on demand when create modal is opened
+  useEffect(() => {
+    if (showCreateModal || createParam === 'true') {
+      if (availableProducts.length === 0) {
+        api.get('/products')
+          .then(res => {
+            const pList = Array.isArray(res.data) ? res.data : (res.data?.data || []);
+            setAvailableProducts(pList);
+          })
+          .catch(err => console.error('Failed to load products list:', err));
+      }
+      if (availablePieces.length === 0) {
+        fetchAvailablePieces();
+      }
+    }
+  }, [showCreateModal, createParam]);
 
   // Auto-sync formData.amount when in itemized mode
   useEffect(() => {
@@ -919,7 +1350,11 @@ export default function BillingDashboard() {
         dia_wt: item.dia_wt || '-',
         making: typeof item.making === 'string' && item.making.includes('₹') ? item.making : `₹ ${(parseFloat(item.making) || 0).toLocaleString('en-IN')}`,
         rate: typeof item.rate === 'string' && item.rate.includes('₹') ? item.rate : `₹ ${(parseFloat(item.rate) || 0).toLocaleString('en-IN')}/g`,
-        taxable: parseFloat(item.taxable || 0)
+        taxable: parseFloat(item.taxable || 0),
+        tag_number: item.tag_number || item.details?.tag_number || null,
+        piece_id: item.piece_id || null,
+        work_order_number: item.work_order_number || item.details?.work_order_number || null,
+        karigar_name: item.karigar_name || item.details?.karigar_name || null
       }));
     }
 
@@ -1300,7 +1735,8 @@ export default function BillingDashboard() {
           <table className="w-full text-left border-collapse min-w-[1060px]">
             <thead>
               <tr className="bg-[#faf6f3] border-t border-b border-[#f4e6e1] text-[10.5px] font-bold uppercase tracking-wider text-[#5c4f4a]">
-                <th className="w-[14%] min-w-[130px] pl-5 pr-2 py-3.5 whitespace-nowrap">INVOICE ID</th>
+                <th className="w-12 pl-4 pr-2 py-3.5 text-center whitespace-nowrap">S.NO</th>
+                <th className="w-[14%] min-w-[130px] pl-4 pr-2 py-3.5 whitespace-nowrap">INVOICE ID</th>
                 <th className="w-[26%] min-w-[240px] px-3 py-3.5 whitespace-nowrap">CLIENT DETAILS</th>
                 <th className="w-[8%] min-w-[85px] px-2 py-3.5 whitespace-nowrap">DATE</th>
                 <th className="w-[10%] min-w-[95px] px-2 py-3.5 whitespace-nowrap">AMOUNT</th>
@@ -1313,161 +1749,168 @@ export default function BillingDashboard() {
             <tbody className="divide-y divide-[#f4e6e1] bg-white">
               {loading ? (
                 <tr>
-                  <td colSpan="8" className="py-12 text-center text-gray-400">
+                  <td colSpan="9" className="py-12 text-center text-gray-400">
                     <i className="fa-solid fa-circle-notch fa-spin text-xl text-[#a91d22] mr-2"></i>
                     Loading invoices...
                   </td>
                 </tr>
               ) : paginatedInvoices.length === 0 ? (
                 <tr>
-                  <td colSpan="8" className="py-12 text-center text-gray-400">
+                  <td colSpan="9" className="py-12 text-center text-gray-400">
                     No matching invoices found.
                   </td>
                 </tr>
               ) : (
-                paginatedInvoices.map((inv, idx) => (
-                  <tr key={inv.numeric_id || inv.id || idx} className="hover:bg-[#fdfaf7] transition-colors">
+                paginatedInvoices.map((inv, idx) => {
+                  const rowNum = (currentPage - 1) * itemsPerPage + idx + 1;
+                  return (
+                    <tr key={inv.numeric_id || inv.id || idx} className="hover:bg-[#fdfaf7] transition-colors">
+                      {/* S.NO */}
+                      <td className="pl-4 pr-2 py-3.5 text-center font-mono font-medium text-stone-400 text-xs">
+                        {rowNum}
+                      </td>
 
-                    {/* INVOICE ID (Exact text color #801824 and bold font) */}
-                    <td className="pl-5 pr-2 py-3.5 font-bold text-[#801824] text-[12px] whitespace-nowrap tracking-tight font-mono">
-                      {inv.invoice_no || inv.id}
-                    </td>
+                      {/* INVOICE ID (Exact text color #801824 and bold font) */}
+                      <td className="pl-4 pr-2 py-3.5 font-bold text-[#801824] text-[12px] whitespace-nowrap tracking-tight font-mono">
+                        {inv.invoice_no || inv.id}
+                      </td>
 
-                    {/* CLIENT DETAILS (Avatar circle + Name + Tier pill + Code + Email) */}
-                    <td className="px-3 py-3.5 overflow-hidden">
-                      <div className="flex items-center gap-3 min-w-0">
-                        {inv.avatar_url ? (
-                          <div className="relative w-9 h-9 shrink-0">
-                            <img
-                              src={inv.avatar_url}
-                              alt={inv.client || inv.client_name}
-                              onError={(e) => {
-                                e.currentTarget.style.display = 'none';
-                                if (e.currentTarget.nextElementSibling) {
-                                  e.currentTarget.nextElementSibling.classList.remove('hidden');
-                                  e.currentTarget.nextElementSibling.classList.add('flex');
-                                }
-                              }}
-                              className="w-9 h-9 rounded-xl object-cover border border-gray-200 shadow-2xs bg-white"
-                            />
-                            <div className={`w-9 h-9 rounded-xl ${getAvatarBg(inv.tier)} hidden items-center justify-center font-bold text-xs shrink-0 uppercase select-none border border-gray-200/80 shadow-2xs`}>
+                      {/* CLIENT DETAILS (Avatar circle + Name + Tier pill + Code + Email) */}
+                      <td className="px-3 py-3.5 overflow-hidden">
+                        <div className="flex items-center gap-3 min-w-0">
+                          {inv.avatar_url ? (
+                            <div className="relative w-9 h-9 shrink-0">
+                              <img
+                                src={inv.avatar_url}
+                                alt={inv.client || inv.client_name}
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                  if (e.currentTarget.nextElementSibling) {
+                                    e.currentTarget.nextElementSibling.classList.remove('hidden');
+                                    e.currentTarget.nextElementSibling.classList.add('flex');
+                                  }
+                                }}
+                                className="w-9 h-9 rounded-xl object-cover border border-gray-200 shadow-2xs bg-white"
+                              />
+                              <div className={`w-9 h-9 rounded-xl ${getAvatarBg(inv.tier)} hidden items-center justify-center font-bold text-xs shrink-0 uppercase select-none border border-gray-200/80 shadow-2xs`}>
+                                {inv.initials || 'CL'}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className={`w-9 h-9 rounded-xl ${getAvatarBg(inv.tier)} flex items-center justify-center font-bold text-xs shrink-0 uppercase select-none border border-gray-200/80 shadow-2xs`}>
                               {inv.initials || 'CL'}
                             </div>
-                          </div>
-                        ) : (
-                          <div className={`w-9 h-9 rounded-xl ${getAvatarBg(inv.tier)} flex items-center justify-center font-bold text-xs shrink-0 uppercase select-none border border-gray-200/80 shadow-2xs`}>
-                            {inv.initials || 'CL'}
-                          </div>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-bold text-[#1e242c] text-xs sm:text-[13px] truncate leading-tight">
-                              {inv.client || inv.client_name}
-                            </span>
-                            {getTierBadge(inv.tier)}
-                          </div>
-                          <div className="text-[10px] text-[#79808a] font-normal mt-0.5 leading-tight flex items-center gap-1.5 truncate">
-                            <span className="font-mono text-[9.5px] font-bold text-gray-600 bg-gray-100 px-1 py-0.5 rounded border border-gray-200/60 shrink-0">
-                              {inv.client_code || ('RJ-CL-' + (inv.client_id || '1001'))}
-                            </span>
-                            <span className="text-gray-300">•</span>
-                            <span className="truncate text-gray-500 font-medium" title={inv.email || inv.client_email}>
-                              {inv.email || inv.client_email}
-                            </span>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-[#1e242c] text-xs sm:text-[13px] truncate leading-tight">
+                                {inv.client || inv.client_name}
+                              </span>
+                              {getTierBadge(inv.tier)}
+                            </div>
+                            <div className="text-[10px] text-[#79808a] font-normal mt-0.5 leading-tight flex items-center gap-1.5 truncate">
+                              <span className="font-mono text-[9.5px] font-bold text-gray-600 bg-gray-100 px-1 py-0.5 rounded border border-gray-200/60 shrink-0">
+                                {inv.client_code || ('RJ-CL-' + (inv.client_id || '1001'))}
+                              </span>
+                              <span className="text-gray-300">•</span>
+                              <span className="truncate text-gray-500 font-medium" title={inv.email || inv.client_email}>
+                                {inv.email || inv.client_email}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </td>
+                      </td>
 
-                    {/* DATE (Day on top, Month,Year below) */}
-                    <td className="px-2 py-3.5 whitespace-nowrap">
-                      <div className="font-medium text-[#2d3748] text-[12px] leading-tight font-mono">
-                        {inv.day || '12'}
-                      </div>
-                      <div className="text-[10.5px] text-[#718096] font-normal leading-tight font-mono">
-                        {inv.month_year || 'Sep, 2026'}
-                      </div>
-                    </td>
+                      {/* DATE (Day on top, Month,Year below) */}
+                      <td className="px-2 py-3.5 whitespace-nowrap">
+                        <div className="font-medium text-[#2d3748] text-[12px] leading-tight font-mono">
+                          {inv.day || '12'}
+                        </div>
+                        <div className="text-[10.5px] text-[#718096] font-normal leading-tight font-mono">
+                          {inv.month_year || 'Sep, 2026'}
+                        </div>
+                      </td>
 
-                    {/* AMOUNT */}
-                    <td className="px-2 py-3.5 font-normal text-[#2d3748] text-[12.5px] whitespace-nowrap font-mono tabular-nums">
-                      ₹ {parseFloat(inv.amount || 0).toLocaleString('en-IN')}
-                    </td>
+                      {/* AMOUNT */}
+                      <td className="px-2 py-3.5 font-normal text-[#2d3748] text-[12.5px] whitespace-nowrap font-mono tabular-nums">
+                        ₹ {parseFloat(inv.amount || 0).toLocaleString('en-IN')}
+                      </td>
 
-                    {/* GST */}
-                    <td className="px-2 py-3.5 font-normal text-[#2d3748] text-[12.5px] whitespace-nowrap font-mono tabular-nums">
-                      ₹ {parseFloat(inv.gst || 0).toLocaleString('en-IN')}
-                    </td>
+                      {/* GST */}
+                      <td className="px-2 py-3.5 font-normal text-[#2d3748] text-[12.5px] whitespace-nowrap font-mono tabular-nums">
+                        ₹ {parseFloat(inv.gst || 0).toLocaleString('en-IN')}
+                      </td>
 
-                    {/* TOTAL (Bold font, #111827) */}
-                    <td className="px-2 py-3.5 font-bold text-[#111827] text-[12.5px] whitespace-nowrap font-mono tabular-nums">
-                      ₹ {parseFloat(inv.total || 0).toLocaleString('en-IN')}
-                    </td>
+                      {/* TOTAL (Bold font, #111827) */}
+                      <td className="px-2 py-3.5 font-bold text-[#111827] text-[12.5px] whitespace-nowrap font-mono tabular-nums">
+                        ₹ {parseFloat(inv.total || 0).toLocaleString('en-IN')}
+                      </td>
 
-                    {/* STATUS (Pill with ● bullet, clickable to edit payment) */}
-                    <td className="px-2 py-3.5 text-center whitespace-nowrap">
-                      {getStatusPill(inv.status, () => handleOpenEditPayment(inv))}
-                    </td>
+                      {/* STATUS (Pill with ● bullet, clickable to edit payment) */}
+                      <td className="px-2 py-3.5 text-center whitespace-nowrap">
+                        {getStatusPill(inv.status, () => handleOpenEditPayment(inv))}
+                      </td>
 
-                    {/* ACTIONS (Eye, Pen/Edit Payment, Price List, Print, Maroon Trash) */}
-                    <td className="pl-2 pr-5 py-3.5 text-center whitespace-nowrap">
-                      <div className="flex items-center justify-center gap-2 text-[#4a403c]">
-                        {/* 1. View Eye */}
-                        <button
-                          type="button"
-                          onClick={() => setSelectedInvoice(inv)}
-                          className="hover:text-[#111827] hover:bg-gray-100 p-1.5 rounded-lg transition-colors cursor-pointer"
-                          title="View Tax Invoice"
-                        >
-                          <i className="fa-regular fa-eye text-[13.5px]"></i>
-                        </button>
+                      {/* ACTIONS (Eye, Pen/Edit Payment, Price List, Print, Maroon Trash) */}
+                      <td className="pl-2 pr-5 py-3.5 text-center whitespace-nowrap">
+                        <div className="flex items-center justify-center gap-2 text-[#4a403c]">
+                          {/* 1. View Eye */}
+                          <button
+                            type="button"
+                            onClick={() => setSelectedInvoice(inv)}
+                            className="hover:text-[#111827] hover:bg-gray-100 p-1.5 rounded-lg transition-colors cursor-pointer"
+                            title="View Tax Invoice"
+                          >
+                            <i className="fa-regular fa-eye text-[13.5px]"></i>
+                          </button>
 
-                        {/* 2. Update Payment & Ledger */}
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEditPayment(inv)}
-                          className="hover:text-[#a91d22] hover:bg-red-50 p-1.5 rounded-lg transition-colors cursor-pointer"
-                          title="Update Payment & Status"
-                        >
-                          <i className="fa-regular fa-pen-to-square text-[13.5px]"></i>
-                        </button>
+                          {/* 2. Update Payment & Ledger */}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditPayment(inv)}
+                            className="hover:text-[#a91d22] hover:bg-red-50 p-1.5 rounded-lg transition-colors cursor-pointer"
+                            title="Update Payment & Status"
+                          >
+                            <i className="fa-regular fa-pen-to-square text-[13.5px]"></i>
+                          </button>
 
-                        {/* 3. View Price List Link */}
-                        <Link
-                          to={`/clients/${inv.client_id || 1}/price-list`}
-                          className="hover:text-[#b01622] hover:bg-amber-50 p-1.5 rounded-lg transition-colors cursor-pointer text-gray-500"
-                          title="View Client Price List"
-                        >
-                          <i className="fa-solid fa-list-check text-[13px]"></i>
-                        </Link>
+                          {/* 3. View Price List Link */}
+                          <Link
+                            to={`/clients/${inv.client_id || 1}/price-list`}
+                            className="hover:text-[#b01622] hover:bg-amber-50 p-1.5 rounded-lg transition-colors cursor-pointer text-gray-500"
+                            title="View Client Price List"
+                          >
+                            <i className="fa-solid fa-list-check text-[13px]"></i>
+                          </Link>
 
-                        {/* 4. Print */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedInvoice(inv);
-                            setTimeout(() => window.print(), 300);
-                          }}
-                          className="hover:text-[#111827] hover:bg-gray-100 p-1.5 rounded-lg transition-colors cursor-pointer"
-                          title="Print Tax Invoice PDF"
-                        >
-                          <i className="fa-solid fa-print text-[13.5px]"></i>
-                        </button>
+                          {/* 4. Print */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedInvoice(inv);
+                              setTimeout(() => window.print(), 300);
+                            }}
+                            className="hover:text-[#111827] hover:bg-gray-100 p-1.5 rounded-lg transition-colors cursor-pointer"
+                            title="Print Tax Invoice PDF"
+                          >
+                            <i className="fa-solid fa-print text-[13.5px]"></i>
+                          </button>
 
-                        {/* 5. Delete (Maroon trash #801824) */}
-                        <button
-                          type="button"
-                          onClick={() => setDeleteTargetInv(inv)}
-                          className="text-[#801824] hover:text-[#5a1119] hover:bg-red-50 p-1.5 rounded-lg transition-colors cursor-pointer"
-                          title="Delete Invoice"
-                        >
-                          <i className="fa-regular fa-trash-can text-[13.5px]"></i>
-                        </button>
-                      </div>
-                    </td>
+                          {/* 5. Delete (Maroon trash #801824) */}
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTargetInv(inv)}
+                            className="text-[#801824] hover:text-[#5a1119] hover:bg-red-50 p-1.5 rounded-lg transition-colors cursor-pointer"
+                            title="Delete Invoice"
+                          >
+                            <i className="fa-regular fa-trash-can text-[13.5px]"></i>
+                          </button>
+                        </div>
+                      </td>
 
-                  </tr>
-                ))
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -1621,19 +2064,36 @@ export default function BillingDashboard() {
 
                 {/* Status banner when client is selected */}
                 {selectedClientObj && (
-                  <div className="px-3.5 py-2.5 bg-emerald-50/80 border border-emerald-200 rounded-xl text-[11px] text-emerald-800 flex items-center justify-between">
-                    <span className="flex items-center gap-1.5 font-medium">
-                      <i className="fa-solid fa-circle-check text-emerald-600 text-xs"></i>
-                      Auto-filled from <strong>{selectedClientObj.full_name || selectedClientObj.name}</strong>. All fields are editable:
-                    </span>
-                    <Link
-                      to={`/clients/${selectedClientObj.id}/price-list`}
-                      target="_blank"
-                      className="font-bold text-[#a91d22] hover:underline text-[10.5px] shrink-0 ml-2 flex items-center gap-1"
-                    >
-                      <span>View Price List</span>
-                      <i className="fa-solid fa-arrow-up-right-from-square text-[9px]"></i>
-                    </Link>
+                  <div className="space-y-2">
+                    <div className="px-3.5 py-2 bg-emerald-50/80 border border-emerald-200 rounded-xl text-[11px] text-emerald-800 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 font-medium">
+                        <i className="fa-solid fa-circle-check text-emerald-600 text-xs"></i>
+                        Auto-filled from <strong>{selectedClientObj.full_name || selectedClientObj.name}</strong>. All fields are editable:
+                      </span>
+                      <Link
+                        to={`/clients/${selectedClientObj.id}/price-list`}
+                        target="_blank"
+                        className="font-bold text-[#a91d22] hover:underline text-[10.5px] shrink-0 ml-2 flex items-center gap-1"
+                      >
+                        <span>View Price List</span>
+                        <i className="fa-solid fa-arrow-up-right-from-square text-[9px]"></i>
+                      </Link>
+                    </div>
+
+                    {Number(selectedClientObj.gold_balance_grams || 0) > 0 && (
+                      <div className="px-3.5 py-2.5 bg-amber-50/90 border border-amber-300 rounded-xl text-xs text-amber-950 flex items-center justify-between shadow-2xs">
+                        <span className="flex items-center gap-2 font-bold">
+                          <i className="fa-solid fa-coins text-amber-600 text-sm"></i>
+                          <span>Client Pure Gold Advance:</span>
+                          <span className="font-mono text-xs font-black text-amber-900 bg-amber-100 px-2 py-0.5 rounded border border-amber-300">
+                            {Number(selectedClientObj.gold_balance_grams).toFixed(3)}g Pure Gold
+                          </span>
+                        </span>
+                        <span className="text-[10.5px] font-medium text-amber-800 hidden sm:inline">
+                          (Pure metal ledger deposit without cash conversion)
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1769,13 +2229,25 @@ export default function BillingDashboard() {
                     <div className="space-y-3">
                       <div className="flex items-center justify-between text-[11px] text-gray-500">
                         <span>Add ornaments/jewellery lines. Values auto-sum to taxable amount:</span>
-                        <button
-                          type="button"
-                          onClick={handleAddItem}
-                          className="px-2.5 py-1 bg-[#a91d22]/10 hover:bg-[#a91d22]/20 text-[#a91d22] rounded-lg font-bold text-xs flex items-center gap-1 cursor-pointer transition-colors"
-                        >
-                          <i className="fa-solid fa-plus text-[10px]"></i> Add Item
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              fetchAvailablePieces();
+                              setShowPieceModal(true);
+                            }}
+                            className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                          >
+                            <i className="fa-solid fa-barcode text-[11px]"></i> Pick Physical Piece Tags ({availablePieces.length})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleAddItem}
+                            className="px-2.5 py-1 bg-[#a91d22]/10 hover:bg-[#a91d22]/20 text-[#a91d22] rounded-lg font-bold text-xs flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            <i className="fa-solid fa-plus text-[10px]"></i> Add Blank Line
+                          </button>
+                        </div>
                       </div>
 
                       {/* Items Cards */}
@@ -1802,21 +2274,76 @@ export default function BillingDashboard() {
                               )}
                             </div>
 
-                            {/* Product selection helper dropdown if catalog products exist */}
-                            {availableProducts.length > 0 && (
-                              <div>
-                                <select
-                                  onChange={(e) => handleSelectProductForItem(idx, e.target.value)}
-                                  className="w-full px-2.5 py-1.5 bg-amber-50/50 border border-amber-200 text-amber-950 rounded-lg text-[11px] focus:outline-none focus:border-[#a91d22] cursor-pointer"
-                                  defaultValue=""
+                            {/* Product selection helper: Physical piece tag or catalog product */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {/* Option 1: Live Physical Piece Tags */}
+                              {availablePieces.length > 0 && !item.tag_number && (
+                                <div>
+                                  <select
+                                    onChange={(e) => handleSelectPieceForItem(idx, e.target.value)}
+                                    className="w-full px-2.5 py-1.5 bg-red-50/70 border border-red-200 text-red-950 rounded-lg text-[11px] focus:outline-none focus:border-[#a91d22] cursor-pointer"
+                                    defaultValue=""
+                                  >
+                                    <option value="" disabled>-- Pick Physical Piece Tag (Live Stock) --</option>
+                                    {availablePieces.map(p => (
+                                      <option key={p.id} value={p.id}>
+                                        [{p.tag_number}] {p.design_no} - {p.product_name} ({p.gross_weight}g, {p.purity}) | WO: {p.work_order_number} | {p.karigar_name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
+
+                              {/* Option 2: Catalog Products */}
+                              {availableProducts.length > 0 && (
+                                <div className={!availablePieces.length || item.tag_number ? "sm:col-span-2" : ""}>
+                                  <select
+                                    onChange={(e) => handleSelectProductForItem(idx, e.target.value)}
+                                    className="w-full px-2.5 py-1.5 bg-amber-50/50 border border-amber-200 text-amber-950 rounded-lg text-[11px] focus:outline-none focus:border-[#a91d22] cursor-pointer"
+                                    defaultValue=""
+                                  >
+                                    <option value="" disabled>-- Or Pick Catalog Product (Auto-fill) --</option>
+                                    {availableProducts.map(p => (
+                                      <option key={p.id} value={p.id}>
+                                        {p.name} [{p.product_code || `PRD-${p.id}`}] - Wt: {p.opening_stock_weight || '-'}g
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Tag provenance badge if item has physical piece tag linked */}
+                            {item.tag_number && (
+                              <div className="flex items-center justify-between px-2.5 py-1 bg-red-50/90 border border-red-200 rounded-lg text-xs text-[#a91d22]">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-mono font-bold bg-white px-2 py-0.5 rounded border border-red-200 shadow-2xs">
+                                    <i className="fa-solid fa-tag text-[10px] mr-1 text-[#a91d22]"></i>
+                                    {item.tag_number}
+                                  </span>
+                                  {item.work_order_number && (
+                                    <span className="font-mono text-[10.5px] text-gray-700 bg-white px-1.5 py-0.5 rounded border border-gray-200">
+                                      WO: {item.work_order_number}
+                                    </span>
+                                  )}
+                                  {item.karigar_name && (
+                                    <span className="text-[10.5px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 font-medium flex items-center gap-1">
+                                      <i className="fa-solid fa-user-gear text-[9px]"></i>
+                                      Karigar: {item.karigar_name}
+                                    </span>
+                                  )}
+                                  <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-bold">
+                                    Physical Piece Linked (Qty: 1)
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUnlinkTag(idx)}
+                                  className="text-[11px] text-gray-400 hover:text-red-700 font-semibold cursor-pointer ml-2"
+                                  title="Unlink Physical Piece Tag"
                                 >
-                                  <option value="" disabled>-- Pick from Product Master / Inventory (Auto-fill) --</option>
-                                  {availableProducts.map(p => (
-                                    <option key={p.id} value={p.id}>
-                                      {p.name} [{p.product_code || `PRD-${p.id}`}] - Wt: {p.opening_stock_weight || '-'}g
-                                    </option>
-                                  ))}
-                                </select>
+                                  <i className="fa-solid fa-link-slash mr-1"></i>Unlink
+                                </button>
                               </div>
                             )}
 
@@ -2685,18 +3212,18 @@ export default function BillingDashboard() {
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.03] print:hidden select-none z-0 overflow-hidden">
                 <div className="text-center font-black text-[#b01622] transform -rotate-12 space-y-2">
                   <div className="text-[150px] font-black tracking-widest leading-none">RJ</div>
-                  <div className="text-4xl uppercase tracking-[0.3em] font-black">RUDRA JEWELLERS</div>
+                  <div className="text-4xl uppercase tracking-[0.3em] font-black">RUDRA JEWELLERY</div>
                   <div className="text-2xl uppercase tracking-[0.4em] font-bold text-gray-700">CHENNAI</div>
                 </div>
               </div>
 
               {/* Top Header Section */}
               <div className="flex items-start justify-between gap-4 border-b-2 border-gray-200 pb-4 relative z-10">
-                {/* Official Rudra Jewellers Brand Logo Image */}
+                {/* Official Rudra Jewellery Brand Logo Image */}
                 <div className="flex items-center gap-3 shrink-0">
                   <img
                     src="/logo.png"
-                    alt="Rudra Jewellers"
+                    alt="Rudra Jewellery"
                     className="h-20 w-auto max-w-[210px] object-contain drop-shadow-xs"
                   />
                 </div>
@@ -2866,6 +3393,23 @@ export default function BillingDashboard() {
                         <td className="px-3 py-2.5">
                           <div className="font-bold text-gray-900 leading-tight">{item.desc}</div>
                           <div className="text-[10px] text-gray-400 font-mono mt-0.5">Item Code: {item.code} | Dia: {item.dia_wt}</div>
+                          {item.tag_number && (
+                            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                              <span className="font-mono text-[9.5px] bg-red-50 text-[#a91d22] border border-red-200 px-1.5 py-0.2 rounded font-bold">
+                                Tag: {item.tag_number}
+                              </span>
+                              {item.work_order_number && (
+                                <span className="font-mono text-[9.5px] bg-gray-100 text-gray-700 border border-gray-200 px-1 py-0.2 rounded">
+                                  WO: {item.work_order_number}
+                                </span>
+                              )}
+                              {item.karigar_name && (
+                                <span className="text-[9.5px] bg-blue-50 text-blue-700 border border-blue-200 px-1 py-0.2 rounded font-medium">
+                                  Karigar: {item.karigar_name}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </td>
                         <td className="px-2.5 py-2.5 text-center font-mono text-gray-600">{item.hsn}</td>
                         <td className="px-2.5 py-2.5 text-center font-semibold text-gray-800 whitespace-nowrap">{item.purity}</td>
@@ -2921,7 +3465,7 @@ export default function BillingDashboard() {
                         <div className="flex items-center leading-relaxed">
                           <span className="w-28 text-gray-500 font-medium shrink-0">Account Name</span>
                           <span className="text-gray-400 font-bold w-4 shrink-0 text-center">:</span>
-                          <span className="font-semibold text-gray-900 flex-1">{activeBank?.account_name || 'Rudra Jewellers Pvt Ltd'}</span>
+                          <span className="font-semibold text-gray-900 flex-1">{activeBank?.account_name || 'Rudra Jewellery Pvt Ltd'}</span>
                         </div>
 
                         <div className="flex items-center leading-relaxed">
@@ -3015,7 +3559,7 @@ export default function BillingDashboard() {
                   <div className="text-[9.5px] text-gray-500 leading-tight space-y-0.5">
                     <div>1. 100% BIS Hallmarked 916 Gold & Certified Diamonds.</div>
                     <div>2. Weight and purity certified as per Bureau of Indian Standards.</div>
-                    <div className="italic text-gray-400">Thank you for your valuable patronage with Rudra Jewellers.</div>
+                    <div className="italic text-gray-400">Thank you for your valuable patronage with Rudra Jewellery.</div>
                   </div>
                 </div>
 
@@ -3025,7 +3569,7 @@ export default function BillingDashboard() {
                     <span className="text-[10px] font-bold text-gray-700 uppercase block">PREPARED BY</span>
                   </div>
                   <div className="text-right space-y-1 shrink-0">
-                    <div className="font-serif italic font-bold text-[#b01622] text-lg leading-none">Rudhra</div>
+                    <div className="font-serif italic font-bold text-[#b01622] text-lg leading-none">Rudra</div>
                     <div className="w-36 h-0.5 bg-gray-300 ml-auto"></div>
                     <div className="text-[10px] font-bold text-gray-800 uppercase tracking-wider">AUTHORIZED SIGNATORY</div>
                     <div className="text-[8px] text-gray-400">{companyInfo?.company_name || ''} {companyInfo?.city ? `, ${companyInfo.city}` : ''}</div>
@@ -3066,6 +3610,15 @@ export default function BillingDashboard() {
           </div>
         </div>
       )}
+
+      {/* Physical Piece Tag Picker Modal */}
+      <PieceTagSelectionModal
+        isOpen={showPieceModal}
+        onClose={() => setShowPieceModal(false)}
+        availablePieces={availablePieces}
+        loading={loadingPieces}
+        onSelectPieces={handleAddPiecesToInvoice}
+      />
 
       {/* DELETE INVOICE CONFIRMATION MODAL */}
       <ConfirmModal

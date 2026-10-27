@@ -274,8 +274,8 @@ export default function Operations() {
                   const colorObj = getColorClasses(op.color);
                   return (
                     <tr key={op.id} className="hover:bg-gray-50/80 transition-colors">
-                      <td className="py-3.5 px-4 text-center font-mono text-gray-400 font-semibold">
-                        {op.sort_order || (currentPage - 1) * itemsPerPage + idx + 1}
+                      <td className="py-3.5 px-4 text-center font-mono text-gray-500 font-semibold">
+                        {(currentPage - 1) * itemsPerPage + idx + 1}
                       </td>
                       <td className="py-3.5 px-4 font-bold text-gray-900">
                         <div className="flex items-center gap-2.5">

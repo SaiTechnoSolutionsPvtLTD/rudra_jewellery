@@ -13,7 +13,10 @@ export default defineConfig({
         tailwindcss(),
     ],
     server: {
-        host: '0.0.0.0',
+        host: '127.0.0.1',
+        hmr: {
+            host: '127.0.0.1',
+        },
         cors: true,
         headers: {
             'Access-Control-Allow-Origin': '*',
@@ -29,5 +32,23 @@ export default defineConfig({
     },
     build: {
         emptyOutDir: false,
+        chunkSizeWarningLimit: 1000,
+        rollupOptions: {
+            output: {
+                manualChunks(id) {
+                    if (id.includes('node_modules')) {
+                        if (id.includes('react') || id.includes('react-dom') || id.includes('react-router-dom')) {
+                            return 'vendor-react';
+                        }
+                        if (id.includes('xlsx')) {
+                            return 'vendor-xlsx';
+                        }
+                        if (id.includes('axios')) {
+                            return 'vendor-axios';
+                        }
+                    }
+                },
+            },
+        },
     },
 });

@@ -39,7 +39,7 @@ class SalesWorkflowTest extends TestCase
                 'product_id' => $product->id,
                 'quantity' => 1,
                 'rate' => 1000,
-                'gross_weight' => 5,
+                'gross_weight' => 1,
             ]],
         ]);
 

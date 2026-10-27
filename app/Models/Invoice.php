@@ -22,9 +22,11 @@ class Invoice extends Model
         'gst_amount',
         'total_amount',
         'paid_amount',
+        'old_gold_amount',
         'due_amount',
         'due_date',
         'payment_method',
+        'price_list_version',
         'cost_amount',
         'profit_amount',
         'sale_status',
@@ -42,6 +44,7 @@ class Invoice extends Model
         'gst_amount' => 'float',
         'total_amount' => 'float',
         'paid_amount' => 'float',
+        'old_gold_amount' => 'float',
         'due_amount' => 'float',
         'due_date' => 'date',
         'cost_amount' => 'float',
@@ -59,13 +62,33 @@ class Invoice extends Model
         return $this->hasMany(SaleItem::class);
     }
 
+    public function items()
+    {
+        return $this->itemsRelation();
+    }
+
     public function payments()
     {
         return $this->hasMany(SalePayment::class);
     }
 
+    public function oldGoldItems()
+    {
+        return $this->hasMany(InvoiceOldGold::class, 'invoice_id');
+    }
+
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function receivedPieces()
+    {
+        return $this->hasMany(WorkOrderReceivedPiece::class, 'invoice_id');
+    }
+
+    public function getIsDraftAttribute(): bool
+    {
+        return $this->sale_status === 'draft';
     }
 }

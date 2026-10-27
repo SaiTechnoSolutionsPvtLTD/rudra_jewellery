@@ -62,7 +62,7 @@ function LabelCard({ code, name, purity, grossWt, netWt, diaWt, stamp, huid, var
     >
       {/* Card header */}
       <div className="bg-[#b01622] px-3 py-1.5 flex items-center justify-between">
-        <span className="text-white text-[9px] font-black tracking-widest">RUDHRA JEWELLERS</span>
+        <span className="text-white text-[9px] font-black tracking-widest">RUDRA JEWELLERY</span>
         <span className="text-red-100 text-[9px] font-mono font-bold">{stamp}</span>
       </div>
 
@@ -247,7 +247,7 @@ export default function InventoryBarcodeTag() {
           A4 PRINTABLE PAGE
       ═══════════════════════════════════════════════════ */}
       <div className="a4-page text-stone-900">
-        <div className="watermark">RUDHRA JEWELLERS</div>
+        <div className="watermark">RUDRA JEWELLERY</div>
 
         {/* 1. LETTERHEAD ─────────────────────────────────── */}
         <header className="border-b-2 border-[#b01622] pb-5 mb-5 relative z-10 flex items-start justify-between">
@@ -255,13 +255,13 @@ export default function InventoryBarcodeTag() {
             <div className="h-14 shrink-0">
               <img
                 src="/logo.png"
-                alt="Rudhra Jewellers"
+                alt="Rudra Jewellery"
                 className="h-full w-auto object-contain"
                 onError={(e) => { e.target.style.display = 'none'; }}
               />
             </div>
             <div>
-              <h1 className="text-xl font-black text-[#b01622] tracking-tight leading-none">RUDHRA JEWELLERS</h1>
+              <h1 className="text-xl font-black text-[#b01622] tracking-tight leading-none">RUDRA JEWELLERY</h1>
               <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mt-1">
                 Imperial Heritage Jewellery &amp; Bullion Merchants
               </p>
@@ -399,7 +399,7 @@ export default function InventoryBarcodeTag() {
             <div className="col-span-7 text-[9px] leading-relaxed text-stone-600">
               <p className="font-bold text-stone-800">BARCODE LABEL ISSUANCE POLICY:</p>
               <p className="mt-0.5">
-                This barcode label document is issued exclusively by Rudra Jewellers ERP for certified inventory items.
+                This barcode label document is issued exclusively by Rudra Jewellery ERP for certified inventory items.
                 Each label carries a unique BIS HUID and Code-128 barcode for point-of-sale scanning and audit trail.
                 Labels must be affixed securely to the jewellery or packaging. Detached or tampered labels are invalid.
               </p>

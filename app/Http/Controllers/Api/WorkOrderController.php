@@ -15,6 +15,7 @@ use App\Models\WorkOrderItem;
 use App\Models\WorkOrderReceivedPiece;
 use App\Models\User;
 use App\Services\NotificationService;
+use App\Helpers\GoldConversionHelper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
@@ -101,7 +102,7 @@ class WorkOrderController extends Controller
     {
         $query = WorkOrder::with([
             'jobOrder', 'karigar', 'product', 'category', 'subcategory', 
-            'client', 'creator', 'items', 'receivedPieces', 'delayUpdater',
+            'client', 'creator', 'items.product.category', 'items.category', 'items.subcategory', 'receivedPieces', 'delayUpdater',
             'certificationUpdater', 'hallmarkingUpdater'
         ]);
 
@@ -161,8 +162,9 @@ class WorkOrderController extends Controller
 
             case 'in_progress':
                 $query->where(function($q) {
-                    $q->whereIn('current_stage', ['work_started', 'work_in_progress', 'received_by_artisan', 'assigned'])
-                      ->orWhere('status', 'in_progress')
+                    $q->whereIn('current_stage', ['work_started', 'work_in_progress', 'received_by_artisan', 'assigned', 'rework', 'reworking'])
+                      ->orWhereIn('status', ['in_progress', 'returned'])
+                      ->orWhere('rework_qty', '>', 0)
                       ->orWhereRaw('completed_qty < required_qty');
                 })->whereNotIn('status', ['completed', 'cancelled', 'final_received']);
                 break;
@@ -288,430 +290,541 @@ class WorkOrderController extends Controller
      */
     public function store(Request $request)
     {
-        // Handle multi-job work order creation
-        $items = $request->input('items');
-        if (is_array($items) && count($items) > 0) {
-            $totalGoldWeight = 0;
-            foreach ($items as $itm) {
-                $rowWeight = (float) ($itm['total_gross_wt'] ?? $itm['total_weight'] ?? $itm['allotted_weight'] ?? 0);
-                if ($rowWeight <= 0) {
-                    $rowWeight = ((float) ($itm['gold_weight'] ?? 0)) * max(1, (int) ($itm['need_pcs'] ?? 1));
+        try {
+            // Handle multi-job work order creation
+            $items = $request->input('items');
+            if (is_array($items) && count($items) > 0) {
+                $totalGoldWeight = 0;
+                foreach ($items as $itm) {
+                    $rowWeight = (float) ($itm['total_gross_wt'] ?? $itm['total_weight'] ?? $itm['allotted_weight'] ?? 0);
+                    if ($rowWeight <= 0) {
+                        $rowWeight = ((float) ($itm['gold_weight'] ?? 0)) * max(1, (int) ($itm['need_pcs'] ?? 1));
+                    }
+                    $totalGoldWeight += $rowWeight;
                 }
-                $totalGoldWeight += $rowWeight;
-            }
-            if (!$request->filled('allotted_weight')) {
-                $request->merge(['allotted_weight' => max(0.001, round($totalGoldWeight, 3))]);
-            }
-            if (!$request->filled('product_name')) {
-                $count = count($items);
-                $firstVariant = $items[0]['variant'] ?? 'Jewelry Piece';
-                $prodName = $count > 1 ? "{$firstVariant} + " . ($count - 1) . " More Items" : $firstVariant;
-                $request->merge(['product_name' => $prodName]);
-            }
-            if (!$request->filled('allotted_date')) {
-                $request->merge(['allotted_date' => $items[0]['ordered_date'] ?? now()->toDateString()]);
-            }
-            if (!$request->filled('delivery_date')) {
-                $request->merge(['delivery_date' => $items[0]['delivery_date'] ?? now()->addDays(7)->toDateString()]);
-            }
-            if (!$request->filled('material_type') && !empty($items[0]['material_type'])) {
-                $request->merge(['material_type' => $items[0]['material_type']]);
-            }
-            if (!$request->filled('image_url') && !empty($items[0]['image'])) {
-                $request->merge(['image_url' => $items[0]['image']]);
-            }
-        }
-
-        // BUSINESS RULE: Rudhra Jewellery supplies Gold, Silver, Platinum and Diamonds for WorkOrders, but loose colour stones are not company-supplied.
-        if ($request->filled('material_type')) {
-            $mat = strtolower($request->input('material_type'));
-            if (str_contains($mat, 'colour_stone') || str_contains($mat, 'loose_stone')) {
-                throw \Illuminate\Validation\ValidationException::withMessages([
-                    'material_type' => ['Loose Stone Allocation Prohibited: Karigars procure loose colour stones independently. Metals and certified Diamonds can be allocated to work orders.']
-                ]);
-            }
-        }
-
-        $validated = $request->validate([
-            'product_name' => 'required|string|max:255',
-            'allotted_date' => 'required|date',
-            'delivery_date' => 'nullable|date',
-            'allotted_weight' => 'required|numeric|min:0.001',
-            'karigar_id' => 'nullable|exists:karigars,id',
-            'client_id' => 'nullable|exists:clients,id',
-            'customer_name' => 'nullable|string|max:255',
-            'product_id' => 'nullable|exists:products,id',
-            'category_id' => 'nullable|exists:categories,id',
-            'subcategory_id' => 'nullable|exists:subcategories,id',
-            'material_type' => 'nullable|string|max:100',
-            'priority' => 'nullable|string|max:50',
-            'wastage_allowed_percent' => 'nullable|numeric|min:0',
-            'making_charge_per_gram' => 'nullable|numeric|min:0',
-            'stone_details' => 'nullable|array',
-            'checklist' => 'nullable|array',
-            'pricing_details' => 'nullable|array',
-            'notes' => 'nullable|string',
-            'image_url' => 'nullable|string',
-        ]);
-
-        return DB::transaction(function () use ($request, $validated, $items) {
-            $year = date('Y');
-
-            // Generate or fetch Parent Job Order Number (guarantee unique key)
-            $jobOrderNumber = $request->input('job_order_number');
-            if (empty($jobOrderNumber) || \App\Models\JobOrder::withTrashed()->where('job_order_number', $jobOrderNumber)->exists()) {
-                $latestJo = \App\Models\JobOrder::withTrashed()
-                    ->where('job_order_number', 'like', "JO-{$year}-%")
-                    ->orderBy('id', 'desc')
-                    ->first();
-                $num = 1;
-                if ($latestJo && preg_match("/JO-{$year}-(\d+)/", $latestJo->job_order_number, $matches)) {
-                    $num = (int)$matches[1] + 1;
-                } else {
-                    $num = \App\Models\JobOrder::withTrashed()->count() + 1;
+                if (!$request->filled('allotted_weight')) {
+                    $request->merge(['allotted_weight' => max(0.001, round($totalGoldWeight, 3))]);
                 }
-                do {
-                    $jobOrderNumber = "JO-{$year}-" . str_pad($num++, 4, '0', STR_PAD_LEFT);
-                } while (\App\Models\JobOrder::withTrashed()->where('job_order_number', $jobOrderNumber)->exists());
-            }
-
-            // Calculate total allotted weight across items or single order
-            $jobItemsList = (is_array($items) && count($items) > 0) ? $items : [[
-                'product_name' => $validated['product_name'],
-                'category_id' => $validated['category_id'] ?? null,
-                'subcategory_id' => $validated['subcategory_id'] ?? null,
-                'karigar_id' => $validated['karigar_id'] ?? null,
-                'material_type' => $validated['material_type'] ?? 'Gold 22K (916)',
-                'gold_weight' => $validated['allotted_weight'],
-                'making_charge_per_gram' => $validated['making_charge_per_gram'] ?? 0,
-                'wastage_allowed_percent' => $validated['wastage_allowed_percent'] ?? 0,
-                'design_number' => $request->input('design_code', 'DES-' . rand(1000, 9999)),
-                'image' => $validated['image_url'] ?? null,
-                'delivery_date' => $validated['delivery_date'] ?? null,
-            ]];
-
-            $totalAllotted = 0;
-            foreach ($jobItemsList as $itm) {
-                $rowGross = (float) ($itm['total_gross_wt'] ?? $itm['total_weight'] ?? 0);
-                if ($rowGross > 0) {
-                    $totalAllotted += $rowGross;
-                } else {
-                    $pcs = max(1, (int) ($itm['need_pcs'] ?? $itm['qty'] ?? 1));
-                    $perPiece = (float) ($itm['gold_weight'] ?? $itm['allotted_weight'] ?? 0);
-                    $totalAllotted += ($perPiece * $pcs);
+                if (!$request->filled('product_name')) {
+                    $count = count($items);
+                    $firstVariant = $items[0]['variant'] ?? $items[0]['product_name'] ?? 'Jewelry Piece';
+                    $prodName = $count > 1 ? "{$firstVariant} + " . ($count - 1) . " More Items" : $firstVariant;
+                    $request->merge(['product_name' => $prodName]);
+                }
+                if (!$request->filled('allotted_date')) {
+                    $request->merge(['allotted_date' => $items[0]['ordered_date'] ?? now()->toDateString()]);
+                }
+                if (!$request->filled('delivery_date')) {
+                    $request->merge(['delivery_date' => $items[0]['delivery_date'] ?? now()->addDays(7)->toDateString()]);
+                }
+                if (!$request->filled('material_type') && !empty($items[0]['material_type'])) {
+                    $request->merge(['material_type' => $items[0]['material_type']]);
+                }
+                if (!$request->filled('image_url') && !empty($items[0]['image'])) {
+                    $request->merge(['image_url' => $items[0]['image']]);
                 }
             }
 
-            // Create Parent JobOrder
-            $jobOrder = \App\Models\JobOrder::create([
-                'job_order_number' => $jobOrderNumber,
-                'client_id' => $validated['client_id'] ?? null,
-                'customer_name' => $validated['customer_name'] ?? null,
-                'order_date' => $validated['allotted_date'],
-                'delivery_date' => $validated['delivery_date'] ?? null,
-                'status' => 'ongoing',
-                'total_jobs_count' => count($jobItemsList),
-                'total_allotted_weight' => round($totalAllotted, 3),
-                'total_completed_weight' => 0,
-                'total_pending_weight' => round($totalAllotted, 3),
-                'notes' => $validated['notes'] ?? null,
-                'created_by' => Auth::id() ?? 1,
+            // BUSINESS RULE: Rudra Jewellery supplies Gold, Silver, Platinum and Diamonds for WorkOrders, but loose colour stones are not company-supplied.
+            if ($request->filled('material_type')) {
+                $mat = strtolower($request->input('material_type'));
+                if (str_contains($mat, 'colour_stone') || str_contains($mat, 'loose_stone')) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'material_type' => ['Loose Stone Allocation Prohibited: Karigars procure loose colour stones independently. Metals and certified Diamonds can be allocated to work orders.']
+                    ]);
+                }
+            }
+
+            $validated = $request->validate([
+                'product_name' => 'required|string|max:255',
+                'allotted_date' => 'required|date',
+                'delivery_date' => 'nullable|date',
+                'allotted_weight' => 'required|numeric|min:0.001',
+                'karigar_id' => 'nullable|exists:karigars,id',
+                'client_id' => 'nullable|exists:clients,id',
+                'customer_name' => 'nullable|string|max:255',
+                'product_id' => 'nullable|exists:products,id',
+                'category_id' => 'nullable|exists:categories,id',
+                'subcategory_id' => 'nullable|exists:subcategories,id',
+                'material_type' => 'nullable|string|max:100',
+                'priority' => 'nullable|string|max:50',
+                'wastage_allowed_percent' => 'nullable|numeric|min:0',
+                'making_charge_per_gram' => 'nullable|numeric|min:0',
+                'stone_details' => 'nullable|array',
+                'checklist' => 'nullable|array',
+                'pricing_details' => 'nullable|array',
+                'notes' => 'nullable|string',
+                'image_url' => 'nullable|string',
             ]);
 
-            $workOrderNumber = $request->input('work_order_number');
-            if (empty($workOrderNumber) || WorkOrder::withTrashed()->where('work_order_number', $workOrderNumber)->exists()) {
-                $latestWo = WorkOrder::withTrashed()
-                    ->where('work_order_number', 'like', "WO-{$year}-%")
-                    ->orderBy('id', 'desc')
-                    ->first();
-                $num = 1;
-                if ($latestWo && preg_match("/WO-{$year}-(\d+)/", $latestWo->work_order_number, $matches)) {
-                    $num = (int)$matches[1] + 1;
-                } else {
-                    $num = WorkOrder::withTrashed()->count() + 1;
+            return DB::transaction(function () use ($request, $validated, $items) {
+                $year = date('Y');
+
+                // Determine safe creator user ID and name
+                $creatorUserId = Auth::id() ?: (\App\Models\User::where('status', 'active')->value('id') ?? \App\Models\User::value('id') ?? null);
+                $creatorUserName = Auth::user()?->name ?: (\App\Models\User::find($creatorUserId)?->name ?? 'Admin');
+
+                // Generate or verify Parent Job Order Number
+                $jobOrderNumber = $request->input('job_order_number');
+                if (empty($jobOrderNumber) || \App\Models\JobOrder::withTrashed()->where('job_order_number', $jobOrderNumber)->exists()) {
+                    $latestJo = \App\Models\JobOrder::withTrashed()
+                        ->where('job_order_number', 'like', "JO-{$year}-%")
+                        ->orderBy('id', 'desc')
+                        ->first();
+                    $num = 1;
+                    if ($latestJo && preg_match("/JO-{$year}-(\d+)/", $latestJo->job_order_number, $matches)) {
+                        $num = (int)$matches[1] + 1;
+                    } else {
+                        $num = \App\Models\JobOrder::withTrashed()->count() + 1;
+                    }
+                    do {
+                        $jobOrderNumber = "JO-{$year}-" . str_pad($num++, 4, '0', STR_PAD_LEFT);
+                    } while (\App\Models\JobOrder::withTrashed()->where('job_order_number', $jobOrderNumber)->exists());
                 }
-                do {
-                    $workOrderNumber = "WO-{$year}-" . str_pad($num++, 4, '0', STR_PAD_LEFT);
-                } while (WorkOrder::withTrashed()->where('work_order_number', $workOrderNumber)->exists());
-            }
 
-            $itemKarigarId = $validated['karigar_id'] ?? null;
-            $itemKarigarName = null;
-            if (!empty($itemKarigarId)) {
-                $k = Karigar::find($itemKarigarId);
-                $itemKarigarName = $k ? $k->name : null;
-            }
+                // Calculate total allotted weight across items or single order
+                $jobItemsList = (is_array($items) && count($items) > 0) ? $items : [[
+                    'product_name' => $validated['product_name'],
+                    'category_id' => $validated['category_id'] ?? null,
+                    'subcategory_id' => $validated['subcategory_id'] ?? null,
+                    'karigar_id' => $validated['karigar_id'] ?? null,
+                    'material_type' => $validated['material_type'] ?? 'Gold 22K (916)',
+                    'gold_weight' => $validated['allotted_weight'],
+                    'making_charge_per_gram' => $validated['making_charge_per_gram'] ?? 0,
+                    'wastage_allowed_percent' => $validated['wastage_allowed_percent'] ?? 0,
+                    'design_number' => $request->input('design_code', 'DES-' . rand(1000, 9999)),
+                    'image' => $validated['image_url'] ?? null,
+                    'delivery_date' => $validated['delivery_date'] ?? null,
+                ]];
 
-            // Ensure all items carry the correct work_order_no
-            $totalGoldWeight = 0;
-            $totalMakingCharges = 0;
-            $totalPrice = 0;
-            foreach ($jobItemsList as &$itm) {
-                $itm['work_order_no'] = $workOrderNumber;
-                $w = (float) ($itm['total_gross_wt'] ?? $itm['total_weight'] ?? $itm['allotted_weight'] ?? 0);
-                if ($w <= 0) {
-                    $w = ((float) ($itm['gold_weight'] ?? 0)) * max(1, (int) ($itm['need_pcs'] ?? 1));
-                }
-                $mc = (float) ($itm['making_charge_per_gram'] ?? $validated['making_charge_per_gram'] ?? 0);
-                $totalGoldWeight += $w;
-                $totalMakingCharges += ($w * $mc);
-                $totalPrice += (float) ($itm['total_price'] ?? ($w * $mc));
-            }
-            unset($itm);
-
-            if ($totalGoldWeight <= 0) {
-                $totalGoldWeight = (float) ($validated['allotted_weight'] ?? 10.0);
-            }
-
-            $firstItem = $jobItemsList[0] ?? [];
-            $itemMaterial = $validated['material_type'] ?? ($firstItem['material_type'] ?? 'Gold 22K (916)');
-            $itemProductName = $request->input('product_name') ?: ($firstItem['variant'] ?? $firstItem['product_name'] ?? $validated['product_name']);
-            $imageUrl = $request->input('image_url') ?: ($firstItem['reference_image'] ?? $firstItem['design_file'] ?? $firstItem['image'] ?? $validated['image_url'] ?? null);
-
-            // Clean up any large Base64 strings in image_url, items, and documents to prevent MySQL 2006 max_allowed_packet error
-            $imageUrl = $this->processBase64Data($imageUrl);
-
-            foreach ($jobItemsList as &$itm) {
-                if (!empty($itm['reference_image'])) {
-                    $itm['reference_image'] = $this->processBase64Data($itm['reference_image']);
-                }
-                if (!empty($itm['design_file']) && str_starts_with($itm['design_file'], 'data:')) {
-                    $itm['design_file'] = $this->processBase64Data($itm['design_file']);
-                }
-                if (!empty($itm['image'])) {
-                    $itm['image'] = $this->processBase64Data($itm['image']);
-                }
-                if (!empty($itm['reference_image'])) {
-                    $itm['image'] = $itm['reference_image'];
-                }
-            }
-            unset($itm);
-
-            $documents = $request->input('documents', []);
-            if (is_array($documents)) {
-                foreach ($documents as &$doc) {
-                    if (is_array($doc) && !empty($doc['url'])) {
-                        $doc['url'] = $this->processBase64Data($doc['url']);
-                    } elseif (is_string($doc)) {
-                        $doc = $this->processBase64Data($doc);
+                $totalAllotted = 0;
+                foreach ($jobItemsList as $itm) {
+                    $rowGross = (float) ($itm['total_gross_wt'] ?? $itm['total_weight'] ?? 0);
+                    if ($rowGross > 0) {
+                        $totalAllotted += $rowGross;
+                    } else {
+                        $pcs = max(1, (int) ($itm['need_pcs'] ?? $itm['qty'] ?? 1));
+                        $perPiece = (float) ($itm['gold_weight'] ?? $itm['allotted_weight'] ?? 0);
+                        $totalAllotted += ($perPiece * $pcs);
                     }
                 }
-                unset($doc);
-            }
 
-            $pricingDetails = $validated['pricing_details'] ?? [];
-            $pricingDetails['items'] = $jobItemsList;
-            $pricingDetails['documents'] = $documents;
-            $pricingDetails['job_summary'] = $request->input('job_summary', []);
-            $pricingDetails['material_breakdown'] = $request->input('material_breakdown', []);
-            $pricingDetails['worker_allocation'] = $request->input('worker_allocation', []);
-
-            $totalRequiredQty = 0;
-            $totalDiamondCaratsRequired = 0;
-            $totalStonesCountRequired = 0;
-            foreach ($jobItemsList as $itm) {
-                $pcs = max(1, (int)($itm['need_pcs'] ?? $itm['quantity'] ?? $itm['qty'] ?? 1));
-                $totalRequiredQty += $pcs;
-                $diaWt = (float)($itm['diamond_weight'] ?? 0);
-                $stoneCount = (int)($itm['no_of_colour_stones'] ?? $itm['color_stone_count'] ?? 0);
-                $totalDiamondCaratsRequired += ($diaWt * $pcs);
-                $totalStonesCountRequired += ($stoneCount * $pcs);
-            }
-            if ($totalRequiredQty <= 0) $totalRequiredQty = 1;
-
-            // Validate Diamond Stock in RawMaterial vault (cannot be negative)
-            if ($totalDiamondCaratsRequired > 0) {
-                $diamondVault = \App\Models\RawMaterial::where('material_type', 'diamond')->first();
-                $diaBalance = $diamondVault ? (float)$diamondVault->current_balance : 0;
-                if ($diaBalance < $totalDiamondCaratsRequired) {
-                    throw \Illuminate\Validation\ValidationException::withMessages([
-                        'material_type' => ["Insufficient diamond stock in raw material vault: Required {$totalDiamondCaratsRequired} ct, but available balance is {$diaBalance} ct. Diamond stock cannot become negative."]
-                    ]);
-                }
-            }
-
-            // Validate Colour-Stone Stock in RawMaterial vault (cannot be negative)
-            if ($totalStonesCountRequired > 0) {
-                $stoneVault = \App\Models\RawMaterial::where('material_type', 'stone')->first();
-                $stoneBalance = $stoneVault ? (float)$stoneVault->current_balance : 0;
-                if ($stoneBalance < $totalStonesCountRequired) {
-                    throw \Illuminate\Validation\ValidationException::withMessages([
-                        'material_type' => ["Insufficient colour-stone stock in raw material vault: Required {$totalStonesCountRequired} units, but available balance is {$stoneBalance} units. Colour-stone stock cannot become negative."]
-                    ]);
-                }
-            }
-
-            $firstDesignNo = $firstItem['design_number'] ?? $firstItem['design_no'] ?? null;
-            $resolvedProductId = $validated['product_id'] ?? ($firstItem['product_id'] ?? null);
-            if (!$resolvedProductId && !empty($firstDesignNo)) {
-                $p = Product::where('design_no', $firstDesignNo)->orWhere('product_code', $firstDesignNo)->first();
-                $resolvedProductId = $p?->id;
-            }
-
-            $workOrder = WorkOrder::create([
-                'job_order_id' => $jobOrder->id,
-                'job_number' => $jobOrderNumber,
-                'work_order_number' => $workOrderNumber,
-                'client_id' => $validated['client_id'] ?? null,
-                'customer_name' => $validated['customer_name'] ?? null,
-                'product_id' => $resolvedProductId,
-                'product_name' => $itemProductName,
-                'category_id' => $validated['category_id'] ?? null,
-                'subcategory_id' => $validated['subcategory_id'] ?? null,
-                'karigar_id' => $itemKarigarId,
-                'karigar_name' => $itemKarigarName,
-                'material_type' => $itemMaterial,
-                'priority' => $validated['priority'] ?? 'Normal',
-                'required_qty' => $totalRequiredQty,
-                'completed_qty' => 0,
-                'qc_pending_qty' => 0,
-                'qc_approved_qty' => 0,
-                'rework_qty' => 0,
-                'ready_qty' => 0,
-                'received_qty' => 0,
-                'allotted_date' => $validated['allotted_date'],
-                'delivery_date' => $firstItem['delivery_date'] ?? $validated['delivery_date'] ?? null,
-                'allotted_weight' => round($totalGoldWeight, 3),
-                'completed_weight' => 0,
-                'pending_weight' => round($totalGoldWeight, 3),
-                'expected_return_weight' => round($totalGoldWeight, 3),
-                'wastage_allowed_percent' => (float) ($firstItem['wastage_allowed_percent'] ?? $validated['wastage_allowed_percent'] ?? 0),
-                'wastage_weight' => 0,
-                'making_charge_per_gram' => (float) ($validated['making_charge_per_gram'] ?? 0),
-                'total_making_charges' => round($totalMakingCharges, 2),
-                'total_price' => round($totalPrice, 2),
-                'current_stage' => !empty($itemKarigarId) ? 'assigned' : 'created',
-                'status' => !empty($itemKarigarId) ? 'assigned' : 'ongoing',
-                'checklist' => $validated['checklist'] ?? [
-                    'product_received' => false,
-                    'weight_verified' => false,
-                    'stone_verified' => false,
-                    'design_verified' => false,
-                    'work_completed' => false,
-                    'quality_checked' => false,
-                    'documents_verified' => false,
-                ],
-                'stone_details' => $validated['stone_details'] ?? [],
-                'pricing_details' => $pricingDetails,
-                'design_code' => $firstItem['design_number'] ?? $request->input('design_code', 'DES-' . rand(1000, 9999)),
-                'image_url' => $imageUrl,
-                'notes' => $validated['notes'] ?? null,
-                'created_by' => Auth::id() ?? 1,
-            ]);
-
-            // Persist individual jobs as WorkOrderItem records
-            foreach ($jobItemsList as $jIdx => $jItm) {
-                $jDesignNo = $jItm['design_number'] ?? $jItm['design_no'] ?? ($workOrder->design_code ?: 'DES-' . (rand(1000, 9999) + $jIdx));
-                $jReqQty = max(1, (int)($jItm['need_pcs'] ?? $jItm['quantity'] ?? $jItm['qty'] ?? 1));
-                $jWeight = (float) ($jItm['gold_weight'] ?? $jItm['allotted_weight'] ?? 0);
-                $jMc = (float) ($jItm['making_charge_per_gram'] ?? $validated['making_charge_per_gram'] ?? 0);
-
-                $jProdId = $jItm['product_id'] ?? null;
-                if (!$jProdId && !empty($jDesignNo)) {
-                    $p = Product::where('design_no', $jDesignNo)->orWhere('product_code', $jDesignNo)->first();
-                    $jProdId = $p?->id;
+                // Validate and sanitize client_id
+                $clientId = $validated['client_id'] ?? null;
+                if ($clientId && !\App\Models\Client::where('id', $clientId)->exists()) {
+                    $clientId = null;
                 }
 
-                WorkOrderItem::create([
-                    'work_order_id' => $workOrder->id,
+                // Create Parent JobOrder
+                $jobOrder = \App\Models\JobOrder::create([
+                    'job_order_number' => $jobOrderNumber,
+                    'client_id' => $clientId,
+                    'customer_name' => $validated['customer_name'] ?? null,
+                    'order_date' => $validated['allotted_date'],
+                    'delivery_date' => $validated['delivery_date'] ?? null,
+                    'status' => 'ongoing',
+                    'total_jobs_count' => count($jobItemsList),
+                    'total_allotted_weight' => round($totalAllotted, 3),
+                    'total_completed_weight' => 0,
+                    'total_pending_weight' => round($totalAllotted, 3),
+                    'notes' => $validated['notes'] ?? null,
+                    'created_by' => $creatorUserId,
+                ]);
+
+                // Determine unique Work Order number
+                $workOrderNumber = $request->input('work_order_number');
+                if (empty($workOrderNumber) || WorkOrder::withTrashed()->where('work_order_number', $workOrderNumber)->exists()) {
+                    $latestWo = WorkOrder::withTrashed()
+                        ->where('work_order_number', 'like', "WO-{$year}-%")
+                        ->orderBy('id', 'desc')
+                        ->first();
+                    $num = 1;
+                    if ($latestWo && preg_match("/WO-{$year}-(\d+)/", $latestWo->work_order_number, $matches)) {
+                        $num = (int)$matches[1] + 1;
+                    } else {
+                        $num = WorkOrder::withTrashed()->count() + 1;
+                    }
+                    do {
+                        $workOrderNumber = "WO-{$year}-" . str_pad($num++, 4, '0', STR_PAD_LEFT);
+                    } while (WorkOrder::withTrashed()->where('work_order_number', $workOrderNumber)->exists());
+                }
+
+                // Resolve Karigar safely
+                $itemKarigarId = $validated['karigar_id'] ?? null;
+                $itemKarigarName = null;
+                if (!empty($itemKarigarId)) {
+                    $k = Karigar::find($itemKarigarId);
+                    if ($k) {
+                        $itemKarigarName = $k->name;
+                    } else {
+                        $itemKarigarId = null;
+                    }
+                }
+
+                // Ensure all items carry the correct work_order_no and calculate totals
+                $totalGoldWeight = 0;
+                $totalMakingCharges = 0;
+                $totalPrice = 0;
+                foreach ($jobItemsList as &$itm) {
+                    $itm['work_order_no'] = $workOrderNumber;
+                    $w = (float) ($itm['total_gross_wt'] ?? $itm['total_weight'] ?? $itm['allotted_weight'] ?? 0);
+                    if ($w <= 0) {
+                        $w = ((float) ($itm['gold_weight'] ?? 0)) * max(1, (int) ($itm['need_pcs'] ?? 1));
+                    }
+                    $mc = (float) ($itm['making_charge_per_gram'] ?? $validated['making_charge_per_gram'] ?? 0);
+                    $totalGoldWeight += $w;
+                    $totalMakingCharges += ($w * $mc);
+                    $totalPrice += (float) ($itm['total_price'] ?? ($w * $mc));
+                }
+                unset($itm);
+
+                if ($totalGoldWeight <= 0) {
+                    $totalGoldWeight = (float) ($validated['allotted_weight'] ?? 10.0);
+                }
+
+                $firstItem = $jobItemsList[0] ?? [];
+                $itemMaterial = $validated['material_type'] ?? ($firstItem['material_type'] ?? 'Gold 22K (916)');
+                $itemProductName = $request->input('product_name') ?: ($firstItem['variant'] ?? $firstItem['product_name'] ?? $validated['product_name']);
+                $imageUrl = $request->input('image_url') ?: ($firstItem['reference_image'] ?? $firstItem['design_file'] ?? $firstItem['image'] ?? $validated['image_url'] ?? null);
+
+                // Clean up any large Base64 strings in image_url, items, and documents to prevent MySQL 2006 max_allowed_packet error
+                $imageUrl = $this->processBase64Data($imageUrl);
+
+                foreach ($jobItemsList as &$itm) {
+                    if (!empty($itm['reference_image'])) {
+                        $itm['reference_image'] = $this->processBase64Data($itm['reference_image']);
+                    }
+                    if (!empty($itm['design_file'])) {
+                        $itm['design_file'] = $this->processBase64Data($itm['design_file']);
+                    }
+                    if (!empty($itm['image'])) {
+                        $itm['image'] = $this->processBase64Data($itm['image']);
+                    }
+                    if (!empty($itm['reference_image'])) {
+                        $itm['image'] = $itm['reference_image'];
+                    }
+                }
+                unset($itm);
+
+                $documents = $request->input('documents', []);
+                if (is_array($documents)) {
+                    foreach ($documents as &$doc) {
+                        if (is_array($doc) && !empty($doc['url'])) {
+                            $doc['url'] = $this->processBase64Data($doc['url']);
+                        } elseif (is_string($doc)) {
+                            $doc = $this->processBase64Data($doc);
+                        }
+                    }
+                    unset($doc);
+                }
+
+                $pricingDetails = $validated['pricing_details'] ?? [];
+                $detectedPurity = $request->input('gold_purity') ?? $request->input('purity') ?? $request->input('karat') ?? ($firstItem['gold_purity'] ?? $firstItem['purity'] ?? null);
+                if (!$detectedPurity && preg_match('/(24\s*k(?:arat|t)?|22\s*k(?:arat|t)?|18\s*k(?:arat|t)?|14\s*k(?:arat|t)?|999|916|750)/i', $itemMaterial, $pm)) {
+                    $v = strtoupper(trim($pm[1]));
+                    $detectedPurity = $v === '999' ? '24K' : ($v === '916' ? '22K' : ($v === '750' ? '18K' : $v));
+                }
+                if (!$detectedPurity) {
+                    $detectedPurity = '22K';
+                }
+                $pricingDetails['required_gold_weight'] = round($totalGoldWeight, 3);
+                $pricingDetails['gold_purity'] = $detectedPurity;
+                $pricingDetails['purity'] = $detectedPurity;
+                $pricingDetails['karat'] = $detectedPurity;
+                $pricingDetails['items'] = $jobItemsList;
+                $pricingDetails['documents'] = $documents;
+                $pricingDetails['job_summary'] = $request->input('job_summary', []);
+                $pricingDetails['material_breakdown'] = $request->input('material_breakdown', []);
+                $pricingDetails['worker_allocation'] = $request->input('worker_allocation', []);
+
+                $totalRequiredQty = 0;
+                $totalDiamondCaratsRequired = 0;
+                $totalDiamondPiecesRequired = 0;
+                $totalStonesCountRequired = 0;
+                $stampDetailsSummary = [];
+                foreach ($jobItemsList as $itm) {
+                    $pcs = max(1, (int)($itm['need_pcs'] ?? $itm['quantity'] ?? $itm['qty'] ?? 1));
+                    $totalRequiredQty += $pcs;
+                    $diaWt = (float)($itm['diamond_weight'] ?? 0);
+                    $diaCount = (int)($itm['no_of_diamonds'] ?? $itm['diamond_count'] ?? 0);
+                    $stoneCount = (int)($itm['no_of_colour_stones'] ?? $itm['color_stone_count'] ?? 0);
+                    $totalDiamondCaratsRequired += ($diaWt * $pcs);
+                    $totalDiamondPiecesRequired += ($diaCount * $pcs);
+                    $totalStonesCountRequired += ($stoneCount * $pcs);
+                    if (!empty($itm['stamp_and_no'])) {
+                        $stampDetailsSummary[] = $itm['stamp_and_no'];
+                    } elseif (!empty($itm['diamond_stamp'])) {
+                        $stampDetailsSummary[] = $itm['diamond_stamp'] . '-' . $diaCount;
+                    }
+                }
+                if ($totalRequiredQty <= 0) $totalRequiredQty = 1;
+                $allStampsText = implode(', ', array_unique(array_filter($stampDetailsSummary)));
+
+                // Validate Diamond Stock in RawMaterial vault
+                $diamondShortageNotice = null;
+                if (($totalDiamondCaratsRequired > 0 || $totalDiamondPiecesRequired > 0) && !$request->boolean('allow_shortage')) {
+                    \App\Models\RawMaterial::recalculateAllocations();
+
+                    // Tally authoritative stock across diamond vault
+                    $diaBalance = (float) \App\Models\RawMaterial::where('material_type', 'diamond')->sum('current_balance');
+                    $diaCountBalance = (int) \App\Models\RawMaterial::where('material_type', 'diamond')->sum('current_count');
+
+                    // Shortage in diamond carat weight
+                    $shortageCarats = max(0.0, round($totalDiamondCaratsRequired - $diaBalance, 3));
+
+                    // Diamond Piece Count Logic:
+                    // In diamond jewellery manufacturing, diamonds are frequently stocked as parcel/bulk lots by carat weight.
+                    // When the vault holds sufficient diamond carat weight to cover the required weight ($shortageCarats <= 0),
+                    // the required pieces are physically available and drawn from the diamond parcel stock.
+                    if ($shortageCarats <= 0) {
+                        $shortageCount = 0;
+                        $effectiveAvailableCount = max($diaCountBalance, $totalDiamondPiecesRequired);
+                    } else {
+                        // Genuine shortage of diamonds in the vault (insufficient carats)
+                        $shortageCount = max(0, $totalDiamondPiecesRequired - $diaCountBalance);
+                        $effectiveAvailableCount = $diaCountBalance;
+                    }
+
+                    if ($shortageCarats > 0) {
+                        $msg = "Vault has {$shortageCarats} ct low stock: Required {$totalDiamondCaratsRequired} ct ({$totalDiamondPiecesRequired} pcs), but available vault balance is {$diaBalance} ct ({$diaCountBalance} pcs).";
+                        throw new \Illuminate\Http\Exceptions\HttpResponseException(response()->json([
+                            'status' => 'error',
+                            'error_type' => 'INSUFFICIENT_DIAMOND_STOCK',
+                            'message' => $msg,
+                            'errors' => ['diamond_stock' => [$msg]],
+                            'required_carats' => round($totalDiamondCaratsRequired, 3),
+                            'available_carats' => round($diaBalance, 3),
+                            'shortage_carats' => $shortageCarats,
+                            'required_count' => $totalDiamondPiecesRequired,
+                            'available_count' => $effectiveAvailableCount,
+                            'shortage_count' => $shortageCount,
+                            'stamp_details' => $allStampsText,
+                        ], 422));
+                    }
+                }
+
+                // Validate Colour-Stone Stock in RawMaterial vault (cannot be negative)
+                if ($totalStonesCountRequired > 0 && !$request->boolean('allow_shortage')) {
+                    $stoneVault = \App\Models\RawMaterial::where('material_type', 'stone')->first();
+                    $stoneBalance = $stoneVault ? (float)$stoneVault->current_balance : 0;
+                    if ($stoneBalance < $totalStonesCountRequired) {
+                        $shortageStones = max(0, $totalStonesCountRequired - (int)$stoneBalance);
+                        $msg = "Vault has {$shortageStones} units low stock: Required {$totalStonesCountRequired} colour-stone units, but available vault balance is {$stoneBalance} units.";
+                        throw new \Illuminate\Http\Exceptions\HttpResponseException(response()->json([
+                            'status' => 'error',
+                            'error_type' => 'INSUFFICIENT_DIAMOND_STOCK',
+                            'message' => $msg,
+                            'errors' => ['stone_stock' => [$msg]],
+                            'required_carats' => 0,
+                            'available_carats' => 0,
+                            'shortage_carats' => 0,
+                            'required_count' => $totalStonesCountRequired,
+                            'available_count' => (int)$stoneBalance,
+                            'shortage_count' => $shortageStones,
+                            'stamp_details' => 'Colour Stones',
+                        ], 422));
+                    }
+                }
+
+                $firstDesignNo = $firstItem['design_number'] ?? $firstItem['design_no'] ?? null;
+                $resolvedProductId = $validated['product_id'] ?? ($firstItem['product_id'] ?? null);
+                if (!$resolvedProductId && !empty($firstDesignNo)) {
+                    $p = Product::where('design_no', $firstDesignNo)->orWhere('product_code', $firstDesignNo)->first();
+                    $resolvedProductId = $p?->id;
+                }
+                if ($resolvedProductId && !Product::where('id', $resolvedProductId)->exists()) {
+                    $resolvedProductId = null;
+                }
+
+                $workOrder = WorkOrder::create([
                     'job_order_id' => $jobOrder->id,
-                    'product_id' => $jProdId,
-                    'design_no' => $jDesignNo,
-                    'product_name' => $jItm['product_name'] ?? $jItm['variant'] ?? ($jItm['name'] ?? $workOrder->product_name),
-                    'category_id' => $jItm['category_id'] ?? $workOrder->category_id,
-                    'subcategory_id' => $jItm['subcategory_id'] ?? $workOrder->subcategory_id,
-                    'item_code' => $jDesignNo,
-                    'required_qty' => $jReqQty,
+                    'job_number' => $jobOrderNumber,
+                    'work_order_number' => $workOrderNumber,
+                    'client_id' => $clientId,
+                    'customer_name' => $validated['customer_name'] ?? null,
+                    'product_id' => $resolvedProductId,
+                    'product_name' => $itemProductName,
+                    'category_id' => $validated['category_id'] ?? null,
+                    'subcategory_id' => $validated['subcategory_id'] ?? null,
+                    'karigar_id' => $itemKarigarId,
+                    'karigar_name' => $itemKarigarName,
+                    'material_type' => $itemMaterial,
+                    'priority' => $validated['priority'] ?? 'Normal',
+                    'required_qty' => $totalRequiredQty,
                     'completed_qty' => 0,
                     'qc_pending_qty' => 0,
                     'qc_approved_qty' => 0,
                     'rework_qty' => 0,
                     'ready_qty' => 0,
                     'received_qty' => 0,
-                    'allotted_weight' => round($jWeight, 3),
+                    'allotted_date' => $validated['allotted_date'],
+                    'delivery_date' => $firstItem['delivery_date'] ?? $validated['delivery_date'] ?? null,
+                    'allotted_weight' => 0.000,
                     'completed_weight' => 0,
-                    'making_charge_per_gram' => $jMc,
-                    'total_making_charges' => round($jWeight * $jMc, 2),
-                    'stone_details' => $jItm['stone_details'] ?? null,
-                    'pricing_details' => $jItm,
-                    'status' => 'pending',
+                    'pending_weight' => 0.000,
+                    'expected_return_weight' => round($totalGoldWeight, 3),
+                    'wastage_allowed_percent' => (float) ($firstItem['wastage_allowed_percent'] ?? $validated['wastage_allowed_percent'] ?? 0),
+                    'wastage_weight' => 0,
+                    'making_charge_per_gram' => (float) ($validated['making_charge_per_gram'] ?? 0),
+                    'total_making_charges' => round($totalMakingCharges, 2),
+                    'total_price' => round($totalPrice, 2),
+                    'current_stage' => !empty($itemKarigarId) ? 'assigned' : 'created',
+                    'status' => !empty($itemKarigarId) ? 'assigned' : 'ongoing',
+                    'checklist' => $validated['checklist'] ?? [
+                        'product_received' => false,
+                        'weight_verified' => false,
+                        'stone_verified' => false,
+                        'design_verified' => false,
+                        'work_completed' => false,
+                        'quality_checked' => false,
+                        'documents_verified' => false,
+                    ],
+                    'stone_details' => $validated['stone_details'] ?? [],
+                    'pricing_details' => $pricingDetails,
+                    'design_code' => $firstItem['design_number'] ?? $request->input('design_code', 'DES-' . rand(1000, 9999)),
+                    'image_url' => $imageUrl,
+                    'notes' => $validated['notes'] ?? null,
+                    'created_by' => $creatorUserId,
                 ]);
-            }
 
-            // Initial Timeline Events
-            WorkOrderTimeline::create([
-                'work_order_id' => $workOrder->id,
-                'stage' => 'created',
-                'stage_label' => "Work Order Created ({$workOrderNumber})",
-                'completed_weight_at_step' => 0,
-                'pending_weight_at_step' => round($totalGoldWeight, 3),
-                'status' => 'completed',
-                'notes' => "Work Order {$workOrderNumber} with " . count($jobItemsList) . " jobs (Total Qty: {$totalRequiredQty}) created under Job Order {$jobOrderNumber}.",
-                'user_id' => Auth::id() ?? 1,
-                'action_by_name' => Auth::user()?->name ?? 'Admin',
-                'created_at' => now(),
-            ]);
+                // Persist individual jobs as WorkOrderItem records
+                foreach ($jobItemsList as $jIdx => $jItm) {
+                    $jDesignNo = $jItm['design_number'] ?? $jItm['design_no'] ?? ($workOrder->design_code ?: 'DES-' . (rand(1000, 9999) + $jIdx));
+                    $jReqQty = max(1, (int)($jItm['need_pcs'] ?? $jItm['quantity'] ?? $jItm['qty'] ?? 1));
+                    $jWeight = (float) ($jItm['gold_weight'] ?? $jItm['allotted_weight'] ?? 0);
+                    $jMc = (float) ($jItm['making_charge_per_gram'] ?? $validated['making_charge_per_gram'] ?? 0);
 
-            if (!empty($itemKarigarId)) {
+                    $jProdId = $jItm['product_id'] ?? null;
+                    if (!$jProdId && !empty($jDesignNo)) {
+                        $p = Product::where('design_no', $jDesignNo)->orWhere('product_code', $jDesignNo)->first();
+                        $jProdId = $p?->id;
+                    }
+                    if ($jProdId && !Product::where('id', $jProdId)->exists()) {
+                        $jProdId = null;
+                    }
+
+                    $jCatId = $jItm['category_id'] ?? $workOrder->category_id;
+                    if ($jCatId && !\App\Models\Category::where('id', $jCatId)->exists()) {
+                        $jCatId = null;
+                    }
+
+                    $jSubCatId = $jItm['subcategory_id'] ?? $workOrder->subcategory_id;
+                    if ($jSubCatId && !\App\Models\Subcategory::where('id', $jSubCatId)->exists()) {
+                        $jSubCatId = null;
+                    }
+
+                    WorkOrderItem::create([
+                        'work_order_id' => $workOrder->id,
+                        'job_order_id' => $jobOrder->id,
+                        'product_id' => $jProdId,
+                        'design_no' => $jDesignNo,
+                        'product_name' => $jItm['product_name'] ?? $jItm['variant'] ?? ($jItm['name'] ?? $workOrder->product_name),
+                        'category_id' => $jCatId,
+                        'subcategory_id' => $jSubCatId,
+                        'item_code' => $jDesignNo,
+                        'required_qty' => $jReqQty,
+                        'completed_qty' => 0,
+                        'qc_pending_qty' => 0,
+                        'qc_approved_qty' => 0,
+                        'rework_qty' => 0,
+                        'ready_qty' => 0,
+                        'received_qty' => 0,
+                        'allotted_weight' => 0.000,
+                        'completed_weight' => 0,
+                        'making_charge_per_gram' => $jMc,
+                        'total_making_charges' => round($jWeight * $jMc, 2),
+                        'stone_details' => $jItm['stone_details'] ?? null,
+                        'pricing_details' => $jItm,
+                        'status' => 'pending',
+                    ]);
+                }
+
+                // Initial Timeline Events
                 WorkOrderTimeline::create([
                     'work_order_id' => $workOrder->id,
-                    'stage' => 'assigned',
-                    'stage_label' => "Assigned to Artisan ({$itemKarigarName})",
+                    'stage' => 'created',
+                    'stage_label' => "Work Order Created ({$workOrderNumber})",
                     'completed_weight_at_step' => 0,
-                    'pending_weight_at_step' => round($totalGoldWeight, 3),
+                    'pending_weight_at_step' => 0,
                     'status' => 'completed',
-                    'notes' => "Work Order {$workOrderNumber} assigned to artisan {$itemKarigarName}.",
-                    'user_id' => Auth::id() ?? 1,
-                    'action_by_name' => Auth::user()?->name ?? 'Admin',
-                    'created_at' => now()->addSecond(),
+                    'notes' => "Work Order {$workOrderNumber} with " . count($jobItemsList) . " jobs (Required Gold: " . round($totalGoldWeight, 3) . "g, Total Qty: {$totalRequiredQty}) created under Job Order {$jobOrderNumber}. Materials pending allocation from vault.",
+                    'user_id' => $creatorUserId,
+                    'action_by_name' => $creatorUserName,
+                    'created_at' => now(),
                 ]);
 
                 if (!empty($itemKarigarId)) {
-                    NotificationService::notifyWorkOrderAssigned($workOrder, Auth::id());
+                    WorkOrderTimeline::create([
+                        'work_order_id' => $workOrder->id,
+                        'stage' => 'assigned',
+                        'stage_label' => "Assigned to Artisan ({$itemKarigarName})",
+                        'completed_weight_at_step' => 0,
+                        'pending_weight_at_step' => 0,
+                        'status' => 'completed',
+                        'notes' => "Work Order {$workOrderNumber} assigned to artisan {$itemKarigarName}. Materials pending allocation from vault.",
+                        'user_id' => $creatorUserId,
+                        'action_by_name' => $creatorUserName,
+                        'created_at' => now()->addSecond(),
+                    ]);
                 }
-            }
 
-            // Dispatch business notification for creation
-            NotificationService::notifyWorkOrderCreated($workOrder, Auth::id());
-
-            // Debit Raw Material inventory vault for full allotted weight (Gold balance can be negative)
-            $matStr = strtolower(($itemMaterial) . ' ' . ($itemProductName));
-            $debitMatType = 'gold';
-            if (str_contains($matStr, 'silver')) {
-                $debitMatType = 'silver';
-            } elseif (str_contains($matStr, 'platinum')) {
-                $debitMatType = 'platinum';
-            } elseif (str_contains($matStr, 'diamond')) {
-                $debitMatType = 'diamond';
-            }
-
-            try {
-                \App\Models\RawMaterial::debitAllocation($debitMatType, $totalGoldWeight);
-                if ($totalDiamondCaratsRequired > 0 && $debitMatType !== 'diamond') {
-                    \App\Models\RawMaterial::debitAllocation('diamond', $totalDiamondCaratsRequired);
+                // Dispatch business notifications safely
+                try {
+                    if (!empty($itemKarigarId)) {
+                        NotificationService::notifyWorkOrderAssigned($workOrder, $creatorUserId);
+                    }
+                    NotificationService::notifyWorkOrderCreated($workOrder, $creatorUserId);
+                } catch (\Throwable $e) {
+                    Log::warning('Work order notification dispatch warning: ' . $e->getMessage());
                 }
-                if ($totalStonesCountRequired > 0) {
-                    \App\Models\RawMaterial::debitAllocation('stone', $totalStonesCountRequired);
+
+                // Material allocation is handled exclusively through Karigar Management -> Material Allocation
+                // Work order creation does not automatically debit gold, diamonds, or stones from the vault.
+
+                // Synchronize Karigar balance safely
+                if (!empty($itemKarigarId)) {
+                    try {
+                        $this->syncKarigarGoldBalance($itemKarigarId);
+                    } catch (\Throwable $e) {
+                        Log::warning('syncKarigarGoldBalance warning: ' . $e->getMessage());
+                    }
                 }
-                \App\Models\RawMaterial::recalculateAllocations();
-            } catch (\Exception $e) {
-                // Continue gracefully
-            }
 
-            if (!empty($itemKarigarId)) {
-                $this->syncKarigarGoldBalance($itemKarigarId);
-            }
+                // Update Parent Job Order totals & status safely
+                try {
+                    $jobOrder->updateDerivedStatus();
+                } catch (\Throwable $e) {
+                    Log::warning('updateDerivedStatus warning: ' . $e->getMessage());
+                }
 
-            // Update Parent Job Order totals & status
-            $jobOrder->updateDerivedStatus();
+                return response()->json([
+                    'status' => 'success',
+                    'message' => 'Work Order created successfully.',
+                    'job_order' => $jobOrder->load('jobs'),
+                    'data' => $workOrder->load(['karigar', 'product', 'category', 'subcategory', 'client', 'timelines', 'jobOrder', 'items'])
+                ], 201);
+            });
+        } catch (\Illuminate\Validation\ValidationException $ve) {
+            throw $ve;
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $he) {
+            throw $he;
+        } catch (\Throwable $e) {
+            Log::error('WorkOrderController::store failure: ' . $e->getMessage(), [
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            $isDatabaseError = $e instanceof \Illuminate\Database\QueryException || $e instanceof \PDOException;
+            $userSafeMsg = $isDatabaseError
+                ? 'Unable to create work order. Please verify your inputs and try again.'
+                : ('Unable to create work order: ' . $e->getMessage());
 
             return response()->json([
-                'status' => 'success',
-                'message' => 'Work Order created successfully.',
-                'job_order' => $jobOrder->load('jobs'),
-                'data' => $workOrder->load(['karigar', 'product', 'category', 'subcategory', 'client', 'timelines', 'jobOrder'])
-            ], 201);
-        });
+                'status' => 'error',
+                'message' => $userSafeMsg,
+            ], 400);
+        }
     }
 
     /**
@@ -728,41 +841,37 @@ class WorkOrderController extends Controller
         $karigar = Karigar::find($karigarId);
         if (!$karigar) return;
 
-        // Sum pending company-owned gold for active work orders
-        $activeOrders = WorkOrder::where('karigar_id', $karigarId)
-            ->whereNotIn('status', ['completed', 'cancelled', 'final_received', 'delivered'])
-            ->with('receivedPieces')
-            ->get();
+        // Update pending_weight on all work orders for this Karigar
+        $orders = WorkOrder::where('karigar_id', $karigarId)->with('receivedPieces')->get();
 
-        $benchBalance = 0.0;
-        foreach ($activeOrders as $wo) {
-            // Tally completed_weight strictly from received pieces if pieces exist
+        foreach ($orders as $wo) {
             $piecesSum = (float) $wo->receivedPieces->whereNotNull('received_at')->sum('gross_weight');
-            if ($piecesSum > 0) {
+            $updated = false;
+            if ($piecesSum > 0 && abs((float)$wo->completed_weight - $piecesSum) > 0.0001) {
                 $wo->completed_weight = round($piecesSum, 3);
+                $updated = true;
             }
-            $allotted = (float)$wo->allotted_weight + (float)($wo->additional_allocated_weight ?? 0);
-            $completed = (float)$wo->completed_weight;
-            $wastage = (float)$wo->wastage_weight;
-            $returned = (float)($wo->returned_weight ?? 0);
-            $pending = max(0.0, round($allotted - $completed - $wastage - $returned, 3));
-            $wo->pending_weight = $pending;
-            $wo->save();
-            $benchBalance += $pending;
+            if (\App\Models\KarigarMaterialTransaction::where('work_order_id', $wo->id)->where('material_type', 'gold')->exists()) {
+                $recon = \App\Services\WorkOrderGoldReconciliationService::calculateForWorkOrder($wo);
+                $pending = (float) ($recon['unused_fine_gold'] ?? 0);
+            } else {
+                $allotted = (float)$wo->allotted_weight + (float)($wo->additional_allocated_weight ?? 0);
+                $completed = (float)$wo->completed_weight;
+                $wastage = (float)$wo->wastage_weight;
+                $returned = (float)($wo->returned_weight ?? 0);
+                $pending = max(0.0, round($allotted - $completed - $wastage - $returned, 3));
+            }
+            if (abs((float)$wo->pending_weight - $pending) > 0.0001) {
+                $wo->pending_weight = $pending;
+                $updated = true;
+            }
+            if ($updated) {
+                $wo->saveQuietly();
+            }
         }
 
-        // Karigar-owned gold contributions across all work orders
-        $totalKarigarGold = (float) WorkOrder::where('karigar_id', $karigarId)->sum('karigar_gold_weight');
-
-        $benchBalance = max(0.0, round($benchBalance, 3));
-
-        // Signed settlement balance: Company gold on bench - Karigar-owned gold
-        $settlementBalance = round($benchBalance - $totalKarigarGold, 3);
-
-        $karigar->current_gold_balance_grams = $benchBalance;
-        $karigar->karigar_gold_balance_grams = round($totalKarigarGold, 3);
-        $karigar->settlement_balance_grams = $settlementBalance;
-        $karigar->save();
+        // Authoritatively synchronize persistent running balances on Karigar model
+        app(\App\Http\Controllers\Api\KarigarMaterialController::class)->syncKarigarBalances($karigar);
     }
 
     /**
@@ -773,8 +882,34 @@ class WorkOrderController extends Controller
         $order = WorkOrder::with([
             'karigar', 'product', 'category', 'subcategory', 'client',
             'creator', 'qualityChecker', 'approver', 'timelines',
-            'items', 'receivedPieces', 'delayUpdater', 'certificationUpdater', 'hallmarkingUpdater'
+            'items.product.category', 'items.category', 'items.subcategory',
+            'receivedPieces', 'delayUpdater', 'certificationUpdater', 'hallmarkingUpdater'
         ])->findOrFail($id);
+
+        self::ensurePiecesInitialized($order);
+        $order->load('receivedPieces');
+
+        if ($order->receivedPieces && $order->receivedPieces->isNotEmpty()) {
+            foreach ($order->items as $it) {
+                $itemPiecesSum = (float) $order->receivedPieces
+                    ->where('work_order_item_id', $it->id)
+                    ->where('gross_weight', '>', 0)
+                    ->sum('gross_weight');
+                if ($itemPiecesSum > 0 && abs((float)$it->completed_weight - $itemPiecesSum) > 0.001) {
+                    $it->completed_weight = round($itemPiecesSum, 3);
+                    $it->saveQuietly();
+                }
+            }
+
+            $orderPiecesSum = (float) $order->receivedPieces
+                ->where('gross_weight', '>', 0)
+                ->sum('gross_weight');
+            if ($orderPiecesSum > 0 && abs((float)$order->completed_weight - $orderPiecesSum) > 0.001) {
+                $order->completed_weight = round($orderPiecesSum, 3);
+                $order->pending_weight = max(0, round((float)$order->allotted_weight - (float)$order->completed_weight, 3));
+                $order->saveQuietly();
+            }
+        }
 
         return response()->json([
             'status' => 'success',
@@ -1006,8 +1141,11 @@ class WorkOrderController extends Controller
 
         $order = WorkOrder::findOrFail($id);
 
+        $reworkUnits = max(1, (int)$order->qc_pending_qty ?: 1);
+        $order->rework_qty = (int)$order->rework_qty + $reworkUnits;
+        $order->qc_pending_qty = 0;
         $order->status = 'returned';
-        $order->current_stage = 'reworking';
+        $order->current_stage = 'rework';
         $order->quality_status = 'returned';
         $order->return_reason = $request->return_reason;
         $order->return_count = ($order->return_count ?? 0) + 1;
@@ -1025,6 +1163,21 @@ class WorkOrderController extends Controller
             'documents_verified' => false,
         ];
         $order->save();
+
+        foreach ($order->items as $it) {
+            $it->status = 'rework';
+            $it->rework_qty = (int)$it->rework_qty + max(1, (int)$it->qc_pending_qty ?: 1);
+            $it->qc_pending_qty = 0;
+            $it->return_reason = $request->return_reason;
+            $it->save();
+        }
+
+        foreach ($order->receivedPieces()->whereNull('received_at')->get() as $p) {
+            $p->status = 'rework';
+            $p->qc_status = 'rejected';
+            $p->qc_notes = $request->return_reason;
+            $p->save();
+        }
 
         if ($order->jobOrder) {
             $order->jobOrder->updateDerivedStatus();
@@ -1457,13 +1610,23 @@ class WorkOrderController extends Controller
             'work_order_item_id' => 'nullable|exists:work_order_items,id',
             'actual_weight' => 'nullable|numeric|min:0',
             'completed_weight' => 'nullable|numeric|min:0',
+            'gold_wastage' => 'nullable|numeric|min:0',
+            'wastage_weight' => 'nullable|numeric|min:0',
+            'wastage' => 'nullable|numeric|min:0',
             'old_weight' => 'nullable|numeric|min:0',
             'new_gold_weight' => 'nullable|numeric|min:0',
-            'purity' => 'nullable|numeric|min:0',
+            'purity' => 'nullable',
             'colour_stone' => 'nullable|numeric|min:0',
+            'color_stone_weight' => 'nullable|numeric|min:0',
+            'colour_stone_count' => 'nullable|integer|min:0',
+            'color_stone_count' => 'nullable|integer|min:0',
+            'no_of_colour_stones' => 'nullable|integer|min:0',
             'silver' => 'nullable|numeric|min:0',
+            'silver_weight' => 'nullable|numeric|min:0',
             'diamond' => 'nullable|numeric|min:0',
+            'diamond_weight' => 'nullable|numeric|min:0',
             'no_of_diamonds' => 'nullable|integer|min:0',
+            'diamond_count' => 'nullable|integer|min:0',
             'remarks' => 'nullable|string',
             'delay' => 'nullable', // boolean or 'yes'/'no'
             'delay_reason' => 'nullable|string',
@@ -1477,7 +1640,23 @@ class WorkOrderController extends Controller
 
             $completedNow = (int)($request->input('completed_now') ?? $request->input('quantity') ?? $request->input('completed_qty') ?? 0);
             $pendingProduction = max(0, (int)$order->required_qty - (int)$order->completed_qty);
-            $maxAllowed = (int)$order->rework_qty + $pendingProduction;
+
+            $pieceReworkCount = WorkOrderReceivedPiece::where('work_order_id', $order->id)
+                ->where(function ($q) {
+                    $q->where('status', 'rework')
+                      ->orWhere('status', 'returned')
+                      ->orWhere('qc_status', 'rejected')
+                      ->orWhere('qc_status', 'rework');
+                })->count();
+
+            $orderReworkQty = max((int)$order->rework_qty, $pieceReworkCount);
+            if ($orderReworkQty === 0 && (in_array($order->status, ['returned', 'rework', 'rejected']) || in_array($order->current_stage, ['rework', 'returned']) || in_array($order->quality_status, ['returned', 'rejected', 'partial_rework']))) {
+                $orderReworkQty = 1;
+            }
+            $maxAllowed = $orderReworkQty + $pendingProduction;
+            if ($request->filled('piece_id')) {
+                $maxAllowed = max(1, $maxAllowed);
+            }
 
             if ($completedNow > $maxAllowed) {
                 return response()->json([
@@ -1492,7 +1671,21 @@ class WorkOrderController extends Controller
                 $item = WorkOrderItem::lockForUpdate()->where('work_order_id', $order->id)->find($validated['work_order_item_id']);
                 if ($item) {
                     $itemPending = max(0, (int)$item->required_qty - (int)$item->completed_qty);
-                    $itemMaxAllowed = (int)$item->rework_qty + $itemPending;
+                    $itemPieceRework = WorkOrderReceivedPiece::where('work_order_item_id', $item->id)
+                        ->where(function ($q) {
+                            $q->where('status', 'rework')
+                              ->orWhere('status', 'returned')
+                              ->orWhere('qc_status', 'rejected')
+                              ->orWhere('qc_status', 'rework');
+                        })->count();
+                    $itemReworkQty = max((int)$item->rework_qty, $itemPieceRework);
+                    if ($itemReworkQty === 0 && ($orderReworkQty > 0 || in_array($item->status, ['rework', 'returned', 'rejected', 'qc_rejected']))) {
+                        $itemReworkQty = 1;
+                    }
+                    $itemMaxAllowed = $itemReworkQty + $itemPending;
+                    if ($request->filled('piece_id')) {
+                        $itemMaxAllowed = max(1, $itemMaxAllowed);
+                    }
                     if ($completedNow > $itemMaxAllowed) {
                         return response()->json([
                             'status' => 'error',
@@ -1502,6 +1695,7 @@ class WorkOrderController extends Controller
                 }
             }
 
+            $targetPieces = collect();
             if ($completedNow > 0) {
                 $reworkToClearOrder = min((int)$order->rework_qty, $completedNow);
                 $newQtyForOrder = $completedNow - $reworkToClearOrder;
@@ -1521,14 +1715,15 @@ class WorkOrderController extends Controller
                     $item->save();
                 }
 
-                $addWeight = (float)($validated['actual_weight'] ?? $validated['completed_weight'] ?? $validated['new_gold_weight'] ?? 0);
+                $addWeight = (float)($validated['actual_weight'] ?? $validated['completed_weight'] ?? 0);
                 $weightPerPiece = $addWeight > 0 ? round($addWeight / max(1, $completedNow), 3) : null;
                 $purityVal = (float)($validated['purity'] ?? 91.60);
                 $oldWeightVal = (float)($validated['old_weight'] ?? 0);
-                $diaVal = (float)($validated['diamond'] ?? 0);
-                $diaCountVal = (int)($validated['no_of_diamonds'] ?? 0);
-                $colorStoneVal = (float)($validated['colour_stone'] ?? 0);
-                $silverVal = (float)($validated['silver'] ?? 0);
+                $diaVal = (float)($request->input('diamond_weight') ?? $request->input('diamond') ?? 0);
+                $diaCountVal = (int)($request->input('diamond_count') ?? $request->input('no_of_diamonds') ?? 0);
+                $colorStoneVal = (float)($request->input('color_stone_weight') ?? $request->input('colour_stone') ?? 0);
+                $colorStoneCountVal = (int)($request->input('color_stone_count') ?? $request->input('colour_stone_count') ?? $request->input('no_of_colour_stones') ?? 0);
+                $silverVal = (float)($request->input('silver_weight') ?? $request->input('silver') ?? 0);
 
                 $targetPieces = collect();
                 if ($request->filled('piece_id')) {
@@ -1612,7 +1807,7 @@ class WorkOrderController extends Controller
 
                 foreach ($targetPieces as $tp) {
                     $pieceGross = $weightPerPiece ?: ((float)$tp->gross_weight ?: ((float)$tp->allotted_weight ?: 0));
-                    $pieceNet = (float)($validated['new_gold_weight'] ?? round(max(0, $pieceGross - ($diaVal * 0.2) - ($colorStoneVal * 0.2) - $oldWeightVal), 3));
+                    $pieceNet = round(max(0, $pieceGross - ($diaVal * 0.2) - ($colorStoneVal * 0.2) - $oldWeightVal - $silverVal), 3);
                     if ($pieceNet <= 0) $pieceNet = $pieceGross;
 
                     $tp->gross_weight = $pieceGross;
@@ -1622,13 +1817,24 @@ class WorkOrderController extends Controller
                     $tp->diamond_weight = $diaVal;
                     $tp->diamond_count = $diaCountVal;
                     $tp->color_stone_weight = $colorStoneVal;
+                    $tp->color_stone_count = $colorStoneCountVal;
                     $tp->silver_weight = $silverVal;
+
+                    $wasInRework = (
+                        $tp->qc_status === 'rejected' ||
+                        $tp->status === 'rework' ||
+                        $tp->status === 'returned' ||
+                        !empty($tp->qc_submission_data['is_returned'])
+                    );
+
                     $tp->status = 'qc_pending';
                     $tp->qc_status = 'pending';
                     $tp->qc_checked_at = null;
                     $tp->qc_checked_by = null;
                     $tp->qc_notes = $validated['remarks'] ?? null;
-                    $tp->qc_submission_data = [
+
+                    $existingSubData = is_array($tp->qc_submission_data) ? $tp->qc_submission_data : [];
+                    $tp->qc_submission_data = array_merge($existingSubData, [
                         'work_order_number' => $order->work_order_number,
                         'work_order_item_id' => $tp->work_order_item_id ?: $item?->id,
                         'piece_number' => $tp->piece_number,
@@ -1646,35 +1852,154 @@ class WorkOrderController extends Controller
                         'diamond_weight' => $diaVal,
                         'diamond_count' => $diaCountVal,
                         'color_stone_weight' => $colorStoneVal,
+                        'color_stone_count' => $colorStoneCountVal,
                         'silver_weight' => $silverVal,
                         'remarks' => $validated['remarks'] ?? null,
                         'submitted_at' => now()->toDateTimeString(),
                         'submitted_by' => Auth::id() ?? 1,
-                    ];
+                        'is_resubmitted' => $wasInRework,
+                        'is_returned' => false,
+                        'resubmitted_at' => $wasInRework ? now()->toDateTimeString() : ($existingSubData['resubmitted_at'] ?? null),
+                    ]);
                     $tp->save();
+
+                    if ($wasInRework) {
+                        if ($order->rework_qty > 0) {
+                            $order->rework_qty = max(0, (int)$order->rework_qty - 1);
+                        }
+                        if ($item && $item->rework_qty > 0) {
+                            $item->rework_qty = max(0, (int)$item->rework_qty - 1);
+                            $item->save();
+                        }
+                    }
+                }
+
+                // Update stone details on order and item for fast retrieval
+                $currentStoneDetails = is_array($order->stone_details) ? $order->stone_details : (json_decode($order->stone_details ?? '[]', true) ?: []);
+                $currentStoneDetails['color_stone_weight'] = $colorStoneVal;
+                $currentStoneDetails['color_stone_count'] = $colorStoneCountVal;
+                $currentStoneDetails['diamond_weight'] = $diaVal;
+                $currentStoneDetails['diamond_count'] = $diaCountVal;
+                $currentStoneDetails['silver_weight'] = $silverVal;
+                $order->stone_details = $currentStoneDetails;
+
+                if ($item) {
+                    $itemStoneDetails = is_array($item->stone_details) ? $item->stone_details : (json_decode($item->stone_details ?? '[]', true) ?: []);
+                    $itemStoneDetails['color_stone_weight'] = $colorStoneVal;
+                    $itemStoneDetails['color_stone_count'] = $colorStoneCountVal;
+                    $itemStoneDetails['diamond_weight'] = $diaVal;
+                    $itemStoneDetails['diamond_count'] = $diaCountVal;
+                    $itemStoneDetails['silver_weight'] = $silverVal;
+                    $item->stone_details = $itemStoneDetails;
+                    $item->save();
                 }
             }
 
             // Weight updates
-            $addWeight = (float)($validated['actual_weight'] ?? $validated['completed_weight'] ?? $validated['new_gold_weight'] ?? 0);
-            if ($addWeight > 0) {
-                $order->completed_weight = round((float)$order->completed_weight + $addWeight, 3);
-                $order->pending_weight = max(0, round((float)$order->allotted_weight - (float)$order->completed_weight, 3));
-                if ($item) {
-                    $item->completed_weight = round((float)$item->completed_weight + $addWeight, 3);
-                    $item->save();
+            $addWeight = (float)($validated['actual_weight'] ?? $validated['completed_weight'] ?? 0);
+            if ($addWeight > 0 || $targetPieces->isNotEmpty()) {
+                $hasPieceTracking = $targetPieces->isNotEmpty() || WorkOrderReceivedPiece::where('work_order_id', $order->id)->exists();
+
+                if ($hasPieceTracking) {
+                    if ($item) {
+                        $itemPiecesSum = (float) WorkOrderReceivedPiece::where('work_order_item_id', $item->id)
+                            ->where('gross_weight', '>', 0)
+                            ->sum('gross_weight');
+                        $item->completed_weight = round($itemPiecesSum > 0 ? $itemPiecesSum : $addWeight, 3);
+                        $item->save();
+                    }
+
+                    $orderPiecesSum = (float) WorkOrderReceivedPiece::where('work_order_id', $order->id)
+                        ->where('gross_weight', '>', 0)
+                        ->sum('gross_weight');
+                    $order->completed_weight = round($orderPiecesSum > 0 ? $orderPiecesSum : $addWeight, 3);
+                } else {
+                    $reworkToClearOrder = min((int)$order->rework_qty, $completedNow);
+                    $newQtyForOrder = $completedNow - $reworkToClearOrder;
+                    if ($newQtyForOrder > 0 && $completedNow > 0) {
+                        $weightIncrement = round(($addWeight / $completedNow) * $newQtyForOrder, 3);
+                        $order->completed_weight = round((float)$order->completed_weight + $weightIncrement, 3);
+                        if ($item) {
+                            $item->completed_weight = round((float)$item->completed_weight + $weightIncrement, 3);
+                            $item->save();
+                        }
+                    } elseif ($completedNow > 0 && $reworkToClearOrder > 0) {
+                        $order->completed_weight = max($addWeight, (float)$order->completed_weight);
+                        if ($item) {
+                            $item->completed_weight = max($addWeight, (float)$item->completed_weight);
+                            $item->save();
+                        }
+                    } else {
+                        $order->completed_weight = round((float)$order->completed_weight + $addWeight, 3);
+                        if ($item) {
+                            $item->completed_weight = round((float)$item->completed_weight + $addWeight, 3);
+                            $item->save();
+                        }
+                    }
                 }
+
+                $order->pending_weight = max(0, round((float)$order->allotted_weight - (float)$order->completed_weight, 3));
 
                 $pricing = $order->pricing_details ?? [];
                 if (!empty($pricing['items']) && is_array($pricing['items'])) {
                     foreach ($pricing['items'] as &$pItm) {
                         if (($item && ($pItm['id'] ?? null) == $item->id) || ($pItm['design_number'] ?? $pItm['design_no'] ?? '') == ($item->design_no ?? $order->design_code)) {
-                            $pItm['completed_weight'] = round((float)($pItm['completed_weight'] ?? 0) + $addWeight, 3);
+                            $pItm['completed_weight'] = $item ? $item->completed_weight : $order->completed_weight;
                             $pItm['completed_qty'] = $item ? $item->completed_qty : $order->completed_qty;
                         }
                     }
                     unset($pItm);
                     $order->pricing_details = $pricing;
+                }
+            }
+
+            // Wastage handling: persist workbench gold wastage
+            $wastageInput = null;
+            if ($request->has('gold_wastage')) {
+                $wastageInput = $request->input('gold_wastage');
+            } elseif ($request->has('wastage_weight')) {
+                $wastageInput = $request->input('wastage_weight');
+            } elseif ($request->has('wastage')) {
+                $wastageInput = $request->input('wastage');
+            }
+
+            if ($wastageInput !== null && $wastageInput !== '') {
+                $wastageVal = max(0.0, round((float)$wastageInput, 3));
+                $order->wastage_weight = $wastageVal;
+
+                $orderPricing = is_array($order->pricing_details) ? $order->pricing_details : (json_decode($order->pricing_details ?? '[]', true) ?: []);
+                $orderPricing['wastage_weight'] = $wastageVal;
+                $orderPricing['gold_wastage'] = $wastageVal;
+                $order->pricing_details = $orderPricing;
+
+                if ($item) {
+                    $itemPricing = is_array($item->pricing_details) ? $item->pricing_details : (json_decode($item->pricing_details ?? '[]', true) ?: []);
+                    $itemPricing['wastage_weight'] = $wastageVal;
+                    $itemPricing['gold_wastage'] = $wastageVal;
+                    $item->pricing_details = $itemPricing;
+                    $item->save();
+                }
+
+                if (isset($targetPieces) && $targetPieces->isNotEmpty()) {
+                    foreach ($targetPieces as $tp) {
+                        $tpQc = is_array($tp->qc_submission_data) ? $tp->qc_submission_data : [];
+                        $tpQc['wastage_weight'] = $wastageVal;
+                        $tpQc['gold_wastage'] = $wastageVal;
+                        $tp->qc_submission_data = $tpQc;
+                        $tp->save();
+                    }
+                } elseif ($completedNow === 0) {
+                    $existingPiecesQuery = WorkOrderReceivedPiece::where('work_order_id', $order->id);
+                    if ($item) {
+                        $existingPiecesQuery->where('work_order_item_id', $item->id);
+                    }
+                    foreach ($existingPiecesQuery->get() as $ep) {
+                        $epQc = is_array($ep->qc_submission_data) ? $ep->qc_submission_data : [];
+                        $epQc['wastage_weight'] = $wastageVal;
+                        $epQc['gold_wastage'] = $wastageVal;
+                        $ep->qc_submission_data = $epQc;
+                        $ep->save();
+                    }
                 }
             }
 
@@ -1720,12 +2045,24 @@ class WorkOrderController extends Controller
 
             // Update status & current stage
             if ($completedNow > 0) {
-                if ($order->completed_qty >= $order->required_qty) {
+                if ($order->completed_qty >= $order->required_qty || ($reworkToClearOrder > 0 && (int)$order->rework_qty === 0)) {
                     $order->current_stage = 'quality_check';
                     $order->status = 'pending_approval';
+                    $order->quality_status = 'pending';
+                    $order->return_reason = null;
+                    $order->karigar_submitted_at = now();
+                } elseif ($order->rework_qty > 0) {
+                    $order->current_stage = 'rework';
+                    $order->status = 'returned';
                 } else {
                     $order->current_stage = 'work_in_progress';
                     $order->status = 'in_progress';
+                    $order->karigar_submitted_at = now();
+                }
+
+                if ($item && (int)$item->rework_qty === 0 && (int)$item->qc_pending_qty > 0) {
+                    $item->status = 'quality_check';
+                    $item->save();
                 }
             }
 
@@ -1955,9 +2292,9 @@ class WorkOrderController extends Controller
                     $pq = WorkOrderReceivedPiece::where('work_order_id', $order->id)
                         ->whereNull('received_at')
                         ->where(function ($q) {
-                            $q->whereIn('status', ['in_progress', 'rework'])
-                              ->orWhereNull('qc_status')
-                              ->orWhere('qc_status', 'pending');
+                            $q->whereIn('status', ['in_progress', 'rework', 'returned', 'qc_pending'])
+                              ->orWhereIn('qc_status', ['rejected', 'rework', 'pending'])
+                              ->orWhereNull('qc_status');
                         });
                     if ($item) $pq->where('work_order_item_id', $item->id);
                     $targetPieces = $pq->orderBy('piece_number', 'asc')->take($completedNow)->get();
@@ -1969,10 +2306,20 @@ class WorkOrderController extends Controller
                     $pieceGross = $weightPerPiece ?: ((float)$tp->gross_weight ?: ((float)$tp->allotted_weight ?: 0));
                     $tp->gross_weight = $pieceGross;
                     $tp->net_gold_weight = $pieceGross;
+
+                    $wasInRework = (
+                        $tp->qc_status === 'rejected' ||
+                        $tp->status === 'rework' ||
+                        $tp->status === 'returned' ||
+                        !empty($tp->qc_submission_data['is_returned'])
+                    );
+
                     $tp->status = 'qc_pending';
                     $tp->qc_status = 'pending';
                     $tp->qc_notes = $itemData['remarks'] ?? null;
-                    $tp->qc_submission_data = [
+
+                    $existingSubData = is_array($tp->qc_submission_data) ? $tp->qc_submission_data : [];
+                    $tp->qc_submission_data = array_merge($existingSubData, [
                         'work_order_number' => $order->work_order_number,
                         'work_order_item_id' => $tp->work_order_item_id ?: $item?->id,
                         'piece_number' => $tp->piece_number,
@@ -1987,8 +2334,21 @@ class WorkOrderController extends Controller
                         'remarks' => $itemData['remarks'] ?? null,
                         'submitted_at' => now()->toDateTimeString(),
                         'submitted_by' => Auth::id() ?? 1,
-                    ];
+                        'is_resubmitted' => $wasInRework,
+                        'is_returned' => false,
+                        'resubmitted_at' => $wasInRework ? now()->toDateTimeString() : ($existingSubData['resubmitted_at'] ?? null),
+                    ]);
                     $tp->save();
+
+                    if ($wasInRework) {
+                        if ($order->rework_qty > 0) {
+                            $order->rework_qty = max(0, (int)$order->rework_qty - 1);
+                        }
+                        if ($item && $item->rework_qty > 0) {
+                            $item->rework_qty = max(0, (int)$item->rework_qty - 1);
+                            $item->save();
+                        }
+                    }
                 }
 
                 WorkOrderTimeline::create([
@@ -2042,9 +2402,18 @@ class WorkOrderController extends Controller
             'quantity' => 'nullable|integer|min:0',
             'piece_id' => 'nullable|exists:work_order_received_pieces,id',
             'reason' => 'nullable|string',
+            'rework_reason' => 'nullable|string',
             'notes' => 'nullable|string',
             'remarks' => 'nullable|string',
             'work_order_item_id' => 'nullable|exists:work_order_items,id',
+            'actual_weight' => 'nullable|numeric|min:0',
+            'gross_weight' => 'nullable|numeric|min:0',
+            'completed_weight' => 'nullable|numeric|min:0',
+            'diamond_weight' => 'nullable|numeric|min:0',
+            'diamond_count' => 'nullable|integer|min:0',
+            'gold_wastage' => 'nullable|numeric|min:0',
+            'wastage_weight' => 'nullable|numeric|min:0',
+            'wastage' => 'nullable|numeric|min:0',
         ]);
 
         return DB::transaction(function () use ($request, $validated, $id) {
@@ -2069,6 +2438,36 @@ class WorkOrderController extends Controller
             if ($validated['action'] === 'update_remarks') {
                 $noteText = $validated['notes'] ?? $validated['remarks'] ?? '';
                 $order->quality_notes = $noteText;
+
+                $submittedGross = null;
+                if ($request->filled('actual_weight')) $submittedGross = (float)$request->input('actual_weight');
+                elseif ($request->filled('gross_weight')) $submittedGross = (float)$request->input('gross_weight');
+                elseif ($request->filled('completed_weight')) $submittedGross = (float)$request->input('completed_weight');
+
+                $submittedDiaWt = $request->filled('diamond_weight') ? (float)$request->input('diamond_weight') : null;
+                $submittedDiaCount = $request->filled('diamond_count') ? (int)$request->input('diamond_count') : null;
+
+                $submittedWastage = null;
+                if ($request->filled('gold_wastage')) $submittedWastage = (float)$request->input('gold_wastage');
+                elseif ($request->filled('wastage_weight')) $submittedWastage = (float)$request->input('wastage_weight');
+                elseif ($request->filled('wastage')) $submittedWastage = (float)$request->input('wastage');
+
+                $orderPricing = is_array($order->pricing_details) ? $order->pricing_details : (json_decode($order->pricing_details ?? '[]', true) ?: []);
+                if ($submittedGross !== null && $submittedGross > 0) {
+                    $order->completed_weight = $submittedGross;
+                }
+                if ($submittedDiaWt !== null) {
+                    $orderPricing['diamond_weight'] = $submittedDiaWt;
+                }
+                if ($submittedDiaCount !== null) {
+                    $orderPricing['diamond_count'] = $submittedDiaCount;
+                }
+                if ($submittedWastage !== null) {
+                    $order->wastage_weight = $submittedWastage;
+                    $orderPricing['wastage_weight'] = $submittedWastage;
+                    $orderPricing['gold_wastage'] = $submittedWastage;
+                }
+                $order->pricing_details = $orderPricing;
                 $order->save();
 
                 if ($request->filled('piece_id')) {
@@ -2076,6 +2475,27 @@ class WorkOrderController extends Controller
                         ->lockForUpdate()
                         ->findOrFail($request->input('piece_id'));
                     $remarksPiece->qc_notes = $noteText;
+
+                    if ($submittedGross !== null && $submittedGross > 0) {
+                        $remarksPiece->gross_weight = $submittedGross;
+                        $diaG = ((float)($submittedDiaWt ?? $remarksPiece->diamond_weight ?? 0)) * 0.2;
+                        $remarksPiece->net_gold_weight = max(0.0, $submittedGross - $diaG);
+                    }
+                    if ($submittedDiaWt !== null) {
+                        $remarksPiece->diamond_weight = $submittedDiaWt;
+                        if ((float)$remarksPiece->gross_weight > 0) {
+                            $remarksPiece->net_gold_weight = max(0.0, (float)$remarksPiece->gross_weight - ($submittedDiaWt * 0.2));
+                        }
+                    }
+                    if ($submittedDiaCount !== null) {
+                        $remarksPiece->diamond_count = $submittedDiaCount;
+                    }
+                    if ($submittedWastage !== null) {
+                        $rQc = is_array($remarksPiece->qc_submission_data) ? $remarksPiece->qc_submission_data : [];
+                        $rQc['wastage_weight'] = $submittedWastage;
+                        $rQc['gold_wastage'] = $submittedWastage;
+                        $remarksPiece->qc_submission_data = $rQc;
+                    }
                     $remarksPiece->save();
                 }
 
@@ -2083,14 +2503,17 @@ class WorkOrderController extends Controller
                     $item = WorkOrderItem::lockForUpdate()->where('work_order_id', $order->id)->find($validated['work_order_item_id']);
                     if ($item) {
                         $item->remarks = $noteText;
+                        if ($submittedGross !== null && $submittedGross > 0) {
+                            $item->completed_weight = $submittedGross;
+                        }
                         $item->save();
                     }
                 }
 
                 return response()->json([
                     'status' => 'success',
-                    'message' => 'QC inspection remarks updated successfully.',
-                    'data' => $order->fresh(['items', 'client', 'karigar']),
+                    'message' => 'QC inspection details and weights updated successfully.',
+                    'data' => $order->fresh(['items', 'client', 'karigar', 'receivedPieces']),
                 ]);
             }
 
@@ -2159,6 +2582,17 @@ class WorkOrderController extends Controller
                     }
                     $item->qc_approved_qty = (int)$item->qc_approved_qty + $passQty;
                     $item->ready_qty = (int)$item->ready_qty + $passQty;
+                    if ((int)$item->rework_qty > 0) {
+                        $item->status = 'rework';
+                    } elseif ((int)$item->qc_pending_qty > 0) {
+                        $item->status = 'quality_check';
+                    } elseif ((int)$item->ready_qty > (int)$item->received_qty) {
+                        $item->status = 'ready';
+                    } elseif ($item->received_qty >= $item->required_qty) {
+                        $item->status = 'completed';
+                    } else {
+                        $item->status = 'in_progress';
+                    }
                     $item->save();
                 }
 
@@ -2178,12 +2612,67 @@ class WorkOrderController extends Controller
                     if ($item) $pq->where('work_order_item_id', $item->id);
                     $passPieces = $pq->orderBy('piece_number', 'asc')->take($passQty)->get();
                 }
+                // Persist any updated weights from QC inspection form
+                $submittedGross = null;
+                if ($request->filled('actual_weight')) $submittedGross = (float)$request->input('actual_weight');
+                elseif ($request->filled('gross_weight')) $submittedGross = (float)$request->input('gross_weight');
+                elseif ($request->filled('completed_weight')) $submittedGross = (float)$request->input('completed_weight');
+
+                $submittedDiaWt = $request->filled('diamond_weight') ? (float)$request->input('diamond_weight') : null;
+                $submittedDiaCount = $request->filled('diamond_count') ? (int)$request->input('diamond_count') : null;
+
+                $submittedWastage = null;
+                if ($request->filled('gold_wastage')) $submittedWastage = (float)$request->input('gold_wastage');
+                elseif ($request->filled('wastage_weight')) $submittedWastage = (float)$request->input('wastage_weight');
+                elseif ($request->filled('wastage')) $submittedWastage = (float)$request->input('wastage');
+
+                $orderPricing = is_array($order->pricing_details) ? $order->pricing_details : (json_decode($order->pricing_details ?? '[]', true) ?: []);
+                if ($submittedGross !== null && $submittedGross > 0) {
+                    $order->completed_weight = $submittedGross;
+                }
+                if ($submittedDiaWt !== null) {
+                    $orderPricing['diamond_weight'] = $submittedDiaWt;
+                }
+                if ($submittedDiaCount !== null) {
+                    $orderPricing['diamond_count'] = $submittedDiaCount;
+                }
+                if ($submittedWastage !== null) {
+                    $order->wastage_weight = $submittedWastage;
+                    $orderPricing['wastage_weight'] = $submittedWastage;
+                    $orderPricing['gold_wastage'] = $submittedWastage;
+                }
+                $order->pricing_details = $orderPricing;
+
                 foreach ($passPieces as $pp) {
                     $pp->qc_status = 'passed';
                     $pp->status = 'ready';
                     $pp->qc_notes = $validated['notes'] ?? 'QC Passed';
                     $pp->qc_checked_at = now();
                     $pp->qc_checked_by = Auth::id() ?? 1;
+
+                    if ($submittedGross !== null && $submittedGross > 0) {
+                        $pp->gross_weight = $submittedGross;
+                        $diaG = ((float)($submittedDiaWt ?? $pp->diamond_weight ?? 0)) * 0.2;
+                        $pp->net_gold_weight = max(0.0, $submittedGross - $diaG);
+                    }
+                    if ($submittedDiaWt !== null) {
+                        $pp->diamond_weight = $submittedDiaWt;
+                        if ((float)$pp->gross_weight > 0) {
+                            $pp->net_gold_weight = max(0.0, (float)$pp->gross_weight - ($submittedDiaWt * 0.2));
+                        }
+                    }
+                    if ($submittedDiaCount !== null) {
+                        $pp->diamond_count = $submittedDiaCount;
+                    }
+
+                    $ppQc = is_array($pp->qc_submission_data) ? $pp->qc_submission_data : [];
+                    if ($submittedWastage !== null) {
+                        $ppQc['wastage_weight'] = $submittedWastage;
+                        $ppQc['gold_wastage'] = $submittedWastage;
+                    }
+                    $ppQc['wastage_approved'] = true;
+                    $ppQc['approved_wastage_weight'] = (float)($submittedWastage ?? $ppQc['wastage_weight'] ?? $order->wastage_weight ?? 0);
+                    $pp->qc_submission_data = $ppQc;
                     $pp->save();
                 }
             }
@@ -2200,6 +2689,8 @@ class WorkOrderController extends Controller
                 if ($item) {
                     $item->qc_pending_qty = max(0, (int)$item->qc_pending_qty - $reworkQty);
                     $item->rework_qty = (int)$item->rework_qty + $reworkQty;
+                    $item->status = 'rework';
+                    $item->return_reason = $order->return_reason;
                     $item->save();
                 }
 
@@ -2225,15 +2716,27 @@ class WorkOrderController extends Controller
                     $rp->qc_notes = $order->return_reason;
                     $rp->qc_checked_at = now();
                     $rp->qc_checked_by = Auth::id() ?? 1;
+
+                    $rpQc = is_array($rp->qc_submission_data) ? $rp->qc_submission_data : [];
+                    $rpQc['wastage_approved'] = false;
+                    $rpQc['is_returned'] = true;
+                    $rpQc['return_reason'] = $order->return_reason;
+                    $rpQc['return_count'] = ($rpQc['return_count'] ?? 0) + 1;
+                    $rpQc['is_resubmitted'] = false;
+                    $rp->qc_submission_data = $rpQc;
                     $rp->save();
                 }
             }
 
             // Stage updates
-            if ($reworkQty > 0 && $passQty == 0) {
+            if ($order->rework_qty > 0 && $order->ready_qty == 0) {
                 $order->current_stage = 'rework';
                 $order->status = 'returned';
                 $order->quality_status = 'returned';
+            } elseif ($order->rework_qty > 0 && $order->ready_qty > 0) {
+                $order->current_stage = 'rework';
+                $order->status = 'returned';
+                $order->quality_status = 'partial_rework';
             } elseif ($order->ready_qty > 0) {
                 $order->current_stage = 'ready';
                 $order->status = 'ready';
@@ -2328,6 +2831,7 @@ class WorkOrderController extends Controller
                 $grossWeight = (float)$piece->gross_weight;
                 $pure24kWeight = (float)$piece->pure_24k_weight;
                 $purity = (float)$piece->purity;
+                $dynamicStamp = $piece->diamond_stamp ?: ($order->stamp ?? null);
 
                 $product = null;
                 if (!empty($piece->product_id)) {
@@ -2385,12 +2889,20 @@ class WorkOrderController extends Controller
                     $attrs['gold_karat'] = (string)($piece->gold_karat ?? $attrs['gold_karat'] ?? '22K');
                     $attrs['no_of_pieces'] = (string)$product->current_stock_qty;
                     if (!empty($piece->diamond_weight) && (float)$piece->diamond_weight > 0) {
-                        $attrs['dia_wt_ct'] = round((float)($attrs['dia_wt_ct'] ?? 0) + (float)$piece->diamond_weight, 3);
-                        $attrs['diamond_count'] = (int)($attrs['diamond_count'] ?? 0) + (int)($piece->diamond_count ?? 0);
+                        if (empty($attrs['dia_wt_ct']) && empty($attrs['diamond_weight'])) {
+                            $attrs['dia_wt_ct'] = round((float)$piece->diamond_weight, 3);
+                            $attrs['diamond_weight'] = round((float)$piece->diamond_weight, 3);
+                            $attrs['diamond_count'] = (int)($piece->diamond_count ?: ($attrs['diamond_count'] ?? 1));
+                        }
+                        if (!empty($piece->diamond_stamp) || !empty($dynamicStamp)) {
+                            $attrs['diamond_stamp'] = $piece->diamond_stamp ?: $dynamicStamp;
+                        }
                     }
                     if (!empty($piece->color_stone_weight) && (float)$piece->color_stone_weight > 0) {
-                        $attrs['stone_weight'] = round((float)($attrs['stone_weight'] ?? 0) + (float)$piece->color_stone_weight, 3);
-                        $attrs['stone_count'] = (int)($attrs['stone_count'] ?? 0) + (int)($piece->color_stone_count ?? 0);
+                        if (empty($attrs['stone_weight'])) {
+                            $attrs['stone_weight'] = round((float)$piece->color_stone_weight, 3);
+                            $attrs['stone_count'] = (int)($piece->color_stone_count ?: ($attrs['stone_count'] ?? 1));
+                        }
                     }
                     if ($piece->tag_number) {
                         $tags = is_array($attrs['tags'] ?? null) ? $attrs['tags'] : [];
@@ -2400,6 +2912,41 @@ class WorkOrderController extends Controller
                         $attrs['tags'] = $tags;
                         $attrs['last_tag_number'] = $piece->tag_number;
                     }
+
+                    // Preserve diamond components and purchase rates/values from work order if not already present
+                    $woItem = $piece->work_order_item_id ? WorkOrderItem::find($piece->work_order_item_id) : $order->items()->first();
+                    $itemPricing = is_array($woItem?->pricing_details) ? $woItem->pricing_details : (json_decode($woItem?->pricing_details ?? '[]', true) ?: []);
+                    $sieves = $itemPricing['diamond_sieves'] ?? [];
+                    if (empty($sieves)) {
+                        $orderPricing = is_array($order->pricing_details) ? $order->pricing_details : (json_decode($order->pricing_details ?? '[]', true) ?: []);
+                        $sieves = $orderPricing['diamond_sieves'] ?? [];
+                    }
+                    if (!empty($sieves) && is_array($sieves)) {
+                        $existingComponents = is_array($attrs['components'] ?? null) ? $attrs['components'] : [];
+                        $hasExistingDiamondComp = collect($existingComponents)->contains(function ($c) {
+                            $cName = strtolower($c['category_name'] ?? $c['item_name'] ?? $c['component_type'] ?? '');
+                            return !empty($c['is_diamond']) || str_contains($cName, 'diamond') || str_contains($cName, 'dia');
+                        });
+                        if (!$hasExistingDiamondComp) {
+                            foreach ($sieves as $sieve) {
+                                $existingComponents[] = [
+                                    'component_type' => 'diamond',
+                                    'category_name' => 'Diamond',
+                                    'stamp' => $sieve['stamp'] ?? '',
+                                    'size' => $sieve['stamp'] ?? '',
+                                    'no_of_pieces' => (int)($sieve['count'] ?? 1),
+                                    'quantity' => (int)($sieve['count'] ?? 1),
+                                    'stone_weight' => (float)($sieve['weight'] ?? 0),
+                                    'gross_wt' => (float)($sieve['weight'] ?? 0),
+                                    'unit' => 'ct',
+                                    'purchase_rate' => (float)($sieve['rate'] ?? 0),
+                                    'purchase_value' => round(((float)($sieve['weight'] ?? 0)) * ((float)($sieve['rate'] ?? 0)), 2),
+                                ];
+                            }
+                            $attrs['components'] = $existingComponents;
+                        }
+                    }
+
                     $product->attributes = $attrs;
                     $product->save();
                 } else {
@@ -2407,8 +2954,52 @@ class WorkOrderController extends Controller
                     $subcatId = $order->subcategory_id;
                     if (empty($catId) || !Category::where('id', $catId)->exists()) {
                         $firstCat = Category::first();
-                        $catId = $firstCat ? $firstCat->id : Category::create(['name' => 'Jewellery', 'code' => 'JWL', 'status' => 'active'])->id;
+                        $catId = $firstCat ? $firstCat->id : null;
                     }
+                    $woItem = $piece->work_order_item_id ? WorkOrderItem::find($piece->work_order_item_id) : $order->items()->first();
+                    $itemPricing = is_array($woItem?->pricing_details) ? $woItem->pricing_details : (json_decode($woItem?->pricing_details ?? '[]', true) ?: []);
+                    $sieves = $itemPricing['diamond_sieves'] ?? [];
+                    if (empty($sieves)) {
+                        $orderPricing = is_array($order->pricing_details) ? $order->pricing_details : (json_decode($order->pricing_details ?? '[]', true) ?: []);
+                        $sieves = $orderPricing['diamond_sieves'] ?? [];
+                    }
+                    $initialComponents = [];
+                    if (!empty($sieves) && is_array($sieves)) {
+                        foreach ($sieves as $sieve) {
+                            $initialComponents[] = [
+                                'component_type' => 'diamond',
+                                'category_name' => 'Diamond',
+                                'stamp' => $sieve['stamp'] ?? '',
+                                'size' => $sieve['stamp'] ?? '',
+                                'no_of_pieces' => (int)($sieve['count'] ?? 1),
+                                'quantity' => (int)($sieve['count'] ?? 1),
+                                'stone_weight' => (float)($sieve['weight'] ?? 0),
+                                'gross_wt' => (float)($sieve['weight'] ?? 0),
+                                'unit' => 'ct',
+                                'purchase_rate' => (float)($sieve['rate'] ?? 0),
+                                'purchase_value' => round(((float)($sieve['weight'] ?? 0)) * ((float)($sieve['rate'] ?? 0)), 2),
+                            ];
+                        }
+                    }
+
+                    $initialAttrs = [
+                        'design_no' => $designNo,
+                        'gross_wt' => round($grossWeight, 3),
+                        'net_wt' => round((float)$piece->net_gold_weight, 3),
+                        'unit_gross_wt' => round($grossWeight, 3),
+                        'unit_net_wt' => round((float)$piece->net_gold_weight, 3),
+                        'purity' => (string)($piece->purity ?? '91.6'),
+                        'gold_karat' => (string)($piece->gold_karat ?? '22K'),
+                        'no_of_pieces' => '1',
+                        'dia_wt_ct' => !empty($piece->diamond_weight) ? round((float)$piece->diamond_weight, 3) : 0,
+                        'diamond_count' => !empty($piece->diamond_count) ? (int)$piece->diamond_count : 0,
+                        'diamond_stamp' => $piece->diamond_stamp ?: $dynamicStamp ?: null,
+                        'stone_weight' => !empty($piece->color_stone_weight) ? round((float)$piece->color_stone_weight, 3) : 0,
+                        'stone_count' => !empty($piece->color_stone_count) ? (int)$piece->color_stone_count : 0,
+                        'tags' => $piece->tag_number ? [$piece->tag_number] : [],
+                        'last_tag_number' => $piece->tag_number,
+                        'components' => $initialComponents,
+                    ];
                     $product = Product::create([
                         'category_id' => $catId,
                         'subcategory_id' => $subcatId,
@@ -2419,6 +3010,7 @@ class WorkOrderController extends Controller
                         'opening_stock_weight' => round($grossWeight, 3),
                         'opening_touch' => round($purity, 2),
                         'opening_fine_weight' => round($pure24kWeight, 3),
+                        'attributes' => $initialAttrs,
                         'status' => 'active',
                     ]);
                 }
@@ -2898,6 +3490,7 @@ class WorkOrderController extends Controller
             'diamond_stamp' => 'nullable|string|max:50',
             'stamp' => 'nullable|string|max:50',
             'diamond_details' => 'nullable|string|max:100',
+            'diamond_sieves' => 'nullable|array',
             'color_stone_weight' => 'nullable|numeric|min:0',
             'color_stone_count' => 'nullable|integer|min:0',
             'making_charge_type' => 'nullable|string|in:per_gram,percentage,fixed',
@@ -3031,9 +3624,9 @@ class WorkOrderController extends Controller
                     ->first();
             }
 
-            $receiveOrderNumber = $targetPiece?->receive_order_number ?: WorkOrderReceivedPiece::generateReceiveOrderNumber();
-            $tagNumber = $targetPiece?->tag_number ?: WorkOrderReceivedPiece::generateTagNumber();
-            $pieceNumber = $targetPiece?->piece_number ?: ((int)$order->received_qty + 1);
+            $receiveOrderNumber = $request->input('receive_order_number') ?: ($targetPiece?->receive_order_number ?: WorkOrderReceivedPiece::generateReceiveOrderNumber());
+            $tagNumber = $request->input('tag_number') ?: ($targetPiece?->tag_number ?: WorkOrderReceivedPiece::generateTagNumber());
+            $pieceNumber = (int)($request->input('piece_number') ?: ($targetPiece?->piece_number ?: ((int)$order->received_qty + 1)));
 
             $designNo = $item?->design_no ?: $order->design_code ?: 'DES-' . str_pad($order->id, 4, '0', STR_PAD_LEFT);
             $rawProductName = $item?->product_name ?: $order->product_name ?: 'Jewellery Product';
@@ -3056,7 +3649,36 @@ class WorkOrderController extends Controller
             }
 
             // Resolve Product and dynamic stamp / diamond count from inventory product details
-            $resolvedProduct = $item?->product ?: ($order->product ?: Product::where('design_no', $designNo)->first());
+            $resolvedProduct = $item?->product ?: ($order->product ?: Product::where('design_no', $designNo)->orWhere('product_code', $designNo)->first());
+            if (!$resolvedProduct && !empty($productName)) {
+                $resolvedProduct = Product::where('name', $productName)->first();
+            }
+            if (!$resolvedProduct) {
+                $catId = $order->category_id;
+                $subcatId = $order->subcategory_id;
+                if (empty($catId) || !Category::where('id', $catId)->exists()) {
+                    $firstCat = Category::first();
+                    $catId = $firstCat ? $firstCat->id : null;
+                }
+                $resolvedProduct = Product::create([
+                    'category_id' => $catId,
+                    'subcategory_id' => $subcatId,
+                    'name' => $productName,
+                    'product_code' => $designNo,
+                    'design_no' => $designNo,
+                    'current_stock_qty' => 0,
+                    'opening_stock_weight' => 0,
+                    'opening_touch' => round($purity, 2),
+                    'opening_fine_weight' => 0,
+                    'attributes' => [
+                        'design_no' => $designNo,
+                        'purity' => (string)($purity ?? '91.6'),
+                        'gold_karat' => $validated['gold_karat'] ?? '22K',
+                    ],
+                    'status' => 'active',
+                ]);
+            }
+
             $resolvedAttributes = is_array($resolvedProduct?->attributes) 
                 ? $resolvedProduct->attributes 
                 : (is_string($resolvedProduct?->attributes) ? json_decode($resolvedProduct->attributes, true) : []);
@@ -3107,6 +3729,77 @@ class WorkOrderController extends Controller
                 $diamondDetails = "Dia-{$formattedDiaWt}/+{$cleanStamp}/{$diaCount}";
             }
 
+            // Build structured components list and compute exact piece purchase value
+            $diamondSievesInput = $request->input('diamond_sieves', $validated['diamond_sieves'] ?? null);
+            $components = [];
+            $diamondPurchaseTotal = 0.0;
+            if (!empty($diamondSievesInput) && is_array($diamondSievesInput)) {
+                foreach ($diamondSievesInput as $sieve) {
+                    $count = (int)($sieve['count'] ?? 1);
+                    $wt = (float)($sieve['weight'] ?? 0);
+                    $rate = (float)($sieve['rate'] ?? 0);
+                    $val = (float)($sieve['value'] ?? ($rate > 0 ? round($wt * $rate, 2) : 0));
+                    $diamondPurchaseTotal += $val;
+                    $components[] = [
+                        'component_type' => 'diamond',
+                        'category_name' => 'Diamond',
+                        'stamp' => $sieve['stamp'] ?? '',
+                        'size' => $sieve['stamp'] ?? '',
+                        'sieve' => $sieve['stamp'] ?? '',
+                        'no_of_pieces' => $count,
+                        'quantity' => $count,
+                        'stone_weight' => $wt,
+                        'weight' => $wt,
+                        'gross_wt' => $wt,
+                        'unit' => 'ct',
+                        'purchase_rate' => $rate,
+                        'purchase_value' => $val,
+                    ];
+                }
+            }
+
+            $stonePurchaseTotal = 0.0;
+            if ($colorStoneWeight > 0 || !empty($validated['color_stone_count'])) {
+                $stoneCount = (int)($validated['color_stone_count'] ?? 1);
+                $stoneRate = (float)($request->input('color_stone_rate', 0));
+                $stoneVal = (float)($request->input('color_stone_value', $stoneRate > 0 ? round($colorStoneWeight * $stoneRate, 2) : 0));
+                $stonePurchaseTotal += $stoneVal;
+                $components[] = [
+                    'component_type' => 'color_stone',
+                    'category_name' => 'Color Stone',
+                    'stamp' => $request->input('color_stone_type', 'Stone'),
+                    'size' => '',
+                    'no_of_pieces' => $stoneCount,
+                    'quantity' => $stoneCount,
+                    'stone_weight' => $colorStoneWeight,
+                    'weight' => $colorStoneWeight,
+                    'gross_wt' => $colorStoneWeight,
+                    'unit' => 'ct',
+                    'purchase_rate' => $stoneRate,
+                    'purchase_value' => $stoneVal,
+                ];
+            }
+
+            $woItem = $item ?: ($order->items()->first());
+            $itemPricing = is_array($woItem?->pricing_details) ? $woItem->pricing_details : (json_decode($woItem?->pricing_details ?? '[]', true) ?: []);
+            $orderPricing = is_array($order->pricing_details) ? $order->pricing_details : (json_decode($order->pricing_details ?? '[]', true) ?: []);
+            
+            $goldPurchaseRate = (float)($itemPricing['gold_rate'] ?? $orderPricing['gold_rate'] ?? 0);
+            if ($goldPurchaseRate <= 0) {
+                $todayRate = \App\Models\GoldRate::where('rate_date', now()->toDateString())->first() ?: \App\Models\GoldRate::latest('rate_date')->first();
+                if ($purity >= 99.0) {
+                    $goldPurchaseRate = (float)($todayRate?->rate_24k ?? 7500);
+                } elseif ($purity >= 88.0) {
+                    $goldPurchaseRate = (float)($todayRate?->rate_22k ?? 6875);
+                } elseif ($purity >= 70.0) {
+                    $goldPurchaseRate = (float)($todayRate?->rate_18k ?? 5625);
+                } else {
+                    $goldPurchaseRate = (float)($todayRate?->rate_14k ?? 4375);
+                }
+            }
+            $goldPurchaseTotal = round($netGoldWeight * $goldPurchaseRate, 2);
+            $piecePurchaseValue = round($goldPurchaseTotal + $diamondPurchaseTotal + $stonePurchaseTotal + $totalMakingCharge, 2);
+
             $piecePayload = [
                 'work_order_id' => $order->id,
                 'work_order_item_id' => $item?->id,
@@ -3114,7 +3807,7 @@ class WorkOrderController extends Controller
                 'tag_number' => $tagNumber,
                 'piece_number' => $pieceNumber,
                 'design_no' => $designNo,
-                'product_id' => $resolvedProduct?->id ?: $targetPiece?->product_id,
+                'product_id' => $resolvedProduct->id,
                 'product_name' => $productName,
                 'client_id' => $order->client_id,
                 'karigar_id' => $order->karigar_id,
@@ -3133,6 +3826,8 @@ class WorkOrderController extends Controller
                 'making_charge_type' => $mcType,
                 'making_charge_per_gram' => round($mcRate, 2),
                 'total_making_charge' => round($totalMakingCharge, 2),
+                'purchase_value' => $piecePurchaseValue,
+                'components' => $components,
                 'given_metal_qty' => round((float)($validated['given_metal_qty'] ?? 0), 3),
                 'given_cash' => round((float)($validated['given_cash'] ?? 0), 2),
                 'huid' => !empty($validated['huid']) 
@@ -3161,6 +3856,24 @@ class WorkOrderController extends Controller
                 'received_by' => Auth::id() ?? 1,
             ];
 
+            // Persist structured diamond sieves and gold reconciliations
+            $existingQcData = is_array($targetPiece?->qc_submission_data) ? $targetPiece->qc_submission_data : [];
+            if (!empty($diamondSievesInput) && is_array($diamondSievesInput)) {
+                $existingQcData['diamond_sieves'] = $diamondSievesInput;
+            }
+            if (isset($validated['wastage_weight'])) {
+                $existingQcData['wastage_weight'] = (float)$validated['wastage_weight'];
+            }
+            if (isset($validated['karigar_gold_weight'])) {
+                $existingQcData['karigar_gold_weight'] = (float)$validated['karigar_gold_weight'];
+            }
+            if (isset($validated['returned_gold_weight'])) {
+                $existingQcData['returned_gold_weight'] = (float)$validated['returned_gold_weight'];
+            }
+            $existingQcData['purchase_value'] = $piecePurchaseValue;
+            $existingQcData['components'] = $components;
+            $piecePayload['qc_submission_data'] = $existingQcData;
+
             if ($targetPiece) {
                 $targetPiece->update($piecePayload);
                 $receivedPiece = $targetPiece;
@@ -3172,6 +3885,17 @@ class WorkOrderController extends Controller
             $order->received_qty = (int)$order->received_qty + 1;
             if ($item) {
                 $item->received_qty = (int)$item->received_qty + 1;
+                if ($item->received_qty >= $item->required_qty) {
+                    $item->status = 'completed';
+                } elseif ((int)$item->rework_qty > 0) {
+                    $item->status = 'rework';
+                } elseif ((int)$item->qc_pending_qty > 0) {
+                    $item->status = 'quality_check';
+                } elseif ((int)$item->ready_qty > (int)$item->received_qty) {
+                    $item->status = 'ready';
+                } else {
+                    $item->status = 'in_progress';
+                }
                 $item->save();
             }
 
@@ -3224,17 +3948,40 @@ class WorkOrderController extends Controller
             }
             $order->save();
 
-            // Record transaction in KarigarMaterialTransaction ledger
+            // Resolve Karigar profile if not set on order
+            if (empty($order->karigar_id)) {
+                $workerName = $order->karigar_name ?? $order->artisan_name ?? $order->worker_allocation['worker_name'] ?? null;
+                if ($workerName) {
+                    $foundK = \App\Models\Karigar::where('name', $workerName)->first();
+                    if ($foundK) {
+                        $order->karigar_id = $foundK->id;
+                        $order->saveQuietly();
+                    }
+                }
+            }
+
+            // Record transaction in KarigarMaterialTransaction ledger and create automatic Karigar payable
             try {
-                \App\Models\KarigarMaterialTransaction::create([
-                    'karigar_id' => $order->karigar_id,
-                    'work_order_id' => $order->id,
-                    'transaction_type' => 'finished_received',
+                if (!empty($order->karigar_id)) {
+                    \App\Models\KarigarMaterialTransaction::create([
+                        'karigar_id' => $order->karigar_id,
+                        'work_order_id' => $order->id,
+                        'transaction_type' => 'finished_received',
+                        'material_type' => 'gold',
+                        'material_item' => $productName,
+                    'purity' => $validated['gold_karat'] ?? ($purity . '%'),
+                    'touch' => $purity,
+                    'unit' => 'g',
+                    'pieces' => 1,
+                    'gross_weight' => $grossWeight,
+                    'net_weight' => $netGoldWeight,
+                    'fine_weight' => $pure24kWeight,
+                    'stamp' => $dynamicStamp,
                     'transaction_date' => now(),
-                    'weight' => $recGross,
-                    'company_gold_weight' => $recGross,
-                    'karigar_gold_weight' => (float)($validated['karigar_gold_weight'] ?? 0),
-                    'signed_change' => -$recGross,
+                    'weight' => $grossWeight,
+                    'company_gold_weight' => $pure24kWeight,
+                    'karigar_gold_weight' => 0,
+                    'signed_change' => -$pure24kWeight,
                     'settlement_balance_after' => 0,
                     'bench_balance_after' => $order->pending_weight,
                     'reason' => "Received piece #{$pieceNumber} (Tag: {$tagNumber}) for WO {$order->work_order_number}",
@@ -3242,30 +3989,147 @@ class WorkOrderController extends Controller
                     'action_by_name' => Auth::user()?->name ?? 'Receiver',
                 ]);
 
-                if (isset($validated['wastage_weight']) && (float)$validated['wastage_weight'] > 0) {
+                // Record diamond return / piece receipt in ledger if present
+                if ($diamondWeightCt > 0 || $diaCount > 0) {
                     \App\Models\KarigarMaterialTransaction::create([
                         'karigar_id' => $order->karigar_id,
                         'work_order_id' => $order->id,
-                        'transaction_type' => 'approved_wastage',
+                        'transaction_type' => 'finished_received',
+                        'material_type' => 'diamond',
+                        'stamp' => $dynamicStamp,
+                        'unit' => 'ct',
+                        'pieces' => $diaCount,
+                        'gross_weight' => $diamondWeightCt,
+                        'net_weight' => $diamondWeightCt,
+                        'fine_weight' => 0,
                         'transaction_date' => now(),
-                        'weight' => (float)$validated['wastage_weight'],
-                        'company_gold_weight' => (float)$validated['wastage_weight'],
+                        'weight' => $diamondWeightCt,
+                        'company_gold_weight' => 0,
                         'karigar_gold_weight' => 0,
-                        'signed_change' => -(float)$validated['wastage_weight'],
-                        'settlement_balance_after' => 0,
-                        'bench_balance_after' => $order->pending_weight,
-                        'reason' => "Approved wastage of {$validated['wastage_weight']}g upon receiving piece #{$pieceNumber}",
+                        'signed_change' => -$diamondWeightCt,
+                        'reason' => "Diamond received with piece #{$pieceNumber} ({$diamondWeightCt}ct, {$diaCount} pcs)",
                         'created_by' => Auth::id() ?? 1,
                         'action_by_name' => Auth::user()?->name ?? 'Receiver',
                     ]);
                 }
-            } catch (\Exception $e) {
-                // Continue
-            }
 
-            // Recalculate Karigar Bench Balance & Raw Material Allocations so everything tallies immediately
+                // Record color stone return / piece receipt in ledger if present
+                if ($colorStoneWeight > 0 || ($validated['color_stone_count'] ?? 0) > 0) {
+                    $stCount = (int)($validated['color_stone_count'] ?? 0);
+                    \App\Models\KarigarMaterialTransaction::create([
+                        'karigar_id' => $order->karigar_id,
+                        'work_order_id' => $order->id,
+                        'transaction_type' => 'finished_received',
+                        'material_type' => 'colour_stone',
+                        'unit' => 'g',
+                        'pieces' => $stCount,
+                        'gross_weight' => $colorStoneWeight,
+                        'net_weight' => $colorStoneWeight,
+                        'fine_weight' => 0,
+                        'transaction_date' => now(),
+                        'weight' => $colorStoneWeight,
+                        'company_gold_weight' => 0,
+                        'karigar_gold_weight' => 0,
+                        'signed_change' => -$colorStoneWeight,
+                        'reason' => "Stone received with piece #{$pieceNumber} ({$colorStoneWeight}g, {$stCount} pcs)",
+                        'created_by' => Auth::id() ?? 1,
+                        'action_by_name' => Auth::user()?->name ?? 'Receiver',
+                    ]);
+                }
+
+                if (isset($validated['returned_gold_weight']) && (float)$validated['returned_gold_weight'] > 0) {
+                    $retWt = (float)$validated['returned_gold_weight'];
+                    $retFine = round($retWt * ($purity / 100), 3);
+                    \App\Models\KarigarMaterialTransaction::create([
+                        'karigar_id' => $order->karigar_id,
+                        'work_order_id' => $order->id,
+                        'source' => 'vault',
+                        'transaction_type' => 'unused_returned',
+                        'material_type' => 'gold',
+                        'unit' => 'g',
+                        'gross_weight' => $retWt,
+                        'net_weight' => $retWt,
+                        'fine_weight' => $retFine,
+                        'transaction_date' => now(),
+                        'weight' => $retWt,
+                        'company_gold_weight' => $retFine,
+                        'karigar_gold_weight' => 0,
+                        'signed_change' => -$retFine,
+                        'reason' => "Unused gold returned ({$retWt}g, Fine: {$retFine}g) upon receiving piece #{$pieceNumber}",
+                        'created_by' => Auth::id() ?? 1,
+                        'action_by_name' => Auth::user()?->name ?? 'Receiver',
+                    ]);
+                    \App\Models\RawMaterial::creditAllocation('gold', $retFine);
+                }
+
+                if (isset($validated['wastage_weight']) && (float)$validated['wastage_weight'] > 0) {
+                    $wWt = (float)$validated['wastage_weight'];
+                    $alreadyHasWastageTx = \App\Models\KarigarMaterialTransaction::where('work_order_id', $order->id)
+                        ->where('transaction_type', 'approved_wastage')
+                        ->where('is_reversed', false)
+                        ->exists();
+
+                    if (!$alreadyHasWastageTx) {
+                        \App\Models\KarigarMaterialTransaction::create([
+                            'karigar_id' => $order->karigar_id,
+                            'work_order_id' => $order->id,
+                            'transaction_type' => 'approved_wastage',
+                            'material_type' => 'gold',
+                            'purity' => $order->pricing_details['purity'] ?? $order->material_type ?? ($purity >= 99 ? '24K' : ($purity >= 90 ? '22K' : '22K')),
+                            'touch' => (float)$purity,
+                            'unit' => 'g',
+                            'gross_weight' => $wWt,
+                            'net_weight' => $wWt,
+                            'fine_weight' => round($wWt * ($purity / 100), 3),
+                            'wastage_weight' => $wWt,
+                            'transaction_date' => now(),
+                            'weight' => $wWt,
+                            'company_gold_weight' => $wWt,
+                            'karigar_gold_weight' => 0,
+                            'signed_change' => -$wWt,
+                            'settlement_balance_after' => 0,
+                            'bench_balance_after' => $order->pending_weight,
+                            'reason' => "Approved wastage of {$wWt}g upon receiving piece #{$pieceNumber}",
+                            'created_by' => Auth::id() ?? 1,
+                            'action_by_name' => Auth::user()?->name ?? 'Receiver',
+                        ]);
+                    }
+                }
+
+                // Automatic Karigar Payable for Making Charges (Idempotent by received_piece_id)
+                if ($totalMakingCharge > 0 && !empty($order->karigar_id)) {
+                    \App\Models\KarigarPayment::updateOrCreate(
+                        [
+                            'received_piece_id' => $receivedPiece->id,
+                            'transaction_type' => 'payable',
+                        ],
+                        [
+                            'karigar_id' => $order->karigar_id,
+                            'work_order_id' => $order->id,
+                            'amount' => $totalMakingCharge,
+                            'payment_mode' => 'auto_payable',
+                            'reference_no' => "MC-WO-{$order->id}-PC-{$receivedPiece->id}",
+                            'transaction_date' => now()->toDateString(),
+                            'notes' => "Making charges earned for piece #{$pieceNumber} (Tag: {$tagNumber}) of WO #{$order->work_order_number}",
+                            'created_by' => Auth::id() ?? 1,
+                            'action_by_name' => Auth::user()?->name ?? 'Store Manager',
+                        ]
+                    );
+                }
+            }
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::warning('KarigarMaterial/Payable record warning: ' . $e->getMessage());
+        }
+
+        // Recalculate Karigar Bench Balance & Raw Material Allocations so everything tallies immediately
+        if (!empty($order->karigar_id)) {
             $this->syncKarigarGoldBalance($order->karigar_id);
-            \App\Models\RawMaterial::recalculateAllocations();
+            $kModel = \App\Models\Karigar::find($order->karigar_id);
+            if ($kModel) {
+                app(\App\Http\Controllers\Api\KarigarMaterialController::class)->syncKarigarBalances($kModel);
+            }
+        }
+        \App\Models\RawMaterial::recalculateAllocations();
 
             // Audit Timeline Log
             WorkOrderTimeline::create([
@@ -3412,7 +4276,7 @@ class WorkOrderController extends Controller
                             'product_name' => self::cleanProductName($item->product_name ?: $order->product_name, $item->design_no ?: $order->design_code),
                             'client_id' => $order->client_id,
                             'karigar_id' => $order->karigar_id,
-                            'gross_weight' => $item->completed_weight ? round((float)$item->completed_weight / $required, 3) : ($item->allotted_weight ? round((float)$item->allotted_weight / $required, 3) : null),
+                            'gross_weight' => $item->completed_weight ? round((float)$item->completed_weight / $required, 3) : ($item->allotted_weight ? round((float)$item->allotted_weight / $required, 3) : 0.000),
                             'status' => 'in_progress',
                             'qc_status' => 'pending',
                             'certification_status' => 'pending',
@@ -3437,7 +4301,7 @@ class WorkOrderController extends Controller
                         'product_name' => self::cleanProductName($order->product_name, $order->design_code),
                         'client_id' => $order->client_id,
                         'karigar_id' => $order->karigar_id,
-                        'gross_weight' => $order->completed_weight ? round((float)$order->completed_weight / $required, 3) : ($order->allotted_weight ? round((float)$order->allotted_weight / $required, 3) : null),
+                        'gross_weight' => $order->completed_weight ? round((float)$order->completed_weight / $required, 3) : ($order->allotted_weight ? round((float)$order->allotted_weight / $required, 3) : 0.000),
                         'status' => 'in_progress',
                         'qc_status' => 'pending',
                         'certification_status' => 'pending',
@@ -3576,6 +4440,8 @@ class WorkOrderController extends Controller
                 'diamond_weight' => (float)$piece->diamond_weight,
                 'diamond_count' => (int)$piece->diamond_count,
                 'color_stone_weight' => (float)$piece->color_stone_weight,
+                'color_stone_count' => (int)($piece->color_stone_count ?? ($piece->qc_submission_data['color_stone_count'] ?? 0)),
+                'silver_weight' => (float)$piece->silver_weight,
                 'purity' => (float)$piece->purity ?: 91.60,
                 'gold_karat' => $piece->gold_karat ?: '22K',
                 'qc_status' => $piece->qc_status,
@@ -3613,9 +4479,6 @@ class WorkOrderController extends Controller
             if (!$piece) {
                 return response()->json(['status' => 'error', 'message' => 'Specified piece was not found in this Work Order.'], 404);
             }
-            if (!empty($piece->received_at)) {
-                return response()->json(['status' => 'error', 'message' => 'This piece has already been received.'], 422);
-            }
         } else {
             $piece = WorkOrderReceivedPiece::where('work_order_id', $order->id)
                 ->where(function ($q) {
@@ -3645,7 +4508,7 @@ class WorkOrderController extends Controller
             return response()->json(['status' => 'error', 'message' => 'Specified piece does not belong to this Work Order.'], 422);
         }
 
-        $item = $piece->work_order_item_id ? WorkOrderItem::find($piece->work_order_item_id) : $order->items->first();
+        $item = $piece->work_order_item_id ? WorkOrderItem::find($piece->work_order_item_id) : $order->items()->first();
         $product = $piece->product_id ? Product::find($piece->product_id) : ($item?->product ?: $order->product);
         $qcData = $piece->qc_submission_data ?: [];
 
@@ -3701,10 +4564,143 @@ class WorkOrderController extends Controller
             $netGold = round(max(0, $grossWeight - ($diaWt * 0.2) - ($stoneWeight * 0.2) - $oldWeight), 3);
         }
 
-        $savedAllottedWeight = $piece->item?->allotted_weight ?? $item?->allotted_weight ?? null;
-        $jobAllottedWeight = $savedAllottedWeight !== null ? (float)$savedAllottedWeight : null;
+        $fineGold = ($netGold > 0 && $purity > 0) ? round(($netGold * $purity) / 100, 3) : null;
+
+        $woItem = $piece->work_order_item_id ? WorkOrderItem::find($piece->work_order_item_id) : $order->items()->first();
+        $itemPricing = is_array($woItem?->pricing_details) ? $woItem->pricing_details : (json_decode($woItem?->pricing_details ?? '[]', true) ?: []);
+        $diamondSieves = $itemPricing['diamond_sieves'] ?? [];
+
+        // Resolve all diamond variant / sieve rows used in the work order
+        if (!empty($order->pricing_details['items']) && is_array($order->pricing_details['items'])) {
+            foreach ($order->pricing_details['items'] as $ordItm) {
+                $isMatch = (
+                    (!empty($woItem) && !empty($ordItm['id']) && (string)$ordItm['id'] === (string)$woItem->id) ||
+                    (!empty($piece->design_no) && !empty($ordItm['design_number']) && (string)$ordItm['design_number'] === (string)$piece->design_no) ||
+                    (!empty($woItem?->design_no) && !empty($ordItm['design_number']) && (string)$ordItm['design_number'] === (string)$woItem->design_no)
+                );
+                if ($isMatch && !empty($ordItm['diamond_sieves']) && is_array($ordItm['diamond_sieves'])) {
+                    if (empty($diamondSieves) || count($ordItm['diamond_sieves']) >= count($diamondSieves)) {
+                        $diamondSieves = $ordItm['diamond_sieves'];
+                    }
+                    break;
+                }
+            }
+            if (empty($diamondSieves)) {
+                foreach ($order->pricing_details['items'] as $ordItm) {
+                    if (!empty($ordItm['diamond_sieves']) && is_array($ordItm['diamond_sieves'])) {
+                        $diamondSieves = $ordItm['diamond_sieves'];
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (empty($diamondSieves) && !empty($order->pricing_details['diamond_sieves']) && is_array($order->pricing_details['diamond_sieves'])) {
+            $diamondSieves = $order->pricing_details['diamond_sieves'];
+        }
+
+        // Check stone_details if diamond_sieves not found
+        if (empty($diamondSieves)) {
+            $rawStones = $woItem?->stone_details ?: $order->stone_details;
+            $stones = is_array($rawStones) ? $rawStones : (json_decode($rawStones ?? '[]', true) ?: []);
+            if (!empty($stones) && is_array($stones)) {
+                foreach ($stones as $st) {
+                    $sType = strtolower($st['type'] ?? $st['category'] ?? $st['material_type'] ?? 'diamond');
+                    if (str_contains($sType, 'diamond') || str_contains($sType, 'dia')) {
+                        $diamondSieves[] = [
+                            'stamp' => $st['stamp'] ?? $st['sieve'] ?? $st['sieve_size'] ?? '+0',
+                            'count' => (int)($st['count'] ?? $st['pcs'] ?? $st['pieces'] ?? $st['quantity'] ?? 1),
+                            'weight' => (float)($st['weight'] ?? $st['carats'] ?? $st['cts'] ?? 0),
+                            'rate' => (float)($st['rate'] ?? 0),
+                        ];
+                    }
+                }
+            }
+        }
+
+        if (empty($diamondSieves) && !empty($productAttributes['components']) && is_array($productAttributes['components'])) {
+            foreach ($productAttributes['components'] as $c) {
+                $cType = strtolower($c['category_name'] ?? $c['component_type'] ?? '');
+                if (str_contains($cType, 'diamond') || str_contains($cType, 'dia')) {
+                    $diamondSieves[] = [
+                        'stamp' => $c['stamp'] ?? $c['size'] ?? '',
+                        'count' => (int)($c['no_of_pieces'] ?? $c['quantity'] ?? 1),
+                        'weight' => (float)($c['stone_weight'] ?? $c['gross_wt'] ?? $c['weight'] ?? 0),
+                        'rate' => (float)($c['purchase_rate'] ?? 0),
+                    ];
+                }
+            }
+        }
+
+        $allocatedMaterials = \App\Models\KarigarMaterialTransaction::where('work_order_id', $order->id)
+            ->whereIn('transaction_type', ['allocation', 'additional_allocation'])
+            ->where('is_reversed', false)
+            ->orderBy('transaction_date', 'asc')
+            ->get();
+
+        if (empty($diamondSieves) && $allocatedMaterials->isNotEmpty()) {
+            foreach ($allocatedMaterials as $amat) {
+                if (strtolower($amat->material_type) === 'diamond' && ((float)$amat->net_weight > 0 || (int)$amat->pieces > 0)) {
+                    $diamondSieves[] = [
+                        'stamp' => $amat->stamp ?: ($amat->sieve_size ?: "+{$cleanStamp}"),
+                        'count' => (int)($amat->pieces ?: 1),
+                        'weight' => (float)($amat->net_weight ?: $amat->gross_weight ?: $amat->weight ?: 0),
+                        'rate' => 0,
+                    ];
+                }
+            }
+        }
+
+        // If diamond weight or count was assigned in order/item/QC but sieves still empty, synthesize initial variant row
+        if (empty($diamondSieves) && ($diaWt > 0 || $diaCount > 0)) {
+            $diamondSieves[] = [
+                'stamp' => "+{$cleanStamp}",
+                'count' => (int)$diaCount,
+                'weight' => (float)$diaWt,
+                'rate' => 0,
+            ];
+        }
+
+        $vaultAllottedGold = (float)\App\Models\KarigarMaterialTransaction::where('work_order_id', $order->id)
+            ->where('material_type', 'gold')
+            ->whereIn('transaction_type', ['allocation', 'additional_allocation'])
+            ->where('is_reversed', false)
+            ->sum('net_weight');
+
+        $vaultAllottedDiamondPcs = (int)\App\Models\KarigarMaterialTransaction::where('work_order_id', $order->id)
+            ->where('material_type', 'diamond')
+            ->whereIn('transaction_type', ['allocation', 'additional_allocation'])
+            ->where('is_reversed', false)
+            ->sum('pieces');
+
+        $vaultAllottedDiamondWeight = (float)\App\Models\KarigarMaterialTransaction::where('work_order_id', $order->id)
+            ->where('material_type', 'diamond')
+            ->whereIn('transaction_type', ['allocation', 'additional_allocation'])
+            ->where('is_reversed', false)
+            ->sum('net_weight');
+
+        $totalOrderAllottedGold = (float)($order->allotted_weight > 0 ? $order->allotted_weight : $vaultAllottedGold);
         $pieceCount = max(1, (int)($item?->required_qty ?? $order->required_qty ?? 1));
-        $allottedWeight = $jobAllottedWeight !== null ? round($jobAllottedWeight / $pieceCount, 3) : null;
+
+        $savedAllottedWeight = (float)($piece->item?->allotted_weight ?? $item?->allotted_weight ?? 0);
+        if ($savedAllottedWeight <= 0) {
+            $savedAllottedWeight = $totalOrderAllottedGold;
+        }
+
+        $pieceAllotted = (float)($piece->allotted_weight ?: 0);
+        if ($pieceAllotted <= 0) {
+            $pieceAllotted = $savedAllottedWeight > 0 ? round($savedAllottedWeight / $pieceCount, 3) : 0;
+        }
+
+        $plannedGoldPerPiece = (float)($itemPricing['gold_weight'] ?? $itemPricing['total_gold_wt'] ?? ($order->expected_return_weight > 0 ? round($order->expected_return_weight / $pieceCount, 3) : 0));
+        
+        $allottedWeight = $pieceAllotted > 0 ? $pieceAllotted : ($totalOrderAllottedGold > 0 ? round($totalOrderAllottedGold / $pieceCount, 3) : $plannedGoldPerPiece);
+        $assignedGoldWeight = $plannedGoldPerPiece > 0 ? $plannedGoldPerPiece : ($totalOrderAllottedGold > 0 ? $totalOrderAllottedGold : $allottedWeight);
+
+        // Piece-level diamond requirements strictly from item/product design
+        $assignedDiamondWeight = (float)($itemPricing['diamond_weight'] ?? ($productAttributes['diamond_weight'] ?? 2.0));
+        $assignedDiamondCount = (int)($itemPricing['diamond_count'] ?? ($productAttributes['diamond_count'] ?? 2));
+
         $orderedDate = $order->allotted_date ?: $order->jobOrder?->order_date;
         $deliveryDate = $item?->delivery_date ?? $item?->pricing_details['delivery_date'] ?? $order->delivery_date;
 
@@ -3716,6 +4712,7 @@ class WorkOrderController extends Controller
                 'piece' => $piece,
                 'product' => $product,
                 'qc_submission' => $qcData,
+                'allocated_materials' => $allocatedMaterials,
                 'prefilled' => [
                     'piece_id' => $piece->id,
                     'piece_number' => $piece->piece_number,
@@ -3731,11 +4728,22 @@ class WorkOrderController extends Controller
                     'category_id' => $order->category_id,
                     'subcategory_id' => $order->subcategory_id,
                     'allotted_weight' => $allottedWeight,
-                    'job_allotted_weight' => $jobAllottedWeight,
+                    'job_allotted_weight' => $savedAllottedWeight,
                     'job_required_qty' => $pieceCount,
+                    'total_vault_allotted_gold' => round($totalOrderAllottedGold, 3),
+                    'total_vault_allotted_diamonds' => $vaultAllottedDiamondPcs,
+                    'total_vault_allotted_diamond_weight' => round($vaultAllottedDiamondWeight, 3),
+                    'piece_allotted_weight' => $allottedWeight,
+                    'piece_required_diamonds' => $assignedDiamondCount,
+                    'piece_required_diamond_weight' => $assignedDiamondWeight,
+                    'assigned_gold_weight' => round($assignedGoldWeight, 3),
+                    'assigned_diamond_weight' => round($assignedDiamondWeight, 3),
+                    'assigned_diamond_count' => (int)$assignedDiamondCount,
                     'production_weight' => $grossWeight,
                     'gross_weight' => $grossWeight,
                     'net_gold_weight' => $netGold > 0 ? $netGold : null,
+                    'fine_gold_weight' => $fineGold,
+                    'pure_24k_weight' => $fineGold,
                     'old_weight' => $oldWeight,
                     'purity' => $purity,
                     'gold_karat' => $goldKarat,
@@ -3743,9 +4751,12 @@ class WorkOrderController extends Controller
                     'diamond_count' => $diaCount,
                     'diamond_stamp' => "+{$cleanStamp}",
                     'diamond_details' => $diaDetails,
+                    'diamond_sieves' => $diamondSieves,
                     'color_stone_weight' => $stoneWeight,
                     'color_stone_count' => $stoneCount,
                     'silver_weight' => $silverWeight,
+                    'wastage_weight' => (float)($snapshotValue('wastage_weight', $piece->qc_submission_data['wastage_weight'] ?? $piece->qc_submission_data['gold_wastage'] ?? null) ?? $itemPricing['wastage_weight'] ?? $itemPricing['gold_wastage'] ?? $order->wastage_weight ?? $order->pricing_details['wastage_weight'] ?? 0) ?: null,
+                    'gold_wastage' => (float)($snapshotValue('wastage_weight', $piece->qc_submission_data['wastage_weight'] ?? $piece->qc_submission_data['gold_wastage'] ?? null) ?? $itemPricing['wastage_weight'] ?? $itemPricing['gold_wastage'] ?? $order->wastage_weight ?? $order->pricing_details['wastage_weight'] ?? 0) ?: null,
                     'remarks' => $piece->qc_notes ?: ($qcData['remarks'] ?? $order->quality_notes),
                     'image_path' => $piece->image_path ?: $order->reference_image,
                     'product_image_url' => $product?->thumbnail_url ?: $product?->image_url,
@@ -3758,6 +4769,7 @@ class WorkOrderController extends Controller
                     'is_already_received' => !empty($piece->received_at),
                     'receive_order_number' => $piece->receive_order_number,
                     'tag_number' => $piece->tag_number,
+                    'allocated_materials' => $allocatedMaterials,
                 ]
             ]
         ]);
@@ -3781,6 +4793,43 @@ class WorkOrderController extends Controller
         return response()->json([
             'status' => 'success',
             'data' => $pieces,
+        ]);
+    }
+
+    /**
+     * Get single tag details for a received jewellery piece
+     */
+    public function getTagDetails($tag)
+    {
+        $piece = WorkOrderReceivedPiece::where('tag_number', $tag)
+            ->with(['product', 'workOrder.jobOrder', 'item', 'karigar', 'receiver'])
+            ->firstOrFail();
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'id' => $piece->id,
+                'tag_number' => $piece->tag_number,
+                'receive_order_number' => $piece->receive_order_number,
+                'piece_number' => $piece->piece_number,
+                'product_id' => $piece->product_id,
+                'product_name' => $piece->product_name ?: $piece->product?->name,
+                'design_no' => $piece->design_no,
+                'gross_weight' => (float)$piece->gross_weight,
+                'net_gold_weight' => (float)$piece->net_gold_weight,
+                'pure_24k_weight' => (float)$piece->pure_24k_weight,
+                'purity' => (float)$piece->purity,
+                'gold_karat' => $piece->gold_karat,
+                'diamond_weight' => (float)$piece->diamond_weight,
+                'diamond_count' => (int)$piece->diamond_count,
+                'diamond_stamp' => $piece->diamond_stamp,
+                'components' => $piece->components ?: [],
+                'status' => $piece->status,
+                'is_sold' => $piece->status === 'sold',
+                'is_inventory_posted' => (bool)$piece->is_inventory_posted,
+                'work_order_id' => $piece->work_order_id,
+                'work_order_number' => $piece->workOrder?->work_order_number,
+            ]
         ]);
     }
 
@@ -3841,8 +4890,33 @@ class WorkOrderController extends Controller
             $query->where('tag_number', 'like', "%{$request->tag_number}%");
         }
 
+        $section = strtolower($request->get('section', $request->get('type', 'active')));
+
         $pieces = $query->latest('received_at')->get();
-        $pieces->transform(function ($piece) {
+
+        // Categorize pieces by delivery status (using actual persisted work order and billing relationships)
+        $isPieceDelivered = function ($piece) {
+            if ($piece->status === 'sold') {
+                return true;
+            }
+            if ($piece->workOrder) {
+                $woStatus = strtolower($piece->workOrder->status ?? '');
+                $woStage = strtolower($piece->workOrder->current_stage ?? '');
+                if ($woStatus === 'delivered' || $woStage === 'delivered' || $piece->workOrder->isFullyDelivered()) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        if ($section === 'history') {
+            $pieces = $pieces->filter(fn($p) => $isPieceDelivered($p))->values();
+        } elseif ($section === 'active') {
+            $pieces = $pieces->filter(fn($p) => !$isPieceDelivered($p))->values();
+        }
+
+        $pieces->transform(function ($piece) use ($isPieceDelivered) {
+            $piece->is_delivered = $isPieceDelivered($piece);
             $piece->product_name = self::cleanProductName($piece->product_name, $piece->design_no);
             
             // Attach dynamic product details if present
@@ -3905,6 +4979,12 @@ class WorkOrderController extends Controller
 
             $piece->dynamic_stamp = $cleanStamp;
             $piece->dynamic_dia_count = $count;
+
+            $qcData = is_array($piece->qc_submission_data) ? $piece->qc_submission_data : [];
+            $piece->diamond_sieves = $qcData['diamond_sieves'] ?? $piece->item?->stone_details ?? [];
+            $piece->wastage_weight = $qcData['wastage_weight'] ?? 0;
+            $piece->karigar_gold_weight = $qcData['karigar_gold_weight'] ?? 0;
+            $piece->returned_gold_weight = $qcData['returned_gold_weight'] ?? 0;
             return $piece;
         });
 
@@ -3926,8 +5006,12 @@ class WorkOrderController extends Controller
             : (is_string($product?->attributes) ? json_decode($product->attributes, true) : []);
         $knownTags = is_array($attrs['tags'] ?? null) ? $attrs['tags'] : [];
 
-        $pieces = WorkOrderReceivedPiece::whereHas('workOrder')
-            ->with(['workOrder.jobOrder', 'item.product', 'product', 'karigar', 'receiver'])
+        $statusFilter = request()->query('status', 'available'); // 'available', 'sold', 'all'
+        $includeSold = request()->boolean('include_sold', false);
+
+        $piecesQuery = WorkOrderReceivedPiece::with([
+                'workOrder.jobOrder', 'item.product', 'product', 'karigar', 'receiver', 'workOrder.receivedPieces', 'invoice'
+            ])
             ->where(function ($q) use ($productId, $product, $knownTags) {
                 $q->where('product_id', $productId);
                 if ($product && !empty($product->design_no)) {
@@ -3940,15 +5024,40 @@ class WorkOrderController extends Controller
                     $q->orWhereIn('tag_number', $knownTags);
                 }
             })
-            ->whereNotNull('tag_number')
-            ->where(function ($q) {
-                $q->whereNull('status')
-                  ->orWhere('status', '!=', 'sold');
-            })
-            ->latest('received_at')
-            ->get();
+            ->whereNotNull('tag_number');
 
-        $pieces->transform(function ($piece) {
+        $allPieces = $piecesQuery->latest('received_at')->get();
+
+        // Categorize into available vs sold
+        $isDeliveredOrSold = function ($piece) {
+            if ($piece->status === 'sold' || !empty($piece->invoice_id)) {
+                return true;
+            }
+            if ($piece->workOrder) {
+                $woStatus = strtolower($piece->workOrder->status ?? '');
+                $woStage = strtolower($piece->workOrder->current_stage ?? '');
+                if ($woStatus === 'delivered' || $woStage === 'delivered' || $piece->workOrder->isFullyDelivered()) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        $availPieces = $allPieces->filter(fn($p) => !$isDeliveredOrSold($p))->values();
+        $soldPieces = $allPieces->filter(fn($p) => $isDeliveredOrSold($p))->values();
+
+        // Filter based on requested status
+        if ($statusFilter === 'sold') {
+            $filteredPieces = $soldPieces;
+        } elseif ($statusFilter === 'all' || $includeSold) {
+            $filteredPieces = $allPieces;
+        } else {
+            // Default: 'available'
+            $filteredPieces = $availPieces;
+        }
+
+        $filteredPieces->transform(function ($piece) use ($isDeliveredOrSold) {
+            $piece->is_delivered = $isDeliveredOrSold($piece);
             $piece->product_name = self::cleanProductName($piece->product_name, $piece->design_no);
             $product = $piece->product ?: Product::find($piece->product_id);
             $attrs = is_array($product?->attributes) 
@@ -3965,13 +5074,14 @@ class WorkOrderController extends Controller
                     }
                 }
             }
-            $piece->dynamic_stamp = $stamp ? ltrim($stamp, '+') : '0';
+            $cleanStamp = $stamp ? ltrim($stamp, '+') : '0';
 
             $count = (int)($piece->diamond_count ?? 0);
             if ($count === 0 && isset($attrs['diamond_count'])) $count = (int)$attrs['diamond_count'];
+            $piece->dynamic_stamp = $cleanStamp;
             $piece->dynamic_dia_count = $count;
 
-            // Authoritative stage statuses & true values for Tag Generation tables
+            // Harmonize stages
             $rawCertStatus = strtolower($piece->certification_status ?? '');
             if (in_array($rawCertStatus, ['skipped', 'not_required'])) {
                 $piece->certification_status = 'skipped';
@@ -3996,13 +5106,55 @@ class WorkOrderController extends Controller
                 $piece->huid = null;
             }
 
+            $qcData = is_array($piece->qc_submission_data) ? $piece->qc_submission_data : [];
+            $components = is_array($piece->components) && !empty($piece->components) 
+                ? $piece->components 
+                : ($qcData['components'] ?? []);
+
+            $diamondSieves = is_array($qcData['diamond_sieves'] ?? null) && !empty($qcData['diamond_sieves'])
+                ? $qcData['diamond_sieves']
+                : array_values(array_filter($components, fn($c) => ($c['component_type'] ?? '') === 'diamond'));
+
+            $piece->diamond_sieves = $diamondSieves;
+            $piece->components = $components;
+            $piece->work_order_number = $piece->workOrder?->work_order_number ?: ($piece->work_order_id ? "WO-{$piece->work_order_id}" : '-');
+            $piece->receive_order_number = $piece->receive_order_number ?: "RWO-{$piece->id}";
+            $piece->receiver_name = $piece->receiver?->name ?: 'Store Manager';
+            $piece->karigar_name = $piece->karigar?->name ?: ($piece->workOrder?->customer_name ?: 'Karigar In-House');
+            $piece->invoice_no = $piece->invoice?->invoice_no;
+            $piece->days_since_received = (int) max(0, now()->diffInDays($piece->received_at ?? $piece->created_at ?? now()));
+
+            // Purchase value fallback calculation if 0
+            if (empty($piece->purchase_value) || (float)$piece->purchase_value <= 0) {
+                $goldRate = (float)($product->purchase_rate ?? 6875);
+                $goldCost = round((float)$piece->net_gold_weight * $goldRate, 2);
+                $diaCost = 0.0;
+                foreach ($diamondSieves as $ds) {
+                    $diaCost += ((float)($ds['weight'] ?? 0) * (float)($ds['rate'] ?? $ds['purchase_rate'] ?? 0));
+                }
+                $piece->purchase_value = round($goldCost + $diaCost + (float)$piece->total_making_charge, 2);
+            }
+
             return $piece;
         });
 
+        $summary = [
+            'total_pieces' => $allPieces->count(),
+            'available_count' => $availPieces->count(),
+            'sold_count' => $soldPieces->count(),
+            'available_gross_weight' => round($availPieces->sum('gross_weight'), 3),
+            'available_net_weight' => round($availPieces->sum('net_gold_weight'), 3),
+            'available_fine_weight' => round($availPieces->sum('pure_24k_weight'), 3),
+            'available_diamond_weight' => round($availPieces->sum('diamond_weight'), 3),
+            'available_stone_weight' => round($availPieces->sum('color_stone_weight'), 3),
+            'available_purchase_value' => round($availPieces->sum(fn($p) => (float)$p->purchase_value), 2),
+        ];
+
         return response()->json([
             'status' => 'success',
-            'data' => $pieces,
-            'total' => $pieces->count(),
+            'data' => $filteredPieces,
+            'total' => $filteredPieces->count(),
+            'summary' => $summary,
         ]);
     }
 
@@ -4302,7 +5454,12 @@ class WorkOrderController extends Controller
         $completedValue = $completedQuery->sum('total_price') ?: ($completedQuery->sum('allotted_weight') * 7200);
 
         // 2. Real Material Weights across all active manufacturing runs
-        $activeOrders = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received', 'delivered'])->get();
+        $allActiveWorkOrders = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received', 'delivered'])
+            ->with(['karigar', 'product', 'items', 'receivedPieces'])
+            ->latest()
+            ->get();
+        $activeOrders = $allActiveWorkOrders;
+
         $totalAllocatedWeight = (float) $activeOrders->sum('allotted_weight') + (float) $activeOrders->sum('additional_allocated_weight');
         $totalCompletedWeight = (float) $activeOrders->sum('completed_weight');
         $totalPendingWeight = (float) $activeOrders->sum(function ($wo) {
@@ -4323,15 +5480,69 @@ class WorkOrderController extends Controller
             return !str_contains($m, 'silver') && !str_contains($m, 'diamond');
         })->sum('allotted_weight');
 
+        // Fine Gold Conversion (Converting 22K, 18K, etc. to 24K Pure Gold equivalent)
+        $fineGoldAllocatedWeight = 0.0;
+        $fineGoldPendingWeight = 0.0;
+        $totalDiamondPiecesAllocated = 0;
+        $totalDiamondPiecesPending = 0;
+
+        foreach ($activeOrders as $wo) {
+            $mat = strtolower($wo->material_type ?? '');
+            $allotted = (float)$wo->allotted_weight + (float)($wo->additional_allocated_weight ?? 0);
+            $pending = max(0.0, $allotted - (float)$wo->completed_weight - (float)$wo->wastage_weight - (float)($wo->returned_weight ?? 0));
+
+            if (!str_contains($mat, 'silver') && !str_contains($mat, 'diamond')) {
+                $purity = $wo->purity ?? $wo->material_type ?? '22K Gold';
+                $fineGoldAllocatedWeight += GoldConversionHelper::convertTo24kPureWeight($allotted, $purity);
+                $fineGoldPendingWeight += GoldConversionHelper::convertTo24kPureWeight($pending, $purity);
+            }
+
+            // Diamond pieces tally across items
+            $diaPcsInOrder = 0;
+            if ($wo->relationLoaded('items') || $wo->items) {
+                foreach ($wo->items as $itm) {
+                    $p = $itm->pricing_details ?? [];
+                    $st = $itm->stone_details ?? [];
+                    $qty = max(1, (int)($itm->required_qty ?? 1));
+                    $dC = (int)($p['no_of_diamonds'] ?? $p['diamond_count'] ?? $st['diamond_count'] ?? 0);
+                    $diaPcsInOrder += ($dC * $qty);
+                }
+            }
+            $diaPcsRec = (int) $wo->receivedPieces->whereNotNull('received_at')->sum('diamond_count');
+            $totalDiamondPiecesAllocated += $diaPcsInOrder;
+            $totalDiamondPiecesPending += max(0, $diaPcsInOrder - $diaPcsRec);
+        }
+
         // 3. Real Material Allocations per active Artisan across ALL active work orders and Karigar bench balances
         $materialAllocations = [];
-        $allActiveWorkOrders = WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received', 'delivered'])
-            ->with(['karigar', 'product'])
-            ->get();
-
         $allKarigars = Karigar::all();
+        $totalKarigarCashBalance = 0.0;
+
+        // Optimized single-pass payment grouping to avoid N+1 queries in the loop
+        $paymentSums = \App\Models\KarigarPayment::selectRaw('
+            karigar_id,
+            transaction_type,
+            SUM(amount) as sum_amount
+        ')->groupBy('karigar_id', 'transaction_type')->get()->groupBy('karigar_id');
+
+        $calcFin = function($kId) use ($paymentSums) {
+            $pays = $paymentSums->get($kId) ?? collect();
+            $totalEarned = (float) ($pays->where('transaction_type', 'payable')->first()?->sum_amount ?? 0);
+            $totalPaid = (float) ($pays->where('transaction_type', 'payment')->first()?->sum_amount ?? 0);
+            $totalAdvances = (float) ($pays->where('transaction_type', 'advance')->first()?->sum_amount ?? 0);
+            $totalAdjustments = (float) ($pays->where('transaction_type', 'adjustment')->first()?->sum_amount ?? 0);
+            $netBalance = round(($totalEarned + $totalAdjustments) - ($totalPaid + $totalAdvances), 2);
+            return [
+                'net_balance' => $netBalance,
+                'total_payable' => max(0.0, $netBalance),
+            ];
+        };
 
         foreach ($allKarigars as $k) {
+            $fin = $calcFin($k->id);
+            $karigarNetCash = (float)($fin['net_balance'] ?? 0);
+            $totalKarigarCashBalance += $karigarNetCash;
+
             $orders = $allActiveWorkOrders->where('karigar_id', $k->id);
             $issued = (float) $orders->sum('allotted_weight') + (float) $orders->sum('additional_allocated_weight');
             $completed = (float) $orders->sum('completed_weight');
@@ -4345,7 +5556,7 @@ class WorkOrderController extends Controller
                 $balance = (float) $k->current_gold_balance_grams;
             }
 
-            if ($issued > 0 || $balance > 0) {
+            if ($issued > 0 || $balance > 0 || abs($karigarNetCash) > 0) {
                 $primaryMaterial = $orders->first()?->material_type ?? '22K Gold';
                 $unit = 'g';
                 if (stripos($primaryMaterial, 'diamond') !== false && stripos($primaryMaterial, 'gold') === false) {
@@ -4361,6 +5572,8 @@ class WorkOrderController extends Controller
                     $color = '#38bdf8';
                 }
 
+                $fineGoldBal = GoldConversionHelper::convertTo24kPureWeight($balance, $primaryMaterial);
+
                 $materialAllocations[] = [
                     'artisan_id' => $k->id,
                     'artisan_name' => $k->name,
@@ -4369,6 +5582,8 @@ class WorkOrderController extends Controller
                     'balance_weight' => 'Bal: ' . round($balance, 3) . $unit,
                     'issued_numeric' => round($issued, 3),
                     'balance_numeric' => round($balance, 3),
+                    'fine_balance_numeric' => round($fineGoldBal, 3),
+                    'cash_balance' => round($karigarNetCash, 2),
                     'unit' => $unit,
                     'color' => $color,
                     'percent' => $percent,
@@ -4390,9 +5605,10 @@ class WorkOrderController extends Controller
             ->latest()
             ->get()
             ->map(function ($order) {
-                $pendingItem = $order->items->first(function ($it) {
-                    return (int)$it->qc_pending_qty > 0;
-                }) ?: $order->items->first();
+                $itemsCollection = collect($order->items);
+                $pendingItem = $itemsCollection->first(function ($it) {
+                    return is_object($it) ? ((int)($it->qc_pending_qty ?? 0) > 0) : ((int)($it['qc_pending_qty'] ?? 0) > 0);
+                }) ?: $itemsCollection->first();
 
                 $rawImg = $order->reference_image
                     ?? $pendingItem?->reference_image
@@ -4479,15 +5695,28 @@ class WorkOrderController extends Controller
 
                 $diaAllotted = 0.0;
                 $diaReceived = 0.0;
+                $diaCount = 0;
+                $diaStamp = null;
                 foreach ($j->items as $itm) {
                     $p = $itm->pricing_details ?? [];
                     $st = $itm->stone_details ?? [];
                     $qty = max(1, (int)($itm->required_qty ?? 1));
                     $dW = (float)($p['diamond_weight'] ?? $st['diamond_weight'] ?? 0);
+                    $dC = (int)($p['no_of_diamonds'] ?? $p['diamond_count'] ?? $st['diamond_count'] ?? 0);
                     $diaAllotted += ($dW * $qty);
+                    $diaCount += ($dC * $qty);
+                    if (empty($diaStamp)) {
+                        $diaStamp = $p['diamond_stamp'] ?? $p['stamp'] ?? $st['diamond_stamp'] ?? $st['stamp'] ?? $itm->stamp ?? null;
+                    }
                 }
                 if ($diaAllotted == 0 && str_contains(strtolower($j->material_type ?? ''), 'diamond')) {
                     $diaAllotted = (float)$j->allotted_weight;
+                }
+                if (empty($diaStamp)) {
+                    $diaStamp = $j->stone_details['diamond_stamp'] ?? $j->stone_details['stamp'] ?? $j->pricing_details['diamond_stamp'] ?? $j->pricing_details['stamp'] ?? null;
+                }
+                if (empty($diaStamp) && !empty($j->product?->attributes)) {
+                    $diaStamp = $j->product->attributes['diamond_stamp'] ?? $j->product->attributes['stamp'] ?? null;
                 }
                 $diaReceived = (float) $j->receivedPieces->whereNotNull('received_at')->sum('diamond_weight');
                 $diaPending = max(0.0, round($diaAllotted - $diaReceived, 3));
@@ -4515,16 +5744,19 @@ class WorkOrderController extends Controller
                     'diamond_allotted' => round($diaAllotted, 3),
                     'diamond_received' => round($diaReceived, 3),
                     'diamond_pending' => $diaPending,
+                    'diamond_stamp' => $diaStamp,
+                    'diamond_count' => $diaCount,
                     'has_diamonds' => ($diaAllotted > 0 || $diaPending > 0),
                     'material' => $j->material_type ?? '22K Gold',
+                    'material_type' => $j->material_type ?? '22K Gold',
+                    'purity' => $j->purity ?? $j->material_type ?? '22K Gold',
+                    'fine_weight' => round(GoldConversionHelper::convertTo24kPureWeight((float)$j->allotted_weight, $j->material_type ?? '22K Gold'), 3),
+                    'fine_pending_weight' => round(GoldConversionHelper::convertTo24kPureWeight((float)$j->pending_weight, $j->material_type ?? '22K Gold'), 3),
                 ];
             });
 
-        // 6. All Active Work Orders for full material allocation reporting
-        $allActiveJobs = WorkOrder::with(['karigar', 'product', 'items', 'receivedPieces'])
-            ->whereNotIn('status', ['completed', 'cancelled', 'final_received', 'delivered'])
-            ->latest()
-            ->get()
+        // 6. All Active Work Orders for full material allocation reporting (reuse eager-loaded collection)
+        $allActiveJobs = $allActiveWorkOrders
             ->map(function ($j) use ($today) {
                 $artisanName = $j->karigar_name ?? $j->karigar?->name ?? 'Artisan';
                 $dueDate = $j->delivery_date
@@ -4539,18 +5771,38 @@ class WorkOrderController extends Controller
 
                 $diaAllotted = 0.0;
                 $diaReceived = 0.0;
+                $diaCount = 0;
+                $diaCountRec = 0;
+                $diaStamp = null;
                 foreach ($j->items as $itm) {
                     $p = $itm->pricing_details ?? [];
                     $st = $itm->stone_details ?? [];
                     $qty = max(1, (int)($itm->required_qty ?? 1));
                     $dW = (float)($p['diamond_weight'] ?? $st['diamond_weight'] ?? 0);
+                    $dC = (int)($p['no_of_diamonds'] ?? $p['diamond_count'] ?? $st['diamond_count'] ?? 0);
                     $diaAllotted += ($dW * $qty);
+                    $diaCount += ($dC * $qty);
+                    if (empty($diaStamp)) {
+                        $diaStamp = $p['diamond_stamp'] ?? $p['stamp'] ?? $st['diamond_stamp'] ?? $st['stamp'] ?? $itm->stamp ?? null;
+                    }
                 }
                 if ($diaAllotted == 0 && str_contains(strtolower($j->material_type ?? ''), 'diamond')) {
                     $diaAllotted = (float)$j->allotted_weight;
                 }
+                if (empty($diaStamp)) {
+                    $diaStamp = $j->stone_details['diamond_stamp'] ?? $j->stone_details['stamp'] ?? $j->pricing_details['diamond_stamp'] ?? $j->pricing_details['stamp'] ?? null;
+                }
+                if (empty($diaStamp) && !empty($j->product?->attributes)) {
+                    $diaStamp = $j->product->attributes['diamond_stamp'] ?? $j->product->attributes['stamp'] ?? null;
+                }
                 $diaReceived = (float) $j->receivedPieces->whereNotNull('received_at')->sum('diamond_weight');
+                $diaCountRec = (int) $j->receivedPieces->whereNotNull('received_at')->sum('diamond_count');
                 $diaPending = max(0.0, round($diaAllotted - $diaReceived, 3));
+                $diaCountPending = max(0, $diaCount - $diaCountRec);
+
+                $purityLabel = $j->purity ?? $j->material_type ?? '22K Gold';
+                $fineAllotted = GoldConversionHelper::convertTo24kPureWeight($allotted, $purityLabel);
+                $finePending = GoldConversionHelper::convertTo24kPureWeight($pending, $purityLabel);
 
                 return [
                     'id' => $j->id,
@@ -4566,12 +5818,18 @@ class WorkOrderController extends Controller
                     'allotted_weight' => round($allotted, 3),
                     'completed_weight' => round($completed, 3),
                     'pending_weight' => round($pending, 3),
+                    'fine_weight' => round($fineAllotted, 3),
+                    'fine_pending_weight' => round($finePending, 3),
                     'diamond_allotted' => round($diaAllotted, 3),
                     'diamond_received' => round($diaReceived, 3),
                     'diamond_pending' => $diaPending,
+                    'diamond_stamp' => $diaStamp,
+                    'diamond_count' => $diaCount,
+                    'diamond_pending_count' => $diaCountPending,
                     'has_diamonds' => ($diaAllotted > 0 || $diaPending > 0),
                     'material' => $j->material_type ?? '22K Gold',
                     'material_type' => $j->material_type ?? '22K Gold',
+                    'purity' => $purityLabel,
                 ];
             });
 
@@ -4607,8 +5865,13 @@ class WorkOrderController extends Controller
             'completed_weight' => round($totalCompletedWeight, 3),
             'pending_weight' => round($totalPendingWeight, 3),
             'gold_weight' => round($goldWeight, 3),
+            'fine_gold_weight' => round($fineGoldAllocatedWeight, 3),
+            'fine_gold_pending_weight' => round($fineGoldPendingWeight, 3),
             'silver_weight' => round($silverWeight, 3),
             'diamond_weight' => round($diamondWeight, 3),
+            'diamond_pieces' => $totalDiamondPiecesAllocated,
+            'diamond_pieces_pending' => $totalDiamondPiecesPending,
+            'total_karigar_cash_balance' => round($totalKarigarCashBalance, 2),
             'material_allocations' => $materialAllocations,
             'audit_logs' => $auditLogs,
             'approval_cards' => $dbApprovalCards,
@@ -4727,14 +5990,7 @@ class WorkOrderController extends Controller
                     if (empty($catId) || !\App\Models\Category::where('id', $catId)->exists()) {
                         $cat = \App\Models\Category::where('name', 'like', '%' . $pName . '%')->first()
                             ?: \App\Models\Category::first();
-                        if (!$cat) {
-                            $cat = \App\Models\Category::create([
-                                'name' => 'Jewellery',
-                                'code' => 'JWL',
-                                'status' => 'active',
-                            ]);
-                        }
-                        $catId = $cat->id;
+                        $catId = $cat ? $cat->id : null;
                     }
 
                     $img = $itm['reference_image'] ?? $itm['design_file'] ?? $itm['image'] ?? $order->image_url;
@@ -4785,34 +6041,62 @@ class WorkOrderController extends Controller
             return $data;
         }
 
-        // If it's already a regular path or URL (not base64), return as is
-        if (!str_starts_with($data, 'data:image') && !str_starts_with($data, 'data:application') && strlen($data) < 1000) {
+        // If it's already an HTTP / asset URL or path without data URI prefix, return directly
+        if (!str_starts_with($data, 'data:')) {
             return $data;
         }
 
         try {
-            if (preg_match('/^data:([^;]+);base64,(.*)$/s', $data, $matches)) {
-                $mimeType = $matches[1];
-                $base64Str = $matches[2];
-                $extension = explode('/', $mimeType)[1] ?? 'jpg';
-                if ($extension === 'jpeg') $extension = 'jpg';
-            } else {
-                $base64Str = $data;
-                $extension = 'jpg';
+            $commaPos = strpos($data, ',');
+            if ($commaPos === false) {
+                return $data;
             }
 
-            $decoded = base64_decode($base64Str);
+            $meta = substr($data, 0, $commaPos);
+            $base64Str = substr($data, $commaPos + 1);
+
+            $extension = 'jpg';
+            if (preg_match('/data:([^;]+);base64/i', $meta, $mimeMatches)) {
+                $mimeType = strtolower(trim($mimeMatches[1]));
+                $extensionMap = [
+                    'image/jpeg' => 'jpg',
+                    'image/jpg' => 'jpg',
+                    'image/png' => 'png',
+                    'image/webp' => 'webp',
+                    'image/gif' => 'gif',
+                    'image/svg+xml' => 'svg',
+                    'image/bmp' => 'bmp',
+                    'application/pdf' => 'pdf',
+                    'application/acad' => 'dwg',
+                    'application/x-acad' => 'dwg',
+                    'application/autocad_dwg' => 'dwg',
+                    'image/vnd.dwg' => 'dwg',
+                    'application/dxf' => 'dxf',
+                    'model/stl' => 'stl',
+                    'model/obj' => 'obj',
+                ];
+                $extension = $extensionMap[$mimeType] ?? (explode('/', $mimeType)[1] ?? 'jpg');
+                $extension = preg_replace('/[^a-zA-Z0-9]/', '', $extension);
+                if (empty($extension) || strlen($extension) > 5) {
+                    $extension = 'bin';
+                }
+            }
+
+            $decoded = base64_decode($base64Str, true);
             if ($decoded === false) {
                 return $data;
             }
 
-            $filename = 'wo_' . time() . '_' . \Illuminate\Support\Str::random(10) . '.' . $extension;
-            $path = "public/{$folder}/{$filename}";
-
-            \Illuminate\Support\Facades\Storage::put($path, $decoded);
+            $filename = 'wo_' . time() . '_' . \Illuminate\Support\Str::random(12) . '.' . $extension;
+            $disk = \Illuminate\Support\Facades\Storage::disk('public');
+            if (!$disk->exists($folder)) {
+                $disk->makeDirectory($folder);
+            }
+            $disk->put("{$folder}/{$filename}", $decoded);
 
             return asset("storage/{$folder}/{$filename}");
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('processBase64Data warning: ' . $e->getMessage());
             return $data;
         }
     }
@@ -4860,6 +6144,35 @@ class WorkOrderController extends Controller
         return response()->json([
             'status' => 'success',
             'message' => 'Work order and all associated records deleted successfully.'
+        ]);
+    }
+
+    /**
+     * Get authoritative 24K fine-gold and diamond material requirements for a work order
+     */
+    public function materialRequirements($id)
+    {
+        $order = WorkOrder::with(['items', 'product', 'karigar'])->findOrFail($id);
+        $requirements = \App\Services\WorkOrderMaterialRequirementService::getWorkOrderMaterialRequirements($order);
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $requirements,
+        ]);
+    }
+
+    /**
+     * Get authoritative 24K fine-gold reconciliation for a work order or specific piece
+     */
+    public function goldReconciliation(Request $request, $id)
+    {
+        $order = WorkOrder::with(['items', 'receivedPieces', 'karigar'])->findOrFail($id);
+        $pieceId = $request->input('piece_id');
+        $reconciliation = \App\Services\WorkOrderGoldReconciliationService::calculateForWorkOrder($order, $pieceId);
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $reconciliation,
         ]);
     }
 }

@@ -45,11 +45,11 @@ export default function Login() {
       if (res?.success) {
         navigate('/dashboard', { replace: true });
       } else {
-        setError(sanitizeErrorMessage(res?.message, 'Invalid credentials. Please check your email and password.'));
+        setError(sanitizeErrorMessage(res?.message, 'Invalid email/username or password.'));
         setIsSubmitting(false);
       }
     } catch (err) {
-      setError(sanitizeErrorMessage(err, 'Login failed (500). Please try again later.'));
+      setError(sanitizeErrorMessage(err, 'Invalid email/username or password.'));
       setIsSubmitting(false);
     }
   };
@@ -77,7 +77,7 @@ export default function Login() {
       <div className="login-card">
         <div className="brand-header text-center mb-7">
           <div className="brand-logo">RJ</div>
-          <div className="brand-name">Rudhra Jewellers</div>
+          <div className="brand-name">Rudra Jewellery</div>
           <div className="text-xs uppercase tracking-[3px] text-[#f3d98b] opacity-65 mt-1.5">
             Timeless Elegance
           </div>
@@ -159,7 +159,7 @@ export default function Login() {
           </button>
         </form>
         <div className="mt-6 pt-4 border-t border-[rgba(212,175,55,0.15)] text-center text-xs text-[#f3d98b]/70 font-medium tracking-wide">
-          © 2026 <strong className="font-bold text-[#f3d98b]">Rudhra Jewellers</strong>. All Rights Reserved. <span className="mx-1 opacity-40">|</span> Developed by <strong className="font-semibold text-[#f3d98b]">Sai Techno Solutions</strong>.
+          © 2026 <strong className="font-bold text-[#f3d98b]">Rudra Jewellery</strong>. All Rights Reserved. <span className="mx-1 opacity-40">|</span> Developed by <strong className="font-semibold text-[#f3d98b]">Sai Techno Solutions Pvt Ltd</strong>.
         </div>
       </div>
     </div>

@@ -9,45 +9,22 @@ export default function InventoryDashboard() {
   const navigate = useNavigate();
   const { showToast } = useToast();
 
-  // Instant synchronous hydration from localStorage cache
-  const [products, setProducts] = useState(() => {
-    try {
-      const c = localStorage.getItem('rudhra_inventory_products');
-      if (c) {
-        const parsed = JSON.parse(c);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) {}
-    return [];
-  });
+  const [products, setProducts] = useState([]);
 
-  const [stats, setStats] = useState(() => {
-    try {
-      const c = localStorage.getItem('rudhra_inventory_stats');
-      if (c) return JSON.parse(c) || {};
-    } catch (e) {}
-    return {};
-  });
+  const [stats, setStats] = useState({});
 
-  const [categories, setCategories] = useState(() => {
-    try {
-      const c = localStorage.getItem('rudhra_inventory_categories');
-      if (c) return JSON.parse(c) || [];
-    } catch (e) {}
-    return [];
-  });
-
+  const [categories, setCategories] = useState([]);
   const [subcategories, setSubcategories] = useState([]);
 
   // Diamond vault state for Total Diamond Carats card
-  const [diamondVault, setDiamondVault] = useState(() => {
-    try {
-      const c = localStorage.getItem('rudhra_diamond_vault');
-      if (c) return JSON.parse(c);
-    } catch (e) {}
-    return { totalCarats: 0, totalCount: 0, breakdown: [] };
-  });
+  const [diamondVault, setDiamondVault] = useState({ totalCarats: 0, totalCount: 0, breakdown: [] });
   const [showDiamondModal, setShowDiamondModal] = useState(false);
+  const [showAllDiamondStamps, setShowAllDiamondStamps] = useState(false);
+
+  // Stone vault state for Raw Stone card
+  const [stoneVault, setStoneVault] = useState({ totalWeight: 0, totalCount: 0, breakdown: [] });
+  const [showStoneModal, setShowStoneModal] = useState(false);
+  const [showAllStoneStamps, setShowAllStoneStamps] = useState(false);
 
   // Low Stock Alerts Horizontal Scroll Ref & State
   const alertsScrollRef = useRef(null);
@@ -86,13 +63,7 @@ export default function InventoryDashboard() {
     }
   }, [stats]);
 
-  const [loading, setLoading] = useState(() => {
-    try {
-      const c = localStorage.getItem('rudhra_inventory_products');
-      if (c && JSON.parse(c).length > 0) return false;
-    } catch (e) {}
-    return true;
-  });
+  const [loading, setLoading] = useState(true);
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -105,16 +76,7 @@ export default function InventoryDashboard() {
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [totalItems, setTotalItems] = useState(() => {
-    try {
-      const c = localStorage.getItem('rudhra_inventory_products');
-      if (c) {
-        const parsed = JSON.parse(c);
-        if (Array.isArray(parsed)) return parsed.length;
-      }
-    } catch (e) {}
-    return 0;
-  });
+  const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
 
   // Delete Modal state
@@ -123,11 +85,18 @@ export default function InventoryDashboard() {
 
   // Fetch master categories once on mount
   useEffect(() => {
+    // Purge any stale phantom caches from legacy runs
+    try {
+      localStorage.removeItem('rudhra_inventory_stats');
+      localStorage.removeItem('rudhra_diamond_vault');
+      localStorage.removeItem('rudhra_inventory_products');
+      localStorage.removeItem('rudhra_inventory_categories');
+    } catch (e) {}
+
     api.get('/inventory/categories')
       .then((res) => {
         const catData = res.data || [];
         setCategories(catData);
-        localStorage.setItem('rudhra_inventory_categories', JSON.stringify(catData));
       })
       .catch((err) => console.error('Failed to load categories', err));
 
@@ -139,16 +108,22 @@ export default function InventoryDashboard() {
     try {
       const res = await api.get('/raw-materials/unified-stock');
       const summary = res.data?.summary || {};
-      const breakdown = res.data?.diamond_by_stamp || [];
-      const vault = {
+      const diaBreakdown = res.data?.diamond_by_stamp || [];
+      const stBreakdown = res.data?.stone_by_stamp || [];
+
+      setDiamondVault({
         totalCarats: Number(summary.diamond_total_carats || 0),
         totalCount: Number(summary.diamond_total_count || 0),
-        breakdown,
-      };
-      setDiamondVault(vault);
-      localStorage.setItem('rudhra_diamond_vault', JSON.stringify(vault));
+        breakdown: diaBreakdown,
+      });
+
+      setStoneVault({
+        totalWeight: Number(summary.stone_total_weight || 0),
+        totalCount: Number(summary.stone_total_count || 0),
+        breakdown: stBreakdown,
+      });
     } catch (err) {
-      console.error('Failed to fetch diamond vault data:', err);
+      console.error('Failed to fetch vault data:', err);
     }
   };
 
@@ -173,12 +148,6 @@ export default function InventoryDashboard() {
       setTotalItems(res.data.products?.total || 0);
       setTotalPages(res.data.products?.last_page || 1);
       setStats(newStats);
-
-      // Persist to local cache so on page reload everything shows instantly
-      localStorage.setItem('rudhra_inventory_products', JSON.stringify(prods));
-      if (newStats && Object.keys(newStats).length > 0) {
-        localStorage.setItem('rudhra_inventory_stats', JSON.stringify(newStats));
-      }
     } catch (err) {
       console.error('Failed to load inventory:', err);
       showToast('Failed to load inventory data', 'error');
@@ -241,7 +210,7 @@ export default function InventoryDashboard() {
   };
 
   const jewelValues = stats?.jewel_values || {
-    gold: { weight: '0.000 g', amount: '₹0' },
+    gold: { weight: '0.000 g', fine_weight: '0.000 g', amount: '₹0' },
     stone: { weight: '0 units', amount: '₹0' },
     silver: { weight: '0.000 g', amount: '₹0' },
     diamond: { weight: '0.000 ct', amount: '₹0' },
@@ -291,7 +260,7 @@ export default function InventoryDashboard() {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
           
           {/* Raw Gold Stock Card */}
-          <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col justify-between hover:border-stone-300 transition-all">
+          <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col hover:border-stone-300 transition-all">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-7 h-7 rounded-full bg-amber-100/70 text-amber-700 flex items-center justify-center text-xs shrink-0">
                 <i className="fa-solid fa-coins"></i>
@@ -299,7 +268,7 @@ export default function InventoryDashboard() {
               <span className="text-[11px] font-semibold text-stone-400">Raw Gold</span>
             </div>
             <div>
-              <div className="text-lg font-bold text-gray-900 tracking-tight">
+              <div className="text-lg font-bold text-gray-900 tracking-tight font-mono">
                 {rawValues.gold?.weight || '0.000 kg'}
               </div>
               <div className="text-[11px] text-stone-400 font-medium mt-0.5">
@@ -309,7 +278,7 @@ export default function InventoryDashboard() {
           </div>
 
           {/* Raw Diamond Stock Card */}
-          <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col justify-between hover:border-stone-300 transition-all">
+          <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col hover:border-stone-300 transition-all">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-7 h-7 rounded-full bg-red-100/70 text-[#b01622] flex items-center justify-center text-xs shrink-0">
                 <i className="fa-solid fa-gem"></i>
@@ -317,7 +286,7 @@ export default function InventoryDashboard() {
               <span className="text-[11px] font-semibold text-stone-400">Raw Diamond</span>
             </div>
             <div>
-              <div className="text-lg font-bold text-gray-900 tracking-tight">
+              <div className="text-lg font-bold text-gray-900 tracking-tight font-mono">
                 {rawValues.diamond?.weight || '0.00 ct'}
               </div>
               <div className="text-[11px] text-stone-400 font-medium mt-0.5">
@@ -327,7 +296,7 @@ export default function InventoryDashboard() {
           </div>
 
           {/* Raw Stone Stock Card */}
-          <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col justify-between hover:border-stone-300 transition-all">
+          <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col hover:border-amber-200 transition-all">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-7 h-7 rounded-full bg-amber-100/70 text-amber-800 flex items-center justify-center text-xs shrink-0">
                 <i className="fa-solid fa-circle-dot"></i>
@@ -335,17 +304,29 @@ export default function InventoryDashboard() {
               <span className="text-[11px] font-semibold text-stone-400">Raw Stone</span>
             </div>
             <div>
-              <div className="text-lg font-bold text-gray-900 tracking-tight">
-                {rawValues.stone?.weight || '0 units'}
+              <div className="text-lg font-bold text-gray-900 tracking-tight font-mono">
+                {stoneVault.totalWeight > 0
+                  ? Number(stoneVault.totalWeight).toFixed(3)
+                  : (rawValues.stone?.weight?.replace(' units', '').replace(' ct', '') || '0.000')} <span className="text-xs font-sans font-semibold text-stone-400">ct</span>
               </div>
               <div className="text-[11px] text-stone-400 font-medium mt-0.5">
-                Vault Balance
+                <i className="fa-solid fa-boxes-stacked text-[9px] mr-1 text-amber-500"></i>
+                {stoneVault.totalCount || 0} pcs vault
               </div>
             </div>
+            {stoneVault.breakdown.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowStoneModal(true)}
+                className="mt-auto pt-2 text-amber-800 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200/60 w-full py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-colors"
+              >
+                View by Stamp ({stoneVault.breakdown.length})
+              </button>
+            )}
           </div>
 
           {/* Raw Silver Stock Card */}
-          <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col justify-between hover:border-stone-300 transition-all">
+          <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col hover:border-stone-300 transition-all">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-7 h-7 rounded-full bg-red-50 text-red-700 flex items-center justify-center text-xs shrink-0 border border-red-100">
                 <i className="fa-solid fa-ring"></i>
@@ -353,7 +334,7 @@ export default function InventoryDashboard() {
               <span className="text-[11px] font-semibold text-stone-400">Raw Silver</span>
             </div>
             <div>
-              <div className="text-lg font-bold text-gray-900 tracking-tight">
+              <div className="text-lg font-bold text-gray-900 tracking-tight font-mono">
                 {rawValues.silver_1?.weight || rawValues.silver?.weight || '0.000 kg'}
               </div>
               <div className="text-[11px] text-stone-400 font-medium mt-0.5">
@@ -363,7 +344,7 @@ export default function InventoryDashboard() {
           </div>
 
           {/* Total Diamond Carats Card */}
-          <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col justify-between hover:border-cyan-200 transition-all">
+          <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col hover:border-cyan-200 transition-all">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-7 h-7 rounded-full bg-cyan-50 text-cyan-600 flex items-center justify-center text-xs shrink-0 border border-cyan-100">
                 <i className="fa-solid fa-gem"></i>
@@ -383,7 +364,7 @@ export default function InventoryDashboard() {
               <button
                 type="button"
                 onClick={() => setShowDiamondModal(true)}
-                className="mt-2 text-cyan-700 hover:text-cyan-900 bg-cyan-50 hover:bg-cyan-100 border border-cyan-200/60 w-full py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-colors"
+                className="mt-auto pt-2 text-cyan-700 hover:text-cyan-900 bg-cyan-50 hover:bg-cyan-100 border border-cyan-200/60 w-full py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-colors"
               >
                 View by Stamp ({diamondVault.breakdown.length})
               </button>
@@ -403,18 +384,24 @@ export default function InventoryDashboard() {
           
           {/* Gold Jewellery Stock Card */}
           <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-2xs flex flex-col justify-between hover:border-stone-300 transition-all">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-7 h-7 rounded-full bg-amber-100/70 text-amber-700 flex items-center justify-center text-xs shrink-0">
-                <i className="fa-solid fa-coins"></i>
+            <div className="flex items-center justify-between gap-1 mb-2">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-full bg-amber-100/70 text-amber-700 flex items-center justify-center text-xs shrink-0">
+                  <i className="fa-solid fa-coins"></i>
+                </div>
+                <span className="text-[11px] font-semibold text-stone-400">Gold Jewellery</span>
               </div>
-              <span className="text-[11px] font-semibold text-stone-400">Gold Jewellery</span>
+              <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200/80 rounded px-1.5 py-0.5 font-mono" title="Fine Gold (Pure) Weight">
+                Fine: {jewelValues.gold?.fine_weight || '0.000 g'}
+              </span>
             </div>
             <div>
               <div className="text-lg font-bold text-gray-900 tracking-tight font-mono">
                 {jewelValues.gold?.weight || '0.000 g'}
               </div>
-              <div className="text-[11px] text-stone-400 font-medium mt-0.5">
-                Finished Goods
+              <div className="flex items-center justify-between text-[11px] text-stone-400 font-medium mt-0.5">
+                <span>Finished Goods</span>
+                <span className="text-amber-800 font-semibold font-mono text-[10px]">Pure: {jewelValues.gold?.fine_weight || '0.000 g'}</span>
               </div>
             </div>
           </div>
@@ -740,6 +727,7 @@ export default function InventoryDashboard() {
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="border-b border-stone-200/80 bg-stone-50/80 text-stone-700 font-semibold text-xs">
+                <th className="py-3 px-3 text-center w-12 whitespace-nowrap">S.No</th>
                 <th className="py-3 pl-3 pr-2 whitespace-nowrap">Product Name &amp; SKU</th>
                 <th className="py-3 px-2 whitespace-nowrap">Design No.</th>
                 <th className="py-3 px-2 whitespace-nowrap">Category</th>
@@ -755,14 +743,14 @@ export default function InventoryDashboard() {
             <tbody className="divide-y divide-stone-100">
               {loading ? (
                 <tr>
-                  <td colSpan="10" className="py-12 text-center text-stone-400">
+                  <td colSpan="11" className="py-12 text-center text-stone-400">
                     <i className="fa-solid fa-circle-notch fa-spin text-xl text-[#b01622] mr-2"></i>
                     Loading inventory catalog...
                   </td>
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan="10" className="py-12 text-center text-stone-400 space-y-2">
+                  <td colSpan="11" className="py-12 text-center text-stone-400 space-y-2">
                     <i className="fa-solid fa-boxes-stacked text-3xl text-stone-300"></i>
                     <p className="font-semibold text-stone-600">No products found</p>
                     <p className="text-[11px] text-stone-400">
@@ -771,7 +759,8 @@ export default function InventoryDashboard() {
                   </td>
                 </tr>
               ) : (
-                products.map((p) => {
+                products.map((p, idx) => {
+                  const rowNum = (currentPage - 1) * itemsPerPage + idx + 1;
                   const attrs = typeof p.attributes === 'string' ? JSON.parse(p.attributes || '{}') : (p.attributes || {});
                   
                   // Product image
@@ -826,6 +815,11 @@ export default function InventoryDashboard() {
 
                   return (
                     <tr key={p.id} className="hover:bg-stone-50/60 transition-colors">
+                      {/* 0. S.No */}
+                      <td className="py-2.5 px-3 text-center font-mono text-stone-400 font-medium whitespace-nowrap">
+                        {rowNum}
+                      </td>
+
                       {/* 1. Product Name & SKU */}
                       <td className="py-2.5 pl-3 pr-2">
                         <div className="flex items-center gap-2.5">
@@ -1069,45 +1063,73 @@ export default function InventoryDashboard() {
                 </div>
               </div>
 
-              <table className="w-full text-xs text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-stone-200 bg-stone-50 text-[10px] font-bold text-stone-500 uppercase tracking-wider">
-                    <th className="py-2.5 px-3">Stamp / Grade</th>
-                    <th className="py-2.5 px-3 text-right">Available Carats</th>
-                    <th className="py-2.5 px-3 text-right">Available Pieces</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-100">
-                  {diamondVault.breakdown.length > 0 ? (
-                    diamondVault.breakdown.slice(0, 5).map((item, idx) => (
-                      <tr key={idx} className="hover:bg-cyan-50/30 transition-colors">
-                        <td className="py-2.5 px-3 font-semibold text-stone-900 flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-cyan-500 shrink-0"></span>
-                          <span>{item.stamp || 'Unclassified'}</span>
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-mono font-bold text-cyan-900">
-                          {Number(item.available_carats || 0).toFixed(3)} ct
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-mono text-stone-600">
-                          {Number(item.available_count || 0)} pcs
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={3} className="py-6 text-center text-stone-400">
-                        No diamond stamps recorded yet
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+              {(() => {
+                const activeStamps = diamondVault.breakdown.filter(
+                  item => Number(item.available_carats || 0) > 0 || Number(item.available_count || 0) > 0
+                );
+                const displayList = (showAllDiamondStamps || activeStamps.length === 0)
+                  ? diamondVault.breakdown
+                  : activeStamps;
 
-              {diamondVault.breakdown.length > 5 && (
-                <div className="mt-2.5 text-center text-[11px] text-stone-500 font-medium">
-                  Showing 5 of {diamondVault.breakdown.length} stamps
-                </div>
-              )}
+                return (
+                  <>
+                    <table className="w-full text-xs text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-stone-200 bg-stone-50 text-[10px] font-bold text-stone-500 uppercase tracking-wider">
+                          <th className="py-2.5 px-3 text-center w-12">S.No</th>
+                          <th className="py-2.5 px-3">Stamp / Grade</th>
+                          <th className="py-2.5 px-3 text-right">Available Carats</th>
+                          <th className="py-2.5 px-3 text-right">Available Pieces</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-stone-100">
+                        {displayList.length > 0 ? (
+                          displayList.map((item, idx) => {
+                            const hasStock = Number(item.available_carats || 0) > 0 || Number(item.available_count || 0) > 0;
+                            return (
+                              <tr key={idx} className="hover:bg-cyan-50/30 transition-colors">
+                                <td className="py-2.5 px-3 text-center font-mono text-stone-400 font-medium">{idx + 1}</td>
+                                <td className="py-2.5 px-3 font-semibold text-stone-900 flex items-center gap-2">
+                                  <span className={`w-2 h-2 rounded-full shrink-0 ${hasStock ? 'bg-cyan-500 ring-2 ring-cyan-200' : 'bg-stone-300'}`}></span>
+                                  <span>{item.stamp || 'Unclassified'}</span>
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono font-bold text-cyan-900">
+                                  {Number(item.available_carats || 0).toFixed(3)} ct
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono text-stone-600">
+                                  {Number(item.available_count || 0)} pcs
+                                </td>
+                              </tr>
+                            );
+                          })
+                        ) : (
+                          <tr>
+                            <td colSpan={4} className="py-6 text-center text-stone-400">
+                              No diamond stamps recorded yet
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+
+                    <div className="mt-3 flex items-center justify-between text-[11px] text-stone-500">
+                      <span>
+                        Showing {displayList.length} of {diamondVault.breakdown.length} stamps
+                        {activeStamps.length > 0 && !showAllDiamondStamps && ` (${activeStamps.length} with active balance)`}
+                      </span>
+                      {diamondVault.breakdown.length > activeStamps.length && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAllDiamondStamps(!showAllDiamondStamps)}
+                          className="text-cyan-700 hover:text-cyan-900 font-bold underline cursor-pointer text-[11px]"
+                        >
+                          {showAllDiamondStamps ? 'Hide Empty Stamps' : `Show All Master Stamps (${diamondVault.breakdown.length})`}
+                        </button>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
 
             <div className="p-3 bg-stone-50 border-t border-stone-200 flex items-center justify-between gap-3">
@@ -1125,6 +1147,138 @@ export default function InventoryDashboard() {
               <button
                 type="button"
                 onClick={() => setShowDiamondModal(false)}
+                className="px-4 py-2 bg-stone-200 hover:bg-stone-300 text-stone-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Colour Stone Stock Breakdown by Stamp / Variety Modal */}
+      {showStoneModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-stone-200 overflow-hidden">
+            <div className="flex items-center justify-between p-4 bg-stone-50 border-b border-stone-200">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center text-sm">
+                  <i className="fa-solid fa-circle-dot"></i>
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-stone-900">Colour Stone Stock by Stamp / Variety</h3>
+                  <p className="text-[11px] text-stone-500">Authoritative vault breakdown</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowStoneModal(false)}
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-200/60 transition-colors cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark text-sm"></i>
+              </button>
+            </div>
+
+            <div className="p-4 max-h-[60vh] overflow-y-auto">
+              <div className="mb-3 p-3 bg-amber-50/60 rounded-xl border border-amber-200/60 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-amber-900 uppercase tracking-wider block">Total Vault Balance</span>
+                  <span className="text-lg font-black text-amber-950 font-mono">
+                    {Number(stoneVault.totalWeight || 0).toFixed(3)} ct
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] font-bold text-amber-900 uppercase tracking-wider block">Total Pieces</span>
+                  <span className="text-sm font-bold text-stone-700 font-mono">
+                    {stoneVault.totalCount || 0} pcs
+                  </span>
+                </div>
+              </div>
+
+              {(() => {
+                const activeStamps = stoneVault.breakdown.filter(
+                  item => Number(item.available_carats || item.available_weight || 0) > 0 || Number(item.available_count || 0) > 0
+                );
+                const displayList = (showAllStoneStamps || activeStamps.length === 0)
+                  ? stoneVault.breakdown
+                  : activeStamps;
+
+                return (
+                  <>
+                    <table className="w-full text-xs text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-stone-200 bg-stone-50 text-[10px] font-bold text-stone-500 uppercase tracking-wider">
+                          <th className="py-2.5 px-3 text-center w-12">S.No</th>
+                          <th className="py-2.5 px-3">Stamp / Variety</th>
+                          <th className="py-2.5 px-3 text-right">Available Carats</th>
+                          <th className="py-2.5 px-3 text-right">Available Pieces</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-stone-100">
+                        {displayList.length > 0 ? (
+                          displayList.map((item, idx) => {
+                            const hasStock = Number(item.available_carats || item.available_weight || 0) > 0 || Number(item.available_count || 0) > 0;
+                            return (
+                              <tr key={idx} className="hover:bg-amber-50/30 transition-colors">
+                                <td className="py-2.5 px-3 text-center font-mono text-stone-400 font-medium">{idx + 1}</td>
+                                <td className="py-2.5 px-3 font-semibold text-stone-900 flex items-center gap-2">
+                                  <span className={`w-2 h-2 rounded-full shrink-0 ${hasStock ? 'bg-amber-500 ring-2 ring-amber-200' : 'bg-stone-300'}`}></span>
+                                  <span>{item.stamp || 'Unclassified'}</span>
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-900">
+                                  {Number(item.available_carats || item.available_weight || 0).toFixed(3)} ct
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono text-stone-600">
+                                  {Number(item.available_count || 0)} pcs
+                                </td>
+                              </tr>
+                            );
+                          })
+                        ) : (
+                          <tr>
+                            <td colSpan={4} className="py-6 text-center text-stone-400">
+                              No colour stone stamps recorded yet
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+
+                    <div className="mt-3 flex items-center justify-between text-[11px] text-stone-500">
+                      <span>
+                        Showing {displayList.length} of {stoneVault.breakdown.length} stamps
+                        {activeStamps.length > 0 && !showAllStoneStamps && ` (${activeStamps.length} with active balance)`}
+                      </span>
+                      {stoneVault.breakdown.length > activeStamps.length && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAllStoneStamps(!showAllStoneStamps)}
+                          className="text-amber-800 hover:text-amber-900 font-bold underline cursor-pointer text-[11px]"
+                        >
+                          {showAllStoneStamps ? 'Hide Empty Stamps' : `Show All Master Stamps (${stoneVault.breakdown.length})`}
+                        </button>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+
+            <div className="p-3 bg-stone-50 border-t border-stone-200 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowStoneModal(false);
+                  navigate('/purchase/stock');
+                }}
+                className="px-4 py-2 bg-[#b01622] hover:bg-[#8f121b] text-white rounded-xl text-xs font-bold transition-all shadow-xs hover:shadow flex items-center gap-2 cursor-pointer"
+              >
+                <span>View More</span>
+                <i className="fa-solid fa-arrow-right text-[10px]"></i>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowStoneModal(false)}
                 className="px-4 py-2 bg-stone-200 hover:bg-stone-300 text-stone-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
               >
                 Close

@@ -311,6 +311,7 @@ export default function Subcategories() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-[#f6eee9] border-b border-gray-200/60 text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                <th className="px-6 py-4 text-center w-14">S.NO</th>
                 <th className="px-6 py-4">SUBCATEGORY NAME</th>
                 <th className="px-6 py-4">CODE</th>
                 <th className="px-6 py-4">PARENT CATEGORY</th>
@@ -322,19 +323,23 @@ export default function Subcategories() {
             <tbody className="text-sm divide-y divide-gray-100">
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="px-6 py-8 text-center text-gray-400">
+                  <td colSpan="7" className="px-6 py-8 text-center text-gray-400">
                     <i className="fa-solid fa-circle-notch fa-spin mr-2"></i> Loading subcategories...
                   </td>
                 </tr>
               ) : paginatedItems.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="px-6 py-8 text-center text-gray-400">
+                  <td colSpan="7" className="px-6 py-8 text-center text-gray-400">
                     No subcategories found matching criteria.
                   </td>
                 </tr>
               ) : (
-                paginatedItems.map(item => (
+                paginatedItems.map((item, idx) => (
                   <tr key={item.id} className="hover:bg-gray-50/60 transition-colors">
+                    {/* S.NO */}
+                    <td className="px-6 py-4 text-center font-mono text-gray-500 font-semibold">
+                      {(currentPage - 1) * itemsPerPage + idx + 1}
+                    </td>
                     <td className="px-6 py-4 font-bold text-gray-900 flex items-center gap-3">
                       <div className="w-8 h-8 rounded-lg bg-red-50 text-[#b01622] flex items-center justify-center text-xs font-semibold shrink-0">
                         {item.code ? item.code.substring(0, 2) : 'SC'}

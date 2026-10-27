@@ -4,7 +4,7 @@ import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { compressImageFile } from '../../utils/imageCompressor';
 import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
-import { isMetalPurityStamp } from '../../components/JewelleryTagCard';
+import { isMetalPurityStamp, isDiamondComponent } from '../../components/JewelleryTagCard';
 
 export default function InventoryEditProduct() {
   const { id } = useParams();
@@ -369,11 +369,9 @@ export default function InventoryEditProduct() {
     try {
       const updatedStockQty = parseInt(formData.no_of_pieces) || 1;
 
-      const diaComp = Array.isArray(components) ? components.find((c) => {
-        const n = (c.category_name || c.item_name || c.component_type || '').toLowerCase();
-        return c.is_diamond || n.includes('diamond') || n.includes('dia');
-      }) : null;
-      const diaWt = diaComp ? (parseFloat(diaComp.stone_weight || diaComp.gross_wt) || 0) : 0;
+      const diaComp = Array.isArray(components) ? components.find(isDiamondComponent) : null;
+      const isCaratUnit = diaComp && (diaComp.unit === 'ct' || diaComp.unit === 'Carats' || diaComp.unit === 'carat');
+      const diaWt = diaComp ? (parseFloat(diaComp.stone_weight || (isCaratUnit ? diaComp.gross_wt : 0)) || 0) : 0;
       const diaCount = diaComp ? (parseInt(diaComp.no_of_pieces, 10) || 1) : 0;
       const diaStamp = diaComp?.stamp && !isMetalPurityStamp(diaComp.stamp) ? diaComp.stamp : null;
 
@@ -1319,7 +1317,7 @@ export default function InventoryEditProduct() {
 
                       <div>
                         <label className="block text-[10px] font-bold text-[#b01622] uppercase mb-1">
-                          Stone Weight (g)
+                          Stone Weight (ct)
                         </label>
                         <input
                           type="number"

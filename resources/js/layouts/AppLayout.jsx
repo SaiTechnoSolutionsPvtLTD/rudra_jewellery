@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
@@ -13,8 +13,12 @@ export default function AppLayout() {
       localStorage.removeItem('rj_sidebar_open');
     } catch (e) {}
 
-    // Preload common master lists in background so dropdowns populate with 0ms latency
-    preloadMasters();
+    // Defer preloading non-critical master lists so active page loads immediately without queue contention
+    const timer = setTimeout(() => {
+      preloadMasters();
+    }, 2500);
+
+    return () => clearTimeout(timer);
   }, []);
 
   const toggleSidebar = () => {
@@ -28,12 +32,21 @@ export default function AppLayout() {
         <Header toggleSidebar={toggleSidebar} sidebarOpen={sidebarOpen} />
         <main className="flex-1 overflow-y-auto bg-[#fcfcfc] p-6 flex flex-col justify-between print:p-0 print:bg-white print:overflow-visible print:block">
           <div>
-            <Outlet />
+            <Suspense fallback={
+              <div className="flex items-center justify-center min-h-[350px]">
+                <div className="flex items-center gap-2.5 px-4 py-3 bg-white/90 border border-stone-200/80 rounded-xl shadow-xs text-stone-600 font-medium text-xs animate-in fade-in duration-200">
+                  <i className="fa-solid fa-circle-notch fa-spin text-sm text-[#b01622]"></i>
+                  <span>Loading view...</span>
+                </div>
+              </div>
+            }>
+              <Outlet />
+            </Suspense>
           </div>
           <footer className="mt-10 pt-4 pb-2 border-t border-stone-200/80 text-center text-xs text-stone-500 font-medium tracking-wide print:hidden shrink-0">
-            <span>© 2026 <strong className="font-bold text-[#b01622]">Rudhra Jewellers</strong>. All Rights Reserved.</span>
+            <span>© 2026 <strong className="font-bold text-[#b01622]">Rudra Jewellery</strong>. All Rights Reserved.</span>
             <span className="mx-2 text-stone-300">|</span>
-            <span>Developed by <strong className="font-semibold text-[#b01622]">Sai Techno Solutions</strong>.</span>
+            <span>Developed by <strong className="font-semibold text-[#b01622]">Sai Techno Solutions Pvt Ltd</strong>.</span>
           </footer>
         </main>
       </div>

@@ -15,6 +15,7 @@ class WorkOrder extends Model
         'job_order_id',
         'job_number',
         'client_id',
+        'invoice_id',
         'customer_name',
         'product_id',
         'product_name',
@@ -140,7 +141,91 @@ class WorkOrder extends Model
         'karigar_submitted_at' => 'datetime',
     ];
 
-    protected $appends = ['specifications', 'items_list', 'delay_history', 'pending_production_qty', 'pending_receive_qty'];
+    protected $appends = ['specifications', 'items_list', 'delay_history', 'pending_production_qty', 'pending_receive_qty', 'karat', 'purity', 'color_stone_weight', 'color_stone_count', 'gold_reconciliation'];
+
+    public function getGoldReconciliationAttribute()
+    {
+        return \App\Services\WorkOrderGoldReconciliationService::calculateForWorkOrder($this);
+    }
+
+    public function getColorStoneWeightAttribute()
+    {
+        $st = $this->stone_details ?? [];
+        if (isset($st['color_stone_weight']) && $st['color_stone_weight'] !== '') {
+            return (float)$st['color_stone_weight'];
+        }
+        if (isset($st['colour_stone']) && $st['colour_stone'] !== '') {
+            return (float)$st['colour_stone'];
+        }
+        if ($this->relationLoaded('receivedPieces') && $this->receivedPieces->isNotEmpty()) {
+            $latest = $this->receivedPieces->last();
+            if ($latest && $latest->color_stone_weight !== null && (float)$latest->color_stone_weight > 0) {
+                return (float)$latest->color_stone_weight;
+            }
+        }
+        $attrs = is_array($this->product?->attributes) ? $this->product->attributes : (json_decode($this->product?->attributes ?? '[]', true) ?: []);
+        return (float)($attrs['stone_weight'] ?? 0);
+    }
+
+    public function getColorStoneCountAttribute()
+    {
+        $st = $this->stone_details ?? [];
+        if (isset($st['color_stone_count']) && $st['color_stone_count'] !== '') {
+            return (int)$st['color_stone_count'];
+        }
+        if (isset($st['no_of_colour_stones']) && $st['no_of_colour_stones'] !== '') {
+            return (int)$st['no_of_colour_stones'];
+        }
+        if ($this->relationLoaded('receivedPieces') && $this->receivedPieces->isNotEmpty()) {
+            $latest = $this->receivedPieces->last();
+            if ($latest && $latest->color_stone_count !== null && (int)$latest->color_stone_count > 0) {
+                return (int)$latest->color_stone_count;
+            }
+        }
+        $attrs = is_array($this->product?->attributes) ? $this->product->attributes : (json_decode($this->product?->attributes ?? '[]', true) ?: []);
+        return (int)($attrs['stone_count'] ?? 0);
+    }
+
+    public function getKaratAttribute()
+    {
+        if (!empty($this->attributes['karat'])) {
+            return $this->attributes['karat'];
+        }
+        if (!empty($this->attributes['gold_purity'])) {
+            return $this->attributes['gold_purity'];
+        }
+        if (!empty($this->pricing_details['gold_purity'])) {
+            return (string) $this->pricing_details['gold_purity'];
+        }
+        if (!empty($this->pricing_details['items']) && is_array($this->pricing_details['items'])) {
+            foreach ($this->pricing_details['items'] as $itm) {
+                if (!empty($itm['gold_purity'])) return (string) $itm['gold_purity'];
+                if (!empty($itm['purity'])) return (string) $itm['purity'];
+                if (!empty($itm['karat'])) return (string) $itm['karat'];
+                if (!empty($itm['gold_karat'])) return (string) $itm['gold_karat'];
+            }
+        }
+        if (!empty($this->material_type)) {
+            if (preg_match('/(24\s*k(?:arat|t)?|22\s*k(?:arat|t)?|18\s*k(?:arat|t)?|14\s*k(?:arat|t)?|999|916|750)/i', $this->material_type, $m)) {
+                $v = strtoupper(trim($m[1]));
+                if ($v === '999') return '24K';
+                if ($v === '916') return '22K';
+                if ($v === '750') return '18K';
+                return $v;
+            }
+        }
+        if ($this->relationLoaded('items') && $this->items->isNotEmpty()) {
+            foreach ($this->items as $itm) {
+                if (!empty($itm->karat)) return $itm->karat;
+            }
+        }
+        return '22K';
+    }
+
+    public function getPurityAttribute()
+    {
+        return $this->karat;
+    }
 
     public function getPendingProductionQtyAttribute()
     {
@@ -315,6 +400,202 @@ class WorkOrder extends Model
     public function client()
     {
         return $this->belongsTo(Client::class);
+    }
+
+    public function invoice()
+    {
+        return $this->belongsTo(Invoice::class);
+    }
+
+    /**
+     * Authoritative delivery status check.
+     * An order is ONLY Delivered if:
+     * 1. Linked to a client.
+     * 2. Has received pieces / products.
+     * 3. ALL pieces are sold to that client.
+     * 4. Successfully recorded on an active sale invoice / bill for that client.
+     */
+    public function isFullyDelivered(): bool
+    {
+        // 1. Must be linked to a client
+        if (empty($this->client_id)) {
+            return false;
+        }
+
+        // 2. Must have physical received pieces
+        $pieces = $this->receivedPieces;
+        if ($pieces->isEmpty()) {
+            return false;
+        }
+
+        // 3. Every single received piece must be marked sold
+        $totalPieces = $pieces->count();
+        $soldPieces = $pieces->where('status', 'sold');
+        if ($soldPieces->count() < $totalPieces) {
+            return false;
+        }
+
+        // 4. Must be linked to a valid, non-cancelled invoice for this client
+        if (!empty($this->invoice_id)) {
+            $hasDirectInvoice = Invoice::where('id', $this->invoice_id)
+                ->where('client_id', $this->client_id)
+                ->whereNotIn('status', ['cancelled', 'void', 'returned'])
+                ->where(function ($q) {
+                    $q->whereNull('sale_status')
+                      ->orWhereNotIn('sale_status', ['cancelled', 'void', 'returned', 'reversed']);
+                })
+                ->exists();
+            if ($hasDirectInvoice) {
+                return true;
+            }
+        }
+
+        $pieceInvoiceIds = $soldPieces->pluck('invoice_id')->filter()->unique()->all();
+        if (!empty($pieceInvoiceIds)) {
+            $hasValidInvoice = Invoice::whereIn('id', $pieceInvoiceIds)
+                ->where('client_id', $this->client_id)
+                ->whereNotIn('status', ['cancelled', 'void', 'returned'])
+                ->where(function ($q) {
+                    $q->whereNull('sale_status')
+                      ->orWhereNotIn('sale_status', ['cancelled', 'void', 'returned', 'reversed']);
+                })
+                ->exists();
+            if ($hasValidInvoice) {
+                return true;
+            }
+        }
+
+        // Check if client has a matching sale with any of this work order's tag numbers
+        $tags = $soldPieces->pluck('tag_number')->filter()->all();
+        if (!empty($tags)) {
+            $hasInvoiceByTags = Invoice::where('client_id', $this->client_id)
+                ->whereNotIn('status', ['cancelled', 'void', 'returned'])
+                ->where(function ($q) {
+                    $q->whereNull('sale_status')
+                      ->orWhereNotIn('sale_status', ['cancelled', 'void', 'returned', 'reversed']);
+                })
+                ->where(function ($q) use ($tags) {
+                    foreach ($tags as $tag) {
+                        $q->orWhere('items', 'like', "%{$tag}%");
+                    }
+                })
+                ->exists();
+            if ($hasInvoiceByTags) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Get authoritative delivery status info with badge style.
+     */
+    public function getDeliveryStatusInfo(): array
+    {
+        $st = strtolower($this->status ?? '');
+        $stage = strtolower($this->current_stage ?? '');
+
+        if (in_array($st, ['cancelled', 'void', 'rejected'])) {
+            return [
+                'label' => 'Cancelled',
+                'status' => 'Cancelled',
+                'badge' => 'Cancelled',
+                'is_delivered' => false,
+                'color' => 'rose',
+                'style' => 'bg-[#fee2e2] text-[#b91c1c]',
+            ];
+        }
+
+        if ($this->isFullyDelivered()) {
+            return [
+                'label' => 'Delivered',
+                'status' => 'Delivered',
+                'badge' => 'Delivered',
+                'is_delivered' => true,
+                'color' => 'emerald',
+                'style' => 'bg-[#dcfce7] text-[#15803d]',
+            ];
+        }
+
+        // Check partial sales / partial billing
+        $pieces = $this->receivedPieces;
+        $totalPieces = $pieces->count();
+        $soldPiecesCount = $pieces->where('status', 'sold')->count();
+
+        if ($totalPieces > 0 && $soldPiecesCount > 0 && $soldPiecesCount < $totalPieces) {
+            return [
+                'label' => 'Partially Billed',
+                'status' => 'Partially Billed',
+                'badge' => 'Partially Billed',
+                'is_delivered' => false,
+                'color' => 'amber',
+                'style' => 'bg-[#fef3c7] text-[#b45309]',
+            ];
+        }
+
+        if (in_array($st, ['completed', 'ready', 'final_received']) || in_array($stage, ['completed', 'ready', 'final_received'])) {
+            if (!empty($this->client_id)) {
+                return [
+                    'label' => 'Awaiting Billing',
+                    'status' => 'Awaiting Billing',
+                    'badge' => 'Awaiting Billing',
+                    'is_delivered' => false,
+                    'color' => 'amber',
+                    'style' => 'bg-[#fef3c7] text-[#b45309]',
+                ];
+            }
+            return [
+                'label' => 'Completed',
+                'status' => 'Completed',
+                'badge' => 'Completed',
+                'is_delivered' => false,
+                'color' => 'indigo',
+                'style' => 'bg-[#e0e7ff] text-[#4338ca]',
+            ];
+        }
+
+        if (in_array($st, ['received']) || in_array($stage, ['received'])) {
+            return [
+                'label' => 'Received',
+                'status' => 'Received',
+                'badge' => 'Received',
+                'is_delivered' => false,
+                'color' => 'indigo',
+                'style' => 'bg-[#e0e7ff] text-[#4338ca]',
+            ];
+        }
+
+        if (in_array($st, ['pending_approval']) || in_array($stage, ['quality_check', 'qc', 'sent_for_approval', 'work_completed', 'certification', 'hallmarking'])) {
+            return [
+                'label' => 'Quality Check',
+                'status' => 'Quality Check',
+                'badge' => 'Quality Check',
+                'is_delivered' => false,
+                'color' => 'purple',
+                'style' => 'bg-[#f1f5f9] text-[#475569]',
+            ];
+        }
+
+        if (in_array($st, ['assigned', 'created']) || in_array($stage, ['created', 'assigned'])) {
+            return [
+                'label' => 'Pending',
+                'status' => 'Pending',
+                'badge' => 'Pending',
+                'is_delivered' => false,
+                'color' => 'amber',
+                'style' => 'bg-[#fef3c7] text-[#b45309]',
+            ];
+        }
+
+        return [
+            'label' => 'In Progress',
+            'status' => 'In Progress',
+            'badge' => 'In Progress',
+            'is_delivered' => false,
+            'color' => 'sky',
+            'style' => 'bg-[#dbeafe] text-[#1d4ed8]',
+        ];
     }
 
     public function product()

@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-    <title>Rudhra Jewellers - Product Selection Catalog</title>
+    <title>Rudra Jewellery - Product Selection Catalog</title>
     <style>
         @page {
             margin-top: 12mm;
@@ -206,7 +206,7 @@
             $logoBase64 = 'data:image/png;base64,' . base64_encode($logoData);
         }
 
-        $companyName = $companyInfo->company_name ?? 'Rudhra Jewellers Pvt. Ltd.';
+        $companyName = $companyInfo->company_name ?? 'Rudra Jewellery Pvt. Ltd.';
         $tagline = $companyInfo->tagline ?? 'Executive Enterprise Product Selection Catalog';
         $gstin = $companyInfo->gstin ?? '33AAACR1234F1Z0';
         $regNo = $companyInfo->reg_no ?? 'CHN/2026/JEW/9912';
@@ -318,20 +318,20 @@
     <!-- Fixed Footer pinned at the absolute bottom of A4 page -->
     <div class="pdf-footer-fixed">
         <div class="footer-note">
-            <strong>Enterprise Product Catalog Certification:</strong> This catalog is digitally compiled directly from the enterprise product database of Rudhra Jewellers Pvt. Ltd. All metal weights, purity grades, and diamond specifications listed are verified for official client selection and manufacturing records.
+            <strong>Enterprise Product Catalog Certification:</strong> This catalog is digitally compiled directly from the enterprise product database of Rudra Jewellery Pvt. Ltd. All metal weights, purity grades, and diamond specifications listed are verified for official client selection and manufacturing records.
         </div>
 
         <table class="signature-table">
             <tr>
                 <td style="text-align:left;">
-                    <strong style="color:#0f172a;">Rudhra Jewellers Pvt. Ltd.</strong><br>
+                    <strong style="color:#0f172a;">Rudra Jewellery Pvt. Ltd.</strong><br>
                     Corporate Office: Chennai, Tamil Nadu, India<br>
                     Generated: {{ date('d M Y, h:i A') }}
                 </td>
                 <td style="text-align:right;">
                     <div class="signature-line"></div>
                     <strong style="color:#0f172a; text-transform:uppercase;">Authorized Catalog Manager</strong><br>
-                    <span>Rudhra Product &amp; Quality Control</span>
+                    <span>Rudra Jewellery Quality Control</span>
                 </td>
             </tr>
         </table>

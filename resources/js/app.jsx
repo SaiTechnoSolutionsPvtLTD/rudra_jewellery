@@ -29,56 +29,56 @@ const lazyWithRetry = (componentImport) =>
   });
 
 const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
-import ClientList from './pages/clients/ClientList';
-import RegisterClient from './pages/clients/RegisterClient';
+const ClientList = lazyWithRetry(() => import('./pages/clients/ClientList'));
+const RegisterClient = lazyWithRetry(() => import('./pages/clients/RegisterClient'));
 const BillingDashboard = lazyWithRetry(() => import('./pages/clients/BillingDashboard'));
-import Users from './pages/authentication/Users';
-import Roles from './pages/authentication/Roles';
-import Permissions from './pages/authentication/Permissions';
-import Categories from './pages/masters/Categories';
-import Subcategories from './pages/masters/Subcategories';
-import ItemsMaster from './pages/masters/ItemsMaster';
-import Products from './pages/masters/Products';
-import CreateProduct from './pages/masters/CreateProduct';
-import Memberships from './pages/masters/Memberships';
-import ClientPriceList from './pages/clients/ClientPriceList';
-import RemovePage from './pages/clients/RemovePage';
-import StockManagement from './pages/stock/StockManagement';
-import SupplierManagement from './pages/stock/SupplierManagement';
-import PurchaseEntry from './pages/purchase/PurchaseEntry';
-import Step1Upload from './pages/product-upload/Step1Upload';
-import Step2Catalog from './pages/product-upload/Step2Catalog';
-import Step3Selection from './pages/product-upload/Step3Selection';
-import Step4Download from './pages/product-upload/Step4Download';
-import SettingStyles from './pages/masters/SettingStyles';
-import GoldTypes from './pages/masters/GoldTypes';
-import DiamondRanges from './pages/masters/DiamondRanges';
-import DiamondColors from './pages/masters/DiamondColors';
-import DiamondClarities from './pages/masters/DiamondClarities';
-import Karats from './pages/masters/Karats';
-import Stamps from './pages/masters/Stamps';
-import Units from './pages/masters/Units';
-import ComponentCategories from './pages/masters/ComponentCategories';
-import WorkSpecifications from './pages/masters/WorkSpecifications';
-import BankAccounts from './pages/masters/BankAccounts';
-import Operations from './pages/masters/Operations';
-import CompanyInfoMaster from './pages/masters/CompanyInfoMaster';
-import RawMaterials from './pages/masters/RawMaterials';
+const Users = lazyWithRetry(() => import('./pages/authentication/Users'));
+const Roles = lazyWithRetry(() => import('./pages/authentication/Roles'));
+const Permissions = lazyWithRetry(() => import('./pages/authentication/Permissions'));
+const Categories = lazyWithRetry(() => import('./pages/masters/Categories'));
+const Subcategories = lazyWithRetry(() => import('./pages/masters/Subcategories'));
+const ItemsMaster = lazyWithRetry(() => import('./pages/masters/ItemsMaster'));
+const Products = lazyWithRetry(() => import('./pages/masters/Products'));
+const CreateProduct = lazyWithRetry(() => import('./pages/masters/CreateProduct'));
+const Memberships = lazyWithRetry(() => import('./pages/masters/Memberships'));
+const ClientPriceList = lazyWithRetry(() => import('./pages/clients/ClientPriceList'));
+const RemovePage = lazyWithRetry(() => import('./pages/clients/RemovePage'));
+const StockManagement = lazyWithRetry(() => import('./pages/stock/StockManagement'));
+const SupplierManagement = lazyWithRetry(() => import('./pages/stock/SupplierManagement'));
+const PurchaseEntry = lazyWithRetry(() => import('./pages/purchase/PurchaseEntry'));
+const Step1Upload = lazyWithRetry(() => import('./pages/product-upload/Step1Upload'));
+const Step2Catalog = lazyWithRetry(() => import('./pages/product-upload/Step2Catalog'));
+const Step3Selection = lazyWithRetry(() => import('./pages/product-upload/Step3Selection'));
+const Step4Download = lazyWithRetry(() => import('./pages/product-upload/Step4Download'));
+const SettingStyles = lazyWithRetry(() => import('./pages/masters/SettingStyles'));
+const GoldTypes = lazyWithRetry(() => import('./pages/masters/GoldTypes'));
+const DiamondRanges = lazyWithRetry(() => import('./pages/masters/DiamondRanges'));
+const DiamondColors = lazyWithRetry(() => import('./pages/masters/DiamondColors'));
+const DiamondClarities = lazyWithRetry(() => import('./pages/masters/DiamondClarities'));
+const Karats = lazyWithRetry(() => import('./pages/masters/Karats'));
+const Stamps = lazyWithRetry(() => import('./pages/masters/Stamps'));
+const Units = lazyWithRetry(() => import('./pages/masters/Units'));
+const ComponentCategories = lazyWithRetry(() => import('./pages/masters/ComponentCategories'));
+const WorkSpecifications = lazyWithRetry(() => import('./pages/masters/WorkSpecifications'));
+const BankAccounts = lazyWithRetry(() => import('./pages/masters/BankAccounts'));
+const Operations = lazyWithRetry(() => import('./pages/masters/Operations'));
+const CompanyInfoMaster = lazyWithRetry(() => import('./pages/masters/CompanyInfoMaster'));
+const RawMaterials = lazyWithRetry(() => import('./pages/masters/RawMaterials'));
 const KarigarManagement = lazyWithRetry(() => import('./pages/karigar/KarigarManagement'));
 const SalesModule = lazyWithRetry(() => import('./pages/sales/SalesModule'));
 const ReportModule = lazyWithRetry(() => import('./pages/reports/ReportModule'));
 
 // Inventory Module
 const InventoryDashboard = lazyWithRetry(() => import('./pages/inventory/InventoryDashboard'));
-import InventoryBulkUpload from './pages/inventory/InventoryBulkUpload';
-import InventoryAddNewCategory from './pages/inventory/InventoryAddNewCategory';
-import InventoryAddNewSubcategory from './pages/inventory/InventoryAddNewSubcategory';
-import InventoryAddNewUpload from './pages/inventory/InventoryAddNewUpload';
-import InventoryUploadComplete from './pages/inventory/InventoryUploadComplete';
+const InventoryBulkUpload = lazyWithRetry(() => import('./pages/inventory/InventoryBulkUpload'));
+const InventoryAddNewCategory = lazyWithRetry(() => import('./pages/inventory/InventoryAddNewCategory'));
+const InventoryAddNewSubcategory = lazyWithRetry(() => import('./pages/inventory/InventoryAddNewSubcategory'));
+const InventoryAddNewUpload = lazyWithRetry(() => import('./pages/inventory/InventoryAddNewUpload'));
+const InventoryUploadComplete = lazyWithRetry(() => import('./pages/inventory/InventoryUploadComplete'));
 const InventoryViewProduct = lazyWithRetry(() => import('./pages/inventory/InventoryViewProduct'));
 const InventoryEditProduct = lazyWithRetry(() => import('./pages/inventory/InventoryEditProduct'));
-import InventoryJewelleryTag from './pages/inventory/InventoryJewelleryTag';
-import InventoryBarcodeTag from './pages/inventory/InventoryBarcodeTag';
+const InventoryJewelleryTag = lazyWithRetry(() => import('./pages/inventory/InventoryJewelleryTag'));
+const InventoryBarcodeTag = lazyWithRetry(() => import('./pages/inventory/InventoryBarcodeTag'));
 
 // Job Order / Karigar Workflow Module
 const JobCreationDashboard = lazyWithRetry(() => import('./pages/job-order/JobCreationDashboard'));
@@ -97,8 +97,9 @@ const ProtectedRoute = ({ children }) => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0d0b08]">
-        <div className="w-10 h-10 border-4 border-[#d4af37] border-t-transparent rounded-full animate-spin"></div>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f8fafc]">
+        <div className="w-10 h-10 border-4 border-[#fecdd3] border-t-[#b01622] rounded-full animate-spin mb-3"></div>
+        <p className="text-xs font-semibold text-stone-500 tracking-wide">Loading workspace...</p>
       </div>
     );
   }
@@ -107,7 +108,16 @@ const ProtectedRoute = ({ children }) => {
     return <Navigate to="/login" replace />;
   }
 
-  return <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-white text-sm font-semibold text-stone-500">Loading Rudhra Jewellers...</div>}>{children}</Suspense>;
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f8fafc]">
+        <div className="w-10 h-10 border-4 border-[#fecdd3] border-t-[#b01622] rounded-full animate-spin mb-3"></div>
+        <p className="text-xs font-semibold text-stone-500 tracking-wide">Loading page...</p>
+      </div>
+    }>
+      {children}
+    </Suspense>
+  );
 };
 
 const PermissionRoute = ({ requiredPermission, superAdminOnly, children }) => {
@@ -115,8 +125,9 @@ const PermissionRoute = ({ requiredPermission, superAdminOnly, children }) => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0d0b08]">
-        <div className="w-10 h-10 border-4 border-[#d4af37] border-t-transparent rounded-full animate-spin"></div>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f8fafc]">
+        <div className="w-10 h-10 border-4 border-[#fecdd3] border-t-[#b01622] rounded-full animate-spin mb-3"></div>
+        <p className="text-xs font-semibold text-stone-500 tracking-wide">Verifying access...</p>
       </div>
     );
   }
@@ -155,8 +166,9 @@ const GuestRoute = ({ children }) => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0d0b08]">
-        <div className="w-10 h-10 border-4 border-[#d4af37] border-t-transparent rounded-full animate-spin"></div>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f8fafc]">
+        <div className="w-10 h-10 border-4 border-[#fecdd3] border-t-[#b01622] rounded-full animate-spin mb-3"></div>
+        <p className="text-xs font-semibold text-stone-500 tracking-wide">Loading workspace...</p>
       </div>
     );
   }
@@ -419,6 +431,7 @@ function App() {
                   </PermissionRoute>
                 } />
                 <Route path="/sales" element={<SalesModule view="dashboard" />} />
+                <Route path="/sales/dashboard" element={<SalesModule view="dashboard" />} />
                 <Route path="/sales/list" element={<SalesModule view="list" />} />
                 <Route path="/sales/create" element={<SalesModule view="create" />} />
                 <Route path="/sales/customer" element={<SalesModule view="create" />} />

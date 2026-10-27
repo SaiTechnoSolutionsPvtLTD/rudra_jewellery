@@ -390,6 +390,7 @@ export default function Products() {
                         <table className="w-full text-left border-collapse">
                           <thead>
                             <tr className="bg-gray-50 text-[10px] font-bold uppercase tracking-wider text-gray-500 border-b border-gray-200/60">
+                              <th className="px-6 py-3 text-center w-14">S.NO</th>
                               <th className="px-6 py-3">PRODUCT NAME</th>
                               <th className="px-6 py-3 whitespace-nowrap min-w-[160px]">SKU / CODE</th>
                               <th className="px-6 py-3">SUBCATEGORY</th>
@@ -399,8 +400,12 @@ export default function Products() {
                             </tr>
                           </thead>
                           <tbody className="text-sm divide-y divide-gray-100">
-                            {catProds.map(item => (
+                            {catProds.map((item, idx) => (
                               <tr key={item.id} className="hover:bg-red-50/20 transition-colors">
+                                {/* S.NO */}
+                                <td className="px-6 py-3.5 text-center font-mono text-gray-500 font-semibold text-xs">
+                                  {idx + 1}
+                                </td>
                                 <td className="px-6 py-3.5 font-bold text-gray-900 flex items-center gap-3">
                                   {item.thumbnail_url || item.image_url ? (
                                     <img
@@ -503,6 +508,7 @@ export default function Products() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-[#f6eee9] border-b border-gray-200/60 text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                  <th className="px-6 py-4 text-center w-14">S.NO</th>
                   <th className="px-6 py-4">PRODUCT NAME</th>
                   <th className="px-6 py-4 whitespace-nowrap min-w-[160px]">SKU / CODE</th>
                   <th className="px-6 py-4">CATEGORY & SUBCATEGORY</th>
@@ -514,19 +520,23 @@ export default function Products() {
               <tbody className="text-sm divide-y divide-gray-100">
                 {loading ? (
                   <tr>
-                    <td colSpan="6" className="px-6 py-8 text-center text-gray-400">
+                    <td colSpan="7" className="px-6 py-8 text-center text-gray-400">
                       <i className="fa-solid fa-circle-notch fa-spin mr-2"></i> Loading products...
                     </td>
                   </tr>
                 ) : paginatedItems.length === 0 ? (
                   <tr>
-                    <td colSpan="6" className="px-6 py-8 text-center text-gray-400">
+                    <td colSpan="7" className="px-6 py-8 text-center text-gray-400">
                       No products found. Click <strong>Add Product</strong> to create one.
                     </td>
                   </tr>
                 ) : (
-                  paginatedItems.map(item => (
+                  paginatedItems.map((item, idx) => (
                     <tr key={item.id} className="hover:bg-gray-50/60 transition-colors">
+                      {/* S.NO */}
+                      <td className="px-6 py-4 text-center font-mono text-gray-500 font-semibold">
+                        {(currentPage - 1) * itemsPerPage + idx + 1}
+                      </td>
                       <td className="px-6 py-4 font-bold text-gray-900 flex items-center gap-3">
                         {item.thumbnail_url || item.image_url ? (
                           <img

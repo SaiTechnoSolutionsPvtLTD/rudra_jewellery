@@ -48,7 +48,7 @@ class SubcategoryController extends Controller
             if (Schema::hasTable('subcategories')) {
                 $existing = Subcategory::where('code', $validated['code'])->first();
                 if ($existing) {
-                    return response()->json(['message' => 'Subcategory code already exists.'], 422);
+                    return response()->json(['message' => 'This code already exists.'], 422);
                 }
 
                 $subcategory = Subcategory::create($validated);
@@ -62,10 +62,10 @@ class SubcategoryController extends Controller
                 ], 201);
             }
         } catch (\Exception $e) {
-            // Fallback
+            \Illuminate\Support\Facades\Log::error('Subcategory creation error: ' . $e->getMessage());
         }
 
-        return response()->json(['message' => 'Database error'], 500);
+        return response()->json(['message' => 'Unable to connect to the server. Please try again later.'], 500);
     }
 
     public function show(Request $request, $id)
@@ -78,10 +78,10 @@ class SubcategoryController extends Controller
                 }
             }
         } catch (\Exception $e) {
-            // Fallback
+            \Illuminate\Support\Facades\Log::error('Subcategory fetch error: ' . $e->getMessage());
         }
 
-        return response()->json(['message' => 'Subcategory not found'], 404);
+        return response()->json(['message' => 'The requested record could not be found.'], 404);
     }
 
     public function update(Request $request, $id)
@@ -105,7 +105,7 @@ class SubcategoryController extends Controller
                         ->where('id', '!=', $id)
                         ->first();
                     if ($existing) {
-                        return response()->json(['message' => 'Subcategory code already exists.'], 422);
+                        return response()->json(['message' => 'This code already exists.'], 422);
                     }
 
                     $subcategory->update($validated);
@@ -120,10 +120,10 @@ class SubcategoryController extends Controller
                 }
             }
         } catch (\Exception $e) {
-            // Fallback
+            \Illuminate\Support\Facades\Log::error('Subcategory update error: ' . $e->getMessage());
         }
 
-        return response()->json(['message' => 'Subcategory not found'], 404);
+        return response()->json(['message' => 'The requested record could not be found.'], 404);
     }
 
     public function destroy(Request $request, $id)
@@ -141,9 +141,9 @@ class SubcategoryController extends Controller
                 }
             }
         } catch (\Exception $e) {
-            // Fallback
+            \Illuminate\Support\Facades\Log::error('Subcategory deletion error: ' . $e->getMessage());
         }
 
-        return response()->json(['message' => 'Subcategory not found'], 404);
+        return response()->json(['message' => 'The requested record could not be found.'], 404);
     }
 }

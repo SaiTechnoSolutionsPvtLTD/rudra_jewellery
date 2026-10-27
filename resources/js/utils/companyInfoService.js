@@ -1,7 +1,7 @@
 import api from '../services/api';
 
 export const DEFAULT_COMPANY_INFO = {
-  company_name: 'RUDRA JEWELLERS',
+  company_name: 'RUDRA JEWELLERY',
   tagline: 'Exclusive Fine Gold, Diamond & Gemstone Jewellery',
   address_line1: '124, N.S.C. Bose Road',
   address_line2: 'Sowcarpet',

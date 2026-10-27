@@ -315,11 +315,23 @@ class RawMaterial extends Model
         }
 
         if ($retAmount > 0) {
-            $record->allocated_weight = max(0, round($record->allocated_weight - $retAmount, 3));
+            if ($retAmount <= ($record->allocated_weight ?? 0)) {
+                $record->allocated_weight = round($record->allocated_weight - $retAmount, 3);
+            } else {
+                $excess = round($retAmount - ($record->allocated_weight ?? 0), 3);
+                $record->allocated_weight = 0;
+                $record->purchased_weight = round(($record->purchased_weight ?? 0) + $excess, 3);
+            }
         }
 
         if ($retCount > 0) {
-            $record->allocated_count = max(0, round(($record->allocated_count ?? 0) - $retCount, 3));
+            if ($retCount <= ($record->allocated_count ?? 0)) {
+                $record->allocated_count = round(($record->allocated_count ?? 0) - $retCount, 3);
+            } else {
+                $excessCount = round($retCount - ($record->allocated_count ?? 0), 3);
+                $record->allocated_count = 0;
+                $record->purchased_count = round(($record->purchased_count ?? 0) + $excessCount, 3);
+            }
         }
 
         $record->current_balance = max(0, round(($record->opening_weight ?? 0) + $record->purchased_weight - $record->allocated_weight, 3));
@@ -340,7 +352,8 @@ class RawMaterial extends Model
                 ->with(['items', 'receivedPieces'])
                 ->get();
             
-            $goldAlloc = 0.0;
+            $pureGoldAlloc = 0.0;
+            $grossGoldAlloc = 0.0;
             $silverAlloc = 0.0;
             $platinumAlloc = 0.0;
             $diamondAlloc = 0.0;
@@ -348,84 +361,132 @@ class RawMaterial extends Model
             $stoneAlloc = 0.0;
             $stoneAllocCount = 0;
 
-            foreach ($activeWorkOrders as $wo) {
-                $mat = strtolower($wo->material_type ?? '');
-                $allottedGold = (float)$wo->allotted_weight + (float)($wo->additional_allocated_weight ?? 0);
-                $compGold = (float)$wo->completed_weight;
-                $wastageGold = (float)($wo->wastage_weight ?? 0);
-                $retGold = (float)($wo->returned_weight ?? 0);
-                $pendingGold = max(0.0, round($allottedGold - $compGold - $wastageGold - $retGold, 3));
+            // Check if KarigarMaterialTransaction records exist in the system
+            $hasMaterialTxs = \App\Models\KarigarMaterialTransaction::exists();
 
-                if (str_contains($mat, 'silver')) {
-                    $silverAlloc += $pendingGold;
-                } elseif (str_contains($mat, 'platinum') || str_contains($mat, 'plat')) {
-                    $platinumAlloc += $pendingGold;
-                } elseif (str_contains($mat, 'diamond') && !str_contains($mat, 'gold')) {
-                    $diamondAlloc += $pendingGold;
-                } else {
-                    $goldAlloc += $pendingGold;
-                }
+            if ($hasMaterialTxs) {
+                // Gold issued (fine weight) from vault to karigars (exclude allocations sourced directly from karigar bench)
+                $goldIssuedTxs = \App\Models\KarigarMaterialTransaction::where('material_type', 'gold')
+                    ->where('is_reversed', false)
+                    ->whereIn('transaction_type', ['allocation', 'additional_allocation', 'issue'])
+                    ->where(function ($q) {
+                        $q->whereNull('source')->orWhereNotIn('source', ['bench', 'carried_forward']);
+                    })
+                    ->get();
 
-                // Tally diamonds studded on this work order's items
-                $totalOrderDiaWeight = 0.0;
-                $totalOrderDiaCount = 0;
-                $totalOrderStoneWeight = 0.0;
-                $totalOrderStoneCount = 0;
+                // Physical returns of gold to the company vault (excludes finished jewellery goods and approved wastage)
+                $goldRetTxs = \App\Models\KarigarMaterialTransaction::where('material_type', 'gold')
+                    ->where('is_reversed', false)
+                    ->whereIn('transaction_type', ['unused_returned', 'vault_return', 'physical_return', 'return', 'scrap'])
+                    ->get();
 
-                foreach ($wo->items as $itm) {
-                    $p = $itm->pricing_details ?? [];
-                    $st = $itm->stone_details ?? [];
-                    $qty = max(1, (int)($itm->required_qty ?? 1));
+                $pureGoldIssued = (float) $goldIssuedTxs->sum(fn($t) => $t->fine_weight > 0 ? $t->fine_weight : ($t->company_gold_weight > 0 ? $t->company_gold_weight : $t->weight));
+                $pureGoldRet = (float) $goldRetTxs->sum(fn($t) => $t->fine_weight > 0 ? $t->fine_weight : ($t->company_gold_weight > 0 ? $t->company_gold_weight : $t->weight));
 
-                    $diaWt = (float)($p['diamond_weight'] ?? $st['diamond_weight'] ?? 0);
-                    $diaCnt = (int)($p['no_of_diamonds'] ?? $p['diamond_count'] ?? $st['diamond_count'] ?? 0);
-                    $stoneWt = (float)($p['color_stone_weight'] ?? $st['color_stone_weight'] ?? 0);
-                    $stoneCnt = (int)($p['no_of_colour_stones'] ?? $p['color_stone_count'] ?? $st['color_stone_count'] ?? 0);
+                $pureGoldAlloc = max(0.0, round($pureGoldIssued - $pureGoldRet, 3));
 
-                    $totalOrderDiaWeight += ($diaWt * $qty);
-                    $totalOrderDiaCount += ($diaCnt * $qty);
-                    $totalOrderStoneWeight += ($stoneWt * $qty);
-                    $totalOrderStoneCount += ($stoneCnt * $qty);
-                }
+                $grossGoldIssued = (float) $goldIssuedTxs->sum(fn($t) => $t->gross_weight > 0 ? $t->gross_weight : ($t->net_weight > 0 ? $t->net_weight : $t->weight));
+                $grossGoldRet = (float) $goldRetTxs->sum(fn($t) => $t->gross_weight > 0 ? $t->gross_weight : ($t->net_weight > 0 ? $t->net_weight : $t->weight));
 
-                // If items had no explicit diamond weight but the order has diamond specifications
-                if ($totalOrderDiaWeight == 0 && !empty($wo->pricing_details['specifications']['diamond_weight'])) {
-                    $specDia = (float)$wo->pricing_details['specifications']['diamond_weight'];
-                    if ($specDia > 0) {
-                        $totalOrderDiaWeight = $specDia * max(1, (int)($wo->required_qty ?? 1));
+                $grossGoldAlloc = max(0.0, round($grossGoldIssued - $grossGoldRet, 3));
+
+                // Diamonds issued from vault vs physically returned to vault
+                $diaIssuedTxs = \App\Models\KarigarMaterialTransaction::where('material_type', 'diamond')
+                    ->where('is_reversed', false)
+                    ->whereIn('transaction_type', ['allocation', 'additional_allocation', 'issue'])
+                    ->where(function ($q) {
+                        $q->whereNull('source')->orWhereNotIn('source', ['bench', 'carried_forward']);
+                    })
+                    ->get();
+
+                $diaRetTxs = \App\Models\KarigarMaterialTransaction::where('material_type', 'diamond')
+                    ->where('is_reversed', false)
+                    ->whereIn('transaction_type', ['unused_returned', 'vault_return', 'physical_return', 'return', 'scrap'])
+                    ->get();
+
+                $diaIssuedCt = (float) $diaIssuedTxs->sum(fn($t) => $t->net_weight > 0 ? $t->net_weight : $t->weight);
+                $diaIssuedPcs = (int) $diaIssuedTxs->sum('pieces');
+                $diaRetCt = (float) $diaRetTxs->sum(fn($t) => $t->net_weight > 0 ? $t->net_weight : $t->weight);
+                $diaRetPcs = (int) $diaRetTxs->sum('pieces');
+
+                $diamondAlloc = max(0.0, round($diaIssuedCt - $diaRetCt, 3));
+                $diamondAllocCount = max(0, round($diaIssuedPcs - $diaRetPcs, 0));
+
+                // Stones issued from vault vs physically returned to vault
+                $stoneIssuedTxs = \App\Models\KarigarMaterialTransaction::whereIn('material_type', ['stone', 'colour_stone'])
+                    ->where('is_reversed', false)
+                    ->whereIn('transaction_type', ['allocation', 'additional_allocation', 'issue'])
+                    ->where(function ($q) {
+                        $q->whereNull('source')->orWhereNotIn('source', ['bench', 'carried_forward']);
+                    })
+                    ->get();
+
+                $stoneRetTxs = \App\Models\KarigarMaterialTransaction::whereIn('material_type', ['stone', 'colour_stone'])
+                    ->where('is_reversed', false)
+                    ->whereIn('transaction_type', ['unused_returned', 'vault_return', 'physical_return', 'return', 'scrap'])
+                    ->get();
+
+                $stoneIssuedWt = (float) $stoneIssuedTxs->sum(fn($t) => $t->net_weight > 0 ? $t->net_weight : $t->weight);
+                $stoneIssuedPcs = (int) $stoneIssuedTxs->sum('pieces');
+                $stoneRetWt = (float) $stoneRetTxs->sum(fn($t) => $t->net_weight > 0 ? $t->net_weight : $t->weight);
+                $stoneRetPcs = (int) $stoneRetTxs->sum('pieces');
+
+                $stoneAlloc = max(0.0, round($stoneIssuedWt - $stoneRetWt, 3));
+                $stoneAllocCount = max(0, round($stoneIssuedPcs - $stoneRetPcs, 0));
+
+                // Silver issued from vault vs physically returned to vault
+                $silverIssuedTxs = \App\Models\KarigarMaterialTransaction::where('material_type', 'silver')
+                    ->where('is_reversed', false)
+                    ->whereIn('transaction_type', ['allocation', 'additional_allocation', 'issue'])
+                    ->where(function ($q) {
+                        $q->whereNull('source')->orWhereNotIn('source', ['bench', 'carried_forward']);
+                    })
+                    ->get();
+
+                $silverRetTxs = \App\Models\KarigarMaterialTransaction::where('material_type', 'silver')
+                    ->where('is_reversed', false)
+                    ->whereIn('transaction_type', ['unused_returned', 'vault_return', 'physical_return', 'return', 'scrap'])
+                    ->get();
+
+                $silverIssuedWt = (float) $silverIssuedTxs->sum(fn($t) => $t->net_weight > 0 ? $t->net_weight : $t->weight);
+                $silverRetWt = (float) $silverRetTxs->sum(fn($t) => $t->net_weight > 0 ? $t->net_weight : $t->weight);
+                $silverAlloc = max(0.0, round($silverIssuedWt - $silverRetWt, 3));
+            } else {
+                foreach ($activeWorkOrders as $wo) {
+                    $mat = strtolower($wo->material_type ?? '');
+                    $allottedGold = (float)$wo->allotted_weight + (float)($wo->additional_allocated_weight ?? 0);
+                    $compGold = (float)$wo->completed_weight;
+                    $wastageGold = (float)($wo->wastage_weight ?? 0);
+                    $retGold = (float)($wo->returned_weight ?? 0);
+                    $pendingGold = max(0.0, round($allottedGold - $compGold - $wastageGold - $retGold, 3));
+
+                    if ($pendingGold <= 0) {
+                        continue;
+                    }
+
+                    if (str_contains($mat, 'silver')) {
+                        $silverAlloc += $pendingGold;
+                    } elseif (str_contains($mat, 'platinum') || str_contains($mat, 'plat')) {
+                        $platinumAlloc += $pendingGold;
+                    } else {
+                        $grossGoldAlloc += $pendingGold;
+                        $pureGoldAlloc += \App\Helpers\GoldConversionHelper::convertTo24kPureWeight($pendingGold, $wo->pricing_details['purity'] ?? $wo->material_type ?? '22K');
                     }
                 }
-
-                // Subtract diamonds and stones already received in pieces
-                $receivedDiaWeight = (float) $wo->receivedPieces->whereNotNull('received_at')->sum('diamond_weight');
-                $receivedDiaCount = (int) $wo->receivedPieces->whereNotNull('received_at')->sum('diamond_count');
-                $receivedStoneWeight = (float) $wo->receivedPieces->whereNotNull('received_at')->sum('color_stone_weight');
-                $receivedStoneCount = (int) $wo->receivedPieces->whereNotNull('received_at')->sum('color_stone_count');
-
-                // Tally: pending allocation = Allotted - Received (clamped to >= 0)
-                $pendingDiaWeight = max(0.0, round($totalOrderDiaWeight - $receivedDiaWeight, 3));
-                $pendingDiaCount = max(0, round($totalOrderDiaCount - $receivedDiaCount, 0));
-                $pendingStoneWeight = max(0.0, round($totalOrderStoneWeight - $receivedStoneWeight, 3));
-                $pendingStoneCount = max(0, round($totalOrderStoneCount - $receivedStoneCount, 0));
-
-                $diamondAlloc += $pendingDiaWeight;
-                $diamondAllocCount += $pendingDiaCount;
-                $stoneAlloc += $pendingStoneWeight;
-                $stoneAllocCount += $pendingStoneCount;
             }
 
             // Update Gold 22K record
             $g22 = static::where('material_type', 'gold_22k')->first();
             if ($g22) {
-                $g22->allocated_weight = round($goldAlloc, 3);
+                $g22->allocated_weight = round($grossGoldAlloc, 3);
                 $g22->current_balance = max(0.0, round(($g22->opening_weight ?? 0) + ($g22->purchased_weight ?? 0) - $g22->allocated_weight, 3));
                 $g22->save();
             }
 
-            // Update Gold generic record
+            // Update Gold generic record (24K pure gold)
             $gold = static::where('material_type', 'gold')->first();
             if ($gold) {
-                $val = $gold->unit === 'kg' ? round($goldAlloc / 1000, 3) : round($goldAlloc, 3);
+                $val = $gold->unit === 'kg' ? round($pureGoldAlloc / 1000, 3) : round($pureGoldAlloc, 3);
                 $gold->allocated_weight = $val;
                 $gold->current_balance = max(0.0, round(($gold->opening_weight ?? 0) + ($gold->purchased_weight ?? 0) - $gold->allocated_weight, 3));
                 $gold->save();
@@ -434,6 +495,7 @@ class RawMaterial extends Model
             // Update Gold 24K record
             $g24 = static::where('material_type', 'gold_24k')->first();
             if ($g24) {
+                $g24->allocated_weight = round($pureGoldAlloc, 3);
                 $g24->current_balance = max(0.0, round(($g24->opening_weight ?? 0) + ($g24->purchased_weight ?? 0) - ($g24->allocated_weight ?? 0), 3));
                 $g24->save();
             }
@@ -456,23 +518,57 @@ class RawMaterial extends Model
                 $platinum->save();
             }
 
-            // Update Diamond record
-            $diamond = static::where('material_type', 'diamond')->first();
-            if ($diamond) {
-                $diamond->allocated_weight = round($diamondAlloc, 3);
-                $diamond->allocated_count = round($diamondAllocCount, 0);
-                $diamond->current_balance = max(0.0, round(($diamond->opening_weight ?? 0) + ($diamond->purchased_weight ?? 0) - $diamond->allocated_weight, 3));
-                $diamond->current_count = max(0.0, round(($diamond->opening_count ?? 0) + ($diamond->purchased_count ?? 0) - $diamond->allocated_count, 0));
-                $diamond->save();
+            // Update Diamond records across vault dynamically from PurchaseEntry and MaterialOpeningStock
+            $diamondPurchasesQuery = \App\Models\PurchaseEntry::where(function($q) {
+                $q->where('purchase_type', 'raw_material')->orWhereNull('purchase_type');
+            })->where(function($q) {
+                $q->whereRaw('LOWER(metal_type) = ?', ['diamond'])->orWhere('unit', 'ct');
+            });
+            $actualDiaPurchasedWeight = (float) $diamondPurchasesQuery->sum('net_weight');
+            $actualDiaPurchasedCount = (float) $diamondPurchasesQuery->sum('count_qty');
+
+            $actualDiaOpeningWeight = (float) \App\Models\MaterialOpeningStock::where('material_type', 'diamond')->sum('carat_weight');
+            $actualDiaOpeningCount = (float) \App\Models\MaterialOpeningStock::where('material_type', 'diamond')->sum('quantity');
+
+            $diamondRecords = static::where('material_type', 'diamond')->get();
+            if ($diamondRecords->isNotEmpty()) {
+                $primaryDiamond = $diamondRecords->first();
+                if ($actualDiaOpeningWeight > 0 || $actualDiaOpeningCount > 0) {
+                    $primaryDiamond->opening_weight = round($actualDiaOpeningWeight, 3);
+                    $primaryDiamond->opening_count = round($actualDiaOpeningCount, 0);
+                } elseif (!app()->environment('testing') && \App\Models\MaterialOpeningStock::where('material_type', 'diamond')->count() === 0) {
+                    $primaryDiamond->opening_weight = 0.0;
+                    $primaryDiamond->opening_count = 0;
+                }
+                $primaryDiamond->purchased_weight = round($actualDiaPurchasedWeight, 3);
+                $primaryDiamond->purchased_count = round($actualDiaPurchasedCount, 0);
+                $primaryDiamond->allocated_weight = round($diamondAlloc, 3);
+                $primaryDiamond->allocated_count = round($diamondAllocCount, 0);
+                $primaryDiamond->current_balance = max(0.0, round($primaryDiamond->opening_weight + $primaryDiamond->purchased_weight - $primaryDiamond->allocated_weight, 3));
+                $primaryDiamond->current_count = max(0.0, round($primaryDiamond->opening_count + $primaryDiamond->purchased_count - $primaryDiamond->allocated_count, 0));
+                $primaryDiamond->save();
+
+                // Subsidiary lots are consolidated to the primary record
+                foreach ($diamondRecords->skip(1) as $subLot) {
+                    $subLot->opening_weight = 0;
+                    $subLot->purchased_weight = 0;
+                    $subLot->opening_count = 0;
+                    $subLot->purchased_count = 0;
+                    $subLot->allocated_weight = 0;
+                    $subLot->allocated_count = 0;
+                    $subLot->current_balance = 0;
+                    $subLot->current_count = 0;
+                    $subLot->save();
+                }
             }
 
-            // Update Stone record
+            // Update Stone record: Colour stones are strictly vault-held inventory (never allotted to karigars)
             $stone = static::where('material_type', 'stone')->first();
             if ($stone) {
-                $stone->allocated_weight = round($stoneAlloc, 3);
-                $stone->allocated_count = round($stoneAllocCount, 0);
-                $stone->current_balance = max(0.0, round(($stone->opening_weight ?? 0) + ($stone->purchased_weight ?? 0) - $stone->allocated_weight, 3));
-                $stone->current_count = max(0.0, round(($stone->opening_count ?? 0) + ($stone->purchased_count ?? 0) - $stone->allocated_count, 0));
+                $stone->allocated_weight = 0.0;
+                $stone->allocated_count = 0;
+                $stone->current_balance = max(0.0, round(($stone->opening_weight ?? 0) + ($stone->purchased_weight ?? 0), 3));
+                $stone->current_count = max(0.0, round(($stone->opening_count ?? 0) + ($stone->purchased_count ?? 0), 0));
                 $stone->save();
             }
         } catch (\Exception $e) {

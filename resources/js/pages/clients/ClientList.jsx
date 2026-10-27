@@ -3,14 +3,8 @@ import { Link } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import ConfirmModal from '../../components/ConfirmModal';
-
-// High-quality avatars matching the clientele in the reference design
-const CLIENT_AVATARS = {
-  'meera singhania': 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=120&auto=format&fit=crop&q=80',
-  'rajesh khanna': 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=120&auto=format&fit=crop&q=80',
-  'ananya iyer': 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=120&auto=format&fit=crop&q=80',
-  'vikram malhotra': 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80',
-};
+import ClientMetalDepositModal from '../../components/ClientMetalDepositModal';
+import CustomerDetailDrawer from '../../components/CustomerDetailDrawer';
 
 export default function ClientList() {
   const [data, setData] = useState({ stats: {}, clients: [] });
@@ -18,6 +12,9 @@ export default function ClientList() {
   const [loading, setLoading] = useState(true);
   const [initialLoad, setInitialLoad] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Dedicated Customer Detail & Ledger Drawer State
+  const [selectedCustomerForDrawer, setSelectedCustomerForDrawer] = useState(null);
 
   // Filters & Pagination State
   const [searchTerm, setSearchTerm] = useState('');
@@ -27,6 +24,9 @@ export default function ClientList() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(6);
   const [activeDropdownId, setActiveDropdownId] = useState(null);
+
+  // Metal Deposit Modal State
+  const [metalDepositClient, setMetalDepositClient] = useState(null);
 
   const dropdownRef = useRef(null);
   const { showToast } = useToast();
@@ -196,15 +196,8 @@ export default function ClientList() {
   };
 
   // Helper to get avatar
-  const getClientAvatar = (item, name) => {
-    if (item.avatar_url || item.avatar) {
-      return item.avatar_url || item.avatar;
-    }
-    const cleanName = (name || '').toLowerCase().trim();
-    if (CLIENT_AVATARS[cleanName]) {
-      return CLIENT_AVATARS[cleanName];
-    }
-    return null;
+  const getClientAvatar = (item) => {
+    return item?.avatar_url || item?.avatar || null;
   };
 
   return (
@@ -357,6 +350,7 @@ export default function ClientList() {
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-[#f5ede8] border-b border-[#ebdcd5] text-[11px] font-bold uppercase tracking-wider text-[#8b615a]">
+              <th className="px-5 py-4 text-center w-14">S.NO</th>
               <th className="px-5 py-4">CLIENT NAME</th>
               <th className="px-4 py-4 text-center">CODE</th>
               <th className="px-4 py-4 text-center">TIER</th>
@@ -373,26 +367,36 @@ export default function ClientList() {
           <tbody className="text-sm divide-y divide-gray-100/80">
             {(loading && initialLoad) ? (
               <tr>
-                <td colSpan="7" className="px-6 py-12 text-center text-gray-400">
+                <td colSpan="8" className="px-6 py-12 text-center text-gray-400">
                   <i className="fa-solid fa-circle-notch fa-spin mr-2 text-[#b01622]"></i> Loading clients...
                 </td>
               </tr>
             ) : paginatedClients.length === 0 ? (
               <tr>
-                <td colSpan="7" className="px-6 py-12 text-center text-gray-400">
+                <td colSpan="8" className="px-6 py-12 text-center text-gray-400">
                   No clients found matching your search.
                 </td>
               </tr>
             ) : (
-              paginatedClients.map((item) => {
+              paginatedClients.map((item, index) => {
                 const clientName = item.full_name || item.name || 'Client';
                 const clientCode = item.client_code || item.code || 'RJ-EL-1024';
-                const clientEmail = item.email || `${clientName.toLowerCase().replace(/\s+/g, '.')}@regal.com`;
-                const avatarUrl = getClientAvatar(item, clientName);
+                const clientEmail = item.email || '—';
+                const avatarUrl = getClientAvatar(item);
                 const isStatusActive = (item.status || 'active').toLowerCase() === 'active';
+                const serialNo = startIndex + index + 1;
 
                 return (
-                  <tr key={item.id} className="hover:bg-gray-50/50 transition-colors">
+                  <tr
+                    key={item.id}
+                    onClick={() => setSelectedCustomerForDrawer(item)}
+                    className="hover:bg-red-50/30 cursor-pointer transition-colors group"
+                    title={`Click to view complete ledger & account summary for ${clientName}`}
+                  >
+                    {/* S.NO */}
+                    <td className="px-5 py-4 text-center font-mono text-gray-500 font-semibold">
+                      {serialNo}
+                    </td>
                     
                     {/* CLIENT NAME & AVATAR */}
                     <td className="px-5 py-4">
@@ -401,16 +405,21 @@ export default function ClientList() {
                           <img
                             src={avatarUrl}
                             alt={clientName}
-                            className="w-10 h-10 rounded-full object-cover shrink-0 border border-gray-200 shadow-2xs"
+                            className="w-10 h-10 rounded-full object-cover shrink-0 border border-gray-200 shadow-2xs group-hover:border-[#b01622] transition-colors"
                           />
                         ) : (
-                          <div className="w-10 h-10 rounded-full bg-[#fde8e8] text-[#b01622] flex items-center justify-center text-xs font-bold shrink-0 border border-[#fbd5d5]">
+                          <div className="w-10 h-10 rounded-full bg-[#fde8e8] text-[#b01622] flex items-center justify-center text-xs font-bold shrink-0 border border-[#fbd5d5] group-hover:bg-[#b01622] group-hover:text-white transition-colors">
                             {clientName.substring(0, 2).toUpperCase()}
                           </div>
                         )}
                         <div>
-                          <div className="font-bold text-gray-900 text-[13px] leading-tight">
-                            {clientName}
+                          <div className="font-bold text-gray-900 text-[13px] leading-tight flex items-center gap-2">
+                            <span className="group-hover:text-[#b01622] transition-colors">{clientName}</span>
+                            {Number(item.gold_balance_grams || 0) > 0 && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-900 border border-amber-200 text-[10px] font-mono font-black shadow-2xs" title="Pure Gold on client ledger">
+                                <i className="fa-solid fa-coins text-amber-500 text-[9px]"></i> {Number(item.gold_balance_grams).toFixed(3)}g Gold
+                              </span>
+                            )}
                           </div>
                           <div className="text-xs text-gray-400 font-normal mt-0.5">
                             {clientEmail}
@@ -455,7 +464,7 @@ export default function ClientList() {
                     </td>
 
                     {/* ACTIONS - centered with Bill & Price List Icons */}
-                    <td className="px-4 py-4 text-center whitespace-nowrap">
+                    <td className="px-4 py-4 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-center gap-3 text-gray-400">
                         
                         {/* View Billing & Invoices */}
@@ -466,6 +475,16 @@ export default function ClientList() {
                         >
                           <i className="fa-solid fa-receipt text-sm"></i>
                         </Link>
+
+                        {/* Deposit Gold / Metal Button */}
+                        <button
+                          type="button"
+                          onClick={() => setMetalDepositClient(item)}
+                          className="hover:text-amber-600 transition-colors p-1 cursor-pointer text-amber-700/80 hover:scale-110"
+                          title="Record Gold / Metal Deposit (Pure Gold Ledger)"
+                        >
+                          <i className="fa-solid fa-coins text-sm"></i>
+                        </button>
 
                         {/* Bill / Price List Icon */}
                         <Link
@@ -499,7 +518,18 @@ export default function ClientList() {
 
                           {/* Dropdown Menu */}
                           {activeDropdownId === item.id && (
-                            <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-xl border border-gray-100 py-1.5 z-30 text-left">
+                            <div className="absolute right-0 top-full mt-1 w-52 bg-white rounded-lg shadow-xl border border-gray-100 py-1.5 z-30 text-left">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveDropdownId(null);
+                                  setMetalDepositClient(item);
+                                }}
+                                className="w-full text-left flex items-center gap-2 px-3.5 py-2 text-xs text-amber-800 hover:bg-amber-50 font-bold transition-colors cursor-pointer"
+                              >
+                                <i className="fa-solid fa-coins text-xs w-4 text-amber-600"></i>
+                                Deposit Gold / Metal
+                              </button>
                               <Link
                                 to={`/clients/${item.id}/edit`}
                                 className="flex items-center gap-2 px-3.5 py-2 text-xs text-gray-700 hover:bg-gray-50 hover:text-[#b01622] transition-colors"
@@ -770,6 +800,22 @@ export default function ClientList() {
           </div>
         </div>
       )}
+
+      {/* Client Metal Deposit / Advance Modal (Pure Gold Ledger) */}
+      <ClientMetalDepositModal
+        isOpen={!!metalDepositClient}
+        onClose={() => setMetalDepositClient(null)}
+        client={metalDepositClient}
+        onSuccess={() => fetchClients()}
+      />
+
+      {/* Customer Detail, Ledger & Transaction History Drawer */}
+      <CustomerDetailDrawer
+        client={selectedCustomerForDrawer}
+        isOpen={Boolean(selectedCustomerForDrawer)}
+        onClose={() => setSelectedCustomerForDrawer(null)}
+        onRefreshClients={() => fetchClients()}
+      />
 
     </div>
   );

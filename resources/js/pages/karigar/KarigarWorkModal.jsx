@@ -417,6 +417,7 @@ export default function KarigarWorkModal({ isOpen, onClose, workOrderId, onUpdat
                       <table className="w-full text-xs text-left">
                         <thead className="bg-stone-50 text-stone-600 font-bold border-b border-stone-200">
                           <tr>
+                            <th className="py-2 px-3 text-center w-12">S.No</th>
                             <th className="py-2 px-3">Stone Type</th>
                             <th className="py-2 px-3 text-center">Allotted</th>
                             <th className="py-2 px-3 text-center">Actually Set</th>
@@ -426,6 +427,7 @@ export default function KarigarWorkModal({ isOpen, onClose, workOrderId, onUpdat
                         <tbody className="divide-y divide-stone-100">
                           {stones.map((st, idx) => (
                             <tr key={idx} className="hover:bg-stone-50/50">
+                              <td className="py-2 px-3 text-center font-mono text-stone-400 font-medium">{idx + 1}</td>
                               <td className="py-2 px-3 font-semibold text-gray-900">{st.type}</td>
                               <td className="py-2 px-3 text-center font-mono font-bold">{st.expected || st.count || 0}</td>
                               <td className="py-2 px-3 text-center">
@@ -612,7 +614,7 @@ export default function KarigarWorkModal({ isOpen, onClose, workOrderId, onUpdat
                       disabled={isCompleted}
                       value={uploadedImage}
                       onChange={(e) => setUploadedImage(e.target.value)}
-                      placeholder="e.g. /images/samples/ruby_set.jpg or image link"
+                      placeholder="e.g. Paste image URL or click Upload File"
                       className="flex-1 px-3 py-2 text-xs border border-stone-300 focus:border-[#b01622] rounded-xl outline-hidden bg-stone-50/50 focus:bg-white shadow-2xs"
                     />
                     <label className="px-3 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-300 rounded-xl text-xs font-semibold cursor-pointer transition-colors shrink-0 flex items-center gap-1.5">

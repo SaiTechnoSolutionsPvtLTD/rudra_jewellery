@@ -51,9 +51,14 @@ class PricingService
 
         $appliedRule = 'global_default';
         $clientPriceList = null;
+        $priceListVersion = null;
 
         if ($client) {
-            $clientPriceList = ClientPriceList::where('client_id', $client->id)->latest()->first();
+            $clientPriceList = ClientPriceList::where('client_id', $client->id)
+                ->where('status', 'active')
+                ->latest()
+                ->first() ?: ClientPriceList::where('client_id', $client->id)->latest()->first();
+            $priceListVersion = $clientPriceList?->version;
         }
 
         // Priority Level 1: Client-Specific Product Rate Override in ClientPriceList
@@ -65,19 +70,52 @@ class PricingService
             }
         }
 
-        // Priority Level 2: Specific Metal Rate Override in ClientPriceList
+        // Priority Level 2: Specific Metal Rate Override in ClientPriceList (checking gold_rates array)
         if ($appliedRule === 'global_default' && $clientPriceList) {
             $catName = strtolower($product->category->name ?? '');
             $prodName = strtolower($product->name ?? '');
+            $purityStr = strtoupper(trim((string)($attrs['purity'] ?? $attrs['karat'] ?? $product->karat ?? '22K')));
+
             if (str_contains($catName, 'silver') || str_contains($prodName, 'silver')) {
                 if (!empty($clientPriceList->silver_rate_per_gram) && floatval($clientPriceList->silver_rate_per_gram) > 0) {
                     $baseRate = floatval($clientPriceList->silver_rate_per_gram);
-                    $appliedRule = 'client_metal_rate';
+                    $appliedRule = 'client_metal_rate_silver';
                 }
             } else {
-                if (!empty($clientPriceList->gold_rate_per_gram) && floatval($clientPriceList->gold_rate_per_gram) > 0) {
+                $goldRates = is_array($clientPriceList->gold_rates) ? $clientPriceList->gold_rates : [];
+                $rateKey = 'rate_22k';
+                if (str_contains($purityStr, '24') || str_contains($purityStr, '999')) {
+                    $rateKey = 'rate_24k';
+                } elseif (str_contains($purityStr, '18') || str_contains($purityStr, '750')) {
+                    $rateKey = 'rate_18k';
+                } elseif (str_contains($purityStr, '14') || str_contains($purityStr, '585')) {
+                    $rateKey = 'rate_14k';
+                }
+
+                $resolvedGoldRate = floatval($goldRates[$rateKey] ?? ($clientPriceList->{$rateKey} ?? 0));
+                if ($resolvedGoldRate <= 0 && !empty($goldRates['rate_22k'])) {
+                    $resolvedGoldRate = floatval($goldRates['rate_22k']);
+                }
+
+                if ($resolvedGoldRate > 0) {
+                    $baseRate = $resolvedGoldRate;
+                    $appliedRule = 'client_metal_rate_' . str_replace('rate_', '', $rateKey);
+                } elseif (!empty($clientPriceList->gold_rate_per_gram) && floatval($clientPriceList->gold_rate_per_gram) > 0) {
                     $baseRate = floatval($clientPriceList->gold_rate_per_gram);
                     $appliedRule = 'client_metal_rate';
+                }
+            }
+
+            // Check making charges override in client price list
+            if (!empty($clientPriceList->making_charges) && is_array($clientPriceList->making_charges)) {
+                foreach ($clientPriceList->making_charges as $mc) {
+                    if (!empty($mc['labour_charge'])) {
+                        $labourNum = floatval(preg_replace('/[^0-9.]/', '', (string)$mc['labour_charge']));
+                        if ($labourNum > 0) {
+                            $makingChargePerGram = $labourNum;
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -132,6 +170,7 @@ class PricingService
             'tax_amount' => $taxAmount,
             'total' => $grandTotal,
             'applied_rule' => $appliedRule,
+            'price_list_version' => $priceListVersion,
         ];
     }
 }

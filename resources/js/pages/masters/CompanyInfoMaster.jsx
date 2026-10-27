@@ -312,7 +312,7 @@ export default function CompanyInfoMaster() {
           <div className="flex items-center justify-center gap-3 mb-1">
             <img src={activeCompany?.logo_url || '/logo.png'} alt="Logo" className="h-10 w-auto max-w-[120px] object-contain" />
             <div>
-              <h2 className="text-xl font-black tracking-tight text-[#b01622] uppercase">{activeCompany?.company_name || 'RUDRA JEWELLERS'}</h2>
+              <h2 className="text-xl font-black tracking-tight text-[#b01622] uppercase">{activeCompany?.company_name || 'RUDRA JEWELLERY'}</h2>
               {activeCompany?.tagline && (
                 <p className="text-[11px] font-medium text-stone-500">{activeCompany.tagline}</p>
               )}
@@ -530,7 +530,7 @@ export default function CompanyInfoMaster() {
                       name="company_name"
                       value={formData.company_name}
                       onChange={handleChange}
-                      placeholder="e.g. RUDRA JEWELLERS"
+                      placeholder="e.g. RUDRA JEWELLERY"
                       className="w-full px-3 py-2 border border-stone-300 rounded-lg text-xs focus:outline-none focus:border-[#b01622]"
                       required
                     />

@@ -248,6 +248,7 @@ export default function Roles() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-[#f6eee9] border-b border-gray-200/60 text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                <th className="px-6 py-4 text-center w-14">S.No</th>
                 <th className="px-6 py-4">DISPLAY NAME</th>
                 <th className="px-6 py-4">ROLE KEY</th>
                 <th className="px-6 py-4">DEPARTMENT</th>
@@ -258,19 +259,22 @@ export default function Roles() {
             <tbody className="text-sm divide-y divide-gray-100">
               {loading ? (
                 <tr>
-                  <td colSpan="5" className="px-6 py-8 text-center text-gray-400">
+                  <td colSpan="6" className="px-6 py-8 text-center text-gray-400">
                     <i className="fa-solid fa-circle-notch fa-spin mr-2"></i> Loading roles...
                   </td>
                 </tr>
               ) : paginatedRoles.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="px-6 py-8 text-center text-gray-400">
+                  <td colSpan="6" className="px-6 py-8 text-center text-gray-400">
                     No roles found matching criteria.
                   </td>
                 </tr>
               ) : (
-                paginatedRoles.map(role => (
+                paginatedRoles.map((role, idx) => (
                   <tr key={role.id} className="hover:bg-gray-50/60 transition-colors">
+                    <td className="px-6 py-4 text-center font-mono text-gray-500 font-semibold">
+                      {(currentPage - 1) * itemsPerPage + idx + 1}
+                    </td>
                     <td className="px-6 py-4 font-bold text-gray-900">{role.display_name}</td>
                     <td className="px-6 py-4">
                       <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded text-gray-700">

@@ -27,6 +27,42 @@ import {
   sanitizeAccountNumber
 } from '../../utils/validationUtils';
 
+const compressImageForUpload = (file, maxDim = 500, quality = 0.85) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        } else {
+          resolve(e.target.result);
+        }
+      };
+      img.onerror = () => resolve(e.target.result);
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+};
+
 const INITIAL_FORM_STATE = {
   karigar_code: '',
   name: '',
@@ -92,11 +128,15 @@ export default function KarigarManagement() {
   const [isBenchModalOpen, setIsBenchModalOpen] = useState(false);
   const [isMaterialModalOpen, setIsMaterialModalOpen] = useState(false);
   const [materialModalKarigarId, setMaterialModalKarigarId] = useState(null);
+  const [materialModalWorkOrderId, setMaterialModalWorkOrderId] = useState(null);
   const [viewKarigar, setViewKarigar] = useState(null);
-  const [viewDrawerTab, setViewDrawerTab] = useState('works'); // 'works' | 'profile'
+  const [viewDrawerTab, setViewDrawerTab] = useState('works'); // 'works' | 'ledger' | 'profile'
   const [selectedKarigarWorks, setSelectedKarigarWorks] = useState([]);
   const [loadingKarigarWorks, setLoadingKarigarWorks] = useState(false);
   const [workModalOrderId, setWorkModalOrderId] = useState(null);
+  const [karigarLedgerData, setKarigarLedgerData] = useState(null);
+  const [loadingKarigarLedger, setLoadingKarigarLedger] = useState(false);
+  const [ledgerTxTypeFilter, setLedgerTxTypeFilter] = useState('all');
 
   // Auto-open work order if specified in query string (?open_order=XX)
   useEffect(() => {
@@ -107,8 +147,9 @@ export default function KarigarManagement() {
     }
   }, []);
 
-  const handleOpenMaterialAllocation = (karigarId = null) => {
+  const handleOpenMaterialAllocation = (karigarId = null, workOrderId = null) => {
     setMaterialModalKarigarId(karigarId ? String(karigarId) : null);
+    setMaterialModalWorkOrderId(workOrderId ? String(workOrderId) : null);
     setIsMaterialModalOpen(true);
   };
 
@@ -130,6 +171,117 @@ export default function KarigarManagement() {
     }
   };
 
+  const fetchKarigarLedger = async (karigarId) => {
+    try {
+      setLoadingKarigarLedger(true);
+      // Fetch both material-ledger and financial-ledger in parallel
+      const [matRes, finRes] = await Promise.all([
+        api.get(`/karigars/${karigarId}/material-ledger`),
+        api.get(`/karigars/${karigarId}/financial-ledger`),
+      ]);
+      const matData = matRes.data?.status === 'success' ? (matRes.data.data || matRes.data) : {};
+      const finData = finRes.data?.status === 'success' ? (finRes.data.data || finRes.data) : {};
+      setKarigarLedgerData({
+        ...matData,
+        financial_summary: finData.financial_summary || finData,
+        transactions: matData.transactions || matData.material_transactions || [],
+        gold_by_purity: matData.gold_by_purity || [],
+        diamonds_by_stamp: matData.diamonds_by_stamp || [],
+        stones_summary: matData.stones_summary || [],
+      });
+    } catch (e) {
+      console.error('Failed to load artisan ledger', e);
+      showToast('Failed to load ledger details', 'error');
+    } finally {
+      setLoadingKarigarLedger(false);
+    }
+  };
+
+  const handleReverseTx = async (txId) => {
+    if (!window.confirm('Are you sure you want to reverse this material transaction? This will restore/adjust the vault stock and cannot be undone.')) {
+      return;
+    }
+    try {
+      const res = await api.post(`/karigars/${viewKarigar.id}/reverse-material-transaction/${txId}`, {
+        reversal_reason: 'Reversed from Artisan Ledger Drawer'
+      });
+      if (res.data?.status === 'success') {
+        showToast('Material transaction reversed and vault stock adjusted', 'success');
+        fetchKarigarLedger(viewKarigar.id);
+        fetchKarigars();
+      }
+    } catch (e) {
+      console.error('Reversal error', e);
+      showToast(e.response?.data?.message || 'Failed to reverse transaction', 'error');
+    }
+  };
+
+  // Edit Material Transaction Modal State & Handlers
+  const [editingTx, setEditingTx] = useState(null);
+  const [isEditTxModalOpen, setIsEditTxModalOpen] = useState(false);
+  const [savingTx, setSavingTx] = useState(false);
+  const [txEditForm, setTxEditForm] = useState({
+    gross_weight: '',
+    net_weight: '',
+    touch: '',
+    purity: '',
+    pieces: '',
+    transaction_date: '',
+    reason: '',
+  });
+
+  const handleOpenEditTxModal = (tx) => {
+    setEditingTx(tx);
+    setTxEditForm({
+      gross_weight: tx.gross_weight != null ? String(tx.gross_weight) : (tx.weight != null ? String(tx.weight) : ''),
+      net_weight: tx.net_weight != null ? String(tx.net_weight) : (tx.weight != null ? String(tx.weight) : ''),
+      touch: tx.touch != null ? String(tx.touch) : '91.60',
+      purity: tx.purity || (tx.touch ? `${tx.touch}%` : '22K'),
+      pieces: tx.pieces != null ? String(tx.pieces) : '1',
+      transaction_date: tx.transaction_date ? String(tx.transaction_date).split('T')[0] : new Date().toISOString().split('T')[0],
+      reason: tx.reason || '',
+    });
+    setIsEditTxModalOpen(true);
+  };
+
+  const handleSaveTxEdit = async (e) => {
+    if (e) e.preventDefault();
+    if (!editingTx || !viewKarigar) return;
+
+    try {
+      setSavingTx(true);
+      const gross = parseFloat(txEditForm.gross_weight) || 0;
+      const net = parseFloat(txEditForm.net_weight) || gross;
+      const touch = parseFloat(txEditForm.touch) || 91.6;
+      const fine = editingTx.material_type === 'gold' ? parseFloat(((net * touch) / 100).toFixed(3)) : 0;
+
+      const payload = {
+        gross_weight: gross,
+        net_weight: net,
+        fine_weight: fine,
+        touch: touch,
+        purity: txEditForm.purity,
+        pieces: parseInt(txEditForm.pieces, 10) || 1,
+        transaction_date: txEditForm.transaction_date,
+        reason: txEditForm.reason,
+      };
+
+      const res = await api.put(`/karigars/${viewKarigar.id}/material-transactions/${editingTx.id}`, payload);
+      if (res.data?.status === 'success' || res.status === 200) {
+        showToast('Material transaction updated successfully!', 'success');
+        setIsEditTxModalOpen(false);
+        setEditingTx(null);
+        fetchKarigarLedger(viewKarigar.id);
+        fetchKarigars();
+      }
+    } catch (err) {
+      console.error('Update material transaction error:', err);
+      showToast(err.response?.data?.message || 'Failed to update transaction', 'error');
+    } finally {
+      setSavingTx(false);
+    }
+  };
+
   useEffect(() => {
     if (viewKarigar?.id) {
       // Seed with current_assigned_order immediately to prevent empty state flash
@@ -139,9 +291,11 @@ export default function KarigarManagement() {
         setSelectedKarigarWorks([]);
       }
       fetchKarigarWorks(viewKarigar.id);
+      fetchKarigarLedger(viewKarigar.id);
       setViewDrawerTab('works');
     } else {
       setSelectedKarigarWorks([]);
+      setKarigarLedgerData(null);
     }
   }, [viewKarigar]);
 
@@ -587,6 +741,16 @@ export default function KarigarManagement() {
 
           <button
             type="button"
+            onClick={() => handleOpenMaterialAllocation(null)}
+            className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-900/20 transition-all flex items-center gap-2 cursor-pointer hover:shadow-lg active:scale-95"
+            title="Settle Making Charges, Advances, or Cash with Karigar"
+          >
+            <i className="fa-solid fa-indian-rupee-sign text-sm"></i>
+            <span>Cash & MC Settlement</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handleOpenCreate}
             className="px-4 py-2.5 bg-gradient-to-r from-[#b01622] to-[#8f111b] hover:from-[#9c131d] hover:to-[#7c0e17] text-white rounded-xl text-xs font-bold shadow-md shadow-red-900/20 transition-all flex items-center gap-2 cursor-pointer hover:shadow-lg active:scale-95"
           >
@@ -848,6 +1012,7 @@ export default function KarigarManagement() {
             <table className="w-full min-w-[1120px] text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-[#fdf0f0] border-b border-red-200 text-[11px] font-bold text-[#b01622] uppercase tracking-wider whitespace-nowrap">
+                  <th className="py-3.5 px-4 text-center w-14">S.No</th>
                   <th className="py-3.5 px-5">Artisan &amp; Code</th>
                   <th className="py-3.5 px-5">Craft Specialization</th>
                   <th className="py-3.5 px-5">Workload &amp; Quantities</th>
@@ -869,6 +1034,11 @@ export default function KarigarManagement() {
                     }}
                     className="hover:bg-stone-50/70 transition-colors cursor-pointer"
                   >
+                    {/* S.No */}
+                    <td className="py-3.5 px-4 text-center font-mono text-stone-500 font-semibold">
+                      {index + 1}
+                    </td>
+
                     {/* Artisan Name & Code */}
                     <td className="py-3.5 px-5 whitespace-nowrap">
                       <div className="flex items-center gap-3">
@@ -1011,13 +1181,23 @@ export default function KarigarManagement() {
 
                     {/* Bench Metal Balance */}
                     <td className="py-3.5 px-5 text-right whitespace-nowrap">
-                      <div>
-                        <span className="font-mono font-bold text-stone-900 text-sm">
-                          {Number(karigar.current_gold_balance_grams || 0).toFixed(3)}
-                        </span>
-                        <span className="text-xs font-bold text-amber-700 ml-1 font-sans">g</span>
-                        <div className="text-[11px] text-stone-400 mt-0.5 font-medium whitespace-nowrap">Pure Gold WIP</div>
-                      </div>
+                      {(() => {
+                        const bal = Number(karigar.current_gold_balance_grams !== undefined && karigar.current_gold_balance_grams !== null
+                          ? karigar.current_gold_balance_grams
+                          : (karigar.bench_metal_wip || 0));
+                        const isNegative = bal < -0.0001;
+                        return (
+                          <div>
+                            <span className={`font-mono font-bold text-sm ${isNegative ? 'text-emerald-700 font-extrabold' : 'text-stone-900'}`}>
+                              {bal.toFixed(3)}
+                            </span>
+                            <span className="text-xs font-bold text-amber-700 ml-1 font-sans">g</span>
+                            <div className={`text-[11px] mt-0.5 font-medium whitespace-nowrap ${isNegative ? 'text-emerald-600 font-bold' : 'text-stone-400'}`}>
+                              {isNegative ? 'Artisan Gold in Hand (-ve)' : 'Pure Gold WIP'}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </td>
 
                     {/* Wastage & Making Charges */}
@@ -1155,6 +1335,14 @@ export default function KarigarManagement() {
                           title={`Allocate Material directly to ${karigar.name}`}
                         >
                           <i className="fa-solid fa-scale-balanced text-xs"></i>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenMaterialAllocation(karigar.id)}
+                          className="w-8 h-8 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 flex items-center justify-center transition-colors cursor-pointer shadow-2xs border border-emerald-200/60"
+                          title={`Settle Making Charges / Cash with ${karigar.name}`}
+                        >
+                          <i className="fa-solid fa-indian-rupee-sign text-xs"></i>
                         </button>
                         {karigar.current_assigned_order && (
                           <button
@@ -1302,9 +1490,20 @@ export default function KarigarManagement() {
                   <div className="bg-stone-50 rounded-xl p-3 border border-stone-200/80 grid grid-cols-3 gap-2 text-center mb-4">
                     <div>
                       <p className="text-[10px] font-semibold text-stone-400 uppercase">Bench Gold</p>
-                      <p className="text-xs font-bold text-stone-900 mt-0.5 font-mono">
-                        {Number(karigar.current_gold_balance_grams || 0).toFixed(2)} <span className="text-[9px] font-sans text-amber-700">g</span>
-                      </p>
+                      {(() => {
+                        const bal = Number(karigar.current_gold_balance_grams !== undefined && karigar.current_gold_balance_grams !== null
+                          ? karigar.current_gold_balance_grams
+                          : (karigar.bench_metal_wip || 0));
+                        const isNegative = bal < -0.0001;
+                        return (
+                          <div>
+                            <p className={`text-xs font-bold mt-0.5 font-mono ${isNegative ? 'text-emerald-700' : 'text-stone-900'}`}>
+                              {bal.toFixed(2)} <span className="text-[9px] font-sans text-amber-700">g</span>
+                            </p>
+                            {isNegative && <span className="block text-[8.5px] text-emerald-600 font-sans font-bold">Artisan Hand</span>}
+                          </div>
+                        );
+                      })()}
                     </div>
                     <div className="border-x border-stone-200">
                       <p className="text-[10px] font-semibold text-stone-400 uppercase">Wastage</p>
@@ -1353,6 +1552,14 @@ export default function KarigarManagement() {
                     title={`Allocate Material directly to ${karigar.name}`}
                   >
                     <i className="fa-solid fa-scale-balanced text-xs"></i>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenMaterialAllocation(karigar.id)}
+                    className="p-1.5 text-emerald-800 hover:text-emerald-900 hover:bg-emerald-100 rounded-lg transition-colors cursor-pointer border border-emerald-200/60"
+                    title={`Settle Making Charges / Cash with ${karigar.name}`}
+                  >
+                    <i className="fa-solid fa-indian-rupee-sign text-xs"></i>
                   </button>
                   {karigar.current_assigned_order && (
                     <button
@@ -1780,18 +1987,24 @@ export default function KarigarManagement() {
                               type="file"
                               accept="image/*"
                               className="hidden"
-                              onChange={(e) => {
+                              onChange={async (e) => {
                                 const file = e.target.files?.[0];
                                 if (file) {
-                                  if (file.size > 5 * 1024 * 1024) {
-                                    showToast?.('Image size should be less than 5MB', 'error');
+                                  const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
+                                  if (!validTypes.includes(file.type)) {
+                                    showToast?.('Please upload a supported image format (JPEG, PNG, or WebP).', 'error');
                                     return;
                                   }
-                                  const reader = new FileReader();
-                                  reader.onloadend = () => {
-                                    setFormData((prev) => ({ ...prev, avatar_url: reader.result }));
-                                  };
-                                  reader.readAsDataURL(file);
+                                  if (file.size > 5 * 1024 * 1024) {
+                                    showToast?.('Image size must not exceed the allowed limit of 5 MB.', 'error');
+                                    return;
+                                  }
+                                  try {
+                                    const compressedData = await compressImageForUpload(file);
+                                    setFormData((prev) => ({ ...prev, avatar_url: compressedData }));
+                                  } catch (err) {
+                                    showToast?.('Image upload failed. Please try again.', 'error');
+                                  }
                                 }
                               }}
                             />
@@ -2237,6 +2450,21 @@ export default function KarigarManagement() {
 
               <button
                 type="button"
+                onClick={() => {
+                  setViewDrawerTab('ledger');
+                  if (viewKarigar?.id) fetchKarigarLedger(viewKarigar.id);
+                }}
+                className={`py-2.5 px-4 rounded-t-xl transition-all cursor-pointer flex items-center gap-2 border-t-2 ${viewDrawerTab === 'ledger'
+                  ? 'bg-white text-[#b01622] border-[#b01622] shadow-xs'
+                  : 'text-stone-500 hover:text-stone-800 border-transparent'
+                  }`}
+              >
+                <i className="fa-solid fa-book-open text-xs"></i>
+                <span>Material & Financial Ledger</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setViewDrawerTab('profile')}
                 className={`py-2.5 px-4 rounded-t-xl transition-all cursor-pointer flex items-center gap-2 border-t-2 ${viewDrawerTab === 'profile'
                   ? 'bg-white text-[#b01622] border-[#b01622] shadow-xs'
@@ -2344,6 +2572,15 @@ export default function KarigarManagement() {
                                 {wo.karigar_submitted_at ? `Submitted on ${new Date(wo.karigar_submitted_at).toLocaleString('en-IN')}` : 'Work in progress'}
                               </span>
                               <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenMaterialAllocation(viewKarigar.id, wo.id)}
+                                  className="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-stone-900 font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+                                  title="Open Material Allocation for this Work Order"
+                                >
+                                  <i className="fa-solid fa-boxes-stacked"></i>
+                                  <span>Allocate Material</span>
+                                </button>
                                 <Link
                                   to={`/job-order/receive?order_id=${wo.id}`}
                                   className="px-3 py-2 bg-white hover:bg-stone-100 text-[#b01622] border border-[#b01622] font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-2xs"
@@ -2419,17 +2656,398 @@ export default function KarigarManagement() {
                     </div>
                   </div>
                 );
-              })() : (
-                /* TAB 2: PROFILE & KYC */
+              })() : viewDrawerTab === 'ledger' ? (
+                /* TAB: MATERIAL & FINANCIAL LEDGER */
+                <div className="space-y-6">
+                  {/* Financial KPI Summary Card */}
+                  <div className="bg-gradient-to-br from-stone-900 to-stone-800 text-white p-5 rounded-2xl shadow-md border border-stone-700 space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-700/80 pb-3">
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 block">Financial Account Overview</span>
+                        <h4 className="text-sm font-bold text-white flex items-center gap-2 mt-0.5">
+                          <i className="fa-solid fa-coins text-amber-400"></i>
+                          <span>Making Charges & Cash Balance</span>
+                        </h4>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenMaterialAllocation(viewKarigar.id)}
+                          className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-stone-900 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+                        >
+                          <i className="fa-solid fa-scale-balanced text-xs"></i>
+                          <span>Allocate Material</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenMaterialAllocation(viewKarigar.id)}
+                          className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+                        >
+                          <i className="fa-solid fa-indian-rupee-sign text-xs"></i>
+                          <span>Settle Cash / Pay MC</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                      <div className="bg-white/5 p-3 rounded-xl border border-white/10">
+                        <span className="text-[10px] text-stone-400 uppercase font-semibold">Total MC Earned</span>
+                        <p className="text-base font-extrabold text-white mt-1 font-mono">
+                          ₹{Number(karigarLedgerData?.financial_summary?.total_earned || 0).toLocaleString('en-IN')}
+                        </p>
+                      </div>
+                      <div className="bg-white/5 p-3 rounded-xl border border-white/10">
+                        <span className="text-[10px] text-stone-400 uppercase font-semibold">Total Settled / Paid</span>
+                        <p className="text-base font-extrabold text-emerald-400 mt-1 font-mono">
+                          ₹{Number(karigarLedgerData?.financial_summary?.total_paid || 0).toLocaleString('en-IN')}
+                        </p>
+                      </div>
+                      <div className="bg-white/5 p-3 rounded-xl border border-white/10">
+                        <span className="text-[10px] text-stone-400 uppercase font-semibold">Advances Given</span>
+                        <p className="text-base font-extrabold text-amber-300 mt-1 font-mono">
+                          ₹{Number(karigarLedgerData?.financial_summary?.total_advance || 0).toLocaleString('en-IN')}
+                        </p>
+                      </div>
+                      <div className={`p-3 rounded-xl border ${Number(karigarLedgerData?.financial_summary?.net_payable || 0) > 0
+                        ? 'bg-rose-500/15 border-rose-500/30'
+                        : Number(karigarLedgerData?.financial_summary?.net_payable || 0) < 0
+                          ? 'bg-amber-500/15 border-amber-500/30'
+                          : 'bg-emerald-500/15 border-emerald-500/30'
+                        }`}>
+                        <span className="text-[10px] text-stone-300 uppercase font-semibold">
+                          {Number(karigarLedgerData?.financial_summary?.net_payable || 0) < 0 ? 'Advance with Karigar' : 'Net Current Payable'}
+                        </span>
+                        <p className={`text-base font-extrabold mt-1 font-mono ${Number(karigarLedgerData?.financial_summary?.net_payable || 0) > 0
+                          ? 'text-rose-400'
+                          : Number(karigarLedgerData?.financial_summary?.net_payable || 0) < 0
+                            ? 'text-amber-300'
+                            : 'text-emerald-400'
+                          }`}>
+                          ₹{Math.abs(Number(karigarLedgerData?.financial_summary?.net_payable || 0)).toLocaleString('en-IN')}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Gold Balances by Purity Breakdown Table */}
+                  <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-xs space-y-3 p-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-bold text-stone-900 text-xs uppercase tracking-wider flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                        <span>Gold Material Balances by Purity</span>
+                      </h4>
+                      <span className="text-[11px] text-stone-500 font-medium">Fine Gold = Net Wt × Touch / 100</span>
+                    </div>
+
+                    <div className="overflow-x-auto border border-stone-100 rounded-xl">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-stone-50 text-stone-600 font-bold uppercase text-[10px] tracking-wider border-b border-stone-200">
+                            <th className="py-2.5 px-3">Purity</th>
+                            <th className="py-2.5 px-3 text-right">Touch %</th>
+                            <th className="py-2.5 px-3 text-right">Issued (Gross/Net/Fine)</th>
+                            <th className="py-2.5 px-3 text-right">Received (Gross/Net/Fine)</th>
+                            <th className="py-2.5 px-3 text-right">Approved Wastage (Fine)</th>
+                            <th className="py-2.5 px-3 text-right">Outstanding (Fine Wt)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-stone-100 font-medium">
+                          {loadingKarigarLedger ? (
+                            <tr>
+                              <td colSpan="6" className="py-6 text-center text-stone-400">
+                                <i className="fa-solid fa-circle-notch fa-spin text-sm text-[#b01622] mr-2"></i>
+                                Calculating purity ledger...
+                              </td>
+                            </tr>
+                          ) : (karigarLedgerData?.gold_by_purity || []).length === 0 ? (
+                            <tr>
+                              <td colSpan="6" className="py-6 text-center text-stone-400 italic">
+                                No gold transactions recorded for this artisan.
+                              </td>
+                            </tr>
+                          ) : (
+                            karigarLedgerData.gold_by_purity.map((row, idx) => {
+                              const isNegative = Number(row.outstanding_fine || 0) < 0;
+                              return (
+                                <tr key={idx} className="hover:bg-stone-50/60 transition-colors">
+                                  <td className="py-2.5 px-3 font-bold text-stone-900">{row.purity}</td>
+                                  <td className="py-2.5 px-3 text-right font-mono text-stone-600">{Number(row.touch || 0).toFixed(2)}%</td>
+                                  <td className="py-2.5 px-3 text-right font-mono text-stone-700">
+                                    <span className="font-bold">{Number(row.issued_fine || 0).toFixed(3)}g</span>{' '}
+                                    <span className="text-[10px] text-stone-400">({Number(row.issued_net || 0).toFixed(2)}g net)</span>
+                                  </td>
+                                  <td className="py-2.5 px-3 text-right font-mono text-emerald-700">
+                                    <span className="font-bold">{Number(row.received_fine || 0).toFixed(3)}g</span>{' '}
+                                    <span className="text-[10px] text-stone-400">({Number(row.received_net || 0).toFixed(2)}g net)</span>
+                                  </td>
+                                  <td className="py-2.5 px-3 text-right font-mono text-stone-600">
+                                    {Number(row.wastage_fine || 0).toFixed(3)}g
+                                  </td>
+                                  <td className="py-2.5 px-3 text-right font-mono font-bold whitespace-nowrap">
+                                    {isNegative ? (
+                                      <span className="px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                        Excess Returned: {Number(row.outstanding_fine).toFixed(3)}g
+                                      </span>
+                                    ) : (
+                                      <span className={Number(row.outstanding_fine) > 0 ? 'text-[#b01622] font-extrabold' : 'text-stone-400'}>
+                                        {Number(row.outstanding_fine || 0).toFixed(3)}g
+                                      </span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Diamonds by Stamp Breakdown Table */}
+                  <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-xs space-y-3 p-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-bold text-stone-900 text-xs uppercase tracking-wider flex items-center gap-2">
+                        <i className="fa-regular fa-gem text-blue-600"></i>
+                        <span>Diamond Balance by Stamp & Sieve</span>
+                      </h4>
+                      <span className="text-[11px] text-stone-500 font-medium">Counted in Pieces & Carats (ct)</span>
+                    </div>
+
+                    <div className="overflow-x-auto border border-stone-100 rounded-xl">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-stone-50 text-stone-600 font-bold uppercase text-[10px] tracking-wider border-b border-stone-200">
+                            <th className="py-2.5 px-3">Stamp / Quality</th>
+                            <th className="py-2.5 px-3">Sieve Size</th>
+                            <th className="py-2.5 px-3 text-right">Issued</th>
+                            <th className="py-2.5 px-3 text-right">Received</th>
+                            <th className="py-2.5 px-3 text-right">Wastage / Difference</th>
+                            <th className="py-2.5 px-3 text-right">Outstanding Balance</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-stone-100 font-medium">
+                          {(karigarLedgerData?.diamonds_by_stamp || []).length === 0 ? (
+                            <tr>
+                              <td colSpan="6" className="py-5 text-center text-stone-400 italic">
+                                No diamond allocations on record.
+                              </td>
+                            </tr>
+                          ) : (
+                            karigarLedgerData.diamonds_by_stamp.map((d, idx) => (
+                              <tr key={idx} className="hover:bg-stone-50/60 transition-colors">
+                                <td className="py-2.5 px-3 font-bold text-stone-900">{d.stamp || 'Standard'}</td>
+                                <td className="py-2.5 px-3 font-mono text-stone-600">{d.sieve_size || '—'}</td>
+                                <td className="py-2.5 px-3 text-right font-mono text-stone-700">
+                                  {Number(d.issued_carats || 0).toFixed(3)} ct{' '}
+                                  <span className="text-[10px] text-stone-400">({d.issued_pieces || 0} pcs)</span>
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono text-emerald-700">
+                                  {Number(d.received_carats || 0).toFixed(3)} ct{' '}
+                                  <span className="text-[10px] text-stone-400">({d.received_pieces || 0} pcs)</span>
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono text-stone-500">
+                                  {Number(d.wastage_carats || 0).toFixed(3)} ct
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono font-bold whitespace-nowrap">
+                                  <span className={Number(d.outstanding_carats) > 0 ? 'text-blue-700 font-extrabold' : 'text-stone-400'}>
+                                    {Number(d.outstanding_carats || 0).toFixed(3)} ct ({d.outstanding_pieces || 0} pcs)
+                                  </span>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Stones Summary Table */}
+                  <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-xs space-y-3 p-4">
+                    <h4 className="font-bold text-stone-900 text-xs uppercase tracking-wider flex items-center gap-2">
+                      <i className="fa-solid fa-shapes text-emerald-600"></i>
+                      <span>Colour Stones & Other Materials</span>
+                    </h4>
+
+                    <div className="overflow-x-auto border border-stone-100 rounded-xl">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-stone-50 text-stone-600 font-bold uppercase text-[10px] tracking-wider border-b border-stone-200">
+                            <th className="py-2.5 px-3">Item Name</th>
+                            <th className="py-2.5 px-3">Unit</th>
+                            <th className="py-2.5 px-3 text-right">Issued Wt</th>
+                            <th className="py-2.5 px-3 text-right">Received Wt</th>
+                            <th className="py-2.5 px-3 text-right">Outstanding</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-stone-100 font-medium">
+                          {(karigarLedgerData?.stones_summary || []).length === 0 ? (
+                            <tr>
+                              <td colSpan="5" className="py-5 text-center text-stone-400 italic">
+                                No stone allocations recorded.
+                              </td>
+                            </tr>
+                          ) : (
+                            karigarLedgerData.stones_summary.map((st, idx) => (
+                              <tr key={idx} className="hover:bg-stone-50/60 transition-colors">
+                                <td className="py-2.5 px-3 font-bold text-stone-900">{st.item}</td>
+                                <td className="py-2.5 px-3 uppercase text-stone-500 font-semibold">{st.unit}</td>
+                                <td className="py-2.5 px-3 text-right font-mono text-stone-700">
+                                  {Number(st.issued_weight || 0).toFixed(2)} {st.unit}{' '}
+                                  <span className="text-[10px] text-stone-400">({st.issued_pieces || 0} pcs)</span>
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono text-emerald-700">
+                                  {Number(st.received_weight || 0).toFixed(2)} {st.unit}{' '}
+                                  <span className="text-[10px] text-stone-400">({st.received_pieces || 0} pcs)</span>
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono font-bold text-stone-900">
+                                  {Number(st.outstanding_weight || 0).toFixed(2)} {st.unit} ({st.outstanding_pieces || 0} pcs)
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Material & Vault Transactions History */}
+                  <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-xs space-y-3 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <h4 className="font-bold text-stone-900 text-xs uppercase tracking-wider flex items-center gap-2">
+                        <i className="fa-solid fa-list-check text-stone-500"></i>
+                        <span>Recent Material Movements & Vault Transactions</span>
+                      </h4>
+
+                      <select
+                        value={ledgerTxTypeFilter}
+                        onChange={(e) => setLedgerTxTypeFilter(e.target.value)}
+                        className="bg-stone-50 border border-stone-300 rounded-xl px-2.5 py-1 text-xs font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622]"
+                      >
+                        <option value="all">All Movements</option>
+                        <option value="allocation">Allocations</option>
+                        <option value="finished_received">Finished Received</option>
+                        <option value="unused_returned">Unused Returned</option>
+                        <option value="approved_wastage">Approved Wastage</option>
+                      </select>
+                    </div>
+
+                    <div className="overflow-x-auto border border-stone-100 rounded-xl max-h-80 overflow-y-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead className="sticky top-0 bg-stone-50 text-stone-600 font-bold uppercase text-[10px] tracking-wider border-b border-stone-200">
+                          <tr>
+                            <th className="py-2.5 px-3">Date & Ref</th>
+                            <th className="py-2.5 px-3">Type</th>
+                            <th className="py-2.5 px-3">Work Order</th>
+                            <th className="py-2.5 px-3">Item / Purity</th>
+                            <th className="py-2.5 px-3 text-right">Net Wt</th>
+                            <th className="py-2.5 px-3 text-right">Fine Wt</th>
+                            <th className="py-2.5 px-3 text-center">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-stone-100 font-medium">
+                          {(() => {
+                            const rawList = karigarLedgerData?.transactions || [];
+                            const filteredList = ledgerTxTypeFilter === 'all'
+                              ? rawList
+                              : rawList.filter(t => t.transaction_type === ledgerTxTypeFilter);
+
+                            if (filteredList.length === 0) {
+                              return (
+                                <tr>
+                                  <td colSpan="7" className="py-6 text-center text-stone-400 italic">
+                                    No material transactions found for this filter.
+                                  </td>
+                                </tr>
+                              );
+                            }
+
+                            return filteredList.map((tx) => (
+                              <tr key={tx.id} className={`hover:bg-stone-50/60 transition-colors ${tx.is_reversed ? 'opacity-40 bg-stone-50/40 line-through' : ''}`}>
+                                <td className="py-2 px-3 whitespace-nowrap">
+                                  <span className="font-mono text-stone-700 font-bold block">{tx.transaction_number || `TX#${tx.id}`}</span>
+                                  <span className="text-[10px] text-stone-400">{tx.transaction_date ? new Date(tx.transaction_date).toLocaleDateString('en-GB') : '—'}</span>
+                                </td>
+                                <td className="py-2 px-3 whitespace-nowrap">
+                                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase border ${tx.transaction_type.includes('allocation') ? 'bg-amber-50 text-amber-900 border-amber-200' :
+                                    tx.transaction_type === 'finished_received' ? 'bg-emerald-50 text-emerald-900 border-emerald-200' :
+                                      tx.transaction_type === 'unused_returned' ? 'bg-blue-50 text-blue-900 border-blue-200' :
+                                        'bg-purple-50 text-purple-900 border-purple-200'
+                                    }`}>
+                                    {tx.transaction_type.replace(/_/g, ' ')}
+                                  </span>
+                                  {tx.is_reversed && (
+                                    <span className="ml-1 px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-rose-100 text-rose-800">
+                                      REVERSED
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-2 px-3 whitespace-nowrap font-mono text-[#b01622] font-semibold">
+                                  {tx.work_order?.work_order_number || (tx.work_order_id ? `WO#${tx.work_order_id}` : 'Direct')}
+                                </td>
+                                <td className="py-2 px-3 whitespace-nowrap">
+                                  <span className="font-bold text-stone-800">{tx.material_item || tx.purity || tx.material_type}</span>
+                                  {tx.stamp && <span className="text-[10px] text-stone-500 ml-1">({tx.stamp})</span>}
+                                </td>
+                                <td className="py-2 px-3 text-right font-mono font-semibold text-stone-800">
+                                  {Number(tx.net_weight || tx.weight || 0).toFixed(3)} {tx.unit || 'g'}
+                                </td>
+                                <td className="py-2 px-3 text-right font-mono font-bold text-amber-800">
+                                  {tx.material_type === 'gold' ? `${Number(tx.fine_weight || tx.company_gold_weight || 0).toFixed(3)} g` : '—'}
+                                </td>
+                                <td className="py-2 px-3 text-center whitespace-nowrap">
+                                  {!tx.is_reversed ? (
+                                    <div className="flex items-center justify-center gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenEditTxModal(tx)}
+                                        className="px-2 py-1 text-[10px] font-bold rounded-lg border border-amber-300 hover:bg-amber-50 text-amber-800 transition-colors cursor-pointer flex items-center gap-1"
+                                        title="Edit / Update returned material details"
+                                      >
+                                        <i className="fa-solid fa-pen-to-square text-[9px]"></i>
+                                        Edit
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleReverseTx(tx.id)}
+                                        className="px-2 py-1 text-[10px] font-bold rounded-lg border border-rose-300 hover:bg-rose-50 text-rose-700 transition-colors cursor-pointer"
+                                        title="Reverse transaction and adjust vault"
+                                      >
+                                        Reverse
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <span className="text-[10px] text-stone-400 italic">Reversed</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ));
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* TAB 3: PROFILE & KYC */
                 <div className="space-y-5">
                   {/* Bench Metal and Terms Grid */}
                   <div className="grid grid-cols-3 gap-3 bg-stone-50 p-4 rounded-2xl border border-stone-200 text-center">
                     <div>
                       <p className="text-[10px] font-semibold text-stone-400 uppercase">Bench Gold Balance</p>
-                      <p className="text-base font-bold text-stone-900 mt-0.5 font-mono">
-                        {Number(viewKarigar.current_gold_balance_grams || 0).toFixed(3)}
-                        <span className="text-xs font-sans text-amber-700 ml-1">g</span>
-                      </p>
+                      {(() => {
+                        const bal = Number(viewKarigar.current_gold_balance_grams ?? 0);
+                        const isNegative = bal < -0.0001;
+                        return (
+                          <div>
+                            <p className={`text-base font-bold mt-0.5 font-mono ${isNegative ? 'text-emerald-700' : 'text-stone-900'}`}>
+                              {bal.toFixed(3)}
+                              <span className="text-xs font-sans text-amber-700 ml-1">g</span>
+                            </p>
+                            {isNegative && <span className="text-[10px] font-bold text-emerald-600 block mt-0.5">Artisan Gold in Hand</span>}
+                          </div>
+                        );
+                      })()}
                     </div>
                     <div className="border-x border-stone-200">
                       <p className="text-[10px] font-semibold text-stone-400 uppercase">Wastage Standard</p>
@@ -2594,6 +3212,155 @@ export default function KarigarManagement() {
         onCancel={() => setDeleteTarget(null)}
       />
 
+      {/* EDIT / UPDATE MATERIAL TRANSACTION MODAL */}
+      {isEditTxModalOpen && editingTx && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-fade-in">
+          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-5 py-4 bg-gradient-to-r from-stone-900 to-stone-800 text-white flex items-center justify-between">
+              <div>
+                <h3 className="font-extrabold text-sm flex items-center gap-2">
+                  <i className="fa-solid fa-pen-to-square text-amber-400"></i>
+                  <span>Edit / Update Artisan Material Transaction</span>
+                </h3>
+                <p className="text-[11px] text-stone-300 mt-0.5">
+                  Update weight, purity, or notes for {editingTx.material_item || editingTx.material_type} ({editingTx.transaction_type?.replace(/_/g, ' ')})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditTxModalOpen(false);
+                  setEditingTx(null);
+                }}
+                className="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-stone-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark text-sm"></i>
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveTxEdit} className="p-5 space-y-4 overflow-y-auto">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 mb-1">
+                    Gross Weight ({editingTx.unit || 'g'}) <span className="text-[#b01622]">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    required
+                    value={txEditForm.gross_weight}
+                    onChange={(e) => setTxEditForm({ ...txEditForm, gross_weight: e.target.value })}
+                    className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-xl font-mono font-bold text-xs text-stone-900 focus:outline-hidden focus:border-[#b01622] text-right"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 mb-1">
+                    Net Weight ({editingTx.unit || 'g'})
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    value={txEditForm.net_weight}
+                    onChange={(e) => setTxEditForm({ ...txEditForm, net_weight: e.target.value })}
+                    className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-xl font-mono font-bold text-xs text-stone-900 focus:outline-hidden focus:border-[#b01622] text-right"
+                  />
+                </div>
+              </div>
+
+              {editingTx.material_type === 'gold' && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 mb-1">
+                      Touch / Purity %
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={txEditForm.touch}
+                      onChange={(e) => setTxEditForm({ ...txEditForm, touch: e.target.value })}
+                      placeholder="91.60"
+                      className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-xl font-mono font-bold text-xs text-stone-900 focus:outline-hidden focus:border-[#b01622] text-right"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 mb-1">
+                      Karat / Label
+                    </label>
+                    <input
+                      type="text"
+                      value={txEditForm.purity}
+                      onChange={(e) => setTxEditForm({ ...txEditForm, purity: e.target.value })}
+                      placeholder="22K"
+                      className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-xl text-xs text-stone-900 focus:outline-hidden focus:border-[#b01622]"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 mb-1">
+                    Pieces / Quantity
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={txEditForm.pieces}
+                    onChange={(e) => setTxEditForm({ ...txEditForm, pieces: e.target.value })}
+                    className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-xl font-mono text-xs text-stone-900 focus:outline-hidden focus:border-[#b01622] text-right"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 mb-1">
+                    Transaction Date
+                  </label>
+                  <input
+                    type="date"
+                    value={txEditForm.transaction_date}
+                    onChange={(e) => setTxEditForm({ ...txEditForm, transaction_date: e.target.value })}
+                    className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-xl text-xs text-stone-900 focus:outline-hidden focus:border-[#b01622]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-stone-700 mb-1">
+                  Reason / Remarks
+                </label>
+                <textarea
+                  rows="2"
+                  value={txEditForm.reason}
+                  onChange={(e) => setTxEditForm({ ...txEditForm, reason: e.target.value })}
+                  placeholder="Reason for adjustment or return update..."
+                  className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-xl text-xs text-stone-900 focus:outline-hidden focus:border-[#b01622]"
+                ></textarea>
+              </div>
+
+              <div className="pt-3 border-t border-stone-200 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditTxModalOpen(false);
+                    setEditingTx(null);
+                  }}
+                  className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingTx}
+                  className="px-5 py-2 bg-[#b01622] hover:bg-[#8e111a] text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {savingTx ? <i className="fa-solid fa-circle-notch fa-spin"></i> : <i className="fa-solid fa-check"></i>}
+                  <span>Save Changes</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Bench Metal Pop-up Modal */}
       <BenchMetalModal
         isOpen={isBenchModalOpen}
@@ -2608,9 +3375,11 @@ export default function KarigarManagement() {
         onClose={() => {
           setIsMaterialModalOpen(false);
           setMaterialModalKarigarId(null);
+          setMaterialModalWorkOrderId(null);
           fetchKarigars();
         }}
         initialKarigarId={materialModalKarigarId}
+        initialWorkOrderId={materialModalWorkOrderId}
         initialTab="karigar_management"
       />
     </div>

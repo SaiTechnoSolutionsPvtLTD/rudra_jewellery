@@ -15,7 +15,7 @@ const DEFAULT_BANK_ACCOUNTS = [
   {
     id: 1,
     bank_name: 'HDFC Bank',
-    account_name: 'Rudra Jewellers Pvt Ltd',
+    account_name: 'Rudra Jewellery Pvt Ltd',
     account_number: '50200018899221',
     ifsc_code: 'HDFC0000124',
     branch: 'Sowcarpet, Chennai',
@@ -27,7 +27,7 @@ const DEFAULT_BANK_ACCOUNTS = [
   {
     id: 2,
     bank_name: 'State Bank of India',
-    account_name: 'Rudra Jewellers Pvt Ltd',
+    account_name: 'Rudra Jewellery Pvt Ltd',
     account_number: '39488210045',
     ifsc_code: 'SBIN0000800',
     branch: 'NSC Bose Road, Chennai',
@@ -66,7 +66,7 @@ export default function BankAccounts() {
   // Form State
   const [formData, setFormData] = useState({
     bank_name: '',
-    account_name: 'Rudra Jewellers Pvt Ltd',
+    account_name: 'Rudra Jewellery Pvt Ltd',
     account_number: '',
     ifsc_code: '',
     branch: 'Sowcarpet, Chennai',
@@ -116,7 +116,7 @@ export default function BankAccounts() {
     setFormErrors({});
     setFormData({
       bank_name: '',
-      account_name: 'Rudra Jewellers Pvt Ltd',
+      account_name: 'Rudra Jewellery Pvt Ltd',
       account_number: '',
       ifsc_code: '',
       branch: 'Sowcarpet, Chennai',
@@ -133,7 +133,7 @@ export default function BankAccounts() {
     setSelectedAccount(acc);
     setFormData({
       bank_name: acc.bank_name || '',
-      account_name: acc.account_name || 'Rudra Jewellers Pvt Ltd',
+      account_name: acc.account_name || 'Rudra Jewellery Pvt Ltd',
       account_number: acc.account_number || '',
       ifsc_code: acc.ifsc_code || '',
       branch: acc.branch || '',
@@ -350,6 +350,7 @@ export default function BankAccounts() {
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-stone-50/80 border-b border-stone-200 text-stone-500 font-bold uppercase tracking-wider">
+                  <th className="px-4 py-3 text-center w-14">S.No</th>
                   <th className="px-4 py-3">Bank &amp; Branch</th>
                   <th className="px-4 py-3">Account Name</th>
                   <th className="px-4 py-3">Account No. &amp; Type</th>
@@ -359,8 +360,12 @@ export default function BankAccounts() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {filteredAccounts.map((acc) => (
+                {filteredAccounts.map((acc, idx) => (
                   <tr key={acc.id} className="hover:bg-amber-50/20 transition-colors">
+                    {/* S.No */}
+                    <td className="px-4 py-3 text-center font-mono text-stone-500 font-semibold">
+                      {idx + 1}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         <div className="w-9 h-9 rounded-xl bg-red-50 text-[#b01622] flex items-center justify-center font-bold text-sm shrink-0 border border-red-100">
@@ -491,7 +496,7 @@ export default function BankAccounts() {
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Rudra Jewellers Pvt Ltd"
+                  placeholder="e.g. Rudra Jewellery Pvt Ltd"
                   value={formData.account_name}
                   onChange={(e) => setFormData({ ...formData, account_name: e.target.value })}
                   className="w-full px-3 py-2 border border-stone-300 rounded-xl focus:outline-hidden focus:border-[#b01622]"

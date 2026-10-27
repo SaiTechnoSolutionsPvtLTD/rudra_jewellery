@@ -5,11 +5,8 @@ export default function NotFound() {
   const navigate = useNavigate();
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0d0b08] p-6 font-['Inter',sans-serif] relative overflow-hidden">
-      {/* Subtle luxury glow effects */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-[radial-gradient(circle,rgba(212,175,55,0.12)_0%,transparent_70%)] pointer-events-none" />
-
-      <div className="relative z-10 max-w-md w-full text-center space-y-6 bg-[rgba(26,20,16,0.85)] border border-[rgba(212,175,55,0.25)] rounded-2xl p-8 sm:p-10 shadow-2xl backdrop-blur-md">
+    <div className="min-h-screen flex items-center justify-center bg-[#f8fafc] p-6 font-['Inter',sans-serif] relative overflow-hidden">
+      <div className="relative z-10 max-w-md w-full text-center space-y-6 bg-white border border-stone-200 rounded-2xl p-8 sm:p-10 shadow-xl">
         {/* Brand Monogram */}
         <div className="w-16 h-16 mx-auto rounded-full bg-gradient-to-tr from-[#8a131c] to-[#b01622] border-2 border-[#d4af37] flex items-center justify-center text-[#f3d98b] font-bold text-xl tracking-wider shadow-lg">
           RJ
@@ -55,7 +52,7 @@ export default function NotFound() {
         </div>
 
         <div className="text-[11px] text-stone-500 pt-2">
-          Rudhra Jewellers • Timeless Elegance
+          Rudra Jewellery • Timeless Elegance
         </div>
       </div>
     </div>

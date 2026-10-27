@@ -8,7 +8,7 @@ export function sanitizeErrorMessage(error, fallback = 'An unexpected error occu
   if (!error) return fallback;
 
   // Extract raw string candidate
-  const raw =
+  let raw =
     (typeof error === 'string' ? error : null) ||
     error?.userMessage ||
     error?.response?.data?.message ||
@@ -17,7 +17,16 @@ export function sanitizeErrorMessage(error, fallback = 'An unexpected error occu
     error?.message ||
     '';
 
+  // Extract first field validation error message if errors dictionary is present
+  if (error?.response?.data?.errors && typeof error.response.data.errors === 'object') {
+    const errorValues = Object.values(error.response.data.errors).flat().filter(Boolean);
+    if (errorValues.length > 0) {
+      raw = errorValues[0];
+    }
+  }
+
   const status = error?.response?.status;
+  const reqUrl = error?.config?.url || '';
 
   // Patterns that indicate internal/technical details, SQL errors, or code exceptions
   const technicalPatterns = [
@@ -48,39 +57,99 @@ export function sanitizeErrorMessage(error, fallback = 'An unexpected error occu
 
   const hasTechnicalData = technicalPatterns.some((pattern) => pattern.test(raw));
 
+  // Network / Connection errors
+  if (
+    error?.code === 'ERR_NETWORK' ||
+    error?.code === 'ECONNABORTED' ||
+    raw.includes('Network Error') ||
+    (typeof navigator !== 'undefined' && !navigator.onLine)
+  ) {
+    return 'Unable to connect to the server. Please try again later.';
+  }
+
+  // Database unique constraint mappings
+  if (/Duplicate entry.*product_code/i.test(raw) || (raw.toLowerCase().includes('product code') && raw.toLowerCase().includes('already'))) {
+    return 'This product code already exists.';
+  }
+  if (/Duplicate entry/i.test(raw)) {
+    return 'A record with this information already exists.';
+  }
+  if (/foreign key constraint/i.test(raw)) {
+    return 'This record cannot be deleted or modified because it is referenced by other records.';
+  }
+
   // Handle standard HTTP status codes
-  if (status === 400) {
-    return hasTechnicalData ? 'Invalid request (400). Please check your input.' : (raw || 'Invalid request (400).');
-  }
   if (status === 401) {
-    return 'Session expired or unauthorized (401). Please sign in again.';
+    const isLoginEndpoint = reqUrl.includes('/login') || (typeof window !== 'undefined' && window.location.pathname === '/login');
+    if (isLoginEndpoint || /credential/i.test(raw) || /invalid email/i.test(raw)) {
+      return 'Invalid email/username or password.';
+    }
+    return 'Your session has expired. Please log in again.';
   }
+
   if (status === 403) {
-    return 'Access Denied (403). You do not have permission for this action.';
+    return 'You do not have permission to perform this action.';
   }
+
   if (status === 404) {
-    return 'Resource Not Found (404). The requested item could not be found.';
-  }
-  if (status === 405) {
-    return 'Method Not Allowed (405).';
-  }
-  if (status === 419) {
-    return 'Page session expired (419). Please refresh and try again.';
-  }
-  if (status === 422) {
-    if (raw && !hasTechnicalData) {
+    if (raw && !hasTechnicalData && !raw.includes('404') && !raw.toLowerCase().includes('not found')) {
       return raw;
     }
-    return 'Validation failed (422). Please verify the entered information.';
+    return 'The requested record could not be found.';
   }
+
+  if (status === 400) {
+    if (raw && !hasTechnicalData) return raw;
+    return 'Invalid request. Please verify the entered information.';
+  }
+
+  if (status === 419) {
+    return 'Your session has expired. Please log in again.';
+  }
+
+  if (status === 422) {
+    if (raw && !hasTechnicalData) {
+      if (/email.*valid/i.test(raw) || /valid email/i.test(raw)) {
+        return 'Please enter a valid email address.';
+      }
+      if (/product code.*(already|taken|exists)/i.test(raw) || /product_code.*(already|taken|exists)/i.test(raw)) {
+        return 'This product code already exists.';
+      }
+      if (/weight.*(greater than zero|positive)/i.test(raw) || /valid weight/i.test(raw)) {
+        return 'Please enter a valid weight greater than zero.';
+      }
+      if (/image.*(size|5120|5\s*mb|max)/i.test(raw)) {
+        return 'Image size must not exceed the allowed limit of 5 MB.';
+      }
+      if (/image.*(format|type|mimes|extension)/i.test(raw)) {
+        return 'Please upload a supported image format (JPEG, PNG, or WebP).';
+      }
+      if (/upload.*fail/i.test(raw) || /failed to upload/i.test(raw)) {
+        return 'Image upload failed. Please try again.';
+      }
+      return raw;
+    }
+    return 'Please check the required fields and verify the entered information.';
+  }
+
   if (status === 429) {
     return 'Too Many Requests (429). Please wait a moment and try again.';
   }
+
   if (status >= 500 || hasTechnicalData) {
-    return `Server Error (${status || 500}). Please try again later.`;
-  }
-  if (error?.code === 'ERR_NETWORK' || raw.includes('Network Error')) {
-    return 'Network Error. Unable to reach the server. Please check your connection.';
+    if (status === 502) {
+      return 'Bad gateway. Please try again in a moment.';
+    }
+    if (status === 503) {
+      return 'The service is temporarily unavailable. Please try again later.';
+    }
+    if (status === 504) {
+      return 'Server response timed out. Please try again.';
+    }
+    if (raw && !hasTechnicalData && !raw.includes('SQLSTATE') && !raw.includes('Exception') && !raw.includes('Unable to connect')) {
+      return raw;
+    }
+    return 'An internal server error occurred. Please try again.';
   }
 
   if (raw && !hasTechnicalData) {
@@ -120,10 +189,13 @@ rawApi.interceptors.response.use(
     error.userMessage = cleanMsg;
 
     if (error.response && error.response.status === 401) {
-      localStorage.removeItem('auth_token');
-      localStorage.removeItem('auth_user');
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
+      const isLoginRequest = error.config?.url?.includes('/login');
+      if (!isLoginRequest) {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('auth_user');
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login';
+        }
       }
     }
     return Promise.reject(error);
@@ -289,6 +361,8 @@ const api = new Proxy(rawApi, {
 export async function preloadMasters() {
   const token = localStorage.getItem('auth_token');
   if (!token) return;
+  if (window.__mastersPreloaded) return;
+  window.__mastersPreloaded = true;
 
   const endpoints = [
     '/categories',

@@ -333,6 +333,7 @@ export default function JobOrderHub({ initialTab = 'in-progress' }) {
           <table className="w-full text-left text-xs border-collapse min-w-[1020px]">
             <thead>
               <tr className="border-b border-stone-200/80 bg-stone-50/50 text-stone-700 font-semibold text-xs">
+                <th className="py-3 px-3 whitespace-nowrap text-center w-12">S.No</th>
                 <th className="py-3 px-4 whitespace-nowrap">Order #</th>
                 <th className="py-3 px-3 whitespace-nowrap">Product / Item</th>
                 <th className="py-3 px-3 whitespace-nowrap">Karigar / Aachari</th>
@@ -363,14 +364,14 @@ export default function JobOrderHub({ initialTab = 'in-progress' }) {
             <tbody className="divide-y divide-stone-100">
               {loading ? (
                 <tr>
-                  <td colSpan="11" className="py-12 text-center text-stone-400">
+                  <td colSpan="12" className="py-12 text-center text-stone-400">
                     <i className="fa-solid fa-circle-notch fa-spin text-xl text-[#b01622] mr-2"></i>
                     Loading {TABS.find(t => t.id === activeTab)?.label}...
                   </td>
                 </tr>
               ) : orders.length === 0 ? (
                 <tr>
-                  <td colSpan="11" className="py-12 text-center text-stone-400 space-y-2">
+                  <td colSpan="12" className="py-12 text-center text-stone-400 space-y-2">
                     <i className="fa-solid fa-clipboard-check text-3xl text-stone-300"></i>
                     <p className="font-semibold text-stone-600">No records found in this view</p>
                     <p className="text-[11px] text-stone-400">
@@ -385,13 +386,18 @@ export default function JobOrderHub({ initialTab = 'in-progress' }) {
                   const safePage = Math.min(currentPage, totalPages);
                   const paginatedOrders = orders.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
 
-                  return paginatedOrders.map((wo) => {
+                  return paginatedOrders.map((wo, idx) => {
                     const scrapWt = Math.max(0, wo.allotted_weight - wo.completed_weight);
                     const allowedScrap = (wo.allotted_weight * (wo.wastage_allowed_percent || 0)) / 100;
                     const isWithinWastage = scrapWt <= (allowedScrap + 0.05);
 
                     return (
                       <tr key={wo.id} className="hover:bg-stone-50/70 transition-colors">
+                        {/* S.No */}
+                        <td className="py-3 px-3 text-center font-mono font-bold text-stone-400 text-xs whitespace-nowrap">
+                          {(safePage - 1) * itemsPerPage + idx + 1}
+                        </td>
+
                         {/* Order Number */}
                         <td className="py-3 px-4 whitespace-nowrap">
                           <span className="font-mono font-bold text-xs text-[#b01622] bg-red-50 border border-red-200 px-2 py-0.5 rounded-md">

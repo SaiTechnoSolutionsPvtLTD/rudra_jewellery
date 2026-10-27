@@ -4,7 +4,7 @@ import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { compressImageFile } from '../../utils/imageCompressor';
 import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
-import { isMetalPurityStamp } from '../../components/JewelleryTagCard';
+import { isMetalPurityStamp, isDiamondComponent } from '../../components/JewelleryTagCard';
 
 export default function InventoryAddNewUpload() {
   const navigate = useNavigate();
@@ -87,6 +87,8 @@ export default function InventoryAddNewUpload() {
     vendor_id: '',
     quality: '',
     description: '',
+    purchase_rate: '',
+    purchase_value: '',
   });
 
   const [liveRates, setLiveRates] = useState(null);
@@ -98,7 +100,8 @@ export default function InventoryAddNewUpload() {
 
   // Helper check for Diamond or Stone categories
   const isDiamondOrStoneCat = (catName = '') => {
-    const name = (catName || '').toLowerCase();
+    const name = (catName || '').toLowerCase().trim();
+    if (name.includes('diamond cut') || name.includes('diamond-cut')) return false;
     return name.includes('diamond') || name.includes('stone') || name.includes('gem') || name.includes('pearl') || name.includes('cz');
   };
 
@@ -243,10 +246,10 @@ export default function InventoryAddNewUpload() {
     return g22 ? String(g22) : (g24 ? String(g24) : '');
   };
 
-  // Pure 24K Gold Weight = Net Gold Weight * (Purity / 100)
+  // Fine Gold Weight = Net Gold Weight * (Purity Percentage / 100)
   const computePureWeight = (netWtStr, purityStr) => {
     const net = parseFloat(netWtStr) || 0;
-    let purity = parseFloat(purityStr) || 0;
+    const purity = parseFloat(purityStr) || 0;
     if (net <= 0 || purity <= 0) return '';
     const factor = purity > 1 ? purity / 100 : purity;
     return (net * factor).toFixed(3);
@@ -260,14 +263,20 @@ export default function InventoryAddNewUpload() {
 
       if (pageStep === 6) {
         // Step 1: Main Gold Item
-        if (name === 'gross_wt' || name === 'net_wt' || name === 'purity') {
+        if (name === 'gross_wt' || name === 'net_wt' || name === 'purity' || name === 'purchase_rate') {
           const netValue = name === 'net_wt' ? value : (updated.net_wt || updated.gross_wt);
           updated.pure_weight = computePureWeight(netValue, updated.purity);
+          const rateNum = parseFloat(updated.purchase_rate) || 0;
+          const netNum = parseFloat(netValue) || 0;
+          updated.purchase_value = rateNum > 0 && netNum > 0 ? (netNum * rateNum).toFixed(2) : '';
         }
 
         if (name === 'gross_wt' && (!prev.net_wt || prev.net_wt === prev.gross_wt)) {
           updated.net_wt = value;
           updated.pure_weight = computePureWeight(value, updated.purity);
+          const rateNum = parseFloat(updated.purchase_rate) || 0;
+          const netNum = parseFloat(value) || 0;
+          updated.purchase_value = rateNum > 0 && netNum > 0 ? (netNum * rateNum).toFixed(2) : '';
         }
 
         if (name === 'karat') {
@@ -278,6 +287,9 @@ export default function InventoryAddNewUpload() {
 
           const netValue = updated.net_wt || updated.gross_wt;
           updated.pure_weight = computePureWeight(netValue, updated.purity);
+          const rateNum = parseFloat(updated.purchase_rate) || 0;
+          const netNum = parseFloat(netValue) || 0;
+          updated.purchase_value = rateNum > 0 && netNum > 0 ? (netNum * rateNum).toFixed(2) : '';
         }
       } else {
         // Step 2: Component Entry
@@ -288,6 +300,14 @@ export default function InventoryAddNewUpload() {
             const netValue = name === 'net_wt' ? value : (updated.net_wt || updated.gross_wt);
             updated.pure_weight = computePureWeight(netValue, updated.purity);
           }
+        }
+
+        if (name === 'purchase_rate' || name === 'stone_weight' || name === 'gross_wt') {
+          const wtNum = isDiaOrStone
+            ? (parseFloat(updated.stone_weight || updated.gross_wt) || 0)
+            : (parseFloat(updated.gross_wt) || 0);
+          const rateNum = parseFloat(updated.purchase_rate) || 0;
+          updated.purchase_value = rateNum > 0 && wtNum > 0 ? (wtNum * rateNum).toFixed(2) : '';
         }
       }
 
@@ -342,7 +362,10 @@ export default function InventoryAddNewUpload() {
       return;
     }
 
+    const netWtNum = parseFloat(formData.net_wt) || parseFloat(formData.gross_wt) || 0;
     const pureWtNum = parseFloat(formData.pure_weight) || 0;
+    const goldRate = parseFloat(formData.purchase_rate) || 0;
+    const goldPurchaseVal = goldRate > 0 && netWtNum > 0 ? (netWtNum * goldRate) : 0;
 
     const mainRecord = {
       category_id: activeCategory?.id,
@@ -356,8 +379,10 @@ export default function InventoryAddNewUpload() {
       karat: formData.karat,
       purity: formData.purity,
       gross_wt: parseFloat(formData.gross_wt) || 0,
-      net_wt: parseFloat(formData.net_wt) || parseFloat(formData.gross_wt) || 0,
+      net_wt: netWtNum,
       pure_weight: pureWtNum,
+      purchase_rate: goldRate,
+      purchase_value: goldPurchaseVal,
       stamp: formData.stamp,
       unit: formData.unit,
       size: formData.size,
@@ -394,6 +419,8 @@ export default function InventoryAddNewUpload() {
       size: '0.00',
       no_of_pieces: '1',
       description: '',
+      purchase_rate: '',
+      purchase_value: '',
     });
 
     showToast('Main gold product saved! Now add component details.', 'info');
@@ -411,6 +438,8 @@ export default function InventoryAddNewUpload() {
         gross_wt: mainProductData.gross_wt || '',
         net_wt: mainProductData.net_wt || '',
         pure_weight: mainProductData.pure_weight || '',
+        purchase_rate: mainProductData.purchase_rate || '',
+        purchase_value: mainProductData.purchase_value || '',
         stamp: mainProductData.stamp || '',
         unit: mainProductData.unit || (unitsList.length > 0 ? unitsList[0].name : 'Grams'),
         size: mainProductData.size || '0.00',
@@ -436,15 +465,26 @@ export default function InventoryAddNewUpload() {
       ? (parseFloat(formData.stone_weight || formData.gross_wt) || 0)
       : (parseFloat(formData.gross_wt) || 0);
 
+    const catName = activeCategory?.name || formData.item_name || 'Component';
+    const compName = catName;
+    const catLower = catName.toLowerCase().trim();
+    const isDia = catLower.includes('diamond') || catLower.includes('solitaire') || /\bdia\b/.test(catLower);
+    const isStn = !isDia && (catLower.includes('stone') || catLower.includes('gem') || catLower.includes('pearl') || catLower.includes('cz') || catLower.includes('ruby') || catLower.includes('emerald') || catLower.includes('sapphire') || catLower.includes('colour'));
+
+    const compType = isDia ? 'Diamond' : (isStn ? 'Stone' : (isDiaOrStone ? 'Diamond' : 'Metal'));
+    const compRate = parseFloat(formData.purchase_rate) || 0;
+    const compPurchaseVal = compRate > 0 && weightVal > 0 ? (weightVal * compRate) : (parseFloat(formData.purchase_value) || 0);
+
     const weightUnit = isDiaOrStone ? (formData.unit || 'Carats') : (formData.unit || 'g');
-    const compName = activeCategory?.name || 'Component';
 
     const componentPayload = {
       id_temp: editingComponentTempId || Date.now() + Math.random(),
-      component_type: isDiaOrStone ? 'Diamond/Stone Component' : 'Metal Component',
+      component_type: compType,
+      is_diamond: isDia,
+      is_stone: isStn,
       category_id: activeCategory?.id,
       subcategory_id: activeSubcategory?.id,
-      category_name: activeCategory?.name || 'Component Category',
+      category_name: activeCategory?.name || (isDia ? 'Diamond' : (isStn ? 'Colour Stone' : 'Component Category')),
       subcategory_name: activeSubcategory?.name || 'Subcategory',
       item_code: formData.item_code,
       item_name: compName,
@@ -454,6 +494,8 @@ export default function InventoryAddNewUpload() {
       net_wt: isDiaOrStone ? weightVal : (parseFloat(formData.net_wt) || parseFloat(formData.gross_wt) || 0),
       pure_weight: isDiaOrStone ? 0 : (parseFloat(formData.pure_weight) || 0),
       stone_weight: isDiaOrStone ? weightVal : 0,
+      purchase_rate: compRate,
+      purchase_value: compPurchaseVal,
       stamp: formData.stamp,
       unit: weightUnit,
       size: formData.size,
@@ -484,6 +526,8 @@ export default function InventoryAddNewUpload() {
       net_wt: '',
       pure_weight: '',
       stone_weight: '',
+      purchase_rate: '',
+      purchase_value: '',
       stamp: '',
       unit: isDiaOrStone ? 'Carats' : 'g',
       size: '0.00',
@@ -509,6 +553,8 @@ export default function InventoryAddNewUpload() {
       net_wt: comp.net_wt || '',
       pure_weight: comp.pure_weight || '',
       stone_weight: comp.stone_weight || comp.gross_wt || '',
+      purchase_rate: comp.purchase_rate || '',
+      purchase_value: comp.purchase_value || '',
       stamp: comp.stamp || '',
       unit: comp.unit || 'g',
       size: comp.size || '0.00',
@@ -538,6 +584,8 @@ export default function InventoryAddNewUpload() {
       if (addedComponents.length > 0) {
         primaryComp = addedComponents[0];
       } else {
+        const netWtNum = parseFloat(formData.net_wt) || parseFloat(formData.gross_wt) || 0;
+        const rateNum = parseFloat(formData.purchase_rate) || 0;
         primaryComp = {
           category_id: activeCategory?.id || primaryCategory?.id,
           subcategory_id: activeSubcategory?.id || primarySubcategory?.id,
@@ -548,8 +596,10 @@ export default function InventoryAddNewUpload() {
           karat: formData.karat || '22K',
           purity: formData.purity || '91.6',
           gross_wt: parseFloat(formData.gross_wt) || 0,
-          net_wt: parseFloat(formData.net_wt) || parseFloat(formData.gross_wt) || 0,
+          net_wt: netWtNum,
           pure_weight: parseFloat(formData.pure_weight) || 0,
+          purchase_rate: rateNum,
+          purchase_value: rateNum > 0 && netWtNum > 0 ? (netWtNum * rateNum) : 0,
           vendor: formData.vendor,
           vendor_name: formData.vendor_name || formData.vendor,
           vendor_id: formData.vendor_id,
@@ -573,9 +623,59 @@ export default function InventoryAddNewUpload() {
       return;
     }
 
-    const extraComponents = mainProductData
+    let extraComponents = mainProductData
       ? [...addedComponents]
       : (addedComponents.length > 0 ? addedComponents.slice(1) : []);
+
+    // If on Step 2 and user filled component fields without clicking "Add New Item", automatically include it
+    if (pageStep === 7) {
+      const pendingWt = parseFloat(formData.stone_weight || formData.gross_wt) || 0;
+      const pendingPieces = parseInt(formData.no_of_pieces, 10) || 0;
+      const pendingRate = parseFloat(formData.purchase_rate) || 0;
+      const hasPendingData = pendingWt > 0 || pendingPieces > 0 || pendingRate > 0;
+
+      const alreadyInList = editingComponentTempId
+        ? extraComponents.some((c) => c.id_temp === editingComponentTempId)
+        : false;
+
+      if (hasPendingData && !alreadyInList) {
+        const catName = activeCategory?.name || formData.item_name || 'Component';
+        const isDiaOrStone = isDiamondOrStoneCat(catName);
+        const catLower = catName.toLowerCase().trim();
+        const isDia = catLower.includes('diamond') || catLower.includes('solitaire') || /\bdia\b/.test(catLower);
+        const isStn = !isDia && (catLower.includes('stone') || catLower.includes('gem') || catLower.includes('pearl') || catLower.includes('cz') || catLower.includes('ruby') || catLower.includes('emerald') || catLower.includes('sapphire') || catLower.includes('colour'));
+        const compType = isDia ? 'Diamond' : (isStn ? 'Stone' : (isDiaOrStone ? 'Diamond' : 'Metal'));
+        const compVal = pendingRate > 0 && pendingWt > 0 ? (pendingWt * pendingRate) : (parseFloat(formData.purchase_value) || 0);
+
+        const autoComp = {
+          id_temp: Date.now() + Math.random(),
+          component_type: compType,
+          is_diamond: isDia,
+          is_stone: isStn,
+          category_id: activeCategory?.id,
+          subcategory_id: activeSubcategory?.id,
+          category_name: activeCategory?.name || (isDia ? 'Diamond' : (isStn ? 'Colour Stone' : 'Component')),
+          subcategory_name: activeSubcategory?.name || 'Subcategory',
+          item_code: formData.item_code,
+          item_name: catName,
+          karat: formData.karat,
+          purity: formData.purity,
+          gross_wt: isDiaOrStone ? pendingWt : (parseFloat(formData.gross_wt) || 0),
+          net_wt: isDiaOrStone ? pendingWt : (parseFloat(formData.net_wt) || pendingWt),
+          pure_weight: 0,
+          stone_weight: isDiaOrStone ? pendingWt : 0,
+          purchase_rate: pendingRate,
+          purchase_value: compVal,
+          stamp: formData.stamp,
+          unit: isDiaOrStone ? (formData.unit || 'Carats') : (formData.unit || 'g'),
+          size: formData.size,
+          no_of_pieces: pendingPieces || 1,
+          images: [...images],
+          thumb_image: images[0] || '',
+        };
+        extraComponents.push(autoComp);
+      }
+    }
 
     const allComponents = [primaryComp, ...extraComponents];
 
@@ -586,6 +686,56 @@ export default function InventoryAddNewUpload() {
     const cleanName = primaryComp.item_name && primaryComp.item_name.toLowerCase() !== 'main product'
       ? primaryComp.item_name
       : `${primaryCategory?.name || primaryComp.category_name || 'Jewelry'} - ${primarySubcategory?.name || primaryComp.subcategory_name || 'Product'}`;
+
+    // Calculate detailed valuation breakdowns and convert component carats to grams (1 ct = 0.2 g)
+    const primaryGross = parseFloat(primaryComp.gross_wt) || 0;
+
+    let totalDiaVal = 0;
+    let totalStoneVal = 0;
+    let totalDiaWt = 0;
+    let totalStoneWt = 0;
+    let diaGrams = 0;
+    let stoneGrams = 0;
+
+    extraComponents.forEach((c) => {
+      const cName = (c.category_name || c.item_name || c.component_type || '').toLowerCase();
+      const isDia = c.is_diamond || isDiamondComponent(c) || cName.includes('diamond') || cName.includes('solitaire') || /\bdia\b/.test(cName);
+      const isStn = !isDia && (c.is_stone || cName.includes('stone') || cName.includes('gem') || cName.includes('pearl') || cName.includes('cz') || cName.includes('ruby') || cName.includes('emerald') || cName.includes('sapphire') || cName.includes('colour'));
+      const wt = parseFloat(c.stone_weight || c.gross_wt) || 0;
+      const rate = parseFloat(c.purchase_rate) || 0;
+      const val = c.purchase_value !== undefined && c.purchase_value !== null && c.purchase_value !== '' ? parseFloat(c.purchase_value) : (wt * rate);
+      if (isDia) {
+        totalDiaWt += wt;
+        totalDiaVal += val;
+        diaGrams += wt * 0.2; // 1 ct = 0.2 g
+      } else if (isStn) {
+        totalStoneWt += wt;
+        totalStoneVal += val;
+        const u = String(c.unit || '').toLowerCase();
+        stoneGrams += (u === 'g' || u === 'gm' || u === 'grams') ? wt : (wt * 0.2);
+      }
+    });
+
+    const totalNonMetalGrams = Number((diaGrams + stoneGrams).toFixed(3));
+    const finalNetGold = primaryGross > totalNonMetalGrams && totalNonMetalGrams > 0
+      ? Number((primaryGross - totalNonMetalGrams).toFixed(3))
+      : (parseFloat(primaryComp.net_wt) || primaryGross);
+
+    const goldRate = parseFloat(primaryComp.purchase_rate) || 0;
+    const goldVal = primaryComp.purchase_value && (!totalNonMetalGrams || parseFloat(primaryComp.net_wt) === finalNetGold)
+      ? parseFloat(primaryComp.purchase_value)
+      : (finalNetGold * goldRate);
+
+    // Update primaryComp to reflect the true net gold weight and gold purchase value
+    primaryComp.gross_wt = primaryGross;
+    primaryComp.net_wt = finalNetGold;
+    const purityPct = parseFloat(primaryComp.purity) || 91.6;
+    primaryComp.pure_weight = Number((finalNetGold * (purityPct / 100)).toFixed(3));
+    primaryComp.purchase_value = goldVal;
+
+    const overallPurchaseVal = goldVal + totalDiaVal + totalStoneVal;
+
+    const diaCompFound = extraComponents.find((c) => c.is_diamond || isDiamondComponent(c) || (c.category_name || c.item_name || '').toLowerCase().includes('diamond'));
 
     const productRecord = {
       category_id: targetCatId,
@@ -606,6 +756,14 @@ export default function InventoryAddNewUpload() {
       karat: primaryComp.karat,
       stamp: primaryComp.stamp,
       unit: primaryComp.unit,
+      purchase_rate: goldRate,
+      gold_purchase_rate: goldRate,
+      gold_purchase_value: goldVal,
+      diamond_purchase_rate: diaCompFound ? (parseFloat(diaCompFound.purchase_rate) || 0) : (parseFloat(formData.purchase_rate) || 0),
+      diamond_purchase_value: totalDiaVal,
+      stone_purchase_rate: extraComponents.find((c) => c.is_stone) ? (parseFloat(extraComponents.find((c) => c.is_stone).purchase_rate) || 0) : 0,
+      stone_purchase_value: totalStoneVal,
+      total_purchase_value: overallPurchaseVal,
       vendor: primaryComp.vendor || formData.vendor,
       vendor_name: primaryComp.vendor_name || formData.vendor_name || formData.vendor,
       vendor_id: primaryComp.vendor_id || formData.vendor_id,
@@ -614,29 +772,9 @@ export default function InventoryAddNewUpload() {
       image: primaryComp.thumb_image || images[0] || '',
       images: primaryComp.images && primaryComp.images.length > 0 ? primaryComp.images : images,
       components: allComponents,
-      diamond_stamp: (() => {
-        const dc = allComponents.find((c) => {
-          const n = (c.category_name || c.item_name || c.component_type || '').toLowerCase();
-          return c.is_diamond || n.includes('diamond') || n.includes('dia');
-        });
-        return dc?.stamp && !isMetalPurityStamp(dc.stamp) ? dc.stamp : null;
-      })(),
-      dia_wt_ct: (() => {
-        const dc = allComponents.find((c) => {
-          const n = (c.category_name || c.item_name || c.component_type || '').toLowerCase();
-          return c.is_diamond || n.includes('diamond') || n.includes('dia');
-        });
-        const w = dc ? (parseFloat(dc.stone_weight || dc.gross_wt) || 0) : 0;
-        return w > 0 ? w.toFixed(2) : null;
-      })(),
-      diamond_count: (() => {
-        const dc = allComponents.find((c) => {
-          const n = (c.category_name || c.item_name || c.component_type || '').toLowerCase();
-          return c.is_diamond || n.includes('diamond') || n.includes('dia');
-        });
-        const cnt = dc ? parseInt(dc.no_of_pieces || 1, 10) : 0;
-        return cnt > 0 ? cnt : null;
-      })(),
+      diamond_stamp: diaCompFound?.stamp && !isMetalPurityStamp(diaCompFound.stamp) ? diaCompFound.stamp : null,
+      dia_wt_ct: totalDiaWt > 0 ? totalDiaWt.toFixed(3) : (diaCompFound ? parseFloat(diaCompFound.stone_weight || diaCompFound.gross_wt || 0).toFixed(3) : null),
+      diamond_count: diaCompFound ? parseInt(diaCompFound.no_of_pieces || 1, 10) : null,
     };
 
     try {
@@ -646,6 +784,16 @@ export default function InventoryAddNewUpload() {
       });
 
       const savedProducts = res.data?.products || [productRecord];
+
+      // Ensure savedProducts retains the full components breakdown for immediate display
+      if (Array.isArray(savedProducts) && savedProducts.length > 0) {
+        if (!savedProducts[0].components || savedProducts[0].components.length === 0) {
+          savedProducts[0].components = allComponents;
+        }
+        if (savedProducts[0].attributes && (!savedProducts[0].attributes.components || savedProducts[0].attributes.components.length === 0)) {
+          savedProducts[0].attributes.components = allComponents;
+        }
+      }
 
       try {
         sessionStorage.setItem('inventory_last_uploaded_items', JSON.stringify(savedProducts));
@@ -873,12 +1021,15 @@ export default function InventoryAddNewUpload() {
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-[#f8f9fa] text-stone-800 font-bold text-center text-xs border-b border-stone-200">
+                    <th className="py-4 px-3 text-center w-12">S.No</th>
                     <th className="py-4 px-4 text-center">Product Image</th>
                     <th className="py-4 px-4 text-center">Category</th>
                     <th className="py-4 px-4 text-center">Stamp</th>
                     <th className="py-4 px-4 text-center">Unit</th>
                     <th className="py-4 px-4 text-center">Pieces</th>
                     <th className="py-4 px-4 text-center">Weight</th>
+                    <th className="py-4 px-4 text-center">Rate</th>
+                    <th className="py-4 px-4 text-center">Purchase Value</th>
                     <th className="py-4 px-4 text-center w-28">Action</th>
                   </tr>
                 </thead>
@@ -886,6 +1037,9 @@ export default function InventoryAddNewUpload() {
                   {/* Row 1: Main Product Details */}
                   {mainProductData && (
                     <tr className="hover:bg-stone-50/80 transition-colors text-center text-xs font-medium">
+                      <td className="py-3 px-3 text-center font-mono text-stone-400 font-medium">
+                        1
+                      </td>
                       <td className="py-3 px-4 text-center">
                         {images && images.length > 0 ? (
                           <img
@@ -914,6 +1068,12 @@ export default function InventoryAddNewUpload() {
                       <td className="py-3 px-4 text-center font-mono font-bold text-gray-900">
                         {parseFloat(mainProductData.pure_weight || mainProductData.gross_wt || 0).toFixed(3)} {mainProductData.unit?.toLowerCase().includes('ct') || mainProductData.unit?.toLowerCase().includes('carat') ? 'ct' : (mainProductData.unit || 'g')}
                       </td>
+                      <td className="py-3 px-4 text-center font-mono font-semibold text-stone-700">
+                        {parseFloat(mainProductData.purchase_rate || 0) > 0 ? `₹${parseFloat(mainProductData.purchase_rate).toLocaleString('en-IN')}/g` : '—'}
+                      </td>
+                      <td className="py-3 px-4 text-center font-mono font-bold text-[#b01622]">
+                        {parseFloat(mainProductData.purchase_value || 0) > 0 ? `₹${parseFloat(mainProductData.purchase_value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                      </td>
                       <td className="py-3 px-4 text-center">
                         <button
                           type="button"
@@ -930,6 +1090,8 @@ export default function InventoryAddNewUpload() {
                   {/* Component Rows */}
                   {addedComponents.map((comp, idx) => {
                     const weightVal = parseFloat(comp.stone_weight || comp.gross_wt || 0).toFixed(3);
+                    const compSNo = mainProductData ? idx + 2 : idx + 1;
+                    const isCt = comp.unit?.toLowerCase().includes('ct') || comp.unit?.toLowerCase().includes('carat');
 
                     return (
                       <tr
@@ -938,6 +1100,9 @@ export default function InventoryAddNewUpload() {
                           editingComponentTempId === comp.id_temp ? 'bg-amber-50/70 ring-1 ring-amber-300' : ''
                         }`}
                       >
+                        <td className="py-3 px-3 text-center font-mono text-stone-400 font-medium">
+                          {compSNo}
+                        </td>
                         <td className="py-3 px-4 text-center">
                           {images && images.length > 0 ? (
                             <img
@@ -964,7 +1129,13 @@ export default function InventoryAddNewUpload() {
                           {comp.no_of_pieces || 1}
                         </td>
                         <td className="py-3 px-4 text-center font-mono font-bold text-gray-900">
-                          {weightVal} {comp.unit?.toLowerCase().includes('ct') || comp.unit?.toLowerCase().includes('carat') ? 'ct' : (comp.unit || 'g')}
+                          {weightVal} {isCt ? 'ct' : (comp.unit || 'g')}
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono font-semibold text-stone-700">
+                          {parseFloat(comp.purchase_rate || 0) > 0 ? `₹${parseFloat(comp.purchase_rate).toLocaleString('en-IN')}/${isCt ? 'ct' : 'g'}` : '—'}
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono font-bold text-[#b01622]">
+                          {parseFloat(comp.purchase_value || 0) > 0 ? `₹${parseFloat(comp.purchase_value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
                         </td>
                         <td className="py-3 px-4 text-center">
                           <div className="flex items-center justify-center gap-1.5">
@@ -1288,7 +1459,7 @@ export default function InventoryAddNewUpload() {
 
                     <div>
                       <label className="block text-[11px] font-bold text-[#b01622] uppercase tracking-wider mb-1">
-                        {isSilverCategory ? 'FINE SILVER WEIGHT' : 'PURE WEIGHT OF 24K'}
+                        {isSilverCategory ? 'FINE SILVER WEIGHT' : 'FINE GOLD WEIGHT (PURE 24K)'}
                       </label>
                       <input
                         type="text"
@@ -1301,7 +1472,37 @@ export default function InventoryAddNewUpload() {
                     </div>
                   </div>
 
+                  {/* Row 4: PURCHASE RATE PER GRAM & PURCHASE VALUE */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                        {isSilverCategory ? 'SILVER PURCHASE RATE (₹/g)' : 'PURCHASE RATE PER GRAM (₹/g)'}
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        name="purchase_rate"
+                        value={formData.purchase_rate}
+                        onChange={handleInputChange}
+                        placeholder={isSilverCategory ? 'e.g. 216.50' : 'e.g. 6800.00'}
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                      />
+                    </div>
 
+                    <div>
+                      <label className="block text-[11px] font-bold text-[#b01622] uppercase tracking-wider mb-1">
+                        {isSilverCategory ? 'SILVER PURCHASE VALUE (₹)' : 'GOLD PURCHASE VALUE (₹)'}
+                      </label>
+                      <input
+                        type="text"
+                        name="purchase_value"
+                        value={formData.purchase_value ? `₹ ${parseFloat(formData.purchase_value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '₹ 0.00'}
+                        placeholder="₹ 0.00"
+                        className="w-full p-3 bg-stone-100 border border-stone-300 rounded-xl text-xs font-mono font-black text-[#b01622] focus:outline-none cursor-not-allowed"
+                        readOnly
+                      />
+                    </div>
+                  </div>
 
                   {/* Row 5: VENDOR & QUALITY */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1506,7 +1707,7 @@ export default function InventoryAddNewUpload() {
 
                     <div>
                       <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
-                        {isDiamondOrStoneCat(activeCategory?.name) || pageStep !== 6 ? 'STONE WEIGHT (CT)' : 'STONE WEIGHT (g)'}
+                        STONE WEIGHT (CT)
                       </label>
                       <input
                         type="number"
@@ -1524,6 +1725,38 @@ export default function InventoryAddNewUpload() {
                         }}
                         placeholder={isDiamondOrStoneCat(activeCategory?.name) || pageStep !== 6 ? 'e.g. 0.50' : 'e.g. 0.500'}
                         className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 3: COMPONENT PURCHASE RATE & VALUE */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+                        {isDiamondOrStoneCat(activeCategory?.name) ? 'PURCHASE RATE PER CARAT (₹/ct)' : 'PURCHASE RATE PER GRAM (₹/g)'}
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        name="purchase_rate"
+                        value={formData.purchase_rate}
+                        onChange={handleInputChange}
+                        placeholder={isDiamondOrStoneCat(activeCategory?.name) ? 'e.g. 50000.00' : 'e.g. 6800.00'}
+                        className="w-full p-3 bg-[#f7f0f0] border border-[#e6c5c5] rounded-xl text-xs font-mono font-bold text-gray-900 focus:outline-none focus:bg-white focus:border-[#b01622]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-[#b01622] uppercase tracking-wider mb-1">
+                        COMPONENT PURCHASE VALUE (₹)
+                      </label>
+                      <input
+                        type="text"
+                        name="purchase_value"
+                        value={formData.purchase_value ? `₹ ${parseFloat(formData.purchase_value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '₹ 0.00'}
+                        placeholder="₹ 0.00"
+                        className="w-full p-3 bg-stone-100 border border-stone-300 rounded-xl text-xs font-mono font-black text-[#b01622] focus:outline-none cursor-not-allowed"
+                        readOnly
                       />
                     </div>
                   </div>

@@ -8,6 +8,8 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
 
   const [rate24kGram, setRate24kGram] = useState('');
   const [rate22kGram, setRate22kGram] = useState('');
+  const [rate18kGram, setRate18kGram] = useState('');
+  const [rate14kGram, setRate14kGram] = useState('');
   const [silverGram, setSilverGram] = useState('');
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -16,19 +18,27 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
     if (isOpen) {
       const g24kRaw = String(currentRates?.raw24k || currentRates?.gold24k || currentRates?.rate24k || currentRates?.gold24k_10g || '0').replace(/,/g, '');
       const g22kRaw = String(currentRates?.raw22k || currentRates?.gold22k || currentRates?.rate22k || currentRates?.gold22k_10g || '0').replace(/,/g, '');
+      const g18kRaw = String(currentRates?.raw18k || currentRates?.gold18k || currentRates?.rate18k || '0').replace(/,/g, '');
+      const g14kRaw = String(currentRates?.raw14k || currentRates?.gold14k || currentRates?.rate14k || '0').replace(/,/g, '');
       const silRaw = String(currentRates?.rawSilverGram || currentRates?.silverGram || currentRates?.silverKg || '0').replace(/,/g, '');
 
       const num24 = parseFloat(g24kRaw) || 0;
       const num22 = parseFloat(g22kRaw) || 0;
+      const num18 = parseFloat(g18kRaw) || 0;
+      const num14 = parseFloat(g14kRaw) || 0;
       const numSil = parseFloat(silRaw) || 0;
 
       // Extract 1g values (if 10g/1kg rate was provided > 30000/2000, convert to 1g)
       const gram24 = num24 > 30000 ? Math.round(num24 / 10) : Math.round(num24);
-      const gram22 = num22 > 30000 ? Math.round(num22 / 10) : Math.round(num22);
+      const gram22 = num22 > 30000 ? Math.round(num22 / 10) : (num22 > 0 ? Math.round(num22) : (gram24 ? Math.round(gram24 * 22 / 24) : 0));
+      const gram18 = num18 > 30000 ? Math.round(num18 / 10) : (num18 > 0 ? Math.round(num18) : (gram24 ? Math.round(gram24 * 18 / 24) : 0));
+      const gram14 = num14 > 30000 ? Math.round(num14 / 10) : (num14 > 0 ? Math.round(num14) : (gram24 ? Math.round(gram24 * 14 / 24) : 0));
       const gramSil = numSil > 2000 ? (numSil / 1000).toFixed(1) : numSil;
 
       setRate24kGram(gram24 ? String(gram24) : '');
       setRate22kGram(gram22 ? String(gram22) : '');
+      setRate18kGram(gram18 ? String(gram18) : '');
+      setRate14kGram(gram14 ? String(gram14) : '');
       setSilverGram(gramSil ? String(gramSil) : '');
     }
   }, [isOpen, currentRates]);
@@ -37,16 +47,48 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
 
   const num24kGram = parseFloat(rate24kGram) || 0;
   const num22kGram = parseFloat(rate22kGram) || 0;
+  const num18kGram = parseFloat(rate18kGram) || 0;
+  const num14kGram = parseFloat(rate14kGram) || 0;
   const numSilverGram = parseFloat(silverGram) || 0;
 
   const num24k10g = Math.round(num24kGram * 10);
   const num22k10g = Math.round(num22kGram * 10);
+  const num18k10g = Math.round(num18kGram * 10);
+  const num14k10g = Math.round(num14kGram * 10);
   const numSilverKg = Math.round(numSilverGram * 1000);
+
+  const handle24kChange = (val) => {
+    const clean = sanitizeDecimal(val, false, 2);
+    setRate24kGram(clean);
+    const n = parseFloat(clean) || 0;
+    if (n > 0) {
+      // Suggest proportional 22k, 18k and 14k
+      setRate22kGram(String(Math.round(n * 22 / 24)));
+      setRate18kGram(String(Math.round(n * 18 / 24)));
+      setRate14kGram(String(Math.round(n * 14 / 24)));
+    }
+  };
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!rate24kGram || !rate22kGram) {
-      showToast('Please enter valid 24K and 22K Gold Rates per gram', 'error');
+    if (!rate24kGram || num24kGram <= 0) {
+      showToast('Please enter a valid 24K Gold Rate per gram (> 0)', 'error');
+      return;
+    }
+    if (!rate22kGram || num22kGram <= 0) {
+      showToast('Please enter a valid 22K Gold Rate per gram (> 0)', 'error');
+      return;
+    }
+    if (!rate18kGram || num18kGram <= 0) {
+      showToast('Please enter a valid 18K Gold Rate per gram (> 0)', 'error');
+      return;
+    }
+    if (!rate14kGram || num14kGram <= 0) {
+      showToast('Please enter a valid 14K Gold Rate per gram (> 0)', 'error');
+      return;
+    }
+    if (!silverGram || numSilverGram <= 0) {
+      showToast('Please enter a valid Silver Rate per gram (> 0)', 'error');
       return;
     }
 
@@ -55,6 +97,8 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
       const payload = {
         gold24k: Math.round(num24kGram),
         gold22k: Math.round(num22kGram),
+        gold18k: Math.round(num18kGram),
+        gold14k: Math.round(num14kGram),
         silverGram: numSilverGram,
         silverKg: numSilverKg,
       };
@@ -64,6 +108,8 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
 
       const raw24Num = newRates.raw24k || Math.round(num24kGram);
       const raw22Num = newRates.raw22k || Math.round(num22kGram);
+      const raw18Num = newRates.raw18k || Math.round(num18kGram);
+      const raw14Num = newRates.raw14k || Math.round(num14kGram);
       const rawSilGramNum = newRates.rawSilverGram || numSilverGram;
       const rawSilKgNum = newRates.rawSilverKg || numSilverKg;
 
@@ -72,8 +118,12 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
         const stored = {
           rate24k: raw24Num,
           rate22k: raw22Num,
+          rate18k: raw18Num,
+          rate14k: raw14Num,
           gold24k: newRates.gold24k || String(raw24Num),
           gold22k: newRates.gold22k || String(raw22Num),
+          gold18k: newRates.gold18k || String(raw18Num),
+          gold14k: newRates.gold14k || String(raw14Num),
           rate24k_10g: raw24Num * 10,
           rate22k_10g: raw22Num * 10,
           gold24k_10g: newRates.gold24k_10g || String(raw24Num * 10),
@@ -82,7 +132,8 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
           silverKg: rawSilKgNum,
           date: newRates.date || new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
           isManual: true,
-          lastUpdated: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+          source: newRates.source || 'Manual (Showroom Entry)',
+          lastUpdated: newRates.lastUpdated || new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
         };
         localStorage.setItem('rudhra_master_live_rates', JSON.stringify(stored));
         localStorage.setItem(`rudhra_manual_rates_${new Date().toISOString().split('T')[0]}`, JSON.stringify(stored));
@@ -91,7 +142,7 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
         window.dispatchEvent(new CustomEvent('rudhra_metal_rates_updated', { detail: newRates }));
       } catch (err) {}
 
-      showToast('Today\'s Gold & Silver rates updated successfully!', 'success', 'Rates Saved');
+      showToast('Today\'s Gold (24K, 22K, 18K, 14K) & Silver rates saved successfully in database!', 'success', 'Rates Saved');
       if (onSaved) onSaved(newRates);
       onClose();
     } catch (err) {
@@ -110,14 +161,20 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
 
       const raw24Num = liveRates.raw24k || parseFloat(String(liveRates.gold24k).replace(/,/g, '')) || 0;
       const raw22Num = liveRates.raw22k || parseFloat(String(liveRates.gold22k).replace(/,/g, '')) || 0;
+      const raw18Num = liveRates.raw18k || parseFloat(String(liveRates.gold18k).replace(/,/g, '')) || 0;
+      const raw14Num = liveRates.raw14k || parseFloat(String(liveRates.gold14k).replace(/,/g, '')) || 0;
       const rawSilGramNum = liveRates.rawSilverGram || parseFloat(String(liveRates.silverGram).replace(/,/g, '')) || 0;
 
       try {
         const stored = {
           rate24k: raw24Num,
           rate22k: raw22Num,
+          rate18k: raw18Num,
+          rate14k: raw14Num,
           gold24k: liveRates.gold24k || String(raw24Num),
           gold22k: liveRates.gold22k || String(raw22Num),
+          gold18k: liveRates.gold18k || String(raw18Num),
+          gold14k: liveRates.gold14k || String(raw14Num),
           rate24k_10g: raw24Num * 10,
           rate22k_10g: raw22Num * 10,
           gold24k_10g: liveRates.gold24k_10g || String(raw24Num * 10),
@@ -125,7 +182,9 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
           silverGram: rawSilGramNum,
           silverKg: rawSilGramNum * 1000,
           date: liveRates.date,
+          source: liveRates.source || 'Automatic (MCX / Live Market)',
           isManual: false,
+          lastUpdated: liveRates.lastUpdated,
         };
         localStorage.setItem('rudhra_master_live_rates', JSON.stringify(stored));
         localStorage.removeItem(`rudhra_manual_rates_${new Date().toISOString().split('T')[0]}`);
@@ -139,18 +198,18 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
       onClose();
     } catch (err) {
       console.error(err);
-      showToast('Failed to reset live rates', 'error');
+      showToast(err.response?.data?.message || 'Failed to reset live rates', 'error');
     } finally {
       setResetting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-      <div className="bg-white rounded-2xl shadow-2xl border border-stone-200 w-full max-w-md overflow-hidden transform transition-all font-['Inter',sans-serif]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 sm:p-6 md:p-8 animate-in fade-in duration-150 overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl border border-stone-200 w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden my-auto transform transition-all font-['Inter',sans-serif]">
         
         {/* Header */}
-        <div className="px-5 py-4 bg-gradient-to-r from-[#2c2621] to-[#1a1714] text-white flex items-center justify-between border-b border-amber-900/30">
+        <div className="px-5 py-4 bg-gradient-to-r from-[#2c2621] to-[#1a1714] text-white flex items-center justify-between border-b border-amber-900/30 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-full bg-gradient-to-b from-[#f5ca56] to-[#b37f1a] flex items-center justify-center text-white font-bold text-sm shadow-xs">
               ₹
@@ -172,21 +231,32 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSave} className="p-5 space-y-4">
+        <form onSubmit={handleSave} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+          
+          {/* Scrollable Fields Body */}
+          <div className="p-5 space-y-4 overflow-y-auto flex-1 min-h-0">
           
           {/* Rate Status Banner */}
-          <div className={`p-3 rounded-xl border text-xs flex items-center justify-between ${
+          <div className={`p-3 rounded-xl border text-xs flex flex-col gap-1.5 ${
             currentRates?.isManual ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-stone-50 border-stone-200 text-stone-700'
           }`}>
-            <div className="flex items-center gap-2">
-              <i className={`fa-solid ${currentRates?.isManual ? 'fa-user-pen text-amber-700' : 'fa-globe text-emerald-600'}`}></i>
-              <span className="font-semibold">
-                Status: {currentRates?.isManual ? 'Manual Override Active (Today)' : 'Live Internet API Rate'}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <i className={`fa-solid ${currentRates?.isManual ? 'fa-user-pen text-amber-700' : 'fa-globe text-emerald-600'}`}></i>
+                <span className="font-semibold">
+                  Source: <span className="font-bold">{currentRates?.source || (currentRates?.isManual ? 'Manual (Showroom Entry)' : 'Automatic (MCX / Live Market)')}</span>
+                </span>
+              </div>
+              <span className={`text-[9.5px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                currentRates?.isManual ? 'bg-amber-200 text-amber-900' : 'bg-emerald-100 text-emerald-800'
+              }`}>
+                {currentRates?.isManual ? 'Manual Override' : 'Automatic Sync'}
               </span>
             </div>
-            {currentRates?.isManual && (
-              <span className="text-[9.5px] font-bold bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded uppercase">Manual</span>
-            )}
+            <div className="text-[10px] text-stone-500 flex items-center justify-between pt-0.5 border-t border-stone-200/50">
+              <span>Last Updated: {currentRates?.lastUpdated || currentRates?.updatedAt || 'Today'}</span>
+              <span>Manual rates take precedence over automatic rates</span>
+            </div>
           </div>
 
           {/* 24K Gold Rate Input */}
@@ -194,7 +264,7 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                <span>24K (999 Purity) Gold Rate</span>
+                <span>Gold 24K Rate</span>
               </label>
               <span className="text-[11px] font-bold text-[#b01622] font-mono">
                 ₹{num24k10g.toLocaleString('en-IN')} / 10g
@@ -210,8 +280,8 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
                   step="any"
                   value={rate24kGram}
                   onKeyDown={handleDecimalKeyDown}
-                  onChange={(e) => setRate24kGram(sanitizeDecimal(e.target.value, false, 2))}
-                  placeholder="e.g. 14634 for 1g"
+                  onChange={(e) => handle24kChange(e.target.value)}
+                  placeholder="e.g. 8850 for 1g"
                   className="w-full pl-7 pr-16 py-2 bg-white border border-stone-300 rounded-lg text-sm font-bold font-mono text-stone-900 focus:outline-hidden focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622]"
                   required
                 />
@@ -225,7 +295,7 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-amber-600"></span>
-                <span>22K (916 Standard) Gold Rate</span>
+                <span>Gold 22K Rate</span>
               </label>
               <span className="text-[11px] font-bold text-[#b01622] font-mono">
                 ₹{num22k10g.toLocaleString('en-IN')} / 10g
@@ -242,7 +312,69 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
                   value={rate22kGram}
                   onKeyDown={handleDecimalKeyDown}
                   onChange={(e) => setRate22kGram(sanitizeDecimal(e.target.value, false, 2))}
-                  placeholder="e.g. 13414 for 1g"
+                  placeholder="e.g. 8113 for 1g"
+                  className="w-full pl-7 pr-16 py-2 bg-white border border-stone-300 rounded-lg text-sm font-bold font-mono text-stone-900 focus:outline-hidden focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622]"
+                  required
+                />
+                <span className="absolute inset-y-0 right-0 pr-3 flex items-center text-stone-400 text-xs font-semibold">per 1g</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 18K Gold Rate Input */}
+          <div className="bg-stone-50/80 rounded-xl p-3.5 border border-stone-200 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-amber-700"></span>
+                <span>Gold 18K Rate</span>
+              </label>
+              <span className="text-[11px] font-bold text-[#b01622] font-mono">
+                ₹{num18k10g.toLocaleString('en-IN')} / 10g
+              </span>
+            </div>
+            <div>
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-stone-400 font-bold text-xs">₹</span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="any"
+                  value={rate18kGram}
+                  onKeyDown={handleDecimalKeyDown}
+                  onChange={(e) => setRate18kGram(sanitizeDecimal(e.target.value, false, 2))}
+                  placeholder="e.g. 6638 for 1g"
+                  className="w-full pl-7 pr-16 py-2 bg-white border border-stone-300 rounded-lg text-sm font-bold font-mono text-stone-900 focus:outline-hidden focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622]"
+                  required
+                />
+                <span className="absolute inset-y-0 right-0 pr-3 flex items-center text-stone-400 text-xs font-semibold">per 1g</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 14K Gold Rate Input */}
+          <div className="bg-stone-50/80 rounded-xl p-3.5 border border-stone-200 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-amber-800"></span>
+                <span>Gold 14K Rate</span>
+              </label>
+              <span className="text-[11px] font-bold text-[#b01622] font-mono">
+                ₹{num14k10g.toLocaleString('en-IN')} / 10g
+              </span>
+            </div>
+            <div>
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-stone-400 font-bold text-xs">₹</span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="any"
+                  value={rate14kGram}
+                  onKeyDown={handleDecimalKeyDown}
+                  onChange={(e) => setRate14kGram(sanitizeDecimal(e.target.value, false, 2))}
+                  placeholder="e.g. 5163 for 1g"
                   className="w-full pl-7 pr-16 py-2 bg-white border border-stone-300 rounded-lg text-sm font-bold font-mono text-stone-900 focus:outline-hidden focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622]"
                   required
                 />
@@ -272,20 +404,23 @@ export default function GoldRateEditModal({ isOpen, onClose, currentRates, onSav
                 value={silverGram}
                 onKeyDown={handleDecimalKeyDown}
                 onChange={(e) => setSilverGram(sanitizeDecimal(e.target.value, false, 2))}
-                placeholder="e.g. 110 for 1g"
+                placeholder="e.g. 108 for 1g"
                 className="w-full pl-7 pr-16 py-2 bg-white border border-stone-300 rounded-lg text-sm font-bold font-mono text-stone-900 focus:outline-hidden focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622]"
+                required
               />
               <span className="absolute inset-y-0 right-0 pr-3 flex items-center text-stone-400 text-xs font-semibold">per 1g</span>
             </div>
           </div>
 
-          {/* Action Buttons */}
-          <div className="pt-2 flex items-center gap-3">
+          </div>
+
+          {/* Action Buttons (Pinned Footer) */}
+          <div className="p-4 bg-stone-50 border-t border-stone-200 flex items-center gap-3 shrink-0">
             <button
               type="button"
               disabled={resetting || saving}
               onClick={handleResetToLive}
-              className="px-3.5 py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-xs rounded-xl transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+              className="px-3.5 py-2.5 bg-white border border-stone-300 hover:bg-stone-100 text-stone-700 font-bold text-xs rounded-xl transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1.5 shadow-2xs"
             >
               {resetting ? (
                 <i className="fa-solid fa-circle-notch fa-spin text-xs"></i>

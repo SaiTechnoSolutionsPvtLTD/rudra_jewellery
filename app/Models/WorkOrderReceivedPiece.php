@@ -17,6 +17,7 @@ class WorkOrderReceivedPiece extends Model
         'piece_number',
         'design_no',
         'product_id',
+        'invoice_id',
         'product_name',
         'client_id',
         'karigar_id',
@@ -35,6 +36,8 @@ class WorkOrderReceivedPiece extends Model
         'making_charge_type',
         'making_charge_per_gram',
         'total_making_charge',
+        'purchase_value',
+        'components',
         'given_metal_qty',
         'given_cash',
         'huid',
@@ -75,6 +78,8 @@ class WorkOrderReceivedPiece extends Model
         'color_stone_count' => 'integer',
         'making_charge_per_gram' => 'decimal:2',
         'total_making_charge' => 'decimal:2',
+        'purchase_value' => 'decimal:2',
+        'components' => 'array',
         'given_metal_qty' => 'decimal:3',
         'given_cash' => 'decimal:2',
         'is_inventory_posted' => 'boolean',
@@ -85,6 +90,26 @@ class WorkOrderReceivedPiece extends Model
         'posted_at' => 'datetime',
         'received_at' => 'datetime',
     ];
+
+    protected $appends = [
+        'days_since_received',
+        'is_sold',
+        'pure_24k_weight',
+    ];
+
+    public function getPure24kWeightAttribute($value)
+    {
+        if ((float)$value > 0) {
+            return (float)$value;
+        }
+        $net = (float)($this->net_gold_weight ?: $this->gross_weight ?: 0);
+        if ($net <= 0) return 0.0;
+        $touch = (float)($this->purity ?: 91.6);
+        if ($touch > 1) {
+            $touch = $touch / 100.0;
+        }
+        return round($net * $touch, 3);
+    }
 
     public function workOrder()
     {
@@ -99,6 +124,11 @@ class WorkOrderReceivedPiece extends Model
     public function product()
     {
         return $this->belongsTo(Product::class);
+    }
+
+    public function invoice()
+    {
+        return $this->belongsTo(Invoice::class);
     }
 
     public function client()
@@ -147,10 +177,7 @@ class WorkOrderReceivedPiece extends Model
             return false;
         }
 
-        $certDone = in_array($this->certification_status, ['completed', 'skipped', 'not_required'], true);
-        $hallDone = in_array($this->hallmarking_status, ['completed', 'skipped', 'not_required'], true);
-
-        return $certDone && $hallDone;
+        return true;
     }
 
     /**
@@ -205,4 +232,44 @@ class WorkOrderReceivedPiece extends Model
 
         return "RWO-{$year}-" . str_pad($nextRwoNum, 6, '0', STR_PAD_LEFT);
     }
+
+    public function isDelivered(): bool
+    {
+        if ($this->status === 'sold' || !empty($this->invoice_id)) {
+            return true;
+        }
+
+        if ($this->relationLoaded('workOrder') && $this->workOrder) {
+            return $this->workOrder->isFullyDelivered();
+        }
+
+        if ($this->work_order_id) {
+            $wo = WorkOrder::find($this->work_order_id);
+            return $wo ? $wo->isFullyDelivered() : false;
+        }
+
+        return false;
+    }
+
+    /**
+     * Number of elapsed days since the child piece was received into inventory.
+     */
+    public function getDaysSinceReceivedAttribute(): int
+    {
+        $receivedAt = $this->received_at ?? $this->created_at;
+        if (!$receivedAt) {
+            return 0;
+        }
+
+        return (int) max(0, now()->diffInDays($receivedAt));
+    }
+
+    /**
+     * Whether the child piece is already sold / invoiced / delivered.
+     */
+    public function getIsSoldAttribute(): bool
+    {
+        return $this->isDelivered();
+    }
 }
+

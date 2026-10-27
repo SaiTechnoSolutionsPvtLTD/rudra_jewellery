@@ -344,6 +344,7 @@ export default function WasteDetails() {
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="bg-stone-50 border-b border-stone-100 text-[11px] font-bold text-stone-500 uppercase tracking-wider">
+                    <th className="py-3 px-3 text-center w-12">S.NO</th>
                     <th className="py-3 px-4">WORK ORDER NO</th>
                     <th className="py-3 px-4">Product</th>
                     <th className="py-3 px-4">Aachari / Artisan</th>
@@ -355,7 +356,7 @@ export default function WasteDetails() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
-                  {paginatedOrders.map((wo) => {
+                  {paginatedOrders.map((wo, idx) => {
                     const scrapWt = Math.max(0, (wo.allotted_weight || 0) - (wo.completed_weight || 0));
                     const allowedScrap = ((wo.allotted_weight || 0) * (wo.wastage_allowed_percent || 1.75)) / 100;
                     const isWithin = scrapWt <= (allowedScrap + 0.05);
@@ -366,6 +367,9 @@ export default function WasteDetails() {
                         onClick={() => handleSelectRow(wo)}
                         className="hover:bg-stone-50/80 transition-all cursor-pointer group"
                       >
+                        <td className="py-3.5 px-3 text-center font-mono font-bold text-stone-400 text-xs">
+                          {startIndex + idx + 1}
+                        </td>
                         <td className="py-3.5 px-4 font-mono font-bold text-[#b01622]">
                           {wo.work_order_number}
                         </td>
@@ -532,6 +536,7 @@ export default function WasteDetails() {
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="bg-stone-50 border-b border-stone-100 text-[11px] font-bold text-stone-500 uppercase tracking-wider">
+                    <th className="py-3 px-3 text-center w-12">S.NO</th>
                     <th className="py-3 px-4">Material</th>
                     <th className="py-3 px-4">Description</th>
                     <th className="py-3 px-4 text-right">Wastage</th>
@@ -545,6 +550,9 @@ export default function WasteDetails() {
                 <tbody className="divide-y divide-stone-100">
                   {details.rows.map((row, idx) => (
                     <tr key={idx} className="hover:bg-stone-50/80 transition-all">
+                      <td className="py-3 px-3 text-center font-mono font-bold text-stone-400 text-xs">
+                        {idx + 1}
+                      </td>
                       <td className="py-3 px-4 font-bold text-stone-900">{row.material_type}</td>
                       <td className="py-3 px-4 text-stone-700">{row.description}</td>
                       <td className="py-3 px-4 text-right font-mono font-bold text-[#b01622]">{row.wastage_str}</td>

@@ -217,7 +217,7 @@ export default function DiamondClarities() {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-gray-50/80 border-b border-gray-200/80 text-[11px] font-bold text-gray-500 uppercase tracking-wider">
-                    <th className="px-5 py-3.5">Order</th>
+                    <th className="px-5 py-3.5 text-center w-14">S.No</th>
                     <th className="px-5 py-3.5">Clarity Name</th>
                     <th className="px-5 py-3.5">Code</th>
                     <th className="px-5 py-3.5">Status</th>
@@ -228,10 +228,10 @@ export default function DiamondClarities() {
                 <tbody className="divide-y divide-gray-100 text-xs">
                   {filteredClarities
                     .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
-                    .map((item) => (
+                    .map((item, idx) => (
                       <tr key={item.id} className="hover:bg-gray-50/60 transition-colors">
-                        <td className="px-5 py-4 text-gray-400 font-mono text-[11px]">
-                          #{item.sort_order || item.id}
+                        <td className="px-5 py-4 text-center text-gray-500 font-mono text-[11px] font-semibold">
+                          {(currentPage - 1) * itemsPerPage + idx + 1}
                         </td>
                         <td className="px-5 py-4">
                           <div className="flex items-center gap-2.5">

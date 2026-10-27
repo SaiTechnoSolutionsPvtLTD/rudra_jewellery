@@ -1,6 +1,6 @@
 /**
  * Centralized Form Input Validation & Sanitization Utilities
- * Rudhra Jewellers ERP
+ * Rudra Jewellery ERP
  */
 
 // Key codes allowed during typing

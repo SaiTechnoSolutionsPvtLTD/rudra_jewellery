@@ -195,18 +195,6 @@ function SalesNavTabs({ active = 'dashboard' }) {
             </div>
           )}
         </div>
-
-        <Link
-          to="/sales/rates"
-          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-2 ${
-            isRatesActive
-              ? 'bg-[#b01622] text-white font-bold shadow-2xs'
-              : 'text-stone-600 hover:bg-red-50 hover:text-[#b01622]'
-          }`}
-        >
-          <i className="fa-solid fa-tags"></i>
-          <span>Live Price Rates</span>
-        </Link>
       </div>
 
       <Link
@@ -252,14 +240,19 @@ export default function SalesModule({ view = 'dashboard' }) {
 
   const loadBase = async () => {
     try {
-      const [clientResponse, productResponse, ratesResponse] = await Promise.all([
+      const fetches = [
         api.get('/clients').catch(() => ({ data: null })),
-        api.get('/sales/products').catch(() => ({ data: null })),
         api.get('/metal-rates').catch(() => ({ data: null }))
-      ]);
+      ];
+      if (view === 'create') {
+        fetches.push(api.get('/sales/products').catch(() => ({ data: null })));
+      }
+      const [clientResponse, ratesResponse, productResponse] = await Promise.all(fetches);
       setClients(normalizeClients(clientResponse));
-      setProducts(productResponse?.data?.data || productResponse?.data || []);
       setLiveRates(ratesResponse?.data || null);
+      if (productResponse) {
+        setProducts(productResponse?.data?.data || productResponse?.data || []);
+      }
     } catch (e) {
       console.warn('Base sales data fetch notice:', e);
     }
@@ -270,9 +263,10 @@ export default function SalesModule({ view = 'dashboard' }) {
     }
     try {
       if (view === 'dashboard' || view === 'customer-index') {
+        const needsClients = !clients || clients.length === 0;
         const [reportResponse, clientResponse] = await Promise.all([
           api.get('/sales/customer-report', { params: activeFilters }).catch(() => ({ data: null })),
-          api.get('/clients').catch(() => ({ data: null }))
+          needsClients ? api.get('/clients').catch(() => ({ data: null })) : Promise.resolve(null)
         ]);
         if (reportResponse?.data) setDashboard(reportResponse.data);
         if (clientResponse) setClients(normalizeClients(clientResponse));
@@ -302,7 +296,7 @@ export default function SalesModule({ view = 'dashboard' }) {
         }
       }
       if (view === 'customer' && clientId) {
-        const res = await api.get(`/sales/customers/${clientId}`).catch(() => ({ data: null }));
+        const res = await api.get(`/sales/customers/${clientId}`, { params: activeFilters }).catch(() => ({ data: null }));
         if (res?.data) setSale(res.data);
       }
       if (view === 'profit' || view === 'profit-per-invoice') {
@@ -380,6 +374,10 @@ export default function SalesModule({ view = 'dashboard' }) {
       const discount = Number(it.discount ?? 0);
       const total_mc = Number(it.total_mc ?? it.line_total ?? (gold_value + making_charges + (fixed_amount || 0) - discount));
 
+      const tag_number = it.tag_number || it.details?.tag_number || it.piece?.tag_number || (Array.isArray(it.tag_numbers) ? it.tag_numbers.join(', ') : '');
+      const work_order_number = it.work_order_number || it.details?.work_order_number || it.work_order?.work_order_number || it.piece?.work_order?.work_order_number || '';
+      const karigar_name = it.karigar_name || it.details?.karigar_name || it.karigar?.name || it.piece?.karigar?.name || '';
+
       return {
         s_no: it.s_no ?? (idx + 1),
         code: it.code ?? it.product_code ?? `GR-${1000 + idx + 1}`,
@@ -395,7 +393,10 @@ export default function SalesModule({ view = 'dashboard' }) {
         wastage,
         discount,
         total_mc,
-        qty: Number(it.qty ?? it.quantity ?? 1)
+        qty: Number(it.qty ?? it.quantity ?? 1),
+        tag_number,
+        work_order_number,
+        karigar_name,
       };
     }) : sampleRichItems;
 
@@ -405,6 +406,8 @@ export default function SalesModule({ view = 'dashboard' }) {
     const gstinVal = sale.gstin || sale.client?.gstin || sale.pan || '33AAKFA1234A1ZV';
     const invoiceNo = sale.invoice_no || 'RJ-INV-000123';
     const dateVal = sale.date || dateText(sale.invoice_date || new Date().toISOString());
+    const paymentTerms = sale.payment_terms || sale.details?.payment_terms || '';
+    const stampingInstructions = sale.stamping_instructions || sale.details?.stamping_instructions || '';
 
     const totalPieces = displayItems.reduce((acc, it) => acc + (it.qty || 1), 0);
     const totalGrossWeight = displayItems.reduce((acc, it) => acc + (it.gross_wt || 0), 0);
@@ -427,18 +430,43 @@ export default function SalesModule({ view = 'dashboard' }) {
 
     const wordsInINR = numberToWordsINR(grandTotal);
 
+    const isDraftInvoice = Boolean(sale.is_draft || sale.status === 'draft');
+
+    const handleFinalizeDraftInvoice = async () => {
+      if (!sale.id) return;
+      try {
+        const res = await api.post(`/sales/${sale.id}/finalize`);
+        showToast?.('Invoice successfully finalized! Physical pieces marked as sold and stock deducted.', 'success');
+        if (res.data?.data) {
+          setSale(res.data.data);
+        }
+      } catch (err) {
+        showToast?.(err.response?.data?.message || 'Could not finalize invoice', 'error');
+      }
+    };
+
     return (
       <Shell
-        title={`Tax Invoice ${invoiceNo}`}
-        subtitle={`Respected Customer: ${customerName} · Issued Date: ${dateVal}`}
+        title={`${isDraftInvoice ? 'Provisional Draft Invoice' : 'Tax Invoice'} ${invoiceNo}`}
+        subtitle={`Respected Customer: ${customerName} · Issued Date: ${dateVal} ${isDraftInvoice ? '· [DRAFT - PENDING POSTING]' : '· [POSTED]'}`}
         actions={
           <div className="flex items-center gap-2 print:hidden">
+            {isDraftInvoice && (
+              <button
+                type="button"
+                onClick={handleFinalizeDraftInvoice}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer"
+              >
+                <i className="fa-solid fa-check-double"></i>
+                <span>Finalize &amp; Mark Pieces Sold</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                printElement('printable-invoice-sheet', `Tax Invoice ${invoiceNo}`);
+                window.print();
               }}
               className="px-4 py-2 bg-[#b01622] hover:bg-[#8e111a] text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer"
             >
@@ -455,384 +483,522 @@ export default function SalesModule({ view = 'dashboard' }) {
           </div>
         }
       >
+        <style>{`
+          @page {
+            size: A4 portrait;
+            margin: 8mm 10mm !important;
+          }
+          @media print {
+            html, body {
+              background: #ffffff !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              overflow: visible !important;
+            }
+            .print\\:hidden, .no-print, header, nav, sidebar, button, a {
+              display: none !important;
+            }
+            #printable-invoice-sheet {
+              display: block !important;
+              position: static !important;
+              width: 100% !important;
+              max-width: 100% !important;
+              margin: 0 auto !important;
+              padding: 4mm 5mm !important;
+              border: 1.5px solid #d6d3d1 !important;
+              border-radius: 8px !important;
+              box-shadow: none !important;
+              background: #ffffff !important;
+              overflow: visible !important;
+              box-sizing: border-box !important;
+              page-break-inside: ${displayItems.length <= 3 ? 'avoid' : 'auto'} !important;
+              break-inside: ${displayItems.length <= 3 ? 'avoid' : 'auto'} !important;
+            }
+            ${displayItems.length <= 3 ? `
+            #printable-invoice-sheet table {
+              display: block !important;
+              width: 100% !important;
+            }
+            #printable-invoice-sheet thead,
+            #printable-invoice-sheet tbody,
+            #printable-invoice-sheet tfoot,
+            #printable-invoice-sheet tr,
+            #printable-invoice-sheet td {
+              display: block !important;
+              width: 100% !important;
+            }
+            ` : `
+            #printable-invoice-sheet thead {
+              display: table-header-group !important;
+            }
+            #printable-invoice-sheet tfoot {
+              display: table-footer-group !important;
+            }
+            `}
+            #printable-invoice-sheet tr,
+            #printable-invoice-sheet .invoice-avoid-break {
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+            }
+            *, *::before, *::after {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+              color-adjust: exact !important;
+            }
+          }
+        `}</style>
         <div className="w-full flex justify-center py-2">
           {/* Main Container mirroring image sheet */}
           <div
             id="printable-invoice-sheet"
-            className="w-full max-w-[1100px] bg-white border border-stone-200 shadow-md p-6 sm:p-10 space-y-6 text-stone-800 font-['Inter',sans-serif] print:p-0 print:border-0 print:shadow-none"
+            className="w-full max-w-[1100px] bg-white border border-stone-200 shadow-md p-6 sm:p-8 text-stone-800 font-['Inter',sans-serif] print:p-2 print:border print:border-stone-300 print:shadow-none print:max-w-none print:rounded-lg"
           >
-            {/* 1. Header Section */}
-            <div className="flex flex-col sm:flex-row items-start justify-between gap-4 pb-4 border-b-2 border-[#b01622]">
-              {/* Brand Logo Box */}
-              <div className="flex items-center gap-3">
-                <div className="w-24 h-24 bg-[#b01622] rounded-lg flex flex-col items-center justify-center text-white p-2 shadow-xs shrink-0">
-                  <div className="flex items-center justify-center gap-1">
-                    <span className="text-xl font-serif font-black tracking-widest border-r border-white/40 pr-1">RJ</span>
-                    <i className="fa-solid fa-gem text-lg text-amber-300"></i>
-                  </div>
-                  <span className="text-[9px] uppercase font-bold tracking-wider mt-1 text-center leading-tight">
-                    {companyInfo?.company_name || 'RUDRA JEWELLERS'}
-                  </span>
-                  <span className="text-[7px] text-white/70 uppercase tracking-widest">{companyInfo?.city || ''}</span>
-                </div>
-                <div>
-                  <h1 className="text-2xl font-black text-[#b01622] tracking-tight uppercase">{companyInfo?.company_name || 'RUDRA JEWELLERS'}</h1>
-                  <div className="text-[11px] font-bold text-stone-500 uppercase tracking-widest">{companyInfo?.tagline || 'ENTERPRISE ERP SYSTEM'}</div>
-                  <p className="text-xs text-stone-600 mt-2">
-                    {[companyInfo?.address_line1, companyInfo?.address_line2, companyInfo?.city, companyInfo?.state && `${companyInfo.state} - ${companyInfo?.pincode || ''}`].filter(Boolean).join(', ')}
-                  </p>
-                  <p className="text-xs text-stone-600">
-                    Contact: {companyInfo?.phone || '+91 98400 12345'} | {companyInfo?.email || 'info@rudrajewellers.com'}
-                  </p>
-                </div>
-              </div>
+            <table className="w-full border-collapse">
+              {/* 1. Header Section: Repeats cleanly at the top of every printed page */}
+              <thead>
+                <tr>
+                  <td className="p-0 border-0">
+                    <div
+                      className="bg-[#b01622] text-white p-4 sm:p-5 print:p-3 print:mb-2 rounded-xl flex flex-row items-start justify-between gap-4 mb-4 shadow-xs"
+                      style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact', backgroundColor: '#b01622', color: '#ffffff' }}
+                    >
+                      {/* Brand Logo Box */}
+                      <div className="flex items-center gap-4">
+                        <div className="shrink-0 flex items-center justify-center bg-white p-1 rounded-lg border border-white/40 shadow-xs">
+                          <img
+                            src={companyInfo?.logo_url || '/logo.png'}
+                            alt={companyInfo?.company_name || 'Rudra Jewellery'}
+                            className="h-12 sm:h-14 w-auto max-w-[160px] object-contain rounded"
+                            onError={(e) => {
+                              e.target.onerror = null;
+                              e.target.src = '/logo.png';
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight uppercase leading-tight">
+                            {companyInfo?.company_name || 'RUDRA JEWELLERY'}
+                          </h1>
+                          <div className="text-[10px] sm:text-[11px] font-bold text-white/80 uppercase tracking-widest mt-0.5">
+                            {companyInfo?.tagline || 'EXCLUSIVE FINE GOLD, DIAMOND & GEMSTONE JEWELLERY'}
+                          </div>
+                          <p className="text-xs text-white/90 mt-1">
+                            {[companyInfo?.address_line1, companyInfo?.address_line2, companyInfo?.city, companyInfo?.state && `${companyInfo.state} - ${companyInfo?.pincode || ''}`].filter(Boolean).join(', ')}
+                          </p>
+                          <p className="text-xs text-white/80">
+                            Contact: {companyInfo?.phone || '+91 98400 12345'} | {companyInfo?.email || 'info@rudrajewellers.com'}
+                          </p>
+                        </div>
+                      </div>
 
-              {/* Tax Invoice Badge & Invoice Meta Table */}
-              <div className="flex flex-col items-end gap-2 text-xs">
-                <span className="bg-[#b01622] text-white px-5 py-1.5 font-bold uppercase rounded-md text-xs shadow-xs tracking-wider">
-                  TAX INVOICE
-                </span>
-                <table className="text-left text-xs border-collapse mt-1">
-                  <tbody>
-                    <tr>
-                      <td className="py-0.5 pr-3 text-stone-600 font-medium">Invoice No.</td>
-                      <td className="py-0.5 font-bold text-[#b01622] font-mono">: {invoiceNo}</td>
-                    </tr>
-                    <tr>
-                      <td className="py-0.5 pr-3 text-stone-600 font-medium">Date</td>
-                      <td className="py-0.5 font-semibold text-stone-900">: {dateVal}</td>
-                    </tr>
-                    <tr>
-                      <td className="py-0.5 pr-3 text-stone-600 font-medium">Place of Supply</td>
-                      <td className="py-0.5 font-semibold text-stone-900">: Tamil Nadu (33)</td>
-                    </tr>
-                    <tr>
-                      <td className="py-0.5 pr-3 text-stone-600 font-medium">Reverse Charge</td>
-                      <td className="py-0.5 font-semibold text-stone-900">: No</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* 2. Customer Details & Invoice Summary Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Customer Details Card */}
-              <div className="bg-amber-50/20 border border-amber-200/60 rounded-xl p-4 text-xs space-y-2">
-                <div className="flex items-center gap-2 text-[#b01622] font-bold uppercase tracking-wider text-[11px]">
-                  <i className="fa-solid fa-user text-xs"></i>
-                  <span>CUSTOMER DETAILS</span>
-                </div>
-                <table className="w-full text-left text-xs border-collapse">
-                  <tbody>
-                    <tr>
-                      <td className="py-1 w-32 text-stone-600 font-medium">Customer Name</td>
-                      <td className="py-1 font-bold text-stone-900">: {customerName}</td>
-                    </tr>
-                    <tr>
-                      <td className="py-1 text-stone-600 font-medium">Mobile No.</td>
-                      <td className="py-1 font-semibold text-stone-800 font-mono">: {mobileNo}</td>
-                    </tr>
-                    <tr>
-                      <td className="py-1 text-stone-600 font-medium align-top">Address</td>
-                      <td className="py-1 font-semibold text-stone-800 leading-snug">: {addressVal}</td>
-                    </tr>
-                    <tr>
-                      <td className="py-1 text-stone-600 font-medium">GSTIN</td>
-                      <td className="py-1 font-mono font-bold text-stone-900">: {gstinVal}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Invoice Summary Card */}
-              <div className="bg-amber-50/20 border border-amber-200/60 rounded-xl p-4 text-xs space-y-2">
-                <div className="flex items-center gap-2 text-[#b01622] font-bold uppercase tracking-wider text-[11px]">
-                  <i className="fa-solid fa-file-lines text-xs"></i>
-                  <span>INVOICE SUMMARY</span>
-                </div>
-                <table className="w-full text-left text-xs border-collapse">
-                  <tbody>
-                    <tr>
-                      <td className="py-1 w-44 text-stone-600 font-medium">Total Items</td>
-                      <td className="py-1 font-bold text-stone-900">: {displayItems.length}</td>
-                    </tr>
-                    <tr>
-                      <td className="py-1 text-stone-600 font-medium">Total Net Gold Weight</td>
-                      <td className="py-1 font-bold text-stone-900 font-mono">: {totalNetWeight.toFixed(3)} g</td>
-                    </tr>
-                    <tr>
-                      <td className="py-1 text-stone-600 font-medium">Total Gross Weight</td>
-                      <td className="py-1 font-bold text-stone-900 font-mono">: {totalGrossWeight.toFixed(3)} g</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* 3. Product Table (2-Row Structured Format for Full Print Parity without Scrolling) */}
-            <div className="space-y-2">
-              {displayItems.map((item, idx) => (
-                <div key={idx} className="border border-stone-200 rounded-lg overflow-hidden bg-white shadow-2xs space-y-1 p-2">
-                  {/* Row 1: Item & Gold Value */}
-                  <div className="border border-stone-200 rounded overflow-hidden">
-                    <div className="bg-[#b01622]/10 px-2.5 py-0.5 text-[8px] font-bold text-[#b01622] uppercase tracking-wider border-b border-stone-200 flex items-center justify-between">
-                      <span>Item #{item.s_no} — Primary Details &amp; Gold Value</span>
-                      <span className="font-mono text-stone-500">Row 1 of 2</span>
+                      {/* Tax Invoice Badge & Invoice Meta Table */}
+                      <div className="flex flex-col items-end gap-1.5 text-xs shrink-0">
+                        <span className="bg-white/15 text-white border border-white/30 px-3.5 py-1 font-bold uppercase rounded-md text-[11px] shadow-xs tracking-wider">
+                          {isDraftInvoice ? 'PROVISIONAL DRAFT INVOICE' : 'TAX INVOICE'}
+                        </span>
+                        <table className="text-left text-xs border-collapse mt-0.5 text-white">
+                          <tbody>
+                            <tr>
+                              <td className="py-0.5 pr-2.5 text-white/80 font-medium">Invoice No.</td>
+                              <td className="py-0.5 font-bold text-white font-mono">: {invoiceNo}</td>
+                            </tr>
+                            <tr>
+                              <td className="py-0.5 pr-2.5 text-white/80 font-medium">Date</td>
+                              <td className="py-0.5 font-semibold text-white">: {dateVal}</td>
+                            </tr>
+                            <tr>
+                              <td className="py-0.5 pr-2.5 text-white/80 font-medium">Place of Supply</td>
+                              <td className="py-0.5 font-semibold text-white">: Tamil Nadu (33)</td>
+                            </tr>
+                            <tr>
+                              <td className="py-0.5 pr-2.5 text-white/80 font-medium">Reverse Charge</td>
+                              <td className="py-0.5 font-semibold text-white">: No</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                    <table className="w-full text-left border-collapse text-[10px]">
-                      <thead className="bg-[#b01622] text-white text-[9px] font-bold uppercase tracking-wider">
-                        <tr>
-                          <th className="p-1.5 text-center w-10">S. No.</th>
-                          <th className="p-1.5">Product Code</th>
-                          <th className="p-1.5">Product Description</th>
-                          <th className="p-1.5 text-center">Purity</th>
-                          <th className="p-1.5 text-right">Gross Wt (g)</th>
-                          <th className="p-1.5 text-right">Net Wt (g)</th>
-                          <th className="p-1.5 text-right">Gold Rate (₹/g)</th>
-                          <th className="p-1.5 text-right">Gold Value (₹)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr className="hover:bg-amber-50/10 text-stone-800">
-                          <td className="p-1.5 text-center font-mono text-stone-500 font-bold">{item.s_no}</td>
-                          <td className="p-1.5 font-mono font-medium text-stone-700">{item.code}</td>
-                          <td className="p-1.5 font-bold text-stone-900">{item.desc}</td>
-                          <td className="p-1.5 text-center font-semibold">{item.purity}</td>
-                          <td className="p-1.5 text-right font-mono font-bold">{Number(item.gross_wt).toFixed(3)}</td>
-                          <td className="p-1.5 text-right font-mono font-bold text-[#b01622]">{Number(item.net_wt).toFixed(3)}</td>
-                          <td className="p-1.5 text-right font-mono">{Number(item.gold_rate).toLocaleString('en-IN')}</td>
-                          <td className="p-1.5 text-right font-mono font-bold text-stone-900">{Number(item.gold_value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
+                  </td>
+                </tr>
+              </thead>
 
-                  {/* Row 2: Making Charges & Discounts */}
-                  <div className="border border-stone-200 rounded overflow-hidden">
-                    <div className="bg-stone-100 px-2.5 py-0.5 text-[8px] font-bold text-stone-700 uppercase tracking-wider border-b border-stone-200 flex items-center justify-between">
-                      <span>Item #{item.s_no} — Making Charges, Wastage &amp; Discount Breakdown</span>
-                      <span className="font-mono text-stone-500">Row 2 of 2</span>
+              {/* 6. Footer Section: Repeats cleanly at the bottom of every printed page */}
+              <tfoot>
+                <tr>
+                  <td className="p-0 border-0">
+                    <div className="pt-3 border-t border-stone-200 mt-3 grid grid-cols-3 gap-4 text-[10px] text-stone-600 invoice-avoid-break" style={{ pageBreakInside: 'avoid', breakInside: 'avoid' }}>
+                      {/* Bank Details */}
+                      {(() => {
+                        const activeBank = getStoredDefaultBankAccount();
+                        return (
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1.5 text-[#b01622] font-bold uppercase text-[10px] tracking-wider mb-1">
+                              <i className="fa-solid fa-building-columns text-[#b01622]"></i>
+                              <span>BANK DETAILS</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-x-1">
+                              <span className="text-stone-500">Bank Name</span>
+                              <span className="font-semibold text-stone-800">: {activeBank?.bank_name || 'HDFC Bank'}</span>
+                              <span className="text-stone-500">A/C Name</span>
+                              <span className="font-semibold text-stone-800">: {activeBank?.account_name || 'Rudra Jewellery'}</span>
+                              <span className="text-stone-500">A/C No.</span>
+                              <span className="font-semibold font-mono text-stone-800">: {activeBank?.account_number || '50200018899221'}</span>
+                              <span className="text-stone-500">IFSC Code</span>
+                              <span className="font-semibold font-mono text-stone-800">: {activeBank?.ifsc_code || 'HDFC0000124'}</span>
+                              {activeBank?.upi_id && (
+                                <>
+                                  <span className="text-stone-500">UPI ID</span>
+                                  <span className="font-semibold font-mono text-[#b01622]">: {activeBank.upi_id}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Terms & Conditions */}
+                      <div className="space-y-1">
+                        <div className="text-[#b01622] font-bold uppercase text-[10px] tracking-wider mb-1">
+                          TERMS &amp; CONDITIONS
+                        </div>
+                        {paymentTerms ? (
+                          <div className="text-[9.5px] text-stone-700 bg-amber-50/50 p-1.5 rounded border border-amber-200/50 whitespace-pre-wrap font-medium">
+                            {paymentTerms}
+                          </div>
+                        ) : (
+                          <ul className="list-disc list-inside space-y-0.5 text-[9.5px] text-stone-500 leading-snug">
+                            <li>Goods once sold will not be taken back.</li>
+                            <li>Exchange allowed within 7 days with applicable deductions.</li>
+                            <li>We are not responsible for any loss of ornaments after delivery.</li>
+                            <li>Subject to Coimbatore Jurisdiction only.</li>
+                          </ul>
+                        )}
+                        {stampingInstructions && (
+                          <div className="mt-1 text-[9px] text-stone-600 border-t border-stone-200 pt-1">
+                            <span className="font-bold text-[#b01622]">Stamping: </span>
+                            <span>{stampingInstructions}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Authorised Signature */}
+                      <div className="flex flex-col justify-end items-center text-center space-y-1.5 pt-2">
+                        <div className="text-[10px] text-stone-500 uppercase font-bold tracking-wider">
+                          FOR RUDRA JEWELLERY
+                        </div>
+                        <div className="w-32 border-b border-dashed border-stone-400 h-8 flex items-end justify-center">
+                          {/* Signature line space */}
+                        </div>
+                        <span className="text-[9.5px] font-bold text-stone-700 uppercase tracking-wider">
+                          Authorised Signature
+                        </span>
+                      </div>
                     </div>
-                    <table className="w-full text-left border-collapse text-[10px]">
-                      <thead className="bg-stone-700 text-white text-[9px] font-bold uppercase tracking-wider">
-                        <tr>
-                          <th className="p-1.5 text-right">Making Rate (₹/g)</th>
-                          <th className="p-1.5 text-right">Making Charges (₹)</th>
-                          <th className="p-1.5 text-right">Fixed Amount (₹)</th>
-                          <th className="p-1.5 text-center">Wastage (%)</th>
-                          <th className="p-1.5 text-right">Discount (₹)</th>
-                          <th className="p-1.5 text-right">Total MC (₹)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr className="bg-stone-50/50 hover:bg-stone-100/50 text-stone-800">
-                          <td className="p-1.5 text-right font-mono">{Number(item.making_rate).toFixed(2)}</td>
-                          <td className="p-1.5 text-right font-mono">{Number(item.making_charges).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                          <td className="p-1.5 text-right font-mono">{item.fixed_amount ? Number(item.fixed_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '—'}</td>
-                          <td className="p-1.5 text-center font-mono font-medium">{item.wastage || '0%'}</td>
-                          <td className="p-1.5 text-right font-mono text-emerald-700">{item.discount ? Number(item.discount).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '—'}</td>
-                          <td className="p-1.5 text-right font-mono font-black text-[#b01622]">{Number(item.total_mc).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ))}
-            </div>
+                  </td>
+                </tr>
+              </tfoot>
 
-            {/* 4. Horizontal Summary Metrics Box (8-column bar) */}
-            <div className="bg-stone-50/80 border border-stone-200 rounded-xl p-3 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 text-xs font-semibold">
-              <div>
-                <span className="text-[10px] text-stone-500 block uppercase">Total Pieces</span>
-                <span className="font-bold text-stone-900 font-mono">: {totalPieces} PCS</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-stone-500 block uppercase">Total Gross Weight</span>
-                <span className="font-bold text-stone-900 font-mono">: {totalGrossWeight.toFixed(3)} g</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-stone-500 block uppercase">Total Net Weight</span>
-                <span className="font-bold text-stone-900 font-mono">: {totalNetWeight.toFixed(3)} g</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-stone-500 block uppercase">Total Gold Value</span>
-                <span className="font-bold text-stone-900 font-mono">₹ {totalGoldValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-stone-500 block uppercase">Total Making Charges</span>
-                <span className="font-bold text-stone-900 font-mono">₹ {totalMakingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-stone-500 block uppercase">If Fixed Amount</span>
-                <span className="font-bold text-stone-900 font-mono">₹ {totalFixedAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-stone-500 block uppercase">Total Discount</span>
-                <span className="font-bold text-stone-900 font-mono">₹ {totalDiscount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-[#b01622] block uppercase font-bold">Total Amount</span>
-                <span className="font-black text-[#b01622] text-sm font-mono">₹ {grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-              </div>
-            </div>
+              {/* INVOICE BODY */}
+              <tbody>
+                <tr>
+                  <td className="p-0 border-0">
+                    <div className="space-y-3 pt-1">
+                      {/* 2. Customer Details & Invoice Summary Cards */}
+                      <div className="grid grid-cols-2 gap-4 invoice-avoid-break" style={{ pageBreakInside: 'avoid', breakInside: 'avoid' }}>
+                        {/* Customer Details Card */}
+                        <div className="bg-amber-50/20 border border-amber-200/60 rounded-xl p-3.5 text-xs space-y-1.5">
+                          <div className="flex items-center gap-2 text-[#b01622] font-bold uppercase tracking-wider text-[11px]">
+                            <i className="fa-solid fa-user text-xs"></i>
+                            <span>CUSTOMER DETAILS</span>
+                          </div>
+                          <table className="w-full text-left text-xs border-collapse">
+                            <tbody>
+                              <tr>
+                                <td className="py-0.5 w-32 text-stone-600 font-medium">Customer Name</td>
+                                <td className="py-0.5 font-bold text-stone-900">: {customerName}</td>
+                              </tr>
+                              <tr>
+                                <td className="py-0.5 text-stone-600 font-medium">Mobile No.</td>
+                                <td className="py-0.5 font-semibold text-stone-800 font-mono">: {mobileNo}</td>
+                              </tr>
+                              <tr>
+                                <td className="py-0.5 text-stone-600 font-medium align-top">Address</td>
+                                <td className="py-0.5 font-semibold text-stone-800 leading-snug">: {addressVal}</td>
+                              </tr>
+                              <tr>
+                                <td className="py-0.5 text-stone-600 font-medium">GSTIN</td>
+                                <td className="py-0.5 font-mono font-bold text-stone-900">: {gstinVal}</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
 
-            {/* 5. Bottom Financial Summary & Payment Breakdown */}
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
-              {/* Left Column: Financial Calculation Card (7 cols) */}
-              <div className="md:col-span-7 bg-amber-50/10 border border-amber-200/60 rounded-xl p-5 space-y-3 text-xs">
-                <div className="flex items-center gap-2 text-[#b01622] font-bold uppercase tracking-wider text-[11px] pb-2 border-b border-stone-200">
-                  <i className="fa-solid fa-file-invoice text-xs"></i>
-                  <span>INVOICE SUMMARY</span>
-                </div>
+                        {/* Invoice Summary Card */}
+                        <div className="bg-amber-50/20 border border-amber-200/60 rounded-xl p-3.5 text-xs space-y-1.5">
+                          <div className="flex items-center gap-2 text-[#b01622] font-bold uppercase tracking-wider text-[11px]">
+                            <i className="fa-solid fa-file-lines text-xs"></i>
+                            <span>INVOICE SUMMARY</span>
+                          </div>
+                          <table className="w-full text-left text-xs border-collapse">
+                            <tbody>
+                              <tr>
+                                <td className="py-0.5 w-44 text-stone-600 font-medium">Total Items</td>
+                                <td className="py-0.5 font-bold text-stone-900">: {displayItems.length}</td>
+                              </tr>
+                              <tr>
+                                <td className="py-0.5 text-stone-600 font-medium">Total Net Gold Weight</td>
+                                <td className="py-0.5 font-bold text-stone-900 font-mono">: {totalNetWeight.toFixed(3)} g</td>
+                              </tr>
+                              <tr>
+                                <td className="py-0.5 text-stone-600 font-medium">Total Gross Weight</td>
+                                <td className="py-0.5 font-bold text-stone-900 font-mono">: {totalGrossWeight.toFixed(3)} g</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
 
-                <div className="space-y-2 text-stone-700">
-                  <div className="flex justify-between items-center">
-                    <span>Gold Value</span>
-                    <span className="font-mono font-semibold">₹ {totalGoldValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span>Making Charges</span>
-                    <span className="font-mono font-semibold">₹ {totalMakingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span>Stone Charges</span>
-                    <span className="font-mono font-semibold">₹ {stoneCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-[#b01622]">
-                    <span>Discount</span>
-                    <span className="font-mono font-semibold">- ₹ {totalDiscount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
+                      {/* 3. Product Table (2-Row Structured Format for Full Print Parity without Scrolling) */}
+                      <div className="space-y-2">
+                        {displayItems.map((item, idx) => (
+                          <div
+                            key={idx}
+                            className="border border-stone-200 rounded-lg overflow-hidden bg-white shadow-2xs space-y-1 p-2 invoice-avoid-break"
+                            style={{ pageBreakInside: 'avoid', breakInside: 'avoid' }}
+                          >
+                            {/* Row 1: Item & Gold Value */}
+                            <div className="border border-stone-200 rounded overflow-hidden">
+                              <div className="bg-[#b01622]/10 px-2.5 py-0.5 text-[8px] font-bold text-[#b01622] uppercase tracking-wider border-b border-stone-200 flex items-center justify-between">
+                                <span>Item #{item.s_no} — Primary Details &amp; Gold Value</span>
+                                <span className="font-mono text-stone-500">Row 1 of 2</span>
+                              </div>
+                              <table className="w-full text-left border-collapse text-[10px]">
+                                <thead className="bg-[#b01622] text-white text-[9px] font-bold uppercase tracking-wider">
+                                  <tr>
+                                    <th className="p-1.5 text-center w-10">S. No.</th>
+                                    <th className="p-1.5">Product Code</th>
+                                    <th className="p-1.5">Product Description</th>
+                                    <th className="p-1.5 text-center">Purity</th>
+                                    <th className="p-1.5 text-right">Gross Wt (g)</th>
+                                    <th className="p-1.5 text-right">Net Wt (g)</th>
+                                    <th className="p-1.5 text-right">Gold Rate (₹/g)</th>
+                                    <th className="p-1.5 text-right">Gold Value (₹)</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  <tr className="hover:bg-amber-50/10 text-stone-800">
+                                    <td className="p-1.5 text-center font-mono text-stone-500 font-bold">{item.s_no}</td>
+                                    <td className="p-1.5 font-mono font-medium text-stone-700">{item.code}</td>
+                                    <td className="p-1.5 font-bold text-stone-900">
+                                      <div>{item.desc}</div>
+                                      {(item.tag_number || item.work_order_number || item.karigar_name) && (
+                                        <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[9px] font-mono">
+                                          {item.tag_number && (
+                                            <span className="bg-amber-100 text-amber-900 font-bold px-1.5 py-0.2 rounded border border-amber-200">
+                                              Tag: {item.tag_number}
+                                            </span>
+                                          )}
+                                          {item.work_order_number && (
+                                            <span className="bg-stone-100 text-stone-700 px-1 py-0.2 rounded border border-stone-200">
+                                              WO: {item.work_order_number}
+                                            </span>
+                                          )}
+                                          {item.karigar_name && (
+                                            <span className="bg-blue-50 text-blue-700 px-1 py-0.2 rounded border border-blue-100">
+                                              Karigar: {item.karigar_name}
+                                            </span>
+                                          )}
+                                        </div>
+                                      )}
+                                    </td>
+                                    <td className="p-1.5 text-center font-semibold">{item.purity}</td>
+                                    <td className="p-1.5 text-right font-mono font-bold">{Number(item.gross_wt).toFixed(3)}</td>
+                                    <td className="p-1.5 text-right font-mono font-bold text-[#b01622]">{Number(item.net_wt).toFixed(3)}</td>
+                                    <td className="p-1.5 text-right font-mono">{Number(item.gold_rate).toLocaleString('en-IN')}</td>
+                                    <td className="p-1.5 text-right font-mono font-bold text-stone-900">{Number(item.gold_value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
 
-                  <div className="pt-2 border-t border-stone-200 flex justify-between items-center font-bold text-stone-900">
-                    <span>Sub Total</span>
-                    <span className="font-mono text-sm">₹ {subTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
+                            {/* Row 2: Making Charges & Discounts */}
+                            <div className="border border-stone-200 rounded overflow-hidden">
+                              <div className="bg-stone-100 px-2.5 py-0.5 text-[8px] font-bold text-stone-700 uppercase tracking-wider border-b border-stone-200 flex items-center justify-between">
+                                <span>Item #{item.s_no} — Making Charges, Wastage &amp; Discount Breakdown</span>
+                                <span className="font-mono text-stone-500">Row 2 of 2</span>
+                              </div>
+                              <table className="w-full text-left border-collapse text-[10px]">
+                                <thead className="bg-stone-700 text-white text-[9px] font-bold uppercase tracking-wider">
+                                  <tr>
+                                    <th className="p-1.5 text-right">Making Rate (₹/g)</th>
+                                    <th className="p-1.5 text-right">Making Charges (₹)</th>
+                                    <th className="p-1.5 text-right">Fixed Amount (₹)</th>
+                                    <th className="p-1.5 text-center">Wastage (%)</th>
+                                    <th className="p-1.5 text-right">Discount (₹)</th>
+                                    <th className="p-1.5 text-right">Total MC (₹)</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  <tr className="bg-stone-50/50 hover:bg-stone-100/50 text-stone-800">
+                                    <td className="p-1.5 text-right font-mono">{Number(item.making_rate).toFixed(2)}</td>
+                                    <td className="p-1.5 text-right font-mono">{Number(item.making_charges).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                    <td className="p-1.5 text-right font-mono">{item.fixed_amount ? Number(item.fixed_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '—'}</td>
+                                    <td className="p-1.5 text-center font-mono font-medium">{item.wastage || '0%'}</td>
+                                    <td className="p-1.5 text-right font-mono text-emerald-700">{item.discount ? Number(item.discount).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '—'}</td>
+                                    <td className="p-1.5 text-right font-mono font-black text-[#b01622]">{Number(item.total_mc).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
 
-                  <div className="flex justify-between items-center text-stone-600 text-[11px]">
-                    <span>CGST (1.5%)</span>
-                    <span className="font-mono">₹ {cgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-stone-600 text-[11px]">
-                    <span>SGST (1.5%)</span>
-                    <span className="font-mono">₹ {sgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
+                      {/* 4. Horizontal Summary Metrics Box (8-column bar) */}
+                      <div
+                        className="bg-stone-50/80 border border-stone-200 rounded-xl p-2.5 grid grid-cols-8 gap-2 text-xs font-semibold invoice-avoid-break"
+                        style={{ pageBreakInside: 'avoid', breakInside: 'avoid' }}
+                      >
+                        <div>
+                          <span className="text-[10px] text-stone-500 block uppercase">Total Pieces</span>
+                          <span className="font-bold text-stone-900 font-mono">: {totalPieces} PCS</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-stone-500 block uppercase">Total Gross Wt</span>
+                          <span className="font-bold text-stone-900 font-mono">: {totalGrossWeight.toFixed(3)} g</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-stone-500 block uppercase">Total Net Wt</span>
+                          <span className="font-bold text-stone-900 font-mono">: {totalNetWeight.toFixed(3)} g</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-stone-500 block uppercase">Total Gold Value</span>
+                          <span className="font-bold text-stone-900 font-mono">₹ {totalGoldValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-stone-500 block uppercase">Total MC</span>
+                          <span className="font-bold text-stone-900 font-mono">₹ {totalMakingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-stone-500 block uppercase">If Fixed Amount</span>
+                          <span className="font-bold text-stone-900 font-mono">₹ {totalFixedAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-stone-500 block uppercase">Total Discount</span>
+                          <span className="font-bold text-stone-900 font-mono">₹ {totalDiscount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-[#b01622] block uppercase font-bold">Total Amount</span>
+                          <span className="font-black text-[#b01622] text-sm font-mono">₹ {grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                      </div>
 
-                  <div className="pt-3 border-t-2 border-[#b01622] flex justify-between items-center text-[#b01622] font-black text-lg">
-                    <span>GRAND TOTAL</span>
-                    <span className="font-mono text-xl">₹ {grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
-                </div>
+                      {/* 5. Bottom Financial Summary & Payment Breakdown */}
+                      <div
+                        className="grid grid-cols-12 gap-4 invoice-avoid-break"
+                        style={{ pageBreakInside: 'avoid', breakInside: 'avoid' }}
+                      >
+                        {/* Left Column: Financial Calculation Card (7 cols) */}
+                        <div className="col-span-7 bg-amber-50/10 border border-amber-200/60 rounded-xl p-4 space-y-2.5 text-xs">
+                          <div className="flex items-center gap-2 text-[#b01622] font-bold uppercase tracking-wider text-[11px] pb-1.5 border-b border-stone-200">
+                            <i className="fa-solid fa-file-invoice text-xs"></i>
+                            <span>INVOICE SUMMARY</span>
+                          </div>
 
-                {/* Amount in words */}
-                <div className="pt-3 border-t border-stone-200 text-[11px] text-stone-600">
-                  <span className="font-bold text-stone-700 block">Amount In Words:</span>
-                  <p className="italic text-stone-800 font-serif mt-0.5 font-medium">{wordsInINR}</p>
-                </div>
-              </div>
+                          <div className="space-y-1.5 text-stone-700">
+                            <div className="flex justify-between items-center">
+                              <span>Gold Value</span>
+                              <span className="font-mono font-semibold">₹ {totalGoldValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span>Making Charges</span>
+                              <span className="font-mono font-semibold">₹ {totalMakingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span>Stone Charges</span>
+                              <span className="font-mono font-semibold">₹ {stoneCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-[#b01622]">
+                              <span>Discount</span>
+                              <span className="font-mono font-semibold">- ₹ {totalDiscount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </div>
 
-              {/* Right Column: Amount Received, Balance Due, Payment Mode & Thank You (5 cols) */}
-              <div className="md:col-span-5 space-y-3">
-                {/* Amount Received */}
-                <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-4 text-center space-y-1">
-                  <div className="flex items-center justify-center gap-1.5 text-emerald-700 text-[11px] font-bold uppercase tracking-wider">
-                    <i className="fa-solid fa-circle-check text-[#059669]"></i>
-                    <span>AMOUNT RECEIVED</span>
-                  </div>
-                  <div className="text-2xl font-black text-emerald-600 font-mono">
-                    ₹ {amountReceivedVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                </div>
+                            <div className="pt-1.5 border-t border-stone-200 flex justify-between items-center font-bold text-stone-900">
+                              <span>Sub Total</span>
+                              <span className="font-mono text-sm">₹ {subTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </div>
 
-                {/* Balance Due */}
-                <div className="bg-red-50/50 border border-red-200 rounded-xl p-4 text-center space-y-1">
-                  <div className="flex items-center justify-center gap-1.5 text-[#b01622] text-[11px] font-bold uppercase tracking-wider">
-                    <i className="fa-solid fa-wallet text-[#b01622]"></i>
-                    <span>BALANCE DUE</span>
-                  </div>
-                  <div className="text-xl font-black text-[#b01622] font-mono">
-                    ₹ {balanceDueVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                </div>
+                            <div className="flex justify-between items-center text-stone-600 text-[11px]">
+                              <span>CGST (1.5%)</span>
+                              <span className="font-mono">₹ {cgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-stone-600 text-[11px]">
+                              <span>SGST (1.5%)</span>
+                              <span className="font-mono">₹ {sgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </div>
 
-                {/* Payment Mode */}
-                <div className="bg-amber-50/20 border border-amber-200/60 rounded-xl p-3.5 space-y-1">
-                  <div className="flex items-center gap-1.5 text-stone-600 text-[10px] font-bold uppercase tracking-wider">
-                    <i className="fa-solid fa-credit-card"></i>
-                    <span>PAYMENT MODE</span>
-                  </div>
-                  <div className="font-bold text-stone-900 text-xs">
-                    {paymentModeVal}
-                  </div>
-                </div>
+                            <div className="pt-2 border-t-2 border-[#b01622] flex justify-between items-center text-[#b01622] font-black text-lg">
+                              <span>GRAND TOTAL</span>
+                              <span className="font-mono text-xl">₹ {grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </div>
+                          </div>
 
-                {/* Thank You Note */}
-                <div className="bg-amber-50/30 border border-amber-200/60 rounded-xl p-4 text-center space-y-1">
-                  <h4 className="font-bold text-[#b01622] text-xs uppercase tracking-wider">THANK YOU!</h4>
-                  <p className="text-[11px] text-stone-600">
-                    Thank you for shopping with<br /><strong>Rudra Jewellers.</strong>
-                  </p>
-                </div>
-              </div>
-            </div>
+                          {/* Amount in words */}
+                          <div className="pt-2 border-t border-stone-200 text-[11px] text-stone-600">
+                            <span className="font-bold text-stone-700 block">Amount In Words:</span>
+                            <p className="italic text-stone-800 font-serif mt-0.5 font-medium">{wordsInINR}</p>
+                          </div>
+                        </div>
 
-            {/* 6. Footer Section: Bank Details, Terms & Conditions, Signature */}
-            <div className="pt-4 border-t border-stone-200 grid grid-cols-1 md:grid-cols-3 gap-5 text-[11px] text-stone-600">
-              {/* Bank Details */}
-              {(() => {
-                const activeBank = getStoredDefaultBankAccount();
-                return (
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-1.5 text-[#b01622] font-bold uppercase text-[10px] tracking-wider mb-1">
-                      <i className="fa-solid fa-building-columns text-[#b01622]"></i>
-                      <span>BANK DETAILS</span>
+                        {/* Right Column: Amount Received, Balance Due, Payment Mode & Thank You (5 cols) */}
+                        <div className="col-span-5 space-y-2.5">
+                          {/* Amount Received */}
+                          <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-3 text-center space-y-0.5">
+                            <div className="flex items-center justify-center gap-1.5 text-emerald-700 text-[10.5px] font-bold uppercase tracking-wider">
+                              <i className="fa-solid fa-circle-check text-[#059669]"></i>
+                              <span>AMOUNT RECEIVED</span>
+                            </div>
+                            <div className="text-xl font-black text-emerald-600 font-mono">
+                              ₹ {amountReceivedVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
+                          </div>
+
+                          {/* Balance Due */}
+                          <div className="bg-red-50/50 border border-red-200 rounded-xl p-3 text-center space-y-0.5">
+                            <div className="flex items-center justify-center gap-1.5 text-[#b01622] text-[10.5px] font-bold uppercase tracking-wider">
+                              <i className="fa-solid fa-wallet text-[#b01622]"></i>
+                              <span>BALANCE DUE</span>
+                            </div>
+                            <div className="text-lg font-black text-[#b01622] font-mono">
+                              ₹ {balanceDueVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
+                          </div>
+
+                          {/* Payment Mode */}
+                          <div className="bg-amber-50/20 border border-amber-200/60 rounded-xl p-3 text-center space-y-0.5">
+                            <div className="flex items-center justify-center gap-1.5 text-stone-600 text-[10px] font-bold uppercase tracking-wider">
+                              <i className="fa-solid fa-credit-card"></i>
+                              <span>PAYMENT MODE</span>
+                            </div>
+                            <div className="font-black text-stone-900 text-sm uppercase font-mono tracking-wider">
+                              {paymentModeVal || 'CASH'}
+                            </div>
+                          </div>
+
+                          {/* Thank You Note */}
+                          <div className="bg-amber-50/30 border border-amber-200/60 rounded-xl p-3 text-center space-y-0.5">
+                            <h4 className="font-bold text-[#b01622] text-xs uppercase tracking-wider">THANK YOU!</h4>
+                            <p className="text-[11px] text-stone-600">
+                              Thank you for shopping with<br /><strong>Rudra Jewellery.</strong>
+                            </p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-x-1">
-                      <span className="text-stone-500">Bank Name</span>
-                      <span className="font-semibold text-stone-800">: {activeBank?.bank_name || 'HDFC Bank'}</span>
-                      <span className="text-stone-500">A/C Name</span>
-                      <span className="font-semibold text-stone-800">: {activeBank?.account_name || 'Rudra Jewellers'}</span>
-                      <span className="text-stone-500">A/C No.</span>
-                      <span className="font-semibold font-mono text-stone-800">: {activeBank?.account_number || '50200018899221'}</span>
-                      <span className="text-stone-500">IFSC Code</span>
-                      <span className="font-semibold font-mono text-stone-800">: {activeBank?.ifsc_code || 'HDFC0000124'}</span>
-                      {activeBank?.upi_id && (
-                        <>
-                          <span className="text-stone-500">UPI ID</span>
-                          <span className="font-semibold font-mono text-[#b01622]">: {activeBank.upi_id}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Terms & Conditions */}
-              <div className="space-y-1">
-                <div className="text-[#b01622] font-bold uppercase text-[10px] tracking-wider mb-1">
-                  TERMS & CONDITIONS
-                </div>
-                <ul className="list-disc list-inside space-y-0.5 text-[10px] text-stone-500 leading-snug">
-                  <li>Goods once sold will not be taken back.</li>
-                  <li>Exchange allowed within 7 days with applicable deductions.</li>
-                  <li>We are not responsible for any loss of ornaments after delivery.</li>
-                  <li>Subject to Coimbatore Jurisdiction only.</li>
-                </ul>
-              </div>
-
-              {/* Authorised Signature */}
-              <div className="flex flex-col justify-end items-center text-center space-y-2 pt-4 md:pt-0">
-                <div className="text-[10px] text-stone-500 uppercase font-bold tracking-wider">
-                  FOR RUDRA JEWELLERS
-                </div>
-                <div className="w-36 border-b border-dashed border-stone-400 h-10 flex items-end justify-center">
-                  {/* Signature line space */}
-                </div>
-                <span className="text-[10px] font-bold text-stone-700 uppercase tracking-wider">
-                  Authorised Signature
-                </span>
-              </div>
-            </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </Shell>
@@ -897,19 +1063,250 @@ export default function SalesModule({ view = 'dashboard' }) {
   );
 }
 
+// Helper to build a continuous 7-month trend timeline
+function buildMonthlyTimeline(trendData, metric, maxCount = 7) {
+  let refDate = new Date();
+  if (Array.isArray(trendData) && trendData.length > 0) {
+    const dates = trendData
+      .map((t) => (t.date ? new Date(t.date) : null))
+      .filter((d) => d && !isNaN(d.getTime()));
+    if (dates.length > 0) {
+      const maxDate = new Date(Math.max(...dates.map((d) => d.getTime())));
+      if (maxDate > refDate) refDate = maxDate;
+    }
+  }
+
+  const months = [];
+  for (let i = maxCount - 1; i >= 0; i--) {
+    const d = new Date(refDate.getFullYear(), refDate.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = `${d.toLocaleString('en-US', { month: 'short' })} '${String(d.getFullYear()).slice(-2)}`;
+    months.push({ key, label, val: 0, date: d });
+  }
+
+  if (Array.isArray(trendData)) {
+    trendData.forEach((t) => {
+      let tKey = '';
+      if (t.date) {
+        const td = new Date(t.date);
+        if (!isNaN(td.getTime())) {
+          tKey = `${td.getFullYear()}-${String(td.getMonth() + 1).padStart(2, '0')}`;
+        }
+      }
+      const tLabel = (t.label || '').trim().toLowerCase();
+      const target = months.find((m) => m.key === tKey || (tLabel && m.label.toLowerCase() === tLabel));
+      if (target) {
+        let v = 0;
+        if (metric === 'quantity') v = Number(t.quantity ?? t.qty ?? 0);
+        else if (metric === 'gold_weight') v = Number(t.gold_weight ?? t.gross_wt ?? 0);
+        else if (metric === 'diamond_weight') v = Number(t.diamond_weight ?? t.dia_wt ?? 0);
+        else if (metric === 'invoices') v = Number(t.invoices ?? t.invoice_count ?? 1);
+        else v = Number(t.amount ?? t.total_amount ?? t.val ?? 0);
+        target.val += v;
+      }
+    });
+  }
+
+  return months.map((m) => {
+    let formattedVal = '';
+    if (metric === 'quantity') formattedVal = `${m.val} Pcs`;
+    else if (metric === 'gold_weight') formattedVal = `${m.val.toFixed(3)}g`;
+    else if (metric === 'diamond_weight') formattedVal = `${m.val.toFixed(3)}ct`;
+    else if (metric === 'invoices') formattedVal = `${m.val} Invoices`;
+    else {
+      if (m.val >= 10000000) formattedVal = `₹${(m.val / 10000000).toFixed(2)} Cr`;
+      else if (m.val >= 100000) formattedVal = `₹${(m.val / 100000).toFixed(2)}L`;
+      else formattedVal = `₹${m.val.toLocaleString('en-IN')}`;
+    }
+    return {
+      label: m.label,
+      val: m.val,
+      formattedVal
+    };
+  });
+}
+
+function calculateDynamicYAxis(dataset, metric) {
+  const values = dataset.map((d) => d.val);
+  const rawMax = Math.max(...values, 0);
+  const hasData = rawMax > 0;
+
+  const getNiceCeiling = (max) => {
+    if (max <= 0) return metric === 'amount' ? 100000 : 10;
+    const exp = Math.floor(Math.log10(max));
+    const mag = Math.pow(10, exp);
+    const frac = max / mag;
+    let niceFrac;
+    if (frac <= 1.0) niceFrac = 1.0;
+    else if (frac <= 1.25) niceFrac = 1.25;
+    else if (frac <= 1.5) niceFrac = 1.5;
+    else if (frac <= 2.0) niceFrac = 2.0;
+    else if (frac <= 2.5) niceFrac = 2.5;
+    else if (frac <= 3.0) niceFrac = 3.0;
+    else if (frac <= 4.0) niceFrac = 4.0;
+    else if (frac <= 5.0) niceFrac = 5.0;
+    else if (frac <= 6.0) niceFrac = 6.0;
+    else if (frac <= 8.0) niceFrac = 8.0;
+    else niceFrac = 10.0;
+    return niceFrac * mag;
+  };
+
+  const ceiling = hasData ? getNiceCeiling(rawMax) : (metric === 'amount' ? 100000 : 10);
+
+  const formatTick = (val) => {
+    if (val === 0) return '0';
+    if (metric === 'quantity') return `${Math.round(val)} Pcs`;
+    if (metric === 'gold_weight') return `${val >= 10 ? Math.round(val) : val.toFixed(1)}g`;
+    if (metric === 'diamond_weight') return `${val.toFixed(2)}ct`;
+    if (metric === 'invoices') return `${Math.round(val)}`;
+
+    if (val >= 10000000) {
+      const cr = val / 10000000;
+      return `${cr % 1 === 0 ? cr.toFixed(0) : cr.toFixed(1)} Cr`;
+    }
+    if (val >= 100000) {
+      const lk = val / 100000;
+      return `${lk % 1 === 0 ? lk.toFixed(0) : lk.toFixed(1)}L`;
+    }
+    if (val >= 1000) {
+      const k = val / 1000;
+      return `${k % 1 === 0 ? k.toFixed(0) : k.toFixed(1)}k`;
+    }
+    return `${Math.round(val)}`;
+  };
+
+  const yLabels = [
+    formatTick(ceiling),
+    formatTick(ceiling * 0.75),
+    formatTick(ceiling * 0.5),
+    formatTick(ceiling * 0.25),
+    '0'
+  ];
+
+  const totalPoints = dataset.length;
+  const startX = 42;
+  const endX = 492;
+  const availableWidth = endX - startX;
+  const stepX = totalPoints > 1 ? availableWidth / (totalPoints - 1) : availableWidth;
+
+  const dots = dataset.map((item, idx) => {
+    const cx = Number((startX + idx * stepX).toFixed(1));
+    const cy = Number((160 - (item.val / ceiling) * 136).toFixed(1));
+    return {
+      cx,
+      cy,
+      label: item.label,
+      val: item.val,
+      formattedVal: item.formattedVal
+    };
+  });
+
+  const generateSmoothSpline = (points) => {
+    if (!points || points.length === 0) return { curvePath: '', areaPath: '' };
+    if (points.length === 1) {
+      const p = points[0];
+      return {
+        curvePath: `M ${p.cx},${p.cy}`,
+        areaPath: `M ${p.cx},160 L ${p.cx},${p.cy} L ${p.cx},160 Z`
+      };
+    }
+
+    const tension = 0.22;
+    let d = `M ${points[0].cx},${points[0].cy}`;
+
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = points[i === 0 ? 0 : i - 1];
+      const p1 = points[i];
+      const p2 = points[i + 1];
+      const p3 = points[i + 2 < points.length ? i + 2 : points.length - 1];
+
+      let cp1x = Number((p1.cx + (p2.cx - p0.cx) * tension).toFixed(1));
+      let cp1y = Number((p1.cy + (p2.cy - p0.cy) * tension).toFixed(1));
+
+      let cp2x = Number((p2.cx - (p3.cx - p1.cx) * tension).toFixed(1));
+      let cp2y = Number((p2.cy - (p3.cy - p1.cy) * tension).toFixed(1));
+
+      cp1y = Math.min(160, Math.max(20, cp1y));
+      cp2y = Math.min(160, Math.max(20, cp2y));
+
+      d += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.cx},${p2.cy}`;
+    }
+
+    const first = points[0];
+    const last = points[points.length - 1];
+    const cIndex = d.indexOf('C');
+    const bezierPart = cIndex !== -1 ? d.substring(cIndex) : '';
+    const area = `M ${first.cx},160 L ${first.cx},${first.cy} ${bezierPart} L ${last.cx},160 Z`;
+
+    return { curvePath: d, areaPath: area };
+  };
+
+  const { curvePath, areaPath } = generateSmoothSpline(dots);
+  const polyline = dots.map((d) => `${d.cx},${d.cy}`).join(' ');
+  const polygon = `${startX},160 ${polyline} ${endX},160`;
+
+  return {
+    ceiling,
+    yLabels,
+    dots,
+    polyline,
+    polygon,
+    curvePath,
+    areaPath,
+    hasData,
+    xLabels: dataset.map((d) => d.label)
+  };
+}
+
 function SelectedCustomerSalesReport({ customerName, clients, filters, setFilters, reload, customerData }) {
+  const navigate = useNavigate();
   const [graphMetric, setGraphMetric] = useState('amount');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedCustId, setSelectedCustId] = useState(filters?.client_id || '');
+  const [periodFilter, setPeriodFilter] = useState(filters?.period || 'all');
+  const [customFromDate, setCustomFromDate] = useState(filters?.from || '');
+  const [customToDate, setCustomToDate] = useState(filters?.to || '');
 
-  const dropdownClients = useMemo(() => {
-    return Array.isArray(clients) && clients.length > 0 ? clients : defaultSampleClients;
-  }, [clients]);
+  React.useEffect(() => {
+    if (filters?.client_id) setSelectedCustId(filters.client_id);
+    if (filters?.period) setPeriodFilter(filters.period);
+    if (filters?.from !== undefined) setCustomFromDate(filters.from);
+    if (filters?.to !== undefined) setCustomToDate(filters.to);
+  }, [filters]);
+
+  // Deduplicate clients by both ID and full_name so no duplicates ever appear
+  const uniqueDropdownClients = useMemo(() => {
+    const list = Array.isArray(clients) && clients.length > 0 ? clients : defaultSampleClients;
+    const seen = new Set();
+    const result = [];
+    for (const c of list) {
+      const idKey = String(c.id);
+      const nameKey = (c.full_name || '').trim().toLowerCase();
+      if (!seen.has(idKey) && !seen.has(nameKey)) {
+        seen.add(idKey);
+        if (nameKey) seen.add(nameKey);
+        result.push(c);
+      }
+    }
+    if (selectedCustId && selectedCustId !== 'all') {
+      const match = result.find(c => String(c.id) === String(selectedCustId) || (c.full_name && c.full_name.trim().toLowerCase() === (customerName || '').trim().toLowerCase()));
+      if (!match && customerName) {
+        result.unshift({ id: selectedCustId, full_name: customerName });
+      }
+    }
+    return result;
+  }, [clients, selectedCustId, customerName]);
+
+  const dropdownClients = uniqueDropdownClients;
 
   const handleClearCustomerFilter = () => {
     const next = { ...filters, client_id: 'all', page: 1 };
     setFilters(next);
-    reload(next);
+    if (window.location.pathname.includes('/sales/customers/')) {
+      navigate('/sales/dashboard');
+    } else {
+      reload(next);
+    }
   };
 
   // Real invoices from customerData
@@ -992,95 +1389,23 @@ function SelectedCustomerSalesReport({ customerName, clients, filters, setFilter
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printModalTitle, setPrintModalTitle] = useState('Customer Sales Statement');
 
-  // Dynamic Chart Metric dataset and Y-axis scaling
+  // Dynamic Chart Metric dataset across a rolling 7-month continuous timeline
   const chartDataset = useMemo(() => {
     const rawTrend = Array.isArray(customerData?.trend) ? customerData.trend : [];
-    if (rawTrend.length > 0) {
-      return rawTrend.map((t) => {
-        let val = 0;
-        let formattedVal = '';
-        if (graphMetric === 'quantity') {
-          val = Number(t.quantity || 0);
-          formattedVal = `${val} Pcs`;
-        } else if (graphMetric === 'gold_weight') {
-          val = Number(t.gold_weight || 0);
-          formattedVal = `${val.toFixed(3)}g`;
-        } else if (graphMetric === 'diamond_weight') {
-          val = Number(t.diamond_weight || 0);
-          formattedVal = `${val.toFixed(3)}ct`;
-        } else if (graphMetric === 'invoices') {
-          val = Number(t.invoices || 0);
-          formattedVal = `${val} Invoices`;
-        } else {
-          val = Number(t.amount || 0);
-          formattedVal = val >= 100000 ? `₹${(val / 100000).toFixed(1)}L` : `₹${val.toLocaleString('en-IN')}`;
-        }
-        return {
-          label: t.label || t.date,
-          val,
-          formattedVal
-        };
-      });
-    }
-
-    // Default dynamic past 7 months with 0 if no records
-    const fallbackMonths = [];
-    const now = new Date();
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      fallbackMonths.push(d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }).replace(' ', " '"));
-    }
-    return fallbackMonths.map((m) => {
-      let formattedVal = '₹0';
-      if (graphMetric === 'quantity') formattedVal = '0 Pcs';
-      else if (graphMetric === 'gold_weight') formattedVal = '0.000g';
-      else if (graphMetric === 'diamond_weight') formattedVal = '0.000ct';
-      else if (graphMetric === 'invoices') formattedVal = '0 Invoices';
-      return { label: m, val: 0, formattedVal };
-    });
+    return buildMonthlyTimeline(rawTrend, graphMetric, 7);
   }, [customerData, graphMetric]);
 
+  // Dynamic Y-axis scaling based on maximum sales values
   const chartConfig = useMemo(() => {
-    const values = chartDataset.map(d => d.val);
-    const rawMax = Math.max(...values, 0);
-    const hasData = rawMax > 0;
-    const maxVal = hasData ? rawMax * 1.15 : 1;
-
-    const formatY = (val) => {
-      if (!hasData) return '—';
-      if (graphMetric === 'quantity') return `${Math.round(val)} Pcs`;
-      if (graphMetric === 'gold_weight') return `${val.toFixed(1)}g`;
-      if (graphMetric === 'diamond_weight') return `${val.toFixed(2)}ct`;
-      if (graphMetric === 'invoices') return `${Math.round(val)}`;
-      return val >= 100000 ? `${(val / 100000).toFixed(1)}L` : `${Math.round(val)}`;
-    };
-
-    const yLabels = hasData ? [
-      formatY(maxVal),
-      formatY(maxVal * 0.75),
-      formatY(maxVal * 0.5),
-      formatY(maxVal * 0.25),
-      '0'
-    ] : ['—', '—', '—', '—', '0'];
-
-    const count = Math.max(1, chartDataset.length - 1);
-    const stepX = 456 / count;
-    const dots = chartDataset.map((item, idx) => {
-      const cx = 40 + idx * stepX;
-      const cy = hasData ? 160 - (item.val / maxVal) * 140 : 160;
-      return {
-        cx: Number(cx.toFixed(1)),
-        cy: Number(cy.toFixed(1)),
-        label: item.label,
-        formattedVal: item.formattedVal
-      };
-    });
-
-    const polyline = dots.map(d => `${d.cx},${d.cy}`).join(' ');
-    const polygon = `40,160 ${polyline} 496,160`;
-
-    return { yLabels, dots, polyline, polygon, hasData };
+    return calculateDynamicYAxis(chartDataset, graphMetric);
   }, [chartDataset, graphMetric]);
+
+  // Dynamic top metric totals
+  const totalSalesSum = allInvoices.reduce((acc, inv) => acc + (Number(inv.amount) || 0), 0) || Number(customerData?.stats?.total_purchases || 0);
+  const totalInvoicesCount = allInvoices.length || Number(customerData?.stats?.total_invoices || 0);
+  const totalQuantityCount = allInvoices.reduce((acc, inv) => acc + (Number(inv.qty) || 0), 0) || Number(customerData?.stats?.total_items || 0);
+  const avgOrderVal = totalInvoicesCount > 0 ? (totalSalesSum / totalInvoicesCount) : 0;
+  const avgItemPrice = totalQuantityCount > 0 ? (totalSalesSum / totalQuantityCount) : 0;
 
   return (
     <div className="w-full pb-16 space-y-6 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif] text-gray-800">
@@ -1091,9 +1416,15 @@ function SelectedCustomerSalesReport({ customerName, clients, filters, setFilter
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-xs text-stone-400 font-semibold mb-1">
-            <span>Reports</span>
+            <Link to="/sales/dashboard" className="hover:text-stone-600 transition-colors">Reports</Link>
             <i className="fa-solid fa-chevron-right text-[8px] text-stone-300"></i>
-            <span className="text-stone-600 font-medium">Customer Sales Report</span>
+            <Link to="/sales/dashboard" className="hover:text-stone-600 transition-colors">Customer Sales Report</Link>
+            {customerName && (
+              <>
+                <i className="fa-solid fa-chevron-right text-[8px] text-stone-300"></i>
+                <span className="text-stone-600 font-medium">{customerName}</span>
+              </>
+            )}
           </div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
             Customer Sales Report
@@ -1116,7 +1447,40 @@ function SelectedCustomerSalesReport({ customerName, clients, filters, setFilter
 
           <button
             type="button"
-            onClick={() => {}}
+            onClick={() => {
+              const lines = [
+                [`RUDRA JEWELLERY - CUSTOMER SALES REPORT`],
+                [`Customer: ${customerName}`],
+                [`Period: ${customerData?.active_period?.label || 'All Time'}`],
+                [`Total Sales: Rs. ${totalSalesSum}`],
+                [`Total Invoices: ${totalInvoicesCount}`],
+                [''],
+                ['S No', 'Invoice No', 'Date', 'Items', 'Quantity', 'Gold Weight (g)', 'Diamond Weight (ct)', 'Total Amount (Rs)', 'Payment Mode', 'Status'],
+                ...(allInvoices.length > 0
+                  ? allInvoices.map((inv, idx) => [
+                      idx + 1,
+                      inv.invoice_no,
+                      inv.date,
+                      inv.items,
+                      inv.qty,
+                      inv.gold_wgt,
+                      inv.diamond_wgt,
+                      inv.amount,
+                      inv.payment_mode,
+                      inv.status
+                    ])
+                  : [['', '', '', '', '', '', '', '', '', '']]),
+                ['Total', '', '', '', totalQuantityCount, '', '', totalSalesSum, '', '']
+              ];
+              const csvContent = '\uFEFF' + lines.map((l) => l.map((v) => `"${String(v === null || v === undefined ? '' : v).replaceAll('₹', 'Rs. ').replaceAll('"', '""')}"`).join(',')).join('\n');
+              const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `customer_sales_${(customerName || 'report').toLowerCase().replace(/\s+/g, '_')}_${Date.now()}.csv`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
             className="px-3.5 py-2 bg-white border border-emerald-200 hover:bg-emerald-50 text-emerald-700 text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer"
           >
             <i className="fa-solid fa-file-excel text-emerald-600"></i>
@@ -1134,7 +1498,11 @@ function SelectedCustomerSalesReport({ customerName, clients, filters, setFilter
             <span className="text-[11px] font-semibold text-stone-500 mb-1">Customer Name</span>
             <div className="relative flex items-center bg-white border border-stone-200 rounded-xl px-3 py-2 shadow-2xs w-64">
               <select
-                value={selectedCustId || '1'}
+                value={
+                  selectedCustId ||
+                  uniqueDropdownClients.find(c => (c.full_name || '').trim().toLowerCase() === (customerName || '').trim().toLowerCase())?.id ||
+                  (uniqueDropdownClients[0]?.id ? String(uniqueDropdownClients[0].id) : '')
+                }
                 onChange={(e) => {
                   const val = e.target.value;
                   setSelectedCustId(val);
@@ -1143,61 +1511,128 @@ function SelectedCustomerSalesReport({ customerName, clients, filters, setFilter
                   } else {
                     const next = { ...filters, client_id: val, page: 1 };
                     setFilters(next);
-                    reload(next);
+                    if (window.location.pathname.includes('/sales/customers/')) {
+                      navigate(`/sales/customers/${val}`);
+                    } else {
+                      reload(next);
+                    }
                   }
                 }}
-                className="w-full text-xs font-bold text-stone-900 bg-transparent focus:outline-hidden cursor-pointer pr-4"
+                className="w-full text-xs font-bold text-stone-900 bg-transparent focus:outline-hidden cursor-pointer appearance-none pr-10"
               >
-                <option value="1">{customerName || 'Ramesh Jewellers'}</option>
-                {dropdownClients.map((c) => (
+                {uniqueDropdownClients.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.full_name}
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
-                onClick={handleClearCustomerFilter}
-                className="text-stone-400 hover:text-stone-700 text-xs px-1 cursor-pointer absolute right-3"
-                title="Clear Filter"
-              >
-                <i className="fa-solid fa-xmark"></i>
-              </button>
+              <div className="absolute right-2.5 flex items-center gap-1.5 pointer-events-none">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleClearCustomerFilter();
+                  }}
+                  className="pointer-events-auto text-stone-400 hover:text-stone-700 hover:bg-stone-100 p-0.5 rounded-full text-xs transition-colors cursor-pointer"
+                  title="Clear Filter"
+                >
+                  <i className="fa-solid fa-xmark"></i>
+                </button>
+                <i className="fa-solid fa-chevron-down text-[10px] text-stone-400"></i>
+              </div>
             </div>
           </div>
 
-          {/* Date Range Picker */}
+          {/* Unified Period Filter Dropdown */}
           <div className="flex flex-col">
-            <span className="text-[11px] font-semibold text-stone-500 mb-1">Date Range</span>
-            <div className="inline-flex items-center gap-2 px-3.5 py-2 bg-white border border-stone-200 rounded-xl text-stone-700 font-semibold shadow-2xs">
-              <i className="fa-regular fa-calendar text-stone-400 text-xs"></i>
-              <span className="text-stone-800 font-medium text-xs">01 Apr 2025 - 30 Apr 2025</span>
-              <i className="fa-solid fa-chevron-down text-[10px] text-stone-400"></i>
-            </div>
+            <span className="text-[11px] font-semibold text-stone-500 mb-1">Period</span>
+            <select
+              value={periodFilter}
+              onChange={(e) => {
+                const val = e.target.value;
+                setPeriodFilter(val);
+                if (val !== 'custom') {
+                  setCustomFromDate('');
+                  setCustomToDate('');
+                }
+              }}
+              className="bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-700 font-semibold shadow-2xs focus:outline-hidden cursor-pointer"
+            >
+              <option value="all">All Time</option>
+              <option value="month">This Month</option>
+              <option value="last_month">Last Month</option>
+              <option value="quarter">This Quarter</option>
+              <option value="year">This Financial Year</option>
+              <option value="last_year">Last Financial Year</option>
+              <option value="custom">Custom Date Range</option>
+            </select>
           </div>
 
-          {/* Dropdown Filters */}
-          <div className="flex items-center gap-2 mt-5">
-            <select className="bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-700 font-semibold shadow-2xs focus:outline-hidden cursor-pointer">
-              <option value="monthly">Monthly</option>
-            </select>
-            <select className="bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-700 font-semibold shadow-2xs focus:outline-hidden cursor-pointer">
-              <option value="yearly">Yearly</option>
-            </select>
-          </div>
+          {/* Date Range Display or Custom Date Inputs */}
+          {periodFilter === 'custom' ? (
+            <div className="flex items-center gap-2">
+              <div className="flex flex-col">
+                <span className="text-[11px] font-semibold text-stone-500 mb-1">From Date</span>
+                <input
+                  type="date"
+                  value={customFromDate}
+                  onChange={(e) => setCustomFromDate(e.target.value)}
+                  className="bg-white border border-stone-200 rounded-xl px-3 py-1.5 text-xs text-stone-700 font-semibold shadow-2xs focus:outline-hidden cursor-pointer"
+                />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[11px] font-semibold text-stone-500 mb-1">To Date</span>
+                <input
+                  type="date"
+                  value={customToDate}
+                  onChange={(e) => setCustomToDate(e.target.value)}
+                  className="bg-white border border-stone-200 rounded-xl px-3 py-1.5 text-xs text-stone-700 font-semibold shadow-2xs focus:outline-hidden cursor-pointer"
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col">
+              <span className="text-[11px] font-semibold text-stone-500 mb-1">Date Range</span>
+              <div className="inline-flex items-center gap-2 px-3.5 py-2 bg-stone-50 border border-stone-200 rounded-xl text-stone-700 font-semibold shadow-2xs">
+                <i className="fa-regular fa-calendar text-stone-400 text-xs"></i>
+                <span className="text-stone-800 font-medium text-xs">
+                  {customerData?.active_period?.label || 'All Time'}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Action Buttons: Apply Filter & Reset */}
         <div className="flex items-center gap-2.5 mt-5">
           <button
             type="button"
+            onClick={() => {
+              const next = {
+                ...filters,
+                client_id: selectedCustId,
+                period: periodFilter,
+                from: periodFilter === 'custom' ? customFromDate : '',
+                to: periodFilter === 'custom' ? customToDate : '',
+                page: 1
+              };
+              setFilters(next);
+              reload(next);
+            }}
             className="px-4 py-2 bg-[#b01622] hover:bg-[#8e111a] text-white text-xs font-bold rounded-xl shadow-2xs transition-all cursor-pointer"
           >
             Apply Filter
           </button>
           <button
             type="button"
-            onClick={handleClearCustomerFilter}
+            onClick={() => {
+              setPeriodFilter('all');
+              setCustomFromDate('');
+              setCustomToDate('');
+              const next = { ...filters, client_id: selectedCustId, period: 'all', from: '', to: '', page: 1 };
+              setFilters(next);
+              reload(next);
+            }}
             className="px-3.5 py-2 bg-white border border-stone-200 hover:bg-stone-50 text-stone-700 text-xs font-semibold rounded-xl shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer"
           >
             <i className="fa-solid fa-rotate-left text-stone-400 text-[11px]"></i>
@@ -1206,7 +1641,7 @@ function SelectedCustomerSalesReport({ customerName, clients, filters, setFilter
         </div>
       </div>
 
-      {/* 3. Top 5 Metric Cards matching screenshot */}
+      {/* 3. Top 5 Metric Cards dynamically linked to data */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Card 1: Total Sales Amount */}
         <div className="bg-white border border-stone-200/90 rounded-2xl p-4 shadow-2xs flex items-center gap-3">
@@ -1216,12 +1651,18 @@ function SelectedCustomerSalesReport({ customerName, clients, filters, setFilter
           <div>
             <span className="text-[11px] font-medium text-stone-500 block">Total Sales Amount</span>
             <div className="text-base font-bold text-stone-900 font-mono tracking-tight">
-              ₹ 28,45,600.00
+              ₹ {Number(totalSalesSum).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </div>
-            <div className="flex items-center gap-1 text-[10px] font-semibold text-emerald-600 mt-0.5">
-              <span>▲ 12.5%</span>
-              <span className="text-stone-400 font-normal">vs Previous Period</span>
-            </div>
+            {(() => {
+              const m = customerData?.metrics?.sales || { change: '0.0%', is_increase: true, vs_label: 'vs Previous Period' };
+              const isInc = m.is_increase !== false;
+              return (
+                <div className={`flex items-center gap-1 text-[10px] font-semibold mt-0.5 ${isInc ? 'text-emerald-600' : 'text-rose-500'}`}>
+                  <span>{isInc ? '▲' : '▼'} {m.change}</span>
+                  <span className="text-stone-400 font-normal">{m.vs_label || 'vs Previous Period'}</span>
+                </div>
+              );
+            })()}
           </div>
         </div>
 
@@ -1233,12 +1674,18 @@ function SelectedCustomerSalesReport({ customerName, clients, filters, setFilter
           <div>
             <span className="text-[11px] font-medium text-stone-500 block">Total Invoices</span>
             <div className="text-base font-bold text-stone-900 font-mono tracking-tight">
-              156
+              {Number(totalInvoicesCount).toLocaleString('en-IN')}
             </div>
-            <div className="flex items-center gap-1 text-[10px] font-semibold text-emerald-600 mt-0.5">
-              <span>▲ 8.7%</span>
-              <span className="text-stone-400 font-normal">vs Previous Period</span>
-            </div>
+            {(() => {
+              const m = customerData?.metrics?.invoices || { change: '0.0%', is_increase: true, vs_label: 'vs Previous Period' };
+              const isInc = m.is_increase !== false;
+              return (
+                <div className={`flex items-center gap-1 text-[10px] font-semibold mt-0.5 ${isInc ? 'text-emerald-600' : 'text-rose-500'}`}>
+                  <span>{isInc ? '▲' : '▼'} {m.change}</span>
+                  <span className="text-stone-400 font-normal">{m.vs_label || 'vs Previous Period'}</span>
+                </div>
+              );
+            })()}
           </div>
         </div>
 
@@ -1250,12 +1697,18 @@ function SelectedCustomerSalesReport({ customerName, clients, filters, setFilter
           <div>
             <span className="text-[11px] font-medium text-stone-500 block">Total Quantity (Pcs)</span>
             <div className="text-base font-bold text-stone-900 font-mono tracking-tight">
-              842
+              {Number(totalQuantityCount).toLocaleString('en-IN')}
             </div>
-            <div className="flex items-center gap-1 text-[10px] font-semibold text-emerald-600 mt-0.5">
-              <span>▲ 6.3%</span>
-              <span className="text-stone-400 font-normal">vs Previous Period</span>
-            </div>
+            {(() => {
+              const m = customerData?.metrics?.quantity || { change: '0.0%', is_increase: true, vs_label: 'vs Previous Period' };
+              const isInc = m.is_increase !== false;
+              return (
+                <div className={`flex items-center gap-1 text-[10px] font-semibold mt-0.5 ${isInc ? 'text-emerald-600' : 'text-rose-500'}`}>
+                  <span>{isInc ? '▲' : '▼'} {m.change}</span>
+                  <span className="text-stone-400 font-normal">{m.vs_label || 'vs Previous Period'}</span>
+                </div>
+              );
+            })()}
           </div>
         </div>
 
@@ -1267,12 +1720,18 @@ function SelectedCustomerSalesReport({ customerName, clients, filters, setFilter
           <div>
             <span className="text-[11px] font-medium text-stone-500 block">Average Order Value</span>
             <div className="text-base font-bold text-stone-900 font-mono tracking-tight">
-              ₹ 18,240.00
+              ₹ {Number(avgOrderVal).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </div>
-            <div className="flex items-center gap-1 text-[10px] font-semibold text-emerald-600 mt-0.5">
-              <span>▲ 10.4%</span>
-              <span className="text-stone-400 font-normal">vs Previous Period</span>
-            </div>
+            {(() => {
+              const m = customerData?.metrics?.avg_order_value || { change: '0.0%', is_increase: true, vs_label: 'vs Previous Period' };
+              const isInc = m.is_increase !== false;
+              return (
+                <div className={`flex items-center gap-1 text-[10px] font-semibold mt-0.5 ${isInc ? 'text-emerald-600' : 'text-rose-500'}`}>
+                  <span>{isInc ? '▲' : '▼'} {m.change}</span>
+                  <span className="text-stone-400 font-normal">{m.vs_label || 'vs Previous Period'}</span>
+                </div>
+              );
+            })()}
           </div>
         </div>
 
@@ -1284,12 +1743,18 @@ function SelectedCustomerSalesReport({ customerName, clients, filters, setFilter
           <div>
             <span className="text-[11px] font-medium text-stone-500 block">Average Item Price</span>
             <div className="text-base font-bold text-stone-900 font-mono tracking-tight">
-              ₹ 18,240.00
+              ₹ {Number(avgItemPrice).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </div>
-            <div className="flex items-center gap-1 text-[10px] font-semibold text-emerald-600 mt-0.5">
-              <span>▲ 10.4%</span>
-              <span className="text-stone-400 font-normal">vs Previous Period</span>
-            </div>
+            {(() => {
+              const m = customerData?.metrics?.avg_item_price || { change: '0.0%', is_increase: true, vs_label: 'vs Previous Period' };
+              const isInc = m.is_increase !== false;
+              return (
+                <div className={`flex items-center gap-1 text-[10px] font-semibold mt-0.5 ${isInc ? 'text-emerald-600' : 'text-rose-500'}`}>
+                  <span>{isInc ? '▲' : '▼'} {m.change}</span>
+                  <span className="text-stone-400 font-normal">{m.vs_label || 'vs Previous Period'}</span>
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>
@@ -1336,23 +1801,34 @@ function SelectedCustomerSalesReport({ customerName, clients, filters, setFilter
                 <line key={i} x1="40" y1={y} x2="500" y2={y} stroke="#f1f1f1" strokeDasharray="3 3" />
               ))}
 
-              {/* Dynamic Y-axis Labels */}
+              {/* Dynamic Y-axis Labels on Left */}
               {chartConfig.yLabels.map((lbl, idx) => (
-                <text key={idx} x="34" y={24 + idx * 35} fill="#888888" fontSize="9.5" fontWeight="600" textAnchor="end">
+                <text key={idx} x="34" y={24 + idx * 34} fill="#888888" fontSize="9.5" fontWeight="600" textAnchor="end">
                   {lbl}
                 </text>
               ))}
 
-              {/* Dynamic Gradient Area Polygon */}
-              <polygon points={chartConfig.polygon} fill="url(#customerTrendGrad)" />
+              {/* Dynamic Gradient Area Curved Path */}
+              <path d={chartConfig.areaPath} fill="url(#customerTrendGrad)" />
 
-              {/* Dynamic Red Line */}
-              <polyline points={chartConfig.polyline} fill="none" stroke="#b01622" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+              {/* Dynamic Red Curved Line */}
+              <path d={chartConfig.curvePath} fill="none" stroke="#b01622" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
 
               {/* Dynamic Interactive Dots */}
               {chartConfig.dots.map((d, idx) => (
                 <g key={idx} className="group cursor-pointer">
-                  <circle cx={d.cx} cy={d.cy} r="4" fill="#b01622" stroke="#ffffff" strokeWidth="2" />
+                  {d.val > 0 && (
+                    <circle cx={d.cx} cy={d.cy} r="6" fill="#b01622" fillOpacity="0.2" className="animate-pulse" />
+                  )}
+                  <circle
+                    cx={d.cx}
+                    cy={d.cy}
+                    r={d.val > 0 ? 4 : 2.5}
+                    fill={d.val > 0 ? "#b01622" : "#d6d3d1"}
+                    stroke="#ffffff"
+                    strokeWidth={d.val > 0 ? 2 : 1.5}
+                    className="transition-all hover:scale-125"
+                  />
                   <title>{`${d.label}: ${d.formattedVal}`}</title>
                 </g>
               ))}
@@ -1567,7 +2043,19 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
   const profitSummary = dashboard?.profitSummary || summary || {};
 
   const dropdownClients = useMemo(() => {
-    return Array.isArray(clients) && clients.length > 0 ? clients : [];
+    const list = Array.isArray(clients) && clients.length > 0 ? clients : [];
+    const seen = new Set();
+    const result = [];
+    for (const c of list) {
+      const idKey = String(c.id);
+      const nameKey = (c.full_name || '').trim().toLowerCase();
+      if (!seen.has(idKey) && !seen.has(nameKey)) {
+        seen.add(idKey);
+        if (nameKey) seen.add(nameKey);
+        result.push(c);
+      }
+    }
+    return result;
   }, [clients]);
 
   const selectedCustomerId = filters.client_id && filters.client_id !== 'all' ? String(filters.client_id) : 'all';
@@ -1588,7 +2076,9 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
 
   const totalCustomersVal = isFiltered
     ? 1
-    : Number(summary.customers || dropdownClients.length || 0);
+    : (summary.customers !== undefined && summary.customers !== null && Number(summary.customers) > 0
+        ? Number(summary.customers)
+        : (dashboard?.rows?.total ?? filteredRows.length));
 
   const totalInvoicesVal = filteredRows.reduce((acc, r) => acc + Number(r.invoice_count || 0), 0);
 
@@ -1599,115 +2089,45 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
   const gstVal = isFiltered ? roundNum((goldValueVal + makingChargesVal + stoneChargesVal - discountVal) * 0.03) : Number(invoiceSummary.gst || 0);
   const grandTotalVal = isFiltered ? roundNum(goldValueVal + makingChargesVal + stoneChargesVal - discountVal + gstVal) : Number(invoiceSummary.grand_total || 0);
 
-  // Dynamic Chart Calculations based on graphMetric and real trend data from database
+  // Dynamic Chart Calculations across continuous 7-month timeline with dynamic scaling
   const chartDataset = useMemo(() => {
-    const getRecentMonths = (count = 7) => {
-      const list = [];
-      const now = new Date();
-      for (let i = count - 1; i >= 0; i--) {
-        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const label = d.toLocaleString('en-US', { month: 'short' }) + " '" + String(d.getFullYear()).slice(-2);
-        list.push({ label, val: 0, formattedVal: '0' });
-      }
-      return list;
-    };
-
     if (activeSubTab === 'yearly') {
+      const curYear = new Date().getFullYear();
+      const years = [
+        { label: String(curYear - 2), val: 0 },
+        { label: String(curYear - 1), val: 0 },
+        { label: String(curYear), val: 0 }
+      ];
       if (Array.isArray(trend) && trend.length > 0) {
-        const yearMap = {};
         trend.forEach((t) => {
           const yr = t.date ? new Date(t.date).getFullYear() : new Date().getFullYear();
-          const label = String(yr);
-          const v = Number(t[graphMetric] ?? t.amount ?? 0);
-          if (!yearMap[label]) yearMap[label] = { label, val: 0 };
-          yearMap[label].val += v;
+          const target = years.find((y) => y.label === String(yr));
+          if (target) {
+            let v = 0;
+            if (graphMetric === 'quantity') v = Number(t.quantity ?? t.qty ?? 0);
+            else if (graphMetric === 'gold_weight') v = Number(t.gold_weight ?? t.gross_wt ?? 0);
+            else if (graphMetric === 'diamond_weight') v = Number(t.diamond_weight ?? t.dia_wt ?? 0);
+            else if (graphMetric === 'invoices') v = Number(t.invoices ?? t.invoice_count ?? 1);
+            else v = Number(t.amount ?? t.total_amount ?? 0);
+            target.val += v;
+          }
         });
-        return Object.values(yearMap);
       }
-      const curYear = new Date().getFullYear();
-      return [
-        { label: String(curYear - 2), val: 0, formattedVal: '0' },
-        { label: String(curYear - 1), val: 0, formattedVal: '0' },
-        { label: String(curYear), val: 0, formattedVal: '0' }
-      ];
+      return years.map((y) => ({
+        label: y.label,
+        val: y.val,
+        formattedVal: graphMetric === 'amount' ? `₹${Number(y.val).toLocaleString('en-IN')}` :
+          graphMetric === 'quantity' ? `${y.val} Pcs` :
+          graphMetric === 'gold_weight' ? `${y.val.toFixed(3)}g` :
+          graphMetric === 'diamond_weight' ? `${y.val.toFixed(3)}ct` : `${y.val} Invoices`
+      }));
     }
 
-    if (Array.isArray(trend) && trend.length > 0) {
-      return trend.map((t) => {
-        const label = t.label || (t.date ? new Date(t.date).toLocaleString('en-US', { month: 'short' }) + " '" + String(new Date(t.date).getFullYear()).slice(-2) : '—');
-        const rawVal = Number(t[graphMetric] ?? t.amount ?? t.value ?? 0);
-        return {
-          label,
-          val: rawVal,
-          formattedVal: graphMetric === 'amount' ? `₹${Number(rawVal).toLocaleString('en-IN')}` :
-            graphMetric === 'quantity' ? `${rawVal} Pcs` :
-            graphMetric === 'gold_weight' ? `${rawVal}g` :
-            graphMetric === 'diamond_weight' ? `${rawVal}ct` : `${rawVal} Invoices`
-        };
-      });
-    }
-
-    // Default when no sales data exists: dynamic recent months with val: 0
-    return getRecentMonths(7);
+    return buildMonthlyTimeline(trend, graphMetric, 7);
   }, [trend, graphMetric, activeSubTab]);
 
   const chartConfig = useMemo(() => {
-    const values = chartDataset.map((d) => d.val);
-    const rawMax = Math.max(...values, 0);
-    const hasData = rawMax > 0;
-    const maxVal = hasData ? Math.ceil(rawMax * 1.15) : 100;
-
-    const formatY = (val) => {
-      if (!hasData) return '0';
-      if (graphMetric === 'quantity') return `${Math.round(val)} Pcs`;
-      if (graphMetric === 'gold_weight') return `${Math.round(val)}g`;
-      if (graphMetric === 'diamond_weight') return `${Math.round(val)}ct`;
-      if (graphMetric === 'invoices') return `${Math.round(val)}`;
-      if (val >= 10000000) return `₹${(val / 10000000).toFixed(1)}Cr`;
-      if (val >= 100000) return `${(val / 100000).toFixed(val % 100000 === 0 ? 0 : 1)}L`;
-      if (val >= 1000) return `${(val / 1000).toFixed(0)}k`;
-      return `₹${Math.round(val)}`;
-    };
-
-    const yLabels = hasData ? [
-      formatY(maxVal),
-      formatY(maxVal * 0.75),
-      formatY(maxVal * 0.5),
-      formatY(maxVal * 0.25),
-      '0',
-    ] : ['—', '—', '—', '—', '0'];
-
-    const count = chartDataset.length;
-    const stepX = count > 1 ? 440 / (count - 1) : 220;
-
-    const dots = chartDataset.map((item, idx) => {
-      const cx = 40 + idx * stepX;
-      const cy = hasData ? 160 - (item.val / Math.max(maxVal, 1)) * 140 : 160;
-      return {
-        cx: Number(cx.toFixed(1)),
-        cy: Number(cy.toFixed(1)),
-        label: item.label,
-        val: item.val,
-        formattedVal: graphMetric === 'amount' ? `₹${Number(item.val).toLocaleString('en-IN')}` :
-          graphMetric === 'quantity' ? `${item.val} Pcs` :
-          graphMetric === 'gold_weight' ? `${item.val}g` :
-          graphMetric === 'diamond_weight' ? `${item.val}ct` : `${item.val} Invoices`
-      };
-    });
-
-    const polyline = dots.map((d) => `${d.cx},${d.cy}`).join(' ');
-    const firstX = dots[0]?.cx || 40;
-    const lastX = dots[dots.length - 1]?.cx || 480;
-    const polygon = `${firstX},160 ${polyline} ${lastX},160`;
-
-    return {
-      hasData,
-      yLabels,
-      dots,
-      polyline,
-      polygon,
-      xLabels: chartDataset.map((d) => d.label),
-    };
+    return calculateDynamicYAxis(chartDataset, graphMetric);
   }, [chartDataset, graphMetric]);
 
   // Pagination calculations
@@ -1733,6 +2153,9 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
 
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printModalTitle, setPrintModalTitle] = useState('Customer Sales Statement');
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [customStartDate, setCustomStartDate] = useState(filters?.from || '');
+  const [customEndDate, setCustomEndDate] = useState(filters?.to || '');
 
   // Export 1: Export PDF
   const handleExportPdf = () => {
@@ -1744,8 +2167,8 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
   const handleExportExcel = () => {
     const selectedCustName = isFiltered ? (dropdownClients.find((c) => String(c.id) === selectedCustomerId)?.full_name || 'Selected Customer') : 'All Customers';
     const lines = [
-      [`RUDRA JEWELLERS - CUSTOMER SALES REPORT`],
-      [`Date Range: ${filters.from || '2025-04-01'} to ${filters.to || '2025-04-30'}`],
+      [`RUDRA JEWELLERY - CUSTOMER SALES REPORT`],
+      [`Date Range: ${dashboard?.active_period?.label || 'All Time'}`],
       [`Customer Filter: ${selectedCustName}`],
       [`Total Sales Amount (Rs): ${totalSalesAmountVal}`],
       [`Total Invoices: ${totalInvoicesVal}`],
@@ -1789,6 +2212,26 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
     return (
       <SelectedCustomerSalesReport
         customerName={selectedCustObj?.full_name || 'Ramesh Jewellers'}
+        customerData={{
+          ...dashboard,
+          stats: {
+            total_purchases: totalSalesAmountVal,
+            total_invoices: totalInvoicesVal,
+            paid_amount: dashboard?.summary?.paid_amount || totalSalesAmountVal,
+            due_amount: dashboard?.summary?.due_amount || 0,
+          },
+          sales: filteredRows.map((r) => ({
+            id: r.id,
+            invoice_no: r.invoice_no,
+            invoice_date: r.last_sale_date,
+            total_amount: r.total_amount,
+            status: 'paid',
+            items: [{ quantity: r.quantity, gross_wt: r.gold_weight, dia_wt: r.diamond_weight }]
+          })),
+          trend: dashboard?.trend || [],
+          metrics: dashboard?.metrics,
+          active_period: dashboard?.active_period
+        }}
         clients={dropdownClients}
         filters={filters}
         setFilters={setFilters}
@@ -1820,15 +2263,108 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
 
         {/* Top Filters & Export Actions matching Image 2 */}
         <div className="flex flex-wrap items-center gap-2.5 text-xs">
-          {/* Date Range Picker Pill matching 01 Apr 2025 - 30 Apr 2025 */}
-          <div className="inline-flex items-center gap-2 px-3.5 py-2 bg-white border border-stone-200 rounded-xl text-stone-700 font-semibold shadow-2xs">
-            <i className="fa-regular fa-calendar text-stone-400 text-xs"></i>
-            <span className="text-stone-800 font-medium text-xs">01 Apr 2025 - 30 Apr 2025</span>
-            <i className="fa-solid fa-chevron-down text-[10px] text-stone-400"></i>
+          {/* Date Range Picker Dropdown */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowDatePicker(!showDatePicker)}
+              className="inline-flex items-center gap-2 px-3.5 py-2 bg-white border border-stone-200 hover:border-stone-300 rounded-xl text-stone-700 font-semibold shadow-2xs cursor-pointer transition-all"
+            >
+              <i className="fa-regular fa-calendar text-stone-400 text-xs"></i>
+              <span className="text-stone-800 font-medium text-xs">
+                {dashboard?.active_period?.label || (filters.from && filters.to ? `${filters.from} - ${filters.to}` : 'All Time')}
+              </span>
+              <i className={`fa-solid fa-chevron-down text-[10px] text-stone-400 transition-transform ${showDatePicker ? 'rotate-180' : ''}`}></i>
+            </button>
+
+            {showDatePicker && (
+              <div className="absolute right-0 top-full mt-2 w-72 bg-white border border-stone-200 rounded-2xl shadow-xl z-50 p-4 space-y-3">
+                <div className="flex items-center justify-between border-b border-stone-100 pb-2">
+                  <span className="text-xs font-bold text-stone-900">Select Period</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowDatePicker(false)}
+                    className="text-stone-400 hover:text-stone-600 text-xs cursor-pointer"
+                  >
+                    <i className="fa-solid fa-xmark"></i>
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5 text-xs">
+                  {[
+                    { key: 'all', label: 'All Time' },
+                    { key: 'month', label: 'This Month' },
+                    { key: 'last_month', label: 'Last Month' },
+                    { key: 'quarter', label: 'This Quarter' },
+                    { key: 'year', label: 'This FY' },
+                    { key: 'last_year', label: 'Last FY' },
+                  ].map((preset) => (
+                    <button
+                      key={preset.key}
+                      type="button"
+                      onClick={() => {
+                        setShowDatePicker(false);
+                        const next = { ...filters, period: preset.key, from: '', to: '', page: 1 };
+                        setFilters(next);
+                        reload(next);
+                      }}
+                      className={`px-2.5 py-1.5 rounded-lg text-left font-medium transition-colors cursor-pointer ${
+                        (filters.period || 'all') === preset.key
+                          ? 'bg-red-50 text-[#b01622] font-bold'
+                          : 'hover:bg-stone-50 text-stone-700'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="border-t border-stone-100 pt-2 space-y-2">
+                  <span className="text-[11px] font-bold text-stone-500 block">Custom Date Range</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <span className="text-[10px] text-stone-400 block mb-0.5">From</span>
+                      <input
+                        type="date"
+                        value={customStartDate}
+                        onChange={(e) => setCustomStartDate(e.target.value)}
+                        className="w-full text-[11px] border border-stone-200 rounded-lg px-2 py-1 font-medium focus:outline-hidden"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-stone-400 block mb-0.5">To</span>
+                      <input
+                        type="date"
+                        value={customEndDate}
+                        onChange={(e) => setCustomEndDate(e.target.value)}
+                        className="w-full text-[11px] border border-stone-200 rounded-lg px-2 py-1 font-medium focus:outline-hidden"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!customStartDate || !customEndDate}
+                    onClick={() => {
+                      setShowDatePicker(false);
+                      const next = {
+                        ...filters,
+                        period: 'custom',
+                        from: customStartDate,
+                        to: customEndDate,
+                        page: 1
+                      };
+                      setFilters(next);
+                      reload(next);
+                    }}
+                    className="w-full mt-1 px-3 py-1.5 bg-[#b01622] hover:bg-[#8e111a] disabled:opacity-40 text-white font-bold text-xs rounded-lg transition-all cursor-pointer shadow-2xs"
+                  >
+                    Apply Range
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Customer Dropdown */}
-          <div className="flex items-center gap-1.5 px-3 py-2 bg-white border border-stone-200 rounded-xl shadow-2xs">
+          <div className="relative flex items-center px-3 py-2 bg-white border border-stone-200 rounded-xl shadow-2xs">
             <select
               value={selectedCustomerId}
               onChange={(e) => {
@@ -1836,7 +2372,7 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
                 setFilters(next);
                 reload(next);
               }}
-              className="bg-transparent text-xs text-stone-800 font-semibold focus:outline-hidden cursor-pointer"
+              className="bg-transparent text-xs text-stone-800 font-semibold focus:outline-hidden cursor-pointer appearance-none pr-6"
             >
               <option value="all">All Customers</option>
               {dropdownClients.map((c) => (
@@ -1845,6 +2381,7 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
                 </option>
               ))}
             </select>
+            <i className="fa-solid fa-chevron-down text-[10px] text-stone-400 absolute right-2.5 pointer-events-none"></i>
           </div>
 
           {/* Export PDF */}
@@ -1881,10 +2418,16 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
             <div className="text-xl font-bold text-stone-900 font-mono tracking-tight mt-0.5">
               ₹ {Number(totalSalesAmountVal).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </div>
-            <div className="flex items-center gap-1 text-[11px] font-semibold text-emerald-600 mt-1">
-              <span>▲ 12.5%</span>
-              <span className="text-stone-400 font-normal">vs Previous Period</span>
-            </div>
+            {(() => {
+              const m = dashboard?.metrics?.sales || { change: '0.0%', is_increase: true, vs_label: 'vs Previous Period' };
+              const isInc = m.is_increase !== false;
+              return (
+                <div className={`flex items-center gap-1 text-[11px] font-semibold mt-1 ${isInc ? 'text-emerald-600' : 'text-rose-500'}`}>
+                  <span>{isInc ? '▲' : '▼'} {m.change}</span>
+                  <span className="text-stone-400 font-normal">{m.vs_label || 'vs Previous Period'}</span>
+                </div>
+              );
+            })()}
           </div>
         </div>
 
@@ -1898,10 +2441,16 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
             <div className="text-xl font-bold text-stone-900 font-mono tracking-tight mt-0.5">
               {Number(totalCustomersVal).toLocaleString('en-IN')}
             </div>
-            <div className="flex items-center gap-1 text-[11px] font-semibold text-emerald-600 mt-1">
-              <span>▲ 5.3%</span>
-              <span className="text-stone-400 font-normal">vs Previous Period</span>
-            </div>
+            {(() => {
+              const m = dashboard?.metrics?.customers || { change: '0.0%', is_increase: true, vs_label: 'vs Previous Period' };
+              const isInc = m.is_increase !== false;
+              return (
+                <div className={`flex items-center gap-1 text-[11px] font-semibold mt-1 ${isInc ? 'text-emerald-600' : 'text-rose-500'}`}>
+                  <span>{isInc ? '▲' : '▼'} {m.change}</span>
+                  <span className="text-stone-400 font-normal">{m.vs_label || 'vs Previous Period'}</span>
+                </div>
+              );
+            })()}
           </div>
         </div>
 
@@ -1915,10 +2464,16 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
             <div className="text-xl font-bold text-stone-900 font-mono tracking-tight mt-0.5">
               {Number(totalInvoicesVal).toLocaleString('en-IN')}
             </div>
-            <div className="flex items-center gap-1 text-[11px] font-semibold text-emerald-600 mt-1">
-              <span>▲ 8.7%</span>
-              <span className="text-stone-400 font-normal">vs Previous Period</span>
-            </div>
+            {(() => {
+              const m = dashboard?.metrics?.invoices || { change: '0.0%', is_increase: true, vs_label: 'vs Previous Period' };
+              const isInc = m.is_increase !== false;
+              return (
+                <div className={`flex items-center gap-1 text-[11px] font-semibold mt-1 ${isInc ? 'text-emerald-600' : 'text-rose-500'}`}>
+                  <span>{isInc ? '▲' : '▼'} {m.change}</span>
+                  <span className="text-stone-400 font-normal">{m.vs_label || 'vs Previous Period'}</span>
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>
@@ -2012,12 +2567,12 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
                 );
               })}
 
-              {/* Gradient Area Polygon */}
-              <polygon points={chartConfig.polygon} fill="url(#salesOverviewGrad)" />
+              {/* Gradient Area Curved Path */}
+              <path d={chartConfig.areaPath} fill="url(#salesOverviewGrad)" />
 
-              {/* Red Line */}
-              <polyline
-                points={chartConfig.polyline}
+              {/* Red Curved Line */}
+              <path
+                d={chartConfig.curvePath}
                 fill="none"
                 stroke="#b01622"
                 strokeWidth="2.5"
@@ -2028,7 +2583,18 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
               {/* Interactive Data points (dots with tooltips) */}
               {chartConfig.dots.map((d, idx) => (
                 <g key={idx} className="group cursor-pointer">
-                  <circle cx={d.cx} cy={d.cy} r="4" fill="#b01622" stroke="#ffffff" strokeWidth="2" className="transition-all hover:scale-125" />
+                  {d.val > 0 && (
+                    <circle cx={d.cx} cy={d.cy} r="6" fill="#b01622" fillOpacity="0.2" className="animate-pulse" />
+                  )}
+                  <circle
+                    cx={d.cx}
+                    cy={d.cy}
+                    r={d.val > 0 ? 4 : 2.5}
+                    fill={d.val > 0 ? "#b01622" : "#d6d3d1"}
+                    stroke="#ffffff"
+                    strokeWidth={d.val > 0 ? 2 : 1.5}
+                    className="transition-all hover:scale-125"
+                  />
                   <title>{`${d.label}: ${d.formattedVal}`}</title>
                 </g>
               ))}
@@ -2081,126 +2647,288 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
         </div>
       </div>
 
-      {/* 5. Bottom Table: Customer Wise Sales Report matching Image 2 */}
-      <section className="bg-white border border-stone-200/90 rounded-2xl overflow-hidden shadow-2xs">
-        <div className="px-5 py-4 border-b border-stone-200">
-          <h2 className="text-sm font-bold text-gray-900">
-            Customer Wise Sales Report
-          </h2>
-        </div>
+      {/* 5. Bottom Table: Sub-tab content */}
+      {activeSubTab === 'monthly' ? (
+        <section className="bg-white border border-stone-200/90 rounded-2xl overflow-hidden shadow-2xs">
+          <div className="px-5 py-4 border-b border-stone-200 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-bold text-gray-900">Monthly Sales Statement</h2>
+              <p className="text-[11px] text-stone-500">Month-on-month consolidated sales breakdown and performance</p>
+            </div>
+            <span className="text-xs font-semibold text-stone-500 bg-stone-100 px-3 py-1 rounded-lg">
+              {dashboard?.monthly_statement?.length || 0} Months
+            </span>
+          </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left">
-            <thead className="bg-stone-50 text-stone-500 uppercase text-[10px] font-bold tracking-wider border-b border-stone-200">
-              <tr>
-                <th className="px-4 py-3 text-center w-14">S.No</th>
-                <th className="px-4 py-3">Customer Name</th>
-                <th className="px-4 py-3 text-center">No. of Invoices</th>
-                <th className="px-4 py-3 text-center">Total Quantity (Pcs)</th>
-                <th className="px-4 py-3 text-center">Total Gold (Wgt)</th>
-                <th className="px-4 py-3 text-center">Total Diamond (Wgt)</th>
-                <th className="px-4 py-3 text-right">Total Sales Amount (₹)</th>
-                <th className="px-4 py-3 text-center">Last Sale Date</th>
-                <th className="px-4 py-3 text-center w-24">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-stone-100">
-              {tableRows.length > 0 ? (
-                tableRows.map((row, index) => (
-                  <tr key={`${row.client_name}-${index}`} className="hover:bg-stone-50/80 transition-colors">
-                    <td className="px-4 py-3 text-center font-medium text-stone-500">
-                      {(currentPage - 1) * itemsPerPage + index + 1}
-                    </td>
-                    <td className="px-4 py-3 font-bold text-gray-900">{row.client_name}</td>
-                    <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.invoice_count}</td>
-                    <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.quantity}</td>
-                    <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.gold_weight}</td>
-                    <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.diamond_weight}</td>
-                    <td className="px-4 py-3 text-right font-bold text-stone-900">₹ {Number(row.total_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                    <td className="px-4 py-3 text-center text-stone-500">{dateText(row.last_sale_date)}</td>
-                    <td className="px-4 py-3 text-center">
-                      <Link
-                        to={`/sales/customers/${row.client_id || index + 1}`}
-                        className="inline-block px-3 py-1 bg-white border border-red-300 text-red-700 hover:bg-red-50 text-xs font-bold rounded-lg transition-all cursor-pointer"
-                      >
-                        View
-                      </Link>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-stone-50 text-stone-500 uppercase text-[10px] font-bold tracking-wider border-b border-stone-200">
+                <tr>
+                  <th className="px-4 py-3 text-center w-14">S.No</th>
+                  <th className="px-4 py-3">Month</th>
+                  <th className="px-4 py-3 text-center">No. of Invoices</th>
+                  <th className="px-4 py-3 text-center">Total Quantity (Pcs)</th>
+                  <th className="px-4 py-3 text-center">Total Gold (Wgt)</th>
+                  <th className="px-4 py-3 text-center">Total Diamond (Wgt)</th>
+                  <th className="px-4 py-3 text-right">Total Sales Amount (₹)</th>
+                  <th className="px-4 py-3 text-right">Avg Sale / Invoice (₹)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {(dashboard?.monthly_statement || []).length > 0 ? (
+                  dashboard.monthly_statement.map((m, index) => (
+                    <tr key={m.period_key || index} className="hover:bg-stone-50/80 transition-colors">
+                      <td className="px-4 py-3 text-center font-medium text-stone-500">{index + 1}</td>
+                      <td className="px-4 py-3 font-bold text-gray-900">{m.label}</td>
+                      <td className="px-4 py-3 text-center text-stone-700 font-medium">{m.invoices}</td>
+                      <td className="px-4 py-3 text-center text-stone-700 font-medium">{m.quantity}</td>
+                      <td className="px-4 py-3 text-center text-stone-700 font-medium">{m.gold_weight}</td>
+                      <td className="px-4 py-3 text-center text-stone-700 font-medium">{m.diamond_weight}</td>
+                      <td className="px-4 py-3 text-right font-bold text-stone-900">
+                        ₹ {Number(m.total_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-4 py-3 text-right font-semibold text-stone-700">
+                        ₹ {Number(m.avg_sale).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="8" className="px-4 py-12 text-center text-stone-500">
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <i className="fa-solid fa-calendar-xmark text-2xl text-stone-300"></i>
+                        <span className="text-sm font-semibold text-stone-700">No Monthly Records Found</span>
+                      </div>
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan="9" className="px-4 py-12 text-center text-stone-500">
-                    <div className="flex flex-col items-center justify-center space-y-3">
-                      <div className="w-12 h-12 rounded-full bg-red-50 text-[#b01622] flex items-center justify-center text-xl">
-                        <i className="fa-solid fa-folder-open"></i>
-                      </div>
-                      <div className="text-sm font-bold text-stone-800">No Sales Data Available</div>
-                      <p className="text-xs text-stone-400 max-w-md">
-                        There are no customer sales records matching your selected filter criteria.
-                      </p>
-                    </div>
+                )}
+              </tbody>
+              <tfoot>
+                <tr className="bg-red-50/40 border-t-2 border-stone-200 font-bold text-xs">
+                  <td className="px-4 py-3 text-center font-bold text-[#b01622]">Total</td>
+                  <td className="px-4 py-3 text-[#b01622] font-black"></td>
+                  <td className="px-4 py-3 text-center text-[#b01622] font-black">
+                    {(dashboard?.monthly_statement || []).reduce((acc, m) => acc + (Number(m.invoices) || 0), 0)}
                   </td>
+                  <td className="px-4 py-3 text-center text-[#b01622] font-black">
+                    {(dashboard?.monthly_statement || []).reduce((acc, m) => acc + (Number(m.quantity) || 0), 0)}
+                  </td>
+                  <td className="px-4 py-3 text-center text-[#b01622] font-black">
+                    {(dashboard?.monthly_statement || []).reduce((acc, m) => acc + (Number(m.gold_weight) || 0), 0).toFixed(3)}
+                  </td>
+                  <td className="px-4 py-3 text-center text-[#b01622] font-black">
+                    {(dashboard?.monthly_statement || []).reduce((acc, m) => acc + (Number(m.diamond_weight) || 0), 0).toFixed(3)}
+                  </td>
+                  <td className="px-4 py-3 text-right text-[#b01622] font-black">
+                    ₹ {(dashboard?.monthly_statement || []).reduce((acc, m) => acc + (Number(m.total_amount) || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="px-4 py-3 text-stone-400 text-right">-</td>
                 </tr>
-              )}
-            </tbody>
-            <tfoot>
-              <tr className="bg-red-50/40 border-t-2 border-stone-200 font-bold text-xs">
-                <td className="px-4 py-3 text-center font-bold text-[#b01622]">Total</td>
-                <td className="px-4 py-3 text-[#b01622] font-black"></td>
-                <td className="px-4 py-3 text-center text-[#b01622] font-black">{totalInvoicesSum}</td>
-                <td className="px-4 py-3 text-center text-[#b01622] font-black">{Number(totalQtySum).toLocaleString('en-IN')}</td>
-                <td className="px-4 py-3 text-center text-[#b01622] font-black">{Number(totalGoldWgtSum).toLocaleString('en-IN')}</td>
-                <td className="px-4 py-3 text-center text-[#b01622] font-black">{Number(totalDiamondWgtSum).toLocaleString('en-IN')}</td>
-                <td className="px-4 py-3 text-right text-[#b01622] font-black">₹{Number(totalSalesSum).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                <td className="px-4 py-3 text-center text-stone-400">-</td>
-                <td className="px-4 py-3 text-center text-stone-400">-</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-
-        {/* Footer Pagination matching Image 2 */}
-        <div className="px-5 py-3.5 border-t border-stone-200 text-xs text-stone-500 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div>
-            Showing {displayStart} to {displayEnd} of {totalEntries} entries
+              </tfoot>
+            </table>
+          </div>
+        </section>
+      ) : activeSubTab === 'yearly' ? (
+        <section className="bg-white border border-stone-200/90 rounded-2xl overflow-hidden shadow-2xs">
+          <div className="px-5 py-4 border-b border-stone-200 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-bold text-gray-900">Yearly Sales Statement</h2>
+              <p className="text-[11px] text-stone-500">Financial year consolidated sales summary and comparative analysis</p>
+            </div>
+            <span className="text-xs font-semibold text-stone-500 bg-stone-100 px-3 py-1 rounded-lg">
+              {dashboard?.yearly_statement?.length || 0} Financial Years
+            </span>
           </div>
 
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              disabled={currentPage <= 1}
-              onClick={() => handlePageClick(currentPage - 1)}
-              className="w-7 h-7 rounded-md border border-stone-200 hover:bg-stone-100 flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 cursor-pointer text-xs font-bold"
-            >
-              &lt;
-            </button>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-stone-50 text-stone-500 uppercase text-[10px] font-bold tracking-wider border-b border-stone-200">
+                <tr>
+                  <th className="px-4 py-3 text-center w-14">S.No</th>
+                  <th className="px-4 py-3">Financial Year</th>
+                  <th className="px-4 py-3 text-center">No. of Invoices</th>
+                  <th className="px-4 py-3 text-center">Total Quantity (Pcs)</th>
+                  <th className="px-4 py-3 text-center">Total Gold (Wgt)</th>
+                  <th className="px-4 py-3 text-center">Total Diamond (Wgt)</th>
+                  <th className="px-4 py-3 text-right">Total Sales Amount (₹)</th>
+                  <th className="px-4 py-3 text-right">Avg Sale / Invoice (₹)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {(dashboard?.yearly_statement || []).length > 0 ? (
+                  dashboard.yearly_statement.map((y, index) => (
+                    <tr key={y.period_key || index} className="hover:bg-stone-50/80 transition-colors">
+                      <td className="px-4 py-3 text-center font-medium text-stone-500">{index + 1}</td>
+                      <td className="px-4 py-3 font-bold text-gray-900">{y.label}</td>
+                      <td className="px-4 py-3 text-center text-stone-700 font-medium">{y.invoices}</td>
+                      <td className="px-4 py-3 text-center text-stone-700 font-medium">{y.quantity}</td>
+                      <td className="px-4 py-3 text-center text-stone-700 font-medium">{y.gold_weight}</td>
+                      <td className="px-4 py-3 text-center text-stone-700 font-medium">{y.diamond_weight}</td>
+                      <td className="px-4 py-3 text-right font-bold text-stone-900">
+                        ₹ {Number(y.total_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-4 py-3 text-right font-semibold text-stone-700">
+                        ₹ {Number(y.avg_sale).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="8" className="px-4 py-12 text-center text-stone-500">
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <i className="fa-solid fa-calendar-xmark text-2xl text-stone-300"></i>
+                        <span className="text-sm font-semibold text-stone-700">No Yearly Records Found</span>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+              <tfoot>
+                <tr className="bg-red-50/40 border-t-2 border-stone-200 font-bold text-xs">
+                  <td className="px-4 py-3 text-center font-bold text-[#b01622]">Total</td>
+                  <td className="px-4 py-3 text-[#b01622] font-black"></td>
+                  <td className="px-4 py-3 text-center text-[#b01622] font-black">
+                    {(dashboard?.yearly_statement || []).reduce((acc, y) => acc + (Number(y.invoices) || 0), 0)}
+                  </td>
+                  <td className="px-4 py-3 text-center text-[#b01622] font-black">
+                    {(dashboard?.yearly_statement || []).reduce((acc, y) => acc + (Number(y.quantity) || 0), 0)}
+                  </td>
+                  <td className="px-4 py-3 text-center text-[#b01622] font-black">
+                    {(dashboard?.yearly_statement || []).reduce((acc, y) => acc + (Number(y.gold_weight) || 0), 0).toFixed(3)}
+                  </td>
+                  <td className="px-4 py-3 text-center text-[#b01622] font-black">
+                    {(dashboard?.yearly_statement || []).reduce((acc, y) => acc + (Number(y.diamond_weight) || 0), 0).toFixed(3)}
+                  </td>
+                  <td className="px-4 py-3 text-right text-[#b01622] font-black">
+                    ₹ {(dashboard?.yearly_statement || []).reduce((acc, y) => acc + (Number(y.total_amount) || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="px-4 py-3 text-stone-400 text-right">-</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </section>
+      ) : (
+        <section className="bg-white border border-stone-200/90 rounded-2xl overflow-hidden shadow-2xs">
+          <div className="px-5 py-4 border-b border-stone-200">
+            <h2 className="text-sm font-bold text-gray-900">
+              Customer Wise Sales Report
+            </h2>
+          </div>
 
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((pg) => (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-stone-50 text-stone-500 uppercase text-[10px] font-bold tracking-wider border-b border-stone-200">
+                <tr>
+                  <th className="px-4 py-3 text-center w-14">S.No</th>
+                  <th className="px-4 py-3">Customer Name</th>
+                  <th className="px-4 py-3 text-center">No. of Invoices</th>
+                  <th className="px-4 py-3 text-center">Total Quantity (Pcs)</th>
+                  <th className="px-4 py-3 text-center">Total Gold (Wgt)</th>
+                  <th className="px-4 py-3 text-center">Total Diamond (Wgt)</th>
+                  <th className="px-4 py-3 text-right">Total Sales Amount (₹)</th>
+                  <th className="px-4 py-3 text-center">Last Sale Date</th>
+                  <th className="px-4 py-3 text-center w-24">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {tableRows.length > 0 ? (
+                  tableRows.map((row, index) => (
+                    <tr key={`${row.client_name}-${index}`} className="hover:bg-stone-50/80 transition-colors">
+                      <td className="px-4 py-3 text-center font-medium text-stone-500">
+                        {(currentPage - 1) * itemsPerPage + index + 1}
+                      </td>
+                      <td className="px-4 py-3 font-bold text-gray-900">{row.client_name}</td>
+                      <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.invoice_count}</td>
+                      <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.quantity}</td>
+                      <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.gold_weight}</td>
+                      <td className="px-4 py-3 text-center text-stone-700 font-medium">{row.diamond_weight}</td>
+                      <td className="px-4 py-3 text-right font-bold text-stone-900">₹ {Number(row.total_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-4 py-3 text-center text-stone-500">{dateText(row.last_sale_date)}</td>
+                      <td className="px-4 py-3 text-center">
+                        <Link
+                          to={`/sales/customers/${row.client_id || index + 1}`}
+                          className="inline-block px-3 py-1 bg-white border border-red-300 text-red-700 hover:bg-red-50 text-xs font-bold rounded-lg transition-all cursor-pointer"
+                        >
+                          View
+                        </Link>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="9" className="px-4 py-12 text-center text-stone-500">
+                      <div className="flex flex-col items-center justify-center space-y-3">
+                        <div className="w-12 h-12 rounded-full bg-red-50 text-[#b01622] flex items-center justify-center text-xl">
+                          <i className="fa-solid fa-folder-open"></i>
+                        </div>
+                        <div className="text-sm font-bold text-stone-800">No Sales Data Available</div>
+                        <p className="text-xs text-stone-400 max-w-md">
+                          There are no customer sales records matching your selected filter criteria.
+                        </p>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+              <tfoot>
+                <tr className="bg-red-50/40 border-t-2 border-stone-200 font-bold text-xs">
+                  <td className="px-4 py-3 text-center font-bold text-[#b01622]">Total</td>
+                  <td className="px-4 py-3 text-[#b01622] font-black"></td>
+                  <td className="px-4 py-3 text-center text-[#b01622] font-black">{totalInvoicesSum}</td>
+                  <td className="px-4 py-3 text-center text-[#b01622] font-black">{Number(totalQtySum).toLocaleString('en-IN')}</td>
+                  <td className="px-4 py-3 text-center text-[#b01622] font-black">{Number(totalGoldWgtSum).toLocaleString('en-IN')}</td>
+                  <td className="px-4 py-3 text-center text-[#b01622] font-black">{Number(totalDiamondWgtSum).toLocaleString('en-IN')}</td>
+                  <td className="px-4 py-3 text-right text-[#b01622] font-black">₹{Number(totalSalesSum).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                  <td className="px-4 py-3 text-center text-stone-400">-</td>
+                  <td className="px-4 py-3 text-center text-stone-400">-</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {/* Footer Pagination matching Image 2 */}
+          <div className="px-5 py-3.5 border-t border-stone-200 text-xs text-stone-500 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div>
+              Showing {displayStart} to {displayEnd} of {totalEntries} entries
+            </div>
+
+            <div className="flex items-center gap-1">
               <button
-                key={pg}
                 type="button"
-                onClick={() => handlePageClick(pg)}
-                className={`w-7 h-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors cursor-pointer ${currentPage === pg
-                  ? 'bg-[#b01622] text-white'
-                  : 'border border-stone-200 hover:bg-stone-100 text-stone-700'
-                  }`}
+                disabled={currentPage <= 1}
+                onClick={() => handlePageClick(currentPage - 1)}
+                className="w-7 h-7 rounded-md border border-stone-200 hover:bg-stone-100 flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 cursor-pointer text-xs font-bold"
               >
-                {pg}
+                &lt;
               </button>
-            ))}
 
-            <button
-              type="button"
-              disabled={currentPage >= totalPages}
-              onClick={() => handlePageClick(currentPage + 1)}
-              className="w-7 h-7 rounded-md border border-stone-200 hover:bg-stone-100 flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 cursor-pointer text-xs font-bold"
-            >
-              &gt;
-            </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((pg) => (
+                <button
+                  key={pg}
+                  type="button"
+                  onClick={() => handlePageClick(pg)}
+                  className={`w-7 h-7 rounded-md font-bold text-xs flex items-center justify-center transition-colors cursor-pointer ${currentPage === pg
+                    ? 'bg-[#b01622] text-white'
+                    : 'border border-stone-200 hover:bg-stone-100 text-stone-700'
+                    }`}
+                >
+                  {pg}
+                </button>
+              ))}
+
+              <button
+                type="button"
+                disabled={currentPage >= totalPages}
+                onClick={() => handlePageClick(currentPage + 1)}
+                className="w-7 h-7 rounded-md border border-stone-200 hover:bg-stone-100 flex items-center justify-center text-stone-600 transition-colors disabled:opacity-40 cursor-pointer text-xs font-bold"
+              >
+                &gt;
+              </button>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
       {/* 6. Professional A4 Tax Report & Remittance Statement Print Sheet Modal */}
       {showPrintModal && (
         <div
@@ -2220,8 +2948,7 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
               .print\\:hidden, .no-print, header, nav, sidebar, button {
                 display: none !important;
               }
-              #printable-report-sheet,
-              #printable-invoice-sheet {
+              #printable-report-sheet {
                 position: fixed !important;
                 left: 0 !important;
                 top: 0 !important;
@@ -2238,8 +2965,7 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
                 -webkit-print-color-adjust: exact !important;
                 print-color-adjust: exact !important;
               }
-              #printable-report-sheet *,
-              #printable-invoice-sheet * {
+              #printable-report-sheet * {
                 visibility: visible !important;
                 opacity: 1 !important;
               }
@@ -2298,7 +3024,7 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.03] print:hidden select-none z-0 overflow-hidden">
                 <div className="text-center font-black text-[#b01622] transform -rotate-12 space-y-2">
                   <div className="text-[140px] font-black tracking-widest leading-none">RJ</div>
-                  <div className="text-3xl uppercase tracking-[0.3em] font-black">RUDRA JEWELLERS</div>
+                  <div className="text-3xl uppercase tracking-[0.3em] font-black">RUDRA JEWELLERY</div>
                   <div className="text-xl uppercase tracking-[0.4em] font-bold text-stone-700">CHENNAI</div>
                 </div>
               </div>
@@ -2308,7 +3034,7 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
                 <div className="flex items-center gap-3 shrink-0">
                   <img
                     src="/logo.png"
-                    alt="Rudra Jewellers"
+                    alt="Rudra Jewellery"
                     className="h-16 w-auto max-w-[200px] object-contain drop-shadow-xs"
                   />
                 </div>
@@ -2316,7 +3042,7 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
                 <div className="text-center flex-1">
                   <h1 className="text-2xl font-black text-[#b01622] tracking-wider uppercase">CUSTOMER SALES STATEMENT</h1>
                   <div className="text-[11px] font-semibold text-stone-600 mt-0.5">
-                    Original for Recipient &nbsp;|&nbsp; GSTIN: <span className="font-mono font-bold text-stone-900">33AAAAA0000A1Z5</span>
+                    Original for Recipient &nbsp;|&nbsp; GSTIN: <span className="font-mono font-bold text-stone-900">{companyInfo?.gstin || '—'}</span>
                   </div>
                   <div className="w-16 h-0.5 bg-[#b01622] mx-auto mt-2 mb-1"></div>
                   <div className="text-xs font-bold text-[#b01622] tracking-tight font-mono">
@@ -2359,7 +3085,7 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
                   </div>
                   <div className="flex justify-between">
                     <span className="text-stone-500">Store Name:</span>
-                    <strong className="text-stone-900">Rudra Jewellers Pvt Ltd</strong>
+                    <strong className="text-stone-900">Rudra Jewellery Pvt Ltd</strong>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-stone-500">Location:</span>
@@ -2453,7 +3179,7 @@ function CustomerSalesReport({ dashboard, clients, filters, setFilters, reload }
                   <div>
                     <div className="w-40 border-b border-stone-400 mb-1"></div>
                     <span className="text-[11px] font-bold text-stone-700 block">Authorised Signatory</span>
-                    <span className="text-[9px] text-stone-400 block uppercase tracking-wider">For RUDRA JEWELLERS</span>
+                    <span className="text-[9px] text-stone-400 block uppercase tracking-wider">For RUDRA JEWELLERY</span>
                   </div>
                 </div>
               </div>
@@ -2551,7 +3277,7 @@ function ProfitManagementReport({ sales, filters, setFilters, reload, companyInf
 
   const handleExportExcel = () => {
     const lines = [
-      [`${company.company_name || 'RUDHRA JEWELLERS'} - PROFIT MANAGEMENT REPORT`],
+      [`${company.company_name || 'RUDRA JEWELLERY'} - PROFIT MANAGEMENT REPORT`],
       [`Generated Date: ${new Date().toLocaleDateString('en-IN')}`],
       [`Total Revenue (Rs): ${totalRevenueSum}`],
       [`Total Cost (Rs): ${totalCostSum}`],
@@ -2816,7 +3542,7 @@ function ProfitManagementReport({ sales, filters, setFilters, reload, companyInf
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => printElement('printable-profit-invoice-sheet', 'Profit Per Invoice Statement - Rudra Jewellers')}
+                  onClick={() => printElement('printable-profit-invoice-sheet', 'Profit Per Invoice Statement - Rudra Jewellery')}
                   className="px-4 py-2 bg-[#b01622] text-white text-xs font-bold rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-xs hover:bg-[#8e111a]"
                 >
                   <i className="fa-solid fa-print"></i> PRINT / SAVE PDF
@@ -2837,9 +3563,9 @@ function ProfitManagementReport({ sales, filters, setFilters, reload, companyInf
             <div id="printable-profit-invoice-sheet" className="relative overflow-y-auto flex-1 p-6 bg-white rounded-xl border border-stone-200 space-y-5 text-xs text-stone-800">
               <div className="flex items-start justify-between border-b-2 border-stone-200 pb-4">
                 <div className="flex items-center gap-4">
-                  <img src={company.logo_url || '/logo.png'} alt={company.company_name || 'Rudra Jewellers'} className="h-16 w-auto max-w-[180px] object-contain" />
+                  <img src={company.logo_url || '/logo.png'} alt={company.company_name || 'Rudra Jewellery'} className="h-16 w-auto max-w-[180px] object-contain" />
                   <div>
-                    <h2 className="text-xl font-black text-gray-900 tracking-tight uppercase">{company.company_name || 'RUDRA JEWELLERS'}</h2>
+                    <h2 className="text-xl font-black text-gray-900 tracking-tight uppercase">{company.company_name || 'RUDRA JEWELLERY'}</h2>
                     <p className="text-[11px] text-stone-600 font-medium">{company.tagline || 'Exclusive Fine Gold, Diamond & Gemstone Jewellery'}</p>
                     <p className="text-[10px] text-stone-500 mt-0.5">{[company.address_line1, company.address_line2, company.city, company.pincode].filter(Boolean).join(', ')}</p>
                     <p className="text-[10px] text-stone-500">Phone: {company.phone || '+91 98400 12345'} | GSTIN: {company.gstin || '33AAACR1234F1Z0'}</p>
@@ -2924,7 +3650,7 @@ function ProfitManagementReport({ sales, filters, setFilters, reload, companyInf
                 <div className="text-center">
                   <div className="w-44 border-b border-stone-400 mb-1"></div>
                   <span className="text-[11px] font-bold text-stone-800 block">Authorised Signatory</span>
-                  <span className="text-[9px] text-stone-400 block uppercase tracking-wider">For {company.company_name || 'RUDRA JEWELLERS'}</span>
+                  <span className="text-[9px] text-stone-400 block uppercase tracking-wider">For {company.company_name || 'RUDRA JEWELLERY'}</span>
                 </div>
               </div>
             </div>
@@ -3055,7 +3781,7 @@ function ProfitPerMetalReport({ data, filters, setFilters, reload, companyInfo }
 
   const exportCSV = () => {
     const lines = [
-      [`${company.company_name || 'RUDRA JEWELLERS'} - PROFIT PER METAL REPORT`],
+      [`${company.company_name || 'RUDRA JEWELLERY'} - PROFIT PER METAL REPORT`],
       [`Generated Date: ${new Date().toLocaleDateString('en-IN')}`],
       [`Total Revenue (Rs): ${summary.totalRevenue ?? 0}`, `Total Cost (Rs): ${summary.totalCost ?? 0}`, `Net Profit (Rs): ${summary.totalNetProfit ?? 0}`, `Margin: ${summary.totalMargin ?? '0%'}`],
       [],
@@ -3291,6 +4017,7 @@ function ProfitPerMetalReport({ data, filters, setFilters, reload, companyInfo }
             <table className="w-full text-xs text-left border-collapse">
               <thead className="bg-stone-50 text-stone-500 uppercase font-bold tracking-wider text-[10px] border-b border-stone-200">
                 <tr>
+                  <th className="p-3 text-center w-12">S.No</th>
                   <th className="p-3">Metal Category</th>
                   <th className="p-3">Purity / Touch Basis</th>
                   <th className="p-3 text-right">Avg Buying Rate</th>
@@ -3302,11 +4029,14 @@ function ProfitPerMetalReport({ data, filters, setFilters, reload, companyInfo }
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100 font-medium text-stone-700">
-                {paginatedMetals.map((m) => {
+                {paginatedMetals.map((m, idx) => {
                   const bRate = m.buying_rate_10g ? `${m.buying_rate_10g}/10g` : (m.buying_rate_kg ? `${m.buying_rate_kg}/kg` : (m.buying_rate_ct ? `${m.buying_rate_ct}/ct` : `${m.buying_rate_unit}/unit`));
                   const sRate = m.selling_rate_10g ? `${m.selling_rate_10g}/10g` : (m.selling_rate_kg ? `${m.selling_rate_kg}/kg` : (m.selling_rate_ct ? `${m.selling_rate_ct}/ct` : `${m.selling_rate_unit}/unit`));
                   return (
                     <tr key={m.id} className="hover:bg-stone-50/60 transition-colors">
+                      <td className="p-3 text-center font-mono font-bold text-stone-400 text-xs">
+                        {(validMetalPage - 1) * metalPageSize + idx + 1}
+                      </td>
                       <td className="p-3 font-bold text-stone-900">{m.name}</td>
                       <td className="p-3 text-stone-500">{m.purity}</td>
                       <td className="p-3 text-right font-mono text-stone-600">{bRate}</td>
@@ -3321,6 +4051,7 @@ function ProfitPerMetalReport({ data, filters, setFilters, reload, companyInfo }
               </tbody>
               <tfoot className="bg-stone-100/80 font-bold border-t-2 border-stone-300 text-stone-900">
                 <tr>
+                  <td className="p-3 text-center font-mono text-stone-400">—</td>
                   <td className="p-3">Grand Total</td>
                   <td className="p-3 text-stone-500">All Metals Combined</td>
                   <td className="p-3 text-right">—</td>
@@ -3392,7 +4123,7 @@ function ProfitPerMetalReport({ data, filters, setFilters, reload, companyInfo }
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => printElement('printable-profit-metal-sheet', 'Profit Per Metal Statement - Rudra Jewellers')}
+                  onClick={() => printElement('printable-profit-metal-sheet', 'Profit Per Metal Statement - Rudra Jewellery')}
                   className="px-4 py-2 bg-[#b01622] text-white text-xs font-bold rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-xs hover:bg-[#8e111a]"
                 >
                   <i className="fa-solid fa-print"></i> PRINT / SAVE PDF
@@ -3413,9 +4144,9 @@ function ProfitPerMetalReport({ data, filters, setFilters, reload, companyInfo }
             <div id="printable-profit-metal-sheet" className="relative overflow-y-auto flex-1 p-6 bg-white rounded-xl border border-stone-200 space-y-5 text-xs text-stone-800">
               <div className="flex items-start justify-between border-b-2 border-stone-200 pb-4">
                 <div className="flex items-center gap-4">
-                  <img src={company.logo_url || '/logo.png'} alt={company.company_name || 'Rudra Jewellers'} className="h-16 w-auto max-w-[180px] object-contain" />
+                  <img src={company.logo_url || '/logo.png'} alt={company.company_name || 'Rudra Jewellery'} className="h-16 w-auto max-w-[180px] object-contain" />
                   <div>
-                    <h2 className="text-xl font-black text-gray-900 tracking-tight uppercase">{company.company_name || 'RUDRA JEWELLERS'}</h2>
+                    <h2 className="text-xl font-black text-gray-900 tracking-tight uppercase">{company.company_name || 'RUDRA JEWELLERY'}</h2>
                     <p className="text-[11px] text-stone-600 font-medium">{company.tagline || 'Exclusive Fine Gold, Diamond & Gemstone Jewellery'}</p>
                     <p className="text-[10px] text-stone-500 mt-0.5">{[company.address_line1, company.address_line2, company.city, company.pincode].filter(Boolean).join(', ')}</p>
                     <p className="text-[10px] text-stone-500">Phone: {company.phone || '+91 98400 12345'} | GSTIN: {company.gstin || '33AAACR1234F1Z0'}</p>
@@ -3452,6 +4183,7 @@ function ProfitPerMetalReport({ data, filters, setFilters, reload, companyInfo }
               <table className="w-full text-left text-xs border border-stone-200 rounded-xl overflow-hidden">
                 <thead className="bg-[#b01622] text-white uppercase text-[10px] font-bold" style={{ backgroundColor: '#b01622', color: '#ffffff', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                   <tr>
+                    <th className="p-2.5 text-center w-10">S.No</th>
                     <th className="p-2.5">Metal Category</th>
                     <th className="p-2.5">Purity / Touch Basis</th>
                     <th className="p-2.5 text-right">Avg Buying Rate</th>
@@ -3463,11 +4195,12 @@ function ProfitPerMetalReport({ data, filters, setFilters, reload, companyInfo }
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-200">
-                  {metalsList.map((m) => {
+                  {metalsList.map((m, idx) => {
                     const bRate = m.buying_rate_10g ? `${m.buying_rate_10g}/10g` : (m.buying_rate_kg ? `${m.buying_rate_kg}/kg` : (m.buying_rate_ct ? `${m.buying_rate_ct}/ct` : `${m.buying_rate_unit}/unit`));
                     const sRate = m.selling_rate_10g ? `${m.selling_rate_10g}/10g` : (m.selling_rate_kg ? `${m.selling_rate_kg}/kg` : (m.selling_rate_ct ? `${m.selling_rate_ct}/ct` : `${m.selling_rate_unit}/unit`));
                     return (
                       <tr key={m.id} className="hover:bg-stone-50">
+                        <td className="p-2.5 text-center font-mono font-bold text-stone-400 text-xs">{idx + 1}</td>
                         <td className="p-2.5 font-bold text-stone-900">{m.name}</td>
                         <td className="p-2.5 text-stone-500">{m.purity}</td>
                         <td className="p-2.5 text-right font-mono text-stone-600">{bRate}</td>
@@ -3482,7 +4215,7 @@ function ProfitPerMetalReport({ data, filters, setFilters, reload, companyInfo }
                 </tbody>
                 <tfoot className="bg-stone-100 font-bold border-t-2 border-stone-300">
                   <tr>
-                    <td colSpan="4" className="p-2.5 text-[#b01622] font-black">Grand Total</td>
+                    <td colSpan="5" className="p-2.5 text-[#b01622] font-black">Grand Total</td>
                     <td className="p-2.5 text-right font-mono font-black text-gray-900">{summary.totalRevenueFormatted || money(summary.totalRevenue)}</td>
                     <td className="p-2.5 text-right font-mono font-bold text-stone-800">{summary.totalCostFormatted || money(summary.totalCost)}</td>
                     <td className="p-2.5 text-right font-mono font-black text-emerald-700">{summary.totalNetProfitFormatted || money(summary.totalNetProfit)}</td>
@@ -3496,7 +4229,7 @@ function ProfitPerMetalReport({ data, filters, setFilters, reload, companyInfo }
                 <div className="text-center">
                   <div className="w-44 border-b border-stone-400 mb-1"></div>
                   <span className="text-[11px] font-bold text-stone-800 block">Authorised Signatory</span>
-                  <span className="text-[9px] text-stone-400 block uppercase tracking-wider">For {company.company_name || 'RUDRA JEWELLERS'}</span>
+                  <span className="text-[9px] text-stone-400 block uppercase tracking-wider">For {company.company_name || 'RUDRA JEWELLERY'}</span>
                 </div>
               </div>
             </div>
@@ -3514,51 +4247,128 @@ function SalesTable({ records = [], showProfit = false }) {
       ? records.sales.data
       : (Array.isArray(records?.data) ? records.data : []));
 
-  return <div className="bg-white border border-stone-200 rounded-xl overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-xs"><thead className="bg-stone-50 text-stone-500 uppercase"><tr><th className="text-left p-4">Invoice</th><th className="text-left p-4">Customer</th><th className="text-left p-4">Date</th><th className="text-right p-4">Total</th><th className="text-right p-4">Paid</th><th className="text-right p-4">Due</th>{showProfit && <th className="text-right p-4">Profit</th>}<th className="text-center p-4">Status</th><th className="text-right p-4">Action</th></tr></thead><tbody>{list?.map((record) => <tr key={record.id} className="border-t border-stone-100 hover:bg-stone-50"><td className="p-4 font-mono font-bold text-[#b01622]">{record.invoice_no}</td><td className="p-4 font-semibold">{record.client_name}</td><td className="p-4 text-stone-500">{dateText(record.invoice_date)}</td><td className="p-4 text-right font-bold">{money(record.total_amount)}</td><td className="p-4 text-right text-emerald-700">{money(record.paid_amount)}</td><td className="p-4 text-right text-[#b01622]">{money(record.due_amount)}</td>{showProfit && <td className="p-4 text-right font-bold">{money(record.profit_amount)}</td>}<td className="p-4 text-center"><span className="px-2 py-1 rounded bg-stone-100 uppercase font-bold text-[10px]">{record.status}</span></td><td className="p-4 text-right"><Link to={`/sales/${record.id}`} className="text-[#b01622] font-bold hover:underline">View</Link></td></tr>)}</tbody></table></div>{(!list || list.length === 0) && <div className="p-10 text-center text-sm text-stone-400">No sales found.</div>}</div>;
+  return <div className="bg-white border border-stone-200 rounded-xl overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-xs"><thead className="bg-stone-50 text-stone-500 uppercase"><tr><th className="text-center p-4 w-12">S.No</th><th className="text-left p-4">Invoice</th><th className="text-left p-4">Customer</th><th className="text-left p-4">Date</th><th className="text-right p-4">Total</th><th className="text-right p-4">Paid</th><th className="text-right p-4">Due</th>{showProfit && <th className="text-right p-4">Profit</th>}<th className="text-center p-4">Status</th><th className="text-right p-4">Action</th></tr></thead><tbody>{list?.map((record, idx) => <tr key={record.id} className="border-t border-stone-100 hover:bg-stone-50"><td className="p-4 text-center font-mono font-bold text-stone-400">{idx + 1}</td><td className="p-4 font-mono font-bold text-[#b01622]">{record.invoice_no}</td><td className="p-4 font-semibold">{record.client_name}</td><td className="p-4 text-stone-500">{dateText(record.invoice_date)}</td><td className="p-4 text-right font-bold">{money(record.total_amount)}</td><td className="p-4 text-right text-emerald-700">{money(record.paid_amount)}</td><td className="p-4 text-right text-[#b01622]">{money(record.due_amount)}</td>{showProfit && <td className="p-4 text-right font-bold">{money(record.profit_amount)}</td>}<td className="p-4 text-center"><span className="px-2 py-1 rounded bg-stone-100 uppercase font-bold text-[10px]">{record.status}</span></td><td className="p-4 text-right"><Link to={`/sales/${record.id}`} className="text-[#b01622] font-bold hover:underline">View</Link></td></tr>)}</tbody></table></div>{(!list || list.length === 0) && <div className="p-10 text-center text-sm text-stone-400">No sales found.</div>}</div>;
 }
 
-function ProductSelectionModal({ isOpen, onClose, onSelectProduct, products = [] }) {
+const formatInventoryItems = (rawList) => {
+  if (!Array.isArray(rawList)) return [];
+  return rawList.map((p) => {
+    const gross = Number(p.gross_weight || p.gross_wt || p.opening_stock_weight || p.attributes?.gross_wt || 0);
+    const net = Number(p.net_weight || p.net_wt || p.opening_fine_weight || p.attributes?.net_wt || gross);
+    const purity = p.purity || p.karat || p.attributes?.purity || (p.opening_touch >= 99 ? '24K' : (p.opening_touch >= 91 ? '22K' : '22K'));
+    const rate = Number(p.rate || p.price || (purity === '24K' ? 14508 : 13299));
+    const cat = p.category?.name || p.category_name || (typeof p.category === 'string' ? p.category : '') || 'Jewellery';
+    const code = p.design_no || p.product_code || p.code || p.sku || `PRD-${p.id}`;
+    const name = p.name || p.title || p.description || 'Gold Ornament';
+    const wastage = Number(p.wastage_percent || p.wastage || p.attributes?.wastage_percent || 0);
+    const labour = Number(p.labour || p.making_charge || p.labour_charge || 0);
+    const stock = p.stock_quantity ?? p.current_stock_qty ?? p.stock ?? (p.quantity ?? 1);
+
+    return {
+      id: p.id,
+      code,
+      name,
+      category: cat,
+      gross_weight: gross,
+      net_weight: net,
+      purity,
+      rate,
+      wastage_percent: wastage,
+      labour,
+      stock,
+      unit: p.unit || '',
+      diamond_wt: Number(p.diamond_wt || 0),
+    };
+  });
+};
+
+function ProductSelectionModal({ isOpen, onClose, onSelectProduct, onSelectPieces, products = [] }) {
+  const [activeTab, setActiveTab] = useState('pieces'); // 'pieces' or 'catalog'
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('All');
-  const [inventoryList, setInventoryList] = useState([]);
-  const [loading, setLoading] = useState(false);
+  
+  // Physical pieces state
+  const [availablePieces, setAvailablePieces] = useState([]);
+  const [loadingPieces, setLoadingPieces] = useState(false);
+  const [selectedPieceIds, setSelectedPieceIds] = useState([]);
 
-
+  // Catalog products state
+  const [inventoryList, setInventoryList] = useState(() => formatInventoryItems(products));
+  const [loadingCatalog, setLoadingCatalog] = useState(false);
 
   useEffect(() => {
-    if (!isOpen) return;
-    setLoading(true);
-    api.get('/inventory')
+    if (Array.isArray(products) && products.length > 0) {
+      setInventoryList(formatInventoryItems(products));
+    }
+  }, [products]);
+
+  const fetchPieces = () => {
+    setLoadingPieces(true);
+    api.get('/sales/available-pieces')
       .then((res) => {
-        const fetched = res?.data?.products?.data || res?.data?.data || res?.data || [];
+        const fetched = res?.data?.data || res?.data || [];
+        setAvailablePieces(Array.isArray(fetched) ? fetched : []);
+      })
+      .catch((err) => {
+        console.warn('Notice loading available physical pieces:', err);
+      })
+      .finally(() => setLoadingPieces(false));
+  };
+
+  useEffect(() => {
+    if (!isOpen) {
+      setSelectedPieceIds([]);
+      return;
+    }
+
+    // Load available physical pieces
+    fetchPieces();
+
+    // Fast sync for catalog products
+    if (Array.isArray(products) && products.length > 0) {
+      setInventoryList(formatInventoryItems(products));
+      setLoadingCatalog(false);
+    } else {
+      setLoadingCatalog(true);
+    }
+
+    api.get('/sales/products')
+      .then((res) => {
+        const fetched = res?.data?.data || res?.data || [];
         if (Array.isArray(fetched) && fetched.length > 0) {
-          const formatted = fetched.map((p) => ({
-            id: p.id,
-            code: p.product_code || p.sku || `PRD-${p.id}`,
-            name: p.name || p.title || 'Gold Ornament',
-            category: p.category?.name || p.category_name || 'Jewellery',
-            gross_weight: Number(p.gross_weight || p.attributes?.gross_wt || 0),
-            net_weight: Number(p.net_weight || p.attributes?.net_wt || 0),
-            purity: p.purity || p.attributes?.purity || '22K',
-            rate: Number(p.rate || p.price || 0),
-            wastage_percent: Number(p.wastage_percent || p.attributes?.wastage_percent || 0),
-            labour: Number(p.making_charge || p.labour_charge || 0),
-            stock: p.stock_quantity ?? p.quantity ?? 0,
-          }));
-          setInventoryList(formatted);
-        } else {
-          setInventoryList([]);
+          setInventoryList(formatInventoryItems(fetched));
         }
       })
-      .catch(() => {
-        setInventoryList([]);
+      .catch((err) => {
+        console.warn('Notice loading sales products:', err);
       })
-      .finally(() => setLoading(false));
+      .finally(() => setLoadingCatalog(false));
   }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const filtered = inventoryList.filter((item) => {
+  const categories = ['All', 'Necklaces', 'Bangles', 'Rings', 'Earrings', 'Bracelets', 'Pendants', 'Mangalsutras', 'Coins'];
+
+  // Filtered physical pieces
+  const filteredPieces = availablePieces.filter((piece) => {
+    const s = searchTerm.toLowerCase();
+    const tagMatch = String(piece.tag_number || '').toLowerCase().includes(s);
+    const designMatch = String(piece.design_no || '').toLowerCase().includes(s);
+    const codeMatch = String(piece.product_code || '').toLowerCase().includes(s);
+    const rwoMatch = String(piece.receive_order_number || '').toLowerCase().includes(s);
+    const nameMatch = String(piece.product_name || '').toLowerCase().includes(s);
+    const woMatch = String(piece.work_order_number || '').toLowerCase().includes(s);
+    const karigarMatch = String(piece.karigar_name || '').toLowerCase().includes(s);
+    const purityMatch = String(piece.purity || '').toLowerCase().includes(s);
+    const categoryMatch = String(piece.category || piece.category_name || '').toLowerCase().includes(s);
+
+    const matchesSearch = !s || tagMatch || designMatch || codeMatch || rwoMatch || nameMatch || woMatch || karigarMatch || purityMatch || categoryMatch;
+    const matchesCat = categoryFilter === 'All' || categoryMatch;
+    return matchesSearch && matchesCat;
+  });
+
+  // Filtered catalog products
+  const filteredCatalog = inventoryList.filter((item) => {
     const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.purity.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -3567,21 +4377,47 @@ function ProductSelectionModal({ isOpen, onClose, onSelectProduct, products = []
     return matchesSearch && matchesCat;
   });
 
-  const categories = ['All', 'Necklaces', 'Bangles', 'Rings', 'Earrings', 'Bracelets', 'Pendants', 'Mangalsutras', 'Coins'];
+  const handleTogglePiece = (id) => {
+    setSelectedPieceIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAllFilteredPieces = () => {
+    const allFilteredIds = filteredPieces.map((p) => p.id);
+    setSelectedPieceIds((prev) => {
+      const set = new Set([...prev, ...allFilteredIds]);
+      return Array.from(set);
+    });
+  };
+
+  const handleClearSelectedPieces = () => {
+    setSelectedPieceIds([]);
+  };
+
+  const handleConfirmSelectedPieces = () => {
+    const chosen = availablePieces.filter((p) => selectedPieceIds.includes(p.id));
+    if (chosen.length > 0 && onSelectPieces) {
+      onSelectPieces(chosen);
+    }
+    onClose();
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
-      <div className="bg-white rounded-2xl shadow-2xl border border-stone-200 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-2xl border border-stone-200 w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden">
         {/* Modal Header */}
-        <div className="p-5 border-b border-stone-100 flex items-center justify-between bg-stone-50/60">
+        <div className="p-5 border-b border-stone-100 flex items-center justify-between bg-stone-50/70">
           <div>
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-[#b01622]/10 text-[#b01622] flex items-center justify-center font-bold">
-                <i className="fa-solid fa-gem text-sm"></i>
+                <i className="fa-solid fa-tags text-sm"></i>
               </div>
-              <h2 className="text-base font-bold text-stone-900">Select Product from Inventory</h2>
+              <h2 className="text-base font-bold text-stone-900">Select Items from Inventory</h2>
             </div>
-            <p className="text-xs text-stone-500 mt-0.5 ml-10">Choose an active stock item to add to customer invoice</p>
+            <p className="text-xs text-stone-500 mt-0.5 ml-10">
+              Select specific physical piece tags produced by karigars or standard catalog products
+            </p>
           </div>
           <button
             type="button"
@@ -3592,22 +4428,84 @@ function ProductSelectionModal({ isOpen, onClose, onSelectProduct, products = []
           </button>
         </div>
 
+        {/* Tab Selector */}
+        <div className="flex items-center border-b border-stone-200 bg-stone-100/70 px-4 pt-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveTab('pieces')}
+            className={`px-4 py-2.5 text-xs font-bold rounded-t-lg transition-all flex items-center gap-2 border-t-2 ${
+              activeTab === 'pieces'
+                ? 'bg-white text-[#b01622] border-[#b01622] shadow-2xs'
+                : 'text-stone-600 hover:text-stone-900 border-transparent hover:bg-stone-200/50'
+            }`}
+          >
+            <i className="fa-solid fa-barcode text-xs"></i>
+            <span>Physical Piece Tags</span>
+            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${activeTab === 'pieces' ? 'bg-red-100 text-red-800' : 'bg-stone-200 text-stone-700'}`}>
+              {availablePieces.length} Available
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('catalog')}
+            className={`px-4 py-2.5 text-xs font-bold rounded-t-lg transition-all flex items-center gap-2 border-t-2 ${
+              activeTab === 'catalog'
+                ? 'bg-white text-[#b01622] border-[#b01622] shadow-2xs'
+                : 'text-stone-600 hover:text-stone-900 border-transparent hover:bg-stone-200/50'
+            }`}
+          >
+            <i className="fa-solid fa-gem text-xs"></i>
+            <span>Catalog Products</span>
+            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${activeTab === 'catalog' ? 'bg-red-100 text-red-800' : 'bg-stone-200 text-stone-700'}`}>
+              {inventoryList.length}
+            </span>
+          </button>
+        </div>
+
         {/* Modal Toolbar */}
         <div className="p-4 border-b border-stone-100 space-y-3 bg-white">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="relative w-full sm:w-80">
+            <div className="relative w-full sm:w-96">
               <input
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search by code, name, purity..."
+                placeholder={
+                  activeTab === 'pieces'
+                    ? "Search Tag ID, RWO #, Design No, Karigar, WO #..."
+                    : "Search by code, name, purity..."
+                }
                 className="w-full pl-9 pr-3 py-2 text-xs border border-stone-300 rounded-xl focus:outline-hidden focus:border-[#b01622]"
               />
               <i className="fa-solid fa-magnifying-glass absolute left-3 top-3 text-xs text-stone-400"></i>
             </div>
-            <div className="text-xs text-stone-500 font-medium">
-              Showing <strong className="text-stone-900 font-bold">{filtered.length}</strong> items in inventory
-            </div>
+
+            {activeTab === 'pieces' ? (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSelectAllFilteredPieces}
+                  className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 transition-colors"
+                >
+                  Select All Filtered
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearSelectedPieces}
+                  className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 transition-colors"
+                >
+                  Clear Selection
+                </button>
+                <span className="text-xs text-stone-500 pl-2">
+                  Selected: <strong className="text-[#b01622] font-mono font-bold">{selectedPieceIds.length}</strong>
+                </span>
+              </div>
+            ) : (
+              <div className="text-xs text-stone-500 font-medium">
+                Showing <strong className="text-stone-900 font-bold">{filteredCatalog.length}</strong> products
+              </div>
+            )}
           </div>
 
           {/* Category Tabs */}
@@ -3617,10 +4515,11 @@ function ProductSelectionModal({ isOpen, onClose, onSelectProduct, products = []
                 key={cat}
                 type="button"
                 onClick={() => setCategoryFilter(cat)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${categoryFilter === cat
-                  ? 'bg-[#b01622] text-white shadow-2xs'
-                  : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
-                  }`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                  categoryFilter === cat
+                    ? 'bg-[#b01622] text-white shadow-2xs'
+                    : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                }`}
               >
                 {cat}
               </button>
@@ -3628,80 +4527,245 @@ function ProductSelectionModal({ isOpen, onClose, onSelectProduct, products = []
           </div>
         </div>
 
-        {/* Modal Body / Inventory Grid */}
-        <div className="p-4 overflow-y-auto flex-1 max-h-[55vh]">
-          {loading ? (
-            <div className="py-12 text-center text-stone-400 text-sm font-medium">Loading inventory products...</div>
-          ) : filtered.length === 0 ? (
-            <div className="py-12 text-center text-stone-400 text-sm font-medium">No matching inventory items found.</div>
+        {/* Modal Body */}
+        <div className="p-4 overflow-y-auto flex-1 max-h-[58vh]">
+          {activeTab === 'pieces' ? (
+            loadingPieces ? (
+              <div className="py-16 text-center text-stone-400 text-sm font-medium">
+                <i className="fa-solid fa-circle-notch fa-spin text-2xl text-[#b01622] mb-3 block"></i>
+                Loading available physical pieces...
+              </div>
+            ) : filteredPieces.length === 0 ? (
+              <div className="py-16 text-center text-stone-400 text-sm font-medium">
+                No eligible physical pieces found matching your search.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {filteredPieces.map((piece) => {
+                  const isSelected = selectedPieceIds.includes(piece.id);
+                  return (
+                    <div
+                      key={piece.id}
+                      onClick={() => handleTogglePiece(piece.id)}
+                      className={`border rounded-xl p-3.5 transition-all flex flex-col justify-between cursor-pointer select-none ${
+                        isSelected
+                          ? 'border-[#b01622] bg-red-50/20 shadow-md ring-2 ring-[#b01622]/30'
+                          : 'border-stone-200/90 hover:border-stone-300 bg-white hover:shadow-xs'
+                      }`}
+                    >
+                      <div className="space-y-2">
+                        {/* Top: Tag + Checkbox */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {}} // handled by parent div onClick
+                              className="w-4 h-4 rounded text-[#b01622] accent-[#b01622] cursor-pointer"
+                            />
+                            <span className="font-mono text-xs font-bold text-[#b01622] bg-red-50 border border-red-200 px-2 py-0.5 rounded-md">
+                              {piece.tag_number}
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            Available
+                          </span>
+                        </div>
+
+                        {/* Design & Name & Product Code */}
+                        <div>
+                          <div className="flex items-center gap-2 text-[11px] font-mono font-bold text-stone-600">
+                            <span>{piece.design_no}</span>
+                            {piece.product_code && piece.product_code !== piece.design_no && (
+                              <span className="text-[10px] text-stone-400 font-normal">({piece.product_code})</span>
+                            )}
+                          </div>
+                          <h3 className="font-bold text-xs text-stone-900 line-clamp-1">
+                            {piece.product_name}
+                          </h3>
+                        </div>
+
+                        {/* Work Order, RWO & Karigar Badges */}
+                        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                          {piece.receive_order_number && (
+                            <span className="text-[10px] font-mono bg-amber-50 text-amber-800 px-1.5 py-0.5 rounded font-semibold border border-amber-200">
+                              RWO: {piece.receive_order_number}
+                            </span>
+                          )}
+                          {piece.work_order_number && (
+                            <span className="text-[10px] font-mono bg-stone-100 text-stone-700 px-1.5 py-0.5 rounded font-semibold border border-stone-200">
+                              WO: {piece.work_order_number}
+                            </span>
+                          )}
+                          {piece.karigar_name && (
+                            <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-100 px-1.5 py-0.5 rounded font-semibold flex items-center gap-1">
+                              <i className="fa-solid fa-user-gear text-[9px]"></i>
+                              {piece.karigar_name}
+                            </span>
+                          )}
+                          {piece.hallmarking_status === 'passed' && (
+                            <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded font-bold">
+                              BIS 916
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Weights & Purity Grid */}
+                        <div className="grid grid-cols-3 gap-1 text-[11px] pt-1.5 border-t border-stone-100 text-stone-600">
+                          <div>
+                            <span className="text-stone-400 block text-[9.5px] uppercase font-bold">Gross Wt</span>
+                            <strong className="text-stone-800 font-mono">
+                              {Number(piece.gross_weight || 0).toFixed(3)}g
+                            </strong>
+                          </div>
+                          <div>
+                            <span className="text-stone-400 block text-[9.5px] uppercase font-bold">Net Wt</span>
+                            <strong className="text-stone-800 font-mono text-[#b01622]">
+                              {Number(piece.net_gold_weight || piece.net_weight || piece.gross_weight || 0).toFixed(3)}g
+                            </strong>
+                          </div>
+                          <div>
+                            <span className="text-stone-400 block text-[9.5px] uppercase font-bold">Purity</span>
+                            <strong className="text-stone-800 font-semibold">{piece.purity || '22K'}</strong>
+                          </div>
+                        </div>
+
+                        {/* Extra Material / Components Breakdown if present */}
+                        {(Number(piece.diamond_weight) > 0 || Number(piece.color_stone_weight) > 0 || Number(piece.fine_gold_weight) > 0) && (
+                          <div className="flex flex-wrap items-center gap-1.5 text-[10.5px] pt-1 text-stone-600">
+                            {Number(piece.fine_gold_weight) > 0 && (
+                              <span className="bg-amber-50 text-amber-900 border border-amber-200/80 px-1.5 py-0.5 rounded text-[10px] font-mono">
+                                Fine: {Number(piece.fine_gold_weight).toFixed(3)}g
+                              </span>
+                            )}
+                            {Number(piece.diamond_weight) > 0 && (
+                              <span className="bg-sky-50 text-sky-800 border border-sky-200/80 px-1.5 py-0.5 rounded text-[10px] font-mono">
+                                💎 {Number(piece.diamond_weight).toFixed(3)}ct ({piece.diamond_count || 1}p)
+                              </span>
+                            )}
+                            {Number(piece.color_stone_weight) > 0 && (
+                              <span className="bg-purple-50 text-purple-800 border border-purple-200/80 px-1.5 py-0.5 rounded text-[10px] font-mono">
+                                Stone: {Number(piece.color_stone_weight).toFixed(3)}ct
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-3 mt-2 border-t border-stone-100 flex items-center justify-between text-xs">
+                        <span className="text-stone-400 text-[10px]">
+                          Category: <span className="text-stone-700 font-medium">{piece.category || piece.category_name || 'Jewellery'}</span>
+                        </span>
+                        <span className={`text-[11px] font-bold ${isSelected ? 'text-[#b01622]' : 'text-stone-500'}`}>
+                          {isSelected ? '✓ Selected' : '+ Click to Select'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {filtered.map((item) => (
-                <div
-                  key={item.id}
-                  className="border border-stone-200/90 rounded-xl p-3.5 hover:border-[#b01622]/50 hover:shadow-md transition-all flex flex-col justify-between bg-white group"
-                >
-                  <div className="space-y-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="font-mono text-[11px] font-bold text-[#b01622] bg-red-50 px-2 py-0.5 rounded-md border border-red-100">
-                        {item.code}
-                      </span>
-                      <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        In Stock ({item.stock})
-                      </span>
-                    </div>
-
-                    <h3 className="font-bold text-xs text-stone-900 group-hover:text-[#b01622] transition-colors line-clamp-2">
-                      {item.name}
-                    </h3>
-
-                    <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-stone-100 text-stone-600">
-                      <div>
-                        <span className="text-stone-400 block text-[10px] uppercase font-bold">Gross Wt</span>
-                        <strong className="text-stone-800 font-mono">{item.gross_weight.toFixed(3)}g</strong>
-                      </div>
-                      <div>
-                        <span className="text-stone-400 block text-[10px] uppercase font-bold">Purity</span>
-                        <strong className="text-stone-800">{item.purity}</strong>
-                      </div>
-                      <div>
-                        <span className="text-stone-400 block text-[10px] uppercase font-bold">Wastage</span>
-                        <strong className="text-stone-800 font-mono">{item.wastage_percent}%</strong>
-                      </div>
-                      <div>
-                        <span className="text-stone-400 block text-[10px] uppercase font-bold">Gold Rate</span>
-                        <strong className="text-stone-800 font-mono">₹{item.rate.toLocaleString('en-IN')}</strong>
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSelectProduct(item);
-                      onClose();
-                    }}
-                    className="mt-3.5 w-full py-2 bg-stone-900 hover:bg-[#b01622] text-white rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+            /* Catalog tab */
+            loadingCatalog ? (
+              <div className="py-12 text-center text-stone-400 text-sm font-medium">Loading inventory products...</div>
+            ) : filteredCatalog.length === 0 ? (
+              <div className="py-12 text-center text-stone-400 text-sm font-medium">No matching inventory items found.</div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {filteredCatalog.map((item) => (
+                  <div
+                    key={item.id}
+                    className="border border-stone-200/90 rounded-xl p-3.5 hover:border-[#b01622]/50 hover:shadow-md transition-all flex flex-col justify-between bg-white group"
                   >
-                    <i className="fa-solid fa-plus text-xs"></i>
-                    <span>Add to Invoice</span>
-                  </button>
-                </div>
-              ))}
-            </div>
+                    <div className="space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="font-mono text-[11px] font-bold text-[#b01622] bg-red-50 px-2 py-0.5 rounded-md border border-red-100">
+                          {item.code}
+                        </span>
+                        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          In Stock ({item.stock})
+                        </span>
+                      </div>
+
+                      <h3 className="font-bold text-xs text-stone-900 group-hover:text-[#b01622] transition-colors line-clamp-2">
+                        {item.name}
+                      </h3>
+
+                      <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-stone-100 text-stone-600">
+                        <div>
+                          <span className="text-stone-400 block text-[10px] uppercase font-bold">Gross Wt</span>
+                          <strong className="text-stone-800 font-mono">{item.gross_weight.toFixed(3)}g</strong>
+                        </div>
+                        <div>
+                          <span className="text-stone-400 block text-[10px] uppercase font-bold">Purity</span>
+                          <strong className="text-stone-800">{item.purity}</strong>
+                        </div>
+                        <div>
+                          <span className="text-stone-400 block text-[10px] uppercase font-bold">Wastage</span>
+                          <strong className="text-stone-800 font-mono">{item.wastage_percent}%</strong>
+                        </div>
+                        <div>
+                          <span className="text-stone-400 block text-[10px] uppercase font-bold">Gold Rate</span>
+                          <strong className="text-stone-800 font-mono">₹{item.rate.toLocaleString('en-IN')}</strong>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectProduct(item);
+                        onClose();
+                      }}
+                      className="mt-3.5 w-full py-2 bg-stone-900 hover:bg-[#b01622] text-white rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                    >
+                      <i className="fa-solid fa-plus text-xs"></i>
+                      <span>Add to Invoice</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )
           )}
         </div>
 
         {/* Modal Footer */}
-        <div className="p-4 border-t border-stone-100 bg-stone-50/80 flex items-center justify-between text-xs text-stone-500">
-          <span>Select an item to auto-populate customer wastage &amp; price rules.</span>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 border border-stone-300 hover:bg-stone-200 text-stone-700 font-semibold rounded-lg cursor-pointer"
-          >
-            Close
-          </button>
+        <div className="p-4 border-t border-stone-100 bg-stone-50/80 flex items-center justify-between text-xs text-stone-600">
+          <div>
+            {activeTab === 'pieces' ? (
+              <span>
+                Selected <strong className="text-[#b01622] font-bold">{selectedPieceIds.length}</strong> of{' '}
+                <strong>{availablePieces.length}</strong> available physical pieces.
+              </span>
+            ) : (
+              <span>Select a catalog item to auto-populate price rules.</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 border border-stone-300 hover:bg-stone-200 text-stone-700 font-semibold rounded-lg cursor-pointer"
+            >
+              Cancel
+            </button>
+            {activeTab === 'pieces' && (
+              <button
+                type="button"
+                disabled={selectedPieceIds.length === 0}
+                onClick={handleConfirmSelectedPieces}
+                className={`px-5 py-2 rounded-lg font-bold text-xs flex items-center gap-2 cursor-pointer shadow-xs transition-all ${
+                  selectedPieceIds.length > 0
+                    ? 'bg-[#b01622] hover:bg-[#8e111a] text-white'
+                    : 'bg-stone-200 text-stone-400 cursor-not-allowed'
+                }`}
+              >
+                <i className="fa-solid fa-check text-xs"></i>
+                <span>Add Selected Pieces ({selectedPieceIds.length})</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -3738,21 +4802,22 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
   }, [customerOptions]);
 
   const [customerPriceList, setCustomerPriceList] = useState(null);
+  const [customerAccountSummary, setCustomerAccountSummary] = useState(null);
   const [isInventoryModalOpen, setIsInventoryModalOpen] = useState(false);
 
   const fetchCustomerDetailsAndPriceList = async (clientObj) => {
-    if (!clientObj || !clientObj.id) return;
+    if (!clientObj || !clientObj.id || clientObj.id === 'walkin') {
+      setCustomerAccountSummary(null);
+      return;
+    }
     try {
       const [customerRes, priceListRes] = await Promise.all([
         api.get(`/sales/customers/${clientObj.id}`).catch(() => ({ data: null })),
         api.get(`/clients/${clientObj.id}/price-list`).catch(() => ({ data: null }))
       ]);
 
-      if (customerRes?.data?.stats) {
-        const stats = customerRes.data.stats;
-        if (stats.paid_amount !== undefined && stats.paid_amount !== null) {
-          setAmountReceived(Number(stats.paid_amount) || 0);
-        }
+      if (customerRes?.data) {
+        setCustomerAccountSummary(customerRes.data.account_summary || customerRes.data.stats || null);
       }
 
       const priceListData = priceListRes?.data?.price_list;
@@ -3796,6 +4861,24 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
   const [useNetWeight, setUseNetWeight] = useState(false);
   const [chargeType, setChargeType] = useState('Fixed Amount');
 
+  // Unit Masters state
+  const [unitMasters, setUnitMasters] = useState([]);
+
+  useEffect(() => {
+    const fetchUnitMasters = async () => {
+      try {
+        const res = await api.get('/units');
+        const list = res.data?.data || res.data || [];
+        if (Array.isArray(list)) {
+          setUnitMasters(list);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch units from master:', err);
+      }
+    };
+    fetchUnitMasters();
+  }, []);
+
   // Diamond Masters state & header dropdown
   const [diamondMasters, setDiamondMasters] = useState([]);
   const [showDiamondDropdown, setShowDiamondDropdown] = useState(false);
@@ -3808,30 +4891,31 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
       try {
         const res = await api.get('/diamond-ranges');
         const list = res.data?.data || res.data || [];
-        if (Array.isArray(list) && list.length > 0) {
+        if (Array.isArray(list)) {
           const formatted = list.map((d, i) => {
-            const wt = Number(d.min_ct || 1.00) + (Number(d.max_ct || 2.00) - Number(d.min_ct || 1.00)) / 2 || 1.500;
-            const rate = Number(d.rate || 13500);
+            const wt = Number(d.wt_ct ?? (d.carat_weight ?? (d.min_ct ?? 0)));
+            const rate = Number(d.rate ?? (d.price_per_carat ?? 0));
+            const val = Number(d.value ?? (wt * rate) ?? 0);
             return {
-              id: String(d.id || d.code || i + 1),
-              code: d.code || `DIA-MSTR-0${i + 1}`,
-              name: d.name || d.description || `DIAMOND`,
-              item_name: 'DIAMOND',
-              stamp: '1',
-              part: '-',
-              colour: d.colour || 'D',
-              clarity: d.clarity || 'VS',
-              remarks: d.description || '-',
-              unit: 'Carat',
-              tunch: '-',
-              sale_lb: '-',
-              pc: d.pc || 2,
+              id: String(d.id || i + 1),
+              code: d.code || `DIA-${i + 1}`,
+              name: d.name || 'DIAMOND',
+              item_name: d.item_name || 'DIAMOND',
+              stamp: d.stamp || '-',
+              part: d.part || '-',
+              colour: d.colour || '-',
+              clarity: d.clarity || '-',
+              remarks: d.remarks || d.description || d.name || '-',
+              unit: d.unit || 'Carat',
+              tunch: d.tunch || '-',
+              sale_lb: d.sale_lb || '-',
+              pc: d.pc ?? 1,
               wt_ct: wt,
-              dollar: 0.00,
-              disc_percent: 0.00,
-              dolx_rate: 0.00,
+              dollar: Number(d.dollar || 0),
+              disc_percent: Number(d.disc_percent || 0),
+              dolx_rate: Number(d.dolx_rate || 0),
               rate: rate,
-              value: wt * rate,
+              value: val,
               carat_weight: wt,
               price_per_carat: rate,
             };
@@ -3840,16 +4924,10 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
           return;
         }
       } catch (err) {
-        console.warn('Failed to fetch diamond ranges:', err);
+        console.warn('Failed to fetch diamond ranges from master:', err);
       }
 
-      setDiamondMasters([
-        { id: 'dm_1', code: 'DIA-D-VS-302', name: 'DIAMOND', item_name: 'DIAMOND', stamp: '1', part: '-', colour: 'D', clarity: 'VS', remarks: '-', unit: 'Carat', tunch: '-', sale_lb: '-', pc: 2, wt_ct: 3.020, dollar: 0.00, disc_percent: 0.00, dolx_rate: 0.00, rate: 13500.00, value: 40770.00, carat_weight: 3.020, price_per_carat: 13500.00 },
-        { id: 'dm_2', code: 'DIA-D-VS-245', name: 'DIAMOND', item_name: 'DIAMOND', stamp: '1', part: '-', colour: 'D', clarity: 'VS', remarks: '-', unit: 'Carat', tunch: '-', sale_lb: '-', pc: 2, wt_ct: 2.450, dollar: 0.00, disc_percent: 0.00, dolx_rate: 0.00, rate: 13500.00, value: 33075.00, carat_weight: 2.450, price_per_carat: 13500.00 },
-        { id: 'dm_3', code: 'DIA-D-VS-112', name: 'DIAMOND', item_name: 'DIAMOND', stamp: '1', part: '-', colour: 'D', clarity: 'VS', remarks: '-', unit: 'Carat', tunch: '-', sale_lb: '-', pc: 2, wt_ct: 1.120, dollar: 0.00, disc_percent: 0.00, dolx_rate: 0.00, rate: 13500.00, value: 15120.00, carat_weight: 1.120, price_per_carat: 13500.00 },
-        { id: 'dm_4', code: 'DIA-E-VVS-085', name: 'DIAMOND', item_name: 'DIAMOND', stamp: '1', part: '-', colour: 'E', clarity: 'VVS1', remarks: 'Solitaire Cut', unit: 'Carat', tunch: '-', sale_lb: '-', pc: 1, wt_ct: 0.850, dollar: 0.00, disc_percent: 0.00, dolx_rate: 0.00, rate: 45000.00, value: 38250.00, carat_weight: 0.850, price_per_carat: 45000.00 },
-        { id: 'dm_5', code: 'DIA-F-VS2-150', name: 'DIAMOND', item_name: 'DIAMOND', stamp: '1', part: '-', colour: 'F', clarity: 'VS2', remarks: 'Princess Cut', unit: 'Carat', tunch: '-', sale_lb: '-', pc: 1, wt_ct: 1.500, dollar: 0.00, disc_percent: 0.00, dolx_rate: 0.00, rate: 28000.00, value: 42000.00, carat_weight: 1.500, price_per_carat: 28000.00 },
-      ]);
+      setDiamondMasters([]);
     };
 
     fetchDiamondMasters();
@@ -3925,7 +5003,7 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
   const [items, setItems] = useState(() => {
     const rate22 = getLiveGoldRate22k();
     return [
-      { id: 1, code: '', desc: '', gross_wt: '', net_wt: '', unit: 'Gm', qty: 1, purity: '22K', diamond: 0, add_yr: rate22, wastage: 0, labour: 0, hallmarking: 0, discount: 0 },
+      { id: 1, code: '', desc: '', gross_wt: '', net_wt: '', unit: '', qty: 1, purity: '22K', diamond: 0, add_yr: rate22, wastage: 0, labour: 0, hallmarking: 0, discount: 0 },
     ];
   });
 
@@ -3950,42 +5028,121 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
   const applyCustomerPriceListRule = (item, priceList) => {
     // Look up local customer price list if available
     const localCustPriceList = getStoredCustomerPriceList(customer?.name || customer?.id);
-    const activePriceList = priceList || localCustPriceList;
+    const activePriceList = priceList || localCustPriceList || customerPriceList;
 
-    if (!activePriceList || !activePriceList.making_charges || !Array.isArray(activePriceList.making_charges) || activePriceList.making_charges.length === 0) {
-      return item;
-    }
+    if (!activePriceList) return item;
 
-    const makingCharges = activePriceList.making_charges;
+    let updated = { ...item };
+    const purityStr = String(item.purity || '22K').toUpperCase();
     const purityLower = String(item.purity || '').toLowerCase();
     const descLower = String(item.desc || '').toLowerCase();
 
-    let match = makingCharges.find((mc) => {
-      const td = String(mc.type_design || '').toLowerCase();
-      if (purityLower && (td.includes(purityLower) || td.includes(purityLower.replace('k', 'kt')))) return true;
-      if (descLower && td.includes(descLower)) return true;
-      return false;
-    });
-
-    if (!match) match = makingCharges[0];
-
-    let newWastage = item.wastage;
-    if (match.wastage_percent) {
-      const parsedW = parseFloat(String(match.wastage_percent).replace('%', ''));
-      if (!isNaN(parsedW)) newWastage = parsedW;
+    // 1. LINKED CLIENT GOLD RATES
+    if (activePriceList.gold_rates) {
+      const gr = activePriceList.gold_rates;
+      if ((purityStr.includes('24') || purityStr.includes('999')) && Number(gr.rate_24k) > 0) {
+        updated.add_yr = Number(gr.rate_24k);
+      } else if ((purityStr.includes('22') || purityStr.includes('916')) && Number(gr.rate_22k) > 0) {
+        updated.add_yr = Number(gr.rate_22k);
+      } else if ((purityStr.includes('18') || purityStr.includes('750')) && Number(gr.rate_18k) > 0) {
+        updated.add_yr = Number(gr.rate_18k);
+      } else if (purityStr.includes('14') && Number(gr.rate_14k) > 0) {
+        updated.add_yr = Number(gr.rate_14k);
+      }
     }
 
-    let newLabour = item.labour;
-    if (match.labour_charge) {
-      const numMatch = String(match.labour_charge).match(/\d+/);
-      if (numMatch) newLabour = parseFloat(numMatch[0]);
+    // 2. MAKING CHARGES & WASTAGE
+    if (activePriceList.making_charges && Array.isArray(activePriceList.making_charges) && activePriceList.making_charges.length > 0) {
+      const makingCharges = activePriceList.making_charges;
+
+      let match = makingCharges.find((mc) => {
+        const td = String(mc.type_design || '').toLowerCase();
+        if (purityLower && (td.includes(purityLower) || td.includes(purityLower.replace('k', 'kt')))) return true;
+        if (descLower && td.includes(descLower)) return true;
+        return false;
+      });
+
+      if (!match) match = makingCharges[0];
+
+      if (match.wastage_percent) {
+        const parsedW = parseFloat(String(match.wastage_percent).replace('%', ''));
+        if (!isNaN(parsedW)) updated.wastage = parsedW;
+      }
+
+      if (match.labour_charge) {
+        const numMatch = String(match.labour_charge).match(/\d+/);
+        if (numMatch) updated.labour = parseFloat(numMatch[0]);
+      }
     }
 
-    return {
-      ...item,
-      wastage: newWastage,
-      labour: newLabour,
-    };
+    // 3. DIAMOND STONE RATES (PER CARAT)
+    if (activePriceList.diamond_stone_rates && Array.isArray(activePriceList.diamond_stone_rates) && activePriceList.diamond_stone_rates.length > 0) {
+      const diamondRates = activePriceList.diamond_stone_rates;
+
+      let matchDiamond = diamondRates.find((dr) => {
+        const shape = String(dr.shape || '').toLowerCase();
+        const quality = String(dr.quality || '').toLowerCase();
+        if (shape && descLower.includes(shape)) return true;
+        if (quality && descLower.includes(quality)) return true;
+        return false;
+      });
+
+      if (!matchDiamond) matchDiamond = diamondRates[0];
+
+      if (matchDiamond && matchDiamond.rate_per_ct) {
+        const rPerCt = parseFloat(matchDiamond.rate_per_ct);
+        if (!isNaN(rPerCt) && rPerCt > 0) {
+          updated.diamond_rate = rPerCt;
+        }
+      }
+    }
+
+    // 4. COLOR STONE CHARGES (PER CARAT)
+    if (activePriceList.color_stone_charges && Array.isArray(activePriceList.color_stone_charges) && activePriceList.color_stone_charges.length > 0) {
+      const colorStoneRates = activePriceList.color_stone_charges;
+
+      let matchCs = colorStoneRates.find((cs) => {
+        const stoneName = String(cs.stone || '').toLowerCase();
+        return stoneName && descLower.includes(stoneName);
+      });
+
+      if (matchCs && matchCs.rate_per_ct) {
+        const rPerCt = parseFloat(matchCs.rate_per_ct);
+        if (!isNaN(rPerCt) && rPerCt > 0) {
+          updated.stone_rate = rPerCt;
+        }
+      } else if (colorStoneRates[0]?.rate_per_ct) {
+        const defaultRate = parseFloat(colorStoneRates[0].rate_per_ct);
+        if (!isNaN(defaultRate) && defaultRate > 0) {
+          updated.stone_rate = defaultRate;
+        }
+      }
+    }
+
+    // 5. ADDITIONAL CHARGES (Minimum labour, Single nose pin, Multi stones, etc.)
+    if (activePriceList.additional_charges && typeof activePriceList.additional_charges === 'object') {
+      const addCharges = activePriceList.additional_charges;
+      const effWt = Number(updated.net_wt || updated.gross_wt || 0);
+
+      // Minimum Labour enforcement for below 1.00 gms items
+      if (effWt > 0 && effWt < 1.000 && Number(addCharges.minimum_labour) > 0) {
+        const minLabour = Number(addCharges.minimum_labour);
+        if ((updated.labour || 0) < minLabour) {
+          updated.labour = minLabour;
+        }
+      }
+
+      // Nose Pin custom labour
+      if (descLower.includes('nose pin') || descLower.includes('nosepin')) {
+        if (descLower.includes('step') && Number(addCharges.step_nose_pin) > 0) {
+          updated.labour = Number(addCharges.step_nose_pin);
+        } else if (Number(addCharges.single_nose_pin) > 0) {
+          updated.labour = Number(addCharges.single_nose_pin);
+        }
+      }
+    }
+
+    return updated;
   };
 
   const updateItem = (index, field, value) => {
@@ -3996,16 +5153,133 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
     });
   };
 
+  const handleProductCodeChange = async (index, codeVal) => {
+    updateItem(index, 'code', codeVal);
+
+    if (!codeVal || codeVal.trim().length === 0) return;
+
+    const trimmed = codeVal.trim().toLowerCase();
+
+    // Check physical pieces first (for tag numbers like TAG-2026-0001 or designs like RING-101)
+    try {
+      const pieceRes = await api.get('/sales/available-pieces', { params: { search: codeVal.trim() } });
+      const pieces = pieceRes.data?.data || pieceRes.data || [];
+      if (Array.isArray(pieces) && pieces.length > 0) {
+        const exactTag = pieces.find((p) => String(p.tag_number || '').trim().toLowerCase() === trimmed);
+        const pieceMatch = exactTag || pieces[0];
+        if (pieceMatch && (exactTag || trimmed.startsWith('tag-') || trimmed.length >= 3)) {
+          const is24 = (pieceMatch.purity === '24K' || String(pieceMatch.purity).includes('999'));
+          const liveRate = is24 ? getLiveGoldRate24k() : getLiveGoldRate22k();
+          const defaultUnit = unitMasters[0]?.code || unitMasters[0]?.name || 'Grams';
+          const gWt = Number(pieceMatch.gross_weight || 0);
+          const nWt = Number(pieceMatch.net_gold_weight || pieceMatch.gross_weight || gWt);
+          const diamondWt = Number(pieceMatch.diamond_weight || 0);
+
+          setItems((prev) => {
+            const updated = [...prev];
+            const pieceItem = {
+              ...updated[index],
+              piece_id: pieceMatch.id,
+              piece_ids: [pieceMatch.id],
+              tag_number: pieceMatch.tag_number,
+              tag_numbers: [pieceMatch.tag_number],
+              work_order_id: pieceMatch.work_order_id,
+              work_order_number: pieceMatch.work_order_number,
+              karigar_id: pieceMatch.karigar_id,
+              karigar_name: pieceMatch.karigar_name,
+              code: exactTag ? pieceMatch.tag_number : (pieceMatch.design_no || codeVal),
+              desc: pieceMatch.product_name || pieceMatch.design_no || updated[index].desc,
+              gross_wt: gWt > 0 ? gWt : updated[index].gross_wt,
+              net_wt: nWt > 0 ? nWt : updated[index].net_wt,
+              purity: pieceMatch.purity || updated[index].purity,
+              diamond: diamondWt > 0 ? diamondWt : updated[index].diamond,
+              unit: defaultUnit,
+              qty: 1,
+              is_piece_locked: true,
+              hallmarking: pieceMatch.hallmarking_status === 'passed' ? 500 : updated[index].hallmarking,
+              add_yr: liveRate || updated[index].add_yr,
+              product_id: pieceMatch.product_id || null,
+            };
+            updated[index] = applyCustomerPriceListRule(pieceItem, customerPriceList);
+            return updated;
+          });
+          return;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // Fallback to searching catalog products
+    let match = (products || []).find((p) => {
+      const pDesign = String(p.design_no || '').trim().toLowerCase();
+      const pCode = String(p.product_code || p.code || '').trim().toLowerCase();
+      const pName = String(p.name || '').trim().toLowerCase();
+      return pDesign === trimmed || pCode === trimmed || pName === trimmed;
+    });
+
+    if (!match && trimmed.length >= 2) {
+      try {
+        const res = await api.get('/sales/products', { params: { search: trimmed } });
+        const list = res.data?.data || res.data || [];
+        if (Array.isArray(list) && list.length > 0) {
+          match = list.find((p) => {
+            const pDesign = String(p.design_no || '').trim().toLowerCase();
+            const pCode = String(p.product_code || p.code || '').trim().toLowerCase();
+            return pDesign === trimmed || pCode === trimmed;
+          }) || list[0];
+        }
+      } catch (e) {}
+    }
+
+    if (match) {
+      const defaultUnit = unitMasters[0]?.code || unitMasters[0]?.name || '';
+      const gWt = Number(match.gross_weight || match.gross_wt || 0);
+      const nWt = Number(match.net_weight || match.net_wt || gWt);
+      const purityVal = match.purity || match.karat || '';
+      const unitVal = match.unit || defaultUnit;
+      const diamondWt = Number(match.diamond_wt || 0);
+      const labourVal = Number(match.labour || 0);
+      const wastageVal = Number(match.wastage_percent || 0);
+      const descVal = match.description || match.name || '';
+
+      const liveRate = (purityVal === '24K' || String(purityVal).includes('999')) ? getLiveGoldRate24k() : getLiveGoldRate22k();
+
+      setItems((prev) => {
+        const updated = [...prev];
+        const matchedItem = {
+          ...updated[index],
+          code: codeVal,
+          desc: descVal || updated[index].desc,
+          gross_wt: gWt > 0 ? gWt : updated[index].gross_wt,
+          net_wt: nWt > 0 ? nWt : (gWt > 0 ? gWt : updated[index].net_wt),
+          purity: purityVal || updated[index].purity,
+          unit: unitVal || updated[index].unit,
+          diamond: diamondWt > 0 ? diamondWt : updated[index].diamond,
+          labour: labourVal > 0 ? labourVal : updated[index].labour,
+          wastage: wastageVal > 0 ? wastageVal : updated[index].wastage,
+          add_yr: liveRate || updated[index].add_yr,
+          piece_id: null,
+          tag_number: null,
+          is_piece_locked: false,
+        };
+        updated[index] = applyCustomerPriceListRule(matchedItem, customerPriceList);
+        return updated;
+      });
+    }
+  };
+
   const addItemRow = () => {
     const nextId = items.length + 1;
     const liveRate = getLiveGoldRate22k();
+    const defaultUnit = unitMasters[0]?.code || unitMasters[0]?.name || '';
     const newItem = {
       id: nextId,
       code: `RJ-${1000 + nextId}`,
       desc: 'Gold Ornament',
       gross_wt: 5.000,
       net_wt: 4.500,
-      unit: 'Gm',
+      unit: defaultUnit,
       qty: 1,
       purity: '22K',
       diamond: 0.500,
@@ -4022,13 +5296,14 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
   const handleSelectProductFromInventory = (product) => {
     const nextId = Date.now();
     const liveRate = (product.purity === '24K' || product.purity === '24K (999)') ? getLiveGoldRate24k() : getLiveGoldRate22k();
+    const defaultUnit = unitMasters[0]?.code || unitMasters[0]?.name || '';
     const newItem = {
       id: nextId,
       code: product.code || product.product_code || `RJ-${1000 + items.length + 1}`,
       desc: product.name || product.description || 'Gold Ornament',
       gross_wt: Number(product.gross_weight || 5.000),
       net_wt: Number(product.net_weight || 4.500),
-      unit: 'Gm',
+      unit: product.unit || defaultUnit,
       qty: 1,
       purity: product.purity || '22K',
       diamond: Number(product.diamond_wt || 0),
@@ -4040,8 +5315,67 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
     };
 
     const customized = applyCustomerPriceListRule(newItem, customerPriceList);
-    setItems((prev) => [...prev, customized]);
+    setItems((prev) => {
+      if (prev.length === 1 && !prev[0].code && !prev[0].desc && (!prev[0].gross_wt || prev[0].gross_wt === '')) {
+        return [{ ...customized, id: prev[0].id }];
+      }
+      return [...prev, customized];
+    });
     showToast?.(`${customized.desc} added to invoice with live price list rates.`, 'success');
+  };
+
+  const handleSelectPiecesFromInventory = (selectedPieces) => {
+    if (!Array.isArray(selectedPieces) || selectedPieces.length === 0) return;
+    const r22 = getLiveGoldRate22k();
+    const r24 = getLiveGoldRate24k();
+    const defaultUnit = unitMasters[0]?.code || unitMasters[0]?.name || 'Grams';
+
+    const newRows = selectedPieces.map((piece, i) => {
+      const is24 = (piece.purity === '24K' || String(piece.purity).includes('999'));
+      const liveRate = is24 ? r24 : r22;
+      const gWt = Number(piece.gross_weight || 0);
+      const nWt = Number(piece.net_gold_weight || piece.gross_weight || gWt);
+      const diamondWt = Number(piece.diamond_weight || 0);
+
+      const rawItem = {
+        id: Date.now() + i,
+        piece_id: piece.id,
+        piece_ids: [piece.id],
+        tag_number: piece.tag_number,
+        tag_numbers: [piece.tag_number],
+        receive_order_number: piece.receive_order_number,
+        work_order_id: piece.work_order_id,
+        work_order_number: piece.work_order_number,
+        karigar_id: piece.karigar_id,
+        karigar_name: piece.karigar_name,
+        code: piece.design_no || piece.tag_number,
+        desc: piece.product_name || piece.design_no || 'Jewellery Piece',
+        gross_wt: gWt,
+        net_wt: nWt,
+        fine_gold_weight: piece.fine_gold_weight || null,
+        color_stone_weight: piece.color_stone_weight || 0,
+        unit: defaultUnit,
+        qty: 1,
+        is_piece_locked: true,
+        purity: piece.purity || '22K',
+        diamond: diamondWt,
+        add_yr: liveRate,
+        wastage: 5.00,
+        labour: 650.00,
+        hallmarking: piece.hallmarking_status === 'passed' ? 500 : 0,
+        discount: 0,
+        product_id: piece.product_id || null,
+      };
+      return applyCustomerPriceListRule(rawItem, customerPriceList);
+    });
+
+    setItems((prev) => {
+      const isFirstEmpty = prev.length === 1 && !prev[0].code && !prev[0].desc && (!prev[0].gross_wt || prev[0].gross_wt === '');
+      const base = isFirstEmpty ? [] : prev;
+      return [...base, ...newRows];
+    });
+
+    showToast?.(`${newRows.length} physical piece(s) added to invoice.`, 'success');
   };
 
   const getCustomerPriceListRate = (desc, type) => {
@@ -4102,6 +5436,9 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
       const hallmarking = Number(item.hallmarking || 0);
       const disc = Number(item.discount || 0);
       const diamondWt = Number(item.diamond || 0);
+      const diamondRate = Number(item.diamond_rate || customerPriceList?.diamond_stone_rates?.[0]?.rate_per_ct || 50000);
+      const stoneRate = Number(item.stone_rate || customerPriceList?.color_stone_charges?.[0]?.rate_per_ct || 1800);
+      const stoneWt = Number(item.stone_weight || item.stone_wt || 0);
 
       let effectiveLabour = baseLabour;
       if (chargeType === 'Per Piece') {
@@ -4113,9 +5450,10 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
       }
 
       const goldVal = effectiveWt * qty * rate * (1 + wastagePct / 100);
+      const stoneVal = (diamondWt * diamondRate) + (stoneWt * stoneRate);
       calcGoldValue += goldVal;
       calcMakingCharges += (effectiveLabour + hallmarking);
-      calcStoneCharges += (diamondWt * 50000);
+      calcStoneCharges += stoneVal;
       calcDiscount += disc;
     });
 
@@ -4143,43 +5481,130 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
       grandTotal,
       balanceDue,
     };
-  }, [items, amountReceived, useNetWeight, chargeType]);
+  }, [items, amountReceived, useNetWeight, chargeType, customerPriceList]);
 
   const handleSaveInvoice = async (isDraft = false) => {
     try {
-      const generatedInvoice = {
-        customer_name: customer.name,
-        mobile: customer.mobile,
-        address: customer.address,
-        gstin: customer.pan,
+      if (!items || items.length === 0) {
+        showToast?.('Please add at least one item to invoice.', 'error');
+        return;
+      }
+
+      const hasInvalidItem = items.some((it) => !it.code && !it.desc);
+      if (hasInvalidItem) {
+        showToast?.('Please fill in product details for all invoice items.', 'error');
+        return;
+      }
+
+      const payload = {
+        client_id: (customer && customer.id !== 'walkin') ? Number(customer.id) : null,
+        client_name: customer?.name || 'Walk-in Customer',
+        customer_name: customer?.name || 'Walk-in Customer',
+        customer_mobile: customer?.mobile || '',
+        customer_address: customer?.address || '',
+        customer_gstin: customer?.pan || '',
         invoice_no: invoice.invoice_no,
         invoice_series: invoice.series,
         date: invoice.date,
-        items: items,
-        gold_value: calculations.goldValue,
-        making_charges: calculations.makingCharges,
-        stone_charges: calculations.stoneCharges,
-        discount: calculations.discount,
-        sub_total: calculations.subTotal,
-        grand_total: calculations.grandTotal,
-        amount_received: amountReceived,
-        balance_due: calculations.balanceDue,
+        is_draft: isDraft,
+        status: isDraft ? 'draft' : (calculations.balanceDue <= 0 ? 'paid' : 'partial'),
+        amount_received: Number(amountReceived || 0),
         payment_mode: invoice.payment_type,
+        payment_method: invoice.payment_type,
+        goods_delivered: Boolean(invoice.goods_delivered),
+        use_net_weight: Boolean(useNetWeight),
+        charge_type: chargeType,
+        price_list_version: customerPriceList?.version || null,
+        stamping_instructions: customerPriceList?.stamping_instructions || null,
+        payment_terms: customerPriceList?.payment_terms || null,
+        notes: `Physical pieces: ${items.filter(i => i.tag_number).map(i => i.tag_number).join(', ') || 'None'}`,
+        items: items.map((it) => {
+          const gWt = Number(it.gross_wt || 0);
+          const nWt = Number((it.net_wt ?? it.gross_wt) || 0);
+          const effWt = useNetWeight ? nWt : gWt;
+          const qty = Number(it.qty || 1);
+          const rate = Number(it.add_yr || 7235);
+          const wastagePct = Number(it.wastage || 0);
+          const baseLabour = Number(it.labour || 0);
+          const hallmarking = Number(it.hallmarking || 0);
+          const disc = Number(it.discount || 0);
+          const diamondWt = Number(it.diamond || 0);
+          const diamondRate = Number(it.diamond_rate || customerPriceList?.diamond_stone_rates?.[0]?.rate_per_ct || 50000);
+          const stoneRate = Number(it.stone_rate || customerPriceList?.color_stone_charges?.[0]?.rate_per_ct || 1800);
+          const stoneWt = Number(it.stone_weight || it.stone_wt || 0);
+
+          let effectiveLabour = baseLabour;
+          if (chargeType === 'Per Piece') effectiveLabour = baseLabour * qty;
+          else if (chargeType === 'Per Weight') effectiveLabour = baseLabour * effWt;
+
+          const goldVal = effWt * qty * rate * (1 + wastagePct / 100);
+          const stoneVal = (diamondWt * diamondRate) + (stoneWt * stoneRate);
+          const lineTotal = Math.max(0, goldVal + effectiveLabour + hallmarking + stoneVal - disc);
+
+          return {
+            product_id: it.product_id || null,
+            piece_id: it.piece_id || null,
+            piece_ids: it.piece_ids || (it.piece_id ? [it.piece_id] : []),
+            tag_number: it.tag_number || null,
+            tag_numbers: it.tag_numbers || (it.tag_number ? [it.tag_number] : []),
+            work_order_number: it.work_order_number || null,
+            karigar_name: it.karigar_name || null,
+            product_code: it.code || it.tag_number || 'RJ-PRD',
+            product_name: it.desc || 'Jewellery Ornament',
+            code: it.code || it.tag_number || 'RJ-PRD',
+            desc: it.desc || 'Jewellery Ornament',
+            quantity: qty,
+            rate: rate,
+            gross_weight: gWt,
+            net_weight: nWt,
+            stone_weight: diamondWt + stoneWt,
+            diamond_weight: diamondWt,
+            diamond_rate: diamondRate,
+            stone_rate: stoneRate,
+            purity: it.purity || '22K',
+            making_charge: effectiveLabour,
+            labour_charge: effectiveLabour,
+            stone_charge: stoneVal,
+            diamond_charge: diamondWt * diamondRate,
+            wastage_percent: wastagePct,
+            hallmarking: hallmarking,
+            discount: disc,
+            line_total: lineTotal,
+            total_amount: lineTotal,
+            details: {
+              tag_number: it.tag_number || null,
+              tag_numbers: it.tag_numbers || (it.tag_number ? [it.tag_number] : []),
+              work_order_number: it.work_order_number || null,
+              karigar_name: it.karigar_name || null,
+              diamond_rate: diamondRate,
+              stone_rate: stoneRate,
+              diamond_charge: diamondWt * diamondRate,
+              stamping_detail: customerPriceList?.stamping_instructions?.stamping_detail || null,
+              payment_terms: customerPriceList?.payment_terms || null,
+            }
+          };
+        }),
       };
 
-      try {
-        sessionStorage.setItem('lastGeneratedInvoice', JSON.stringify(generatedInvoice));
-      } catch (err) { }
+      const res = await api.post('/sales', payload);
+      const createdInvoice = res.data?.data;
 
-      showToast?.(
-        isDraft
-          ? `Invoice draft saved for ${customer.name}.`
-          : `Invoice ${invoice.invoice_no} generated successfully for ${customer.name}!`,
-        'success'
-      );
-      navigate('/sales/1', { state: { previewInvoiceData: generatedInvoice } });
+      if (createdInvoice) {
+        try {
+          sessionStorage.setItem('lastGeneratedInvoice', JSON.stringify(createdInvoice));
+        } catch (err) { }
+
+        showToast?.(
+          isDraft
+            ? `Invoice draft saved for ${customer.name}. Pieces remain uncommitted.`
+            : `Invoice ${createdInvoice.invoice_no || invoice.invoice_no} finalized successfully! Physical pieces marked as sold.`,
+          'success'
+        );
+        navigate(`/sales/${createdInvoice.id}`, { state: { previewInvoiceData: createdInvoice } });
+      }
     } catch (e) {
-      showToast?.('Could not save invoice', 'error');
+      const errMsg = e.response?.data?.message || e.message || 'Could not save invoice';
+      showToast?.(errMsg, 'error');
     }
   };
 
@@ -4190,6 +5615,7 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
         isOpen={isInventoryModalOpen}
         onClose={() => setIsInventoryModalOpen(false)}
         onSelectProduct={handleSelectProductFromInventory}
+        onSelectPieces={handleSelectPiecesFromInventory}
         products={products}
       />
 
@@ -4249,11 +5675,16 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                 Mobile No.
               </label>
               <input
-                type="text"
+                type="tel"
+                inputMode="numeric"
+                maxLength={10}
                 value={customer.mobile}
-                onChange={(e) => setCustomer({ ...customer, mobile: e.target.value })}
-                placeholder="Enter Mobile No."
-                className="w-full border border-stone-300 rounded-lg p-2.5 text-xs text-stone-800 focus:outline-hidden focus:border-[#b01622]"
+                onChange={(e) => {
+                  const cleanMobile = e.target.value.replace(/\D/g, '').slice(0, 10);
+                  setCustomer({ ...customer, mobile: cleanMobile });
+                }}
+                placeholder="10-digit Mobile No."
+                className="w-full border border-stone-300 rounded-lg p-2.5 text-xs text-stone-800 font-mono focus:outline-hidden focus:border-[#b01622]"
               />
             </div>
 
@@ -4276,10 +5707,14 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
               </label>
               <input
                 type="text"
+                maxLength={10}
                 value={customer.pan}
-                onChange={(e) => setCustomer({ ...customer, pan: e.target.value })}
-                placeholder="Enter PAN Number (e.g. ABCDE1234F)"
-                className="w-full border border-stone-300 rounded-lg p-2.5 text-xs text-stone-800 focus:outline-hidden focus:border-[#b01622] font-mono"
+                onChange={(e) => {
+                  const cleanPan = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+                  setCustomer({ ...customer, pan: cleanPan });
+                }}
+                placeholder="e.g. ABCDE1234F"
+                className="w-full border border-stone-300 rounded-lg p-2.5 text-xs text-stone-800 focus:outline-hidden focus:border-[#b01622] font-mono uppercase"
               />
             </div>
           </div>
@@ -4326,11 +5761,11 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                 Invoice Date <span className="text-red-500">*</span>
               </label>
               <input
-                type="text"
+                type="date"
                 value={invoice.date}
                 onChange={(e) => setInvoice({ ...invoice, date: e.target.value })}
-                placeholder="DD/MM/YYYY"
-                className="w-full border border-stone-300 rounded-lg p-2.5 text-xs text-stone-800 focus:outline-hidden focus:border-[#b01622]"
+                className="w-full border border-stone-300 rounded-lg p-2.5 text-xs text-stone-800 focus:outline-hidden focus:border-[#b01622] font-mono cursor-pointer"
+                required
               />
             </div>
 
@@ -4552,6 +5987,7 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                           <table className="w-full text-left border-collapse text-[11px]">
                             <thead>
                               <tr className="bg-stone-50/70 text-[10px] font-bold uppercase tracking-wider text-stone-500 border-b border-stone-200 whitespace-nowrap">
+                                <th className="p-2.5 text-center w-8">S.No</th>
                                 <th className="p-2.5 text-center w-8">
                                   <input
                                     type="checkbox"
@@ -4582,7 +6018,7 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                             <tbody className="divide-y divide-stone-100">
                               {/* Group Header Row matching Image 2 */}
                               <tr className="bg-stone-50/90 font-bold border-b border-stone-200 text-xs">
-                                <td colSpan="18" className="px-3 py-2 text-[#b01622] tracking-wide">
+                                <td colSpan="19" className="px-3 py-2 text-[#b01622] tracking-wide">
                                   <div className="flex items-center gap-1.5">
                                     <i className="fa-solid fa-chevron-down text-[10px]"></i>
                                     <span>DIAMOND</span>
@@ -4590,20 +6026,32 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                                 </td>
                               </tr>
 
-                              {diamondMasters
-                                .filter((dm) =>
-                                  (dm.name || '').toLowerCase().includes(diamondSearch.toLowerCase()) ||
-                                  (dm.code || '').toLowerCase().includes(diamondSearch.toLowerCase()) ||
-                                  (dm.colour || '').toLowerCase().includes(diamondSearch.toLowerCase()) ||
-                                  (dm.clarity || '').toLowerCase().includes(diamondSearch.toLowerCase())
-                                )
-                                .map((dm) => {
+                              {diamondMasters.length === 0 ? (
+                                <tr>
+                                  <td colSpan="19" className="py-8 text-center text-stone-400">
+                                    <i className="fa-solid fa-gem text-2xl mb-2 text-stone-300 block"></i>
+                                    <span>No diamond ranges configured in Diamond Master.</span>
+                                    <Link to="/masters/diamond-ranges" className="block text-[#b01622] hover:underline font-bold text-xs mt-1">
+                                      Go to Masters &gt; Diamond Ranges to add diamond specifications
+                                    </Link>
+                                  </td>
+                                </tr>
+                              ) : (
+                                diamondMasters
+                                  .filter((dm) =>
+                                    (dm.name || '').toLowerCase().includes(diamondSearch.toLowerCase()) ||
+                                    (dm.code || '').toLowerCase().includes(diamondSearch.toLowerCase()) ||
+                                    (dm.colour || '').toLowerCase().includes(diamondSearch.toLowerCase()) ||
+                                    (dm.clarity || '').toLowerCase().includes(diamondSearch.toLowerCase())
+                                  )
+                                  .map((dm, idx) => {
                                   const isChecked = selectedDiamondIds.includes(dm.id);
                                   return (
                                     <tr
                                       key={dm.id}
                                       className={`hover:bg-amber-50/20 transition-colors whitespace-nowrap ${isChecked ? 'bg-red-50/30' : ''}`}
                                     >
+                                      <td className="p-2.5 text-center font-mono text-stone-400 font-medium">{idx + 1}</td>
                                       <td className="p-2.5 text-center">
                                         <input
                                           type="checkbox"
@@ -4613,24 +6061,24 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                                         />
                                       </td>
                                       <td className="p-2.5 font-bold text-stone-900">{dm.item_name || 'DIAMOND'}</td>
-                                      <td className="p-2.5 text-center text-stone-600 font-mono">{dm.stamp || '1'}</td>
+                                      <td className="p-2.5 text-center text-stone-600 font-mono">{dm.stamp || '-'}</td>
                                       <td className="p-2.5 text-center text-stone-400">{dm.part || '-'}</td>
-                                      <td className="p-2.5 text-center font-bold text-stone-800">{dm.colour || 'D'}</td>
-                                      <td className="p-2.5 text-center font-bold text-stone-800">{dm.clarity || 'VS'}</td>
+                                      <td className="p-2.5 text-center font-bold text-stone-800">{dm.colour || '-'}</td>
+                                      <td className="p-2.5 text-center font-bold text-stone-800">{dm.clarity || '-'}</td>
                                       <td className="p-2.5 text-stone-500 max-w-[120px] truncate">{dm.remarks || '-'}</td>
                                       <td className="p-2.5 text-center text-stone-600">{dm.unit || 'Carat'}</td>
                                       <td className="p-2.5 text-center text-stone-400">{dm.tunch || '-'}</td>
                                       <td className="p-2.5 text-center text-stone-400">{dm.sale_lb || '-'}</td>
-                                      <td className="p-2.5 text-center font-bold text-stone-900 font-mono">{dm.pc || 2}</td>
-                                      <td className="p-2.5 text-right font-mono font-bold text-[#b01622]">{(dm.wt_ct || dm.carat_weight || 0).toFixed(3)}</td>
-                                      <td className="p-2.5 text-right font-mono text-stone-500">{(dm.dollar || 0).toFixed(2)}</td>
-                                      <td className="p-2.5 text-right font-mono text-stone-500">{(dm.disc_percent || 0).toFixed(2)}</td>
-                                      <td className="p-2.5 text-right font-mono text-stone-500">{(dm.dolx_rate || 0).toFixed(2)}</td>
+                                      <td className="p-2.5 text-center font-bold text-stone-900 font-mono">{dm.pc || 1}</td>
+                                      <td className="p-2.5 text-right font-mono font-bold text-[#b01622]">{(Number(dm.wt_ct || dm.carat_weight || 0)).toFixed(3)}</td>
+                                      <td className="p-2.5 text-right font-mono text-stone-500">{(Number(dm.dollar || 0)).toFixed(2)}</td>
+                                      <td className="p-2.5 text-right font-mono text-stone-500">{(Number(dm.disc_percent || 0)).toFixed(2)}</td>
+                                      <td className="p-2.5 text-right font-mono text-stone-500">{(Number(dm.dolx_rate || 0)).toFixed(2)}</td>
                                       <td className="p-2.5 text-right font-mono font-semibold text-stone-800">
-                                        {(dm.rate || dm.price_per_carat || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        {(Number(dm.rate || dm.price_per_carat || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                       </td>
                                       <td className="p-2.5 text-right font-mono font-bold text-stone-900">
-                                        {(dm.value || (dm.wt_ct || 1) * (dm.rate || 13500)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        {(Number(dm.value || (Number(dm.wt_ct || 0) * Number(dm.rate || 0)))).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                       </td>
                                       <td className="p-2.5 text-center">
                                         <div className="flex items-center justify-center gap-2">
@@ -4657,7 +6105,8 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                                       </td>
                                     </tr>
                                   );
-                                })}
+                                })
+                              )}
                             </tbody>
                           </table>
                         </div>
@@ -4720,8 +6169,12 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                   effectiveLabour = baseLabour * effectiveWt;
                 }
 
+                const diamondRate = Number(item.diamond_rate || customerPriceList?.diamond_stone_rates?.[0]?.rate_per_ct || 50000);
+                const stoneRate = Number(item.stone_rate || customerPriceList?.color_stone_charges?.[0]?.rate_per_ct || 1800);
+                const stoneWt = Number(item.stone_weight || item.stone_wt || 0);
+
                 const goldVal = effectiveWt * qty * rate * (1 + wastagePct / 100);
-                const stoneVal = diamondWt * 50000;
+                const stoneVal = (diamondWt * diamondRate) + (stoneWt * stoneRate);
                 const rowTotal = Math.max(0, goldVal + effectiveLabour + hallmarking + stoneVal - disc);
 
                 return (
@@ -4731,9 +6184,9 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                       <input
                         type="text"
                         value={item.code}
-                        onChange={(e) => updateItem(idx, 'code', e.target.value)}
-                        placeholder="RJ-ITM-001"
-                        className="w-24 border border-stone-200 rounded p-1 text-xs font-mono font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622]"
+                        onChange={(e) => handleProductCodeChange(idx, e.target.value)}
+                        placeholder="Design No / Code"
+                        className="w-28 border border-stone-200 rounded p-1 text-xs font-mono font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622]"
                       />
                     </td>
                     <td className="p-2.5">
@@ -4744,6 +6197,23 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                         placeholder="Product description"
                         className="w-36 md:w-44 border border-stone-200 rounded p-1 text-xs font-medium text-stone-800 focus:outline-hidden focus:border-[#b01622]"
                       />
+                      {item.tag_number && (
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[10px] font-mono">
+                          <span className="bg-red-50 text-[#b01622] font-bold px-1.5 py-0.5 rounded border border-red-200">
+                            Tag: {item.tag_number}
+                          </span>
+                          {item.work_order_number && (
+                            <span className="bg-stone-100 text-stone-700 px-1.5 py-0.5 rounded border border-stone-200">
+                              WO: {item.work_order_number}
+                            </span>
+                          )}
+                          {item.karigar_name && (
+                            <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-100">
+                              Karigar: {item.karigar_name}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="p-2.5 text-center">
                       <input
@@ -4769,13 +6239,16 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                     )}
                     <td className="p-2.5 text-center">
                       <select
-                        value={item.unit || 'Gm'}
+                        value={item.unit || ''}
                         onChange={(e) => updateItem(idx, 'unit', e.target.value)}
-                        className="w-16 border border-stone-200 rounded p-1 text-xs font-medium text-stone-800 focus:outline-hidden focus:border-[#b01622] bg-white cursor-pointer"
+                        className="w-20 border border-stone-200 rounded p-1 text-xs font-medium text-stone-800 focus:outline-hidden focus:border-[#b01622] bg-white cursor-pointer"
                       >
-                        <option value="Gm">Gm</option>
-                        <option value="Pc">Pc</option>
-                        <option value="Pair">Pair</option>
+                        <option value="">{unitMasters.length > 0 ? 'Select Unit' : 'No units in master'}</option>
+                        {unitMasters.map((u) => (
+                          <option key={u.id} value={u.code || u.name}>
+                            {u.name}{u.code && u.code !== u.name ? ` (${u.code})` : ''}
+                          </option>
+                        ))}
                       </select>
                     </td>
                     <td className="p-2.5 text-center">
@@ -4784,21 +6257,32 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
                         min="1"
                         value={item.qty}
                         onChange={(e) => updateItem(idx, 'qty', e.target.value)}
+                        disabled={Boolean(item.is_piece_locked || item.tag_number || item.piece_id)}
+                        title={item.tag_number ? "Quantity locked to 1 for this unique physical piece tag" : "Quantity"}
                         placeholder="1"
-                        className="w-12 text-center border border-stone-200 rounded p-1 text-xs focus:outline-hidden focus:border-[#b01622]"
+                        className={`w-12 text-center border border-stone-200 rounded p-1 text-xs focus:outline-hidden focus:border-[#b01622] ${
+                          (item.is_piece_locked || item.tag_number || item.piece_id) ? 'bg-stone-100 font-bold text-stone-600 cursor-not-allowed' : ''
+                        }`}
                       />
                     </td>
                     <td className="p-2.5 text-center">
-                      <select
-                        value={item.purity && item.purity !== '-' ? item.purity : '22K'}
+                      <input
+                        type="text"
+                        list="sales-purity-options"
+                        value={item.purity || ''}
                         onChange={(e) => updateItem(idx, 'purity', e.target.value)}
-                        className="w-20 text-center border border-stone-200 rounded p-1 text-xs font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622] bg-white cursor-pointer"
-                      >
-                        <option value="22K">22K</option>
-                        <option value="24K">24K</option>
-                        <option value="18K">18K</option>
-                        <option value="14K">14K</option>
-                      </select>
+                        placeholder="22K"
+                        className="w-16 text-center border border-stone-200 rounded p-1 text-xs font-semibold text-stone-800 focus:outline-hidden focus:border-[#b01622] bg-white uppercase"
+                      />
+                      <datalist id="sales-purity-options">
+                        <option value="24K" />
+                        <option value="22K" />
+                        <option value="18K" />
+                        <option value="14K" />
+                        <option value="916" />
+                        <option value="750" />
+                        <option value="999" />
+                      </datalist>
                     </td>
                     <td className="p-2.5 text-center">
                       <input
@@ -4964,27 +6448,87 @@ function CreateInvoiceBillingPage({ clients, products, navigate, showToast }) {
         {/* Right: Payment Box & Action Buttons */}
         <div className="lg:col-span-5 space-y-4">
           {/* Amount Received / Balance Due Card */}
-          <div className="bg-[#eaf8f0] border border-emerald-200 rounded-xl p-5 space-y-4">
+          <div className="bg-[#eaf8f0] border border-emerald-200 rounded-xl p-5 space-y-3.5">
+            {/* Customer Price List Badge */}
+            {customerPriceList && (
+              <div className="flex items-center justify-between pb-2.5 border-b border-emerald-200/60 text-xs">
+                <span className="font-semibold text-emerald-900 flex items-center gap-1.5">
+                  <i className="fa-solid fa-tags text-emerald-600"></i>
+                  Customer Price List
+                </span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold font-mono text-[10px] tracking-wide">
+                  Version {customerPriceList.version || '01'} ({customerPriceList.status || 'active'})
+                </span>
+              </div>
+            )}
+
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-emerald-800">Amount Received</span>
-              <div className="flex items-center gap-1 text-emerald-700 font-mono font-bold text-lg">
-                <span>₹</span>
+              <span className="text-xs font-semibold text-emerald-800">Amount Received Now</span>
+              <div className="flex items-center justify-end text-emerald-700 font-mono font-bold text-lg">
+                <span className="mr-1 select-none">₹</span>
                 <input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={amountReceived}
                   onChange={(e) => setAmountReceived(e.target.value)}
-                  className="w-36 bg-transparent text-right text-emerald-700 font-bold text-lg focus:outline-hidden focus:bg-white/50 rounded px-1"
+                  style={{ width: `${Math.max(2, (amountReceived?.toString() || '0').length + 1)}ch` }}
+                  className="bg-transparent text-right text-emerald-700 font-bold text-lg focus:outline-hidden focus:bg-white/60 rounded px-0.5 min-w-[2.5ch] max-w-[200px]"
                 />
               </div>
             </div>
 
+            {/* Quick Payment Presets */}
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setAmountReceived(calculations.grandTotal)}
+                className="px-2.5 py-1 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-2xs transition-colors cursor-pointer"
+              >
+                Full (₹{Math.round(calculations.grandTotal).toLocaleString('en-IN')})
+              </button>
+              <button
+                type="button"
+                onClick={() => setAmountReceived(0)}
+                className="px-2.5 py-1 text-[11px] font-bold bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-50 rounded-lg shadow-2xs transition-colors cursor-pointer"
+              >
+                Credit Sale (₹0)
+              </button>
+              {calculations.grandTotal > 5000 && (
+                <button
+                  type="button"
+                  onClick={() => setAmountReceived(Math.round(calculations.grandTotal * 0.5))}
+                  className="px-2.5 py-1 text-[11px] font-bold bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-50 rounded-lg shadow-2xs transition-colors cursor-pointer"
+                >
+                  50% Partial
+                </button>
+              )}
+            </div>
+
             <div className="flex items-center justify-between border-t border-emerald-200/80 pt-3">
-              <span className="text-xs font-semibold text-stone-700">Balance Due</span>
+              <span className="text-xs font-semibold text-stone-700">Current Invoice Due</span>
               <span className="text-red-600 font-mono font-bold text-lg">
                 ₹ {calculations.balanceDue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
             </div>
+
+            {/* Previous Customer Dues and Combined Outstanding */}
+            {customerAccountSummary && (
+              <div className="pt-2 border-t border-emerald-200/60 space-y-1.5 text-xs">
+                <div className="flex items-center justify-between text-stone-600">
+                  <span>Previous Customer Balance:</span>
+                  <span className="font-mono font-semibold text-stone-800">
+                    ₹ {Number(customerAccountSummary.total_customer_outstanding ?? customerAccountSummary.total_outstanding ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between font-bold text-stone-900 pt-1 border-t border-emerald-200/40">
+                  <span className="text-red-700">Total Customer Outstanding:</span>
+                  <span className="font-mono text-red-700 text-sm">
+                    ₹ {(Number(customerAccountSummary.total_customer_outstanding ?? customerAccountSummary.total_outstanding ?? 0) + calculations.balanceDue).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Action Buttons */}
@@ -5313,7 +6857,7 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
   // Tab 5: Terms & Conditions
   const [isEditingTerms, setIsEditingTerms] = useState(false);
   const [termsData, setTermsData] = useState({
-    title: 'RUDRA JEWELLERS - TERMS & CONDITIONS OF PRICE LIST',
+    title: 'RUDRA JEWELLERY - TERMS & CONDITIONS OF PRICE LIST',
     c1Title: '1. Market Rate Adjustments',
     c1Text: 'Prices listed are based on current market spot rates and are subject to immediate revision upon market fluctuations.',
     c2Title: '2. Wastage & Making Charges',
@@ -6420,6 +7964,7 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
             <table className="w-full text-left border-collapse text-xs">
               <thead className="bg-stone-50 text-[10px] font-bold text-stone-500 uppercase">
                 <tr>
+                  <th className="p-3 text-center w-12">S.NO</th>
                   <th className="p-3">CODE</th>
                   <th className="p-3">PRODUCT NAME</th>
                   <th className="p-3">SHAPE / CUT</th>
@@ -6434,14 +7979,15 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
               <tbody className="divide-y divide-stone-100">
                 {paginatedDiamondItems.length === 0 && (
                   <tr>
-                    <td colSpan="9" className="py-8 text-center text-stone-400 font-medium">
+                    <td colSpan="10" className="py-8 text-center text-stone-400 font-medium">
                       <i className="fa-solid fa-gem text-xl text-stone-300 block mb-1"></i>
                       <span className="text-xs font-semibold">No diamond rate items found. Click "+ Add Rate Item" above to create one.</span>
                     </td>
                   </tr>
                 )}
-                {paginatedDiamondItems.map((item) => {
+                {paginatedDiamondItems.map((item, idx) => {
                   const isEditing = editingDiamondId === item.id;
+                  const rowNum = (validDiamondPage - 1) * diamondItemsPerPage + idx + 1;
                   if (isEditing) {
                     const cWt = Number(editingDiamondForm.carat_wt || 0);
                     const rCt = Number(editingDiamondForm.rate_per_ct || 0);
@@ -6450,6 +7996,7 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
 
                     return (
                       <tr key={item.id} className="bg-amber-50/70 font-semibold">
+                        <td className="p-2 text-center font-mono text-stone-400">{rowNum}</td>
                         <td className="p-2">
                           <input
                             type="text"
@@ -6537,6 +8084,7 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
 
                   return (
                     <tr key={item.id} className="hover:bg-amber-50/20">
+                      <td className="p-3 text-center font-mono text-stone-400">{rowNum}</td>
                       <td className="p-3 font-mono text-stone-500">{item.code}</td>
                       <td className="p-3 font-bold text-stone-900">{item.name}</td>
                       <td className="p-3 text-stone-700">{item.shape}</td>
@@ -6638,6 +8186,7 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
             <table className="w-full text-left border-collapse text-xs">
               <thead className="bg-stone-50 text-[10px] font-bold text-stone-500 uppercase">
                 <tr>
+                  <th className="p-3 text-center w-12">S.NO</th>
                   <th className="p-3">GEMSTONE NAME</th>
                   <th className="p-3">TYPE</th>
                   <th className="p-3">CUT / SHAPE</th>
@@ -6651,17 +8200,19 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
               <tbody className="divide-y divide-stone-100">
                 {paginatedStoneItems.length === 0 && (
                   <tr>
-                    <td colSpan="8" className="py-8 text-center text-stone-400 font-medium">
+                    <td colSpan="9" className="py-8 text-center text-stone-400 font-medium">
                       <i className="fa-solid fa-[#b01622] fa-gem text-xl text-stone-300 block mb-1"></i>
                       <span className="text-xs font-semibold">No color stone rate items found. Click "+ Add Rate Item" above to create one.</span>
                     </td>
                   </tr>
                 )}
-                {paginatedStoneItems.map((item) => {
+                {paginatedStoneItems.map((item, idx) => {
                   const isEditing = editingStoneId === item.id;
+                  const rowNum = (validStonePage - 1) * stoneItemsPerPage + idx + 1;
                   if (isEditing) {
                     return (
                       <tr key={item.id} className="bg-amber-50/70 font-semibold">
+                        <td className="p-2 text-center font-mono text-stone-400">{rowNum}</td>
                         <td className="p-2">
                           <input
                             type="text"
@@ -6745,6 +8296,7 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
 
                   return (
                     <tr key={item.id} className="hover:bg-amber-50/20">
+                      <td className="p-3 text-center font-mono text-stone-400">{rowNum}</td>
                       <td className="p-3 font-bold text-stone-900">{item.name}</td>
                       <td className="p-3 font-medium text-[#b01622]">{item.type}</td>
                       <td className="p-3 text-stone-700">{item.shape}</td>
@@ -6845,6 +8397,7 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
             <table className="w-full text-left border-collapse text-xs">
               <thead className="bg-[#b01622] text-white text-[10px] font-bold uppercase">
                 <tr>
+                  <th className="p-3 text-center w-12">S.NO</th>
                   <th className="p-3">CATEGORY</th>
                   <th className="p-3 text-right">PLAIN LABOUR (₹/GM)</th>
                   <th className="p-3 text-right">STUDDED LABOUR (₹/GM)</th>
@@ -6857,7 +8410,7 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
               <tbody className="divide-y divide-stone-100">
                 {paginatedMakingItems.length === 0 && (
                   <tr>
-                    <td colSpan="7" className="py-8 text-center text-stone-400 font-medium">
+                    <td colSpan="8" className="py-8 text-center text-stone-400 font-medium">
                       <i className="fa-solid fa-percent text-xl text-stone-300 block mb-1"></i>
                       <span className="text-xs font-semibold">No making charge matrix items found.</span>
                     </td>
@@ -6865,9 +8418,11 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
                 )}
                 {paginatedMakingItems.map((row, idx) => {
                   const isEditing = editingMakingCat === row.category;
+                  const rowNum = (validMakingPage - 1) * makingItemsPerPage + idx + 1;
                   if (isEditing) {
                     return (
                       <tr key={idx} className="bg-amber-50/70 font-semibold">
+                        <td className="p-2 text-center font-mono text-stone-400">{rowNum}</td>
                         <td className="p-2 font-bold text-stone-900">{row.category}</td>
                         <td className="p-2 text-right">
                           <input
@@ -6935,6 +8490,7 @@ function LiveRatePriceListPage({ liveRates, clients, showToast }) {
 
                   return (
                     <tr key={idx} className="hover:bg-amber-50/20">
+                      <td className="p-3 text-center font-mono text-stone-400">{rowNum}</td>
                       <td className="p-3 font-bold text-stone-900">{row.category}</td>
                       <td className="p-3 text-right font-mono">{formatCurrency(row.plain * customerDiscount)}</td>
                       <td className="p-3 text-right font-mono">{formatCurrency(row.studded * customerDiscount)}</td>

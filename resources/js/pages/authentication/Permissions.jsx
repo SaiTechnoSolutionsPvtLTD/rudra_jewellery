@@ -209,6 +209,7 @@ export default function Permissions() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-[#f6eee9] border-b border-gray-200/60 text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                <th className="px-6 py-4 text-center w-14">S.No</th>
                 <th className="px-6 py-4">MODULE NAME</th>
                 <th className="px-6 py-4">ENABLED ACTIONS</th>
                 <th className="px-6 py-4">CUSTOM ACTIONS</th>
@@ -219,21 +220,25 @@ export default function Permissions() {
             <tbody className="text-sm divide-y divide-gray-100">
               {loading ? (
                 <tr>
-                  <td colSpan="5" className="px-6 py-8 text-center text-gray-400">
+                  <td colSpan="6" className="px-6 py-8 text-center text-gray-400">
                     <i className="fa-solid fa-circle-notch fa-spin mr-2"></i> Loading permissions...
                   </td>
                 </tr>
               ) : paginatedPermissions.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="px-6 py-8 text-center text-gray-400">
+                  <td colSpan="6" className="px-6 py-8 text-center text-gray-400">
                     No permission modules found.
                   </td>
                 </tr>
               ) : (
-                paginatedPermissions.map(perm => {
+                paginatedPermissions.map((perm, idx) => {
                   const actionList = Array.isArray(perm.actions) ? perm.actions : [];
+                  const serialNo = (currentPage - 1) * itemsPerPage + idx + 1;
                   return (
                     <tr key={perm.id} className="hover:bg-gray-50/60 transition-colors">
+                      <td className="px-6 py-4 text-center font-mono text-gray-500 font-semibold">
+                        {serialNo}
+                      </td>
                       <td className="px-6 py-4 font-bold text-gray-900 capitalize">
                         <div className="flex items-center gap-2">
                           <i className="fa-solid fa-key text-xs text-[#f9572a]"></i>

@@ -660,6 +660,7 @@ export default function StockManagement() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-gray-100/70 border-b border-gray-200 text-[11px] font-bold uppercase tracking-wider text-gray-600">
+                <th className="py-3 px-4 text-center w-14">S.No</th>
                 <th className="py-3 px-4">Item & Code</th>
                 <th className="py-3 px-4">Category / Subcategory</th>
                 <th className="py-3 px-4">Specifications</th>
@@ -671,21 +672,22 @@ export default function StockManagement() {
             <tbody className="divide-y divide-gray-200 text-xs">
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="py-8 text-center text-gray-500">
+                  <td colSpan="7" className="py-8 text-center text-gray-500">
                     <i className="fa-solid fa-spinner animate-spin text-xl text-[#b01622] mb-2"></i>
                     <p>Loading stock items...</p>
                   </td>
                 </tr>
               ) : paginatedProducts.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="py-12 text-center text-gray-500">
+                  <td colSpan="7" className="py-12 text-center text-gray-500">
                     <i className="fa-solid fa-box-open text-3xl text-gray-300 mb-2"></i>
                     <p className="font-semibold text-gray-700">No stock items found</p>
                     <p className="text-xs text-gray-400 mt-1">Try clearing filters or changing category selection.</p>
                   </td>
                 </tr>
               ) : (
-                paginatedProducts.map((item) => {
+                paginatedProducts.map((item, idx) => {
+                  const serialNo = (currentPage - 1) * itemsPerPage + idx + 1;
                   const catName = item.category?.name || 'General';
                   const catCode = item.category?.code || 'GEN';
                   const theme = getCategoryTheme(catCode, catName);
@@ -702,6 +704,11 @@ export default function StockManagement() {
 
                   return (
                     <tr key={item.id} className="hover:bg-gray-50/80 transition-colors">
+                      {/* S.No */}
+                      <td className="py-3.5 px-4 text-center font-mono text-gray-500 font-semibold">
+                        {serialNo}
+                      </td>
+
                       {/* Item & Code */}
                       <td className="py-3.5 px-4">
                         <div className="flex items-center gap-3">
@@ -957,6 +964,7 @@ export default function StockManagement() {
                     <table className="w-full text-left border-collapse">
                       <thead className="sticky top-0 bg-gray-100 z-10 text-[11px] font-bold uppercase tracking-wider text-gray-700 border-b border-gray-200">
                         <tr>
+                          <th className="py-2.5 px-3 text-center w-12">S.No</th>
                           <th className="py-2.5 px-3">Product Name & Code</th>
                           <th className="py-2.5 px-3">Gross Wt (g)</th>
                           <th className="py-2.5 px-3">Touch (%)</th>
@@ -974,7 +982,7 @@ export default function StockManagement() {
                             </td>
                           </tr>
                         ) : (
-                          bulkFilteredProducts.map((p) => {
+                          bulkFilteredProducts.map((p, idx) => {
                             const stockItem = bulkStockData[p.id] || {
                               opening_stock_qty: 0,
                               opening_stock_weight: '',
@@ -994,6 +1002,9 @@ export default function StockManagement() {
 
                             return (
                               <tr key={p.id} className="hover:bg-gray-50">
+                                <td className="py-2 px-3 text-center font-mono text-gray-400 font-medium">
+                                  {idx + 1}
+                                </td>
                                 <td className="py-2 px-3">
                                   <div className="font-bold text-gray-900">{p.name}</div>
                                   <div className="text-[10px] font-mono text-[#b01622]">{p.product_code || `SKU-${p.id}`}</div>

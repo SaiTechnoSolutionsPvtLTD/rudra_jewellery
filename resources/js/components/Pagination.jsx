@@ -6,14 +6,16 @@ export default function Pagination({
   totalItems = 0,
   itemsPerPage = 5,
   onPageChange,
-  onItemsPerPageChange
+  onItemsPerPageChange,
+  showWhenEmpty = false,
 }) {
-  if (totalItems === 0) return null;
+  if (totalItems === 0 && !showWhenEmpty) return null;
 
-  const startItem = (currentPage - 1) * itemsPerPage + 1;
-  const endItem = Math.min(currentPage * itemsPerPage, totalItems);
+  const startItem = totalItems === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
+  const endItem = totalItems === 0 ? 0 : Math.min(currentPage * itemsPerPage, totalItems);
 
   const getPageNumbers = () => {
+    if (totalItems === 0) return [1];
     if (totalPages <= 7) {
       const pages = [];
       for (let i = 1; i <= totalPages; i++) {
@@ -61,6 +63,7 @@ export default function Pagination({
               <option value={10}>10</option>
               <option value={25}>25</option>
               <option value={50}>50</option>
+              <option value={100}>100</option>
             </select>
           </div>
         )}
@@ -95,10 +98,13 @@ export default function Pagination({
                 key={pageNum}
                 type="button"
                 onClick={() => onPageChange(pageNum)}
+                disabled={totalItems === 0}
                 className={`w-8 h-8 rounded-lg font-semibold flex items-center justify-center transition-colors ${
-                  currentPage === pageNum
-                    ? 'bg-[#b01622] text-white shadow-sm'
-                    : 'bg-white text-gray-600 hover:bg-gray-100'
+                  totalItems === 0
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
+                    : currentPage === pageNum
+                      ? 'bg-[#b01622] text-white shadow-sm'
+                      : 'bg-white text-gray-600 hover:bg-gray-100'
                 }`}
               >
                 {pageNum}
@@ -110,9 +116,9 @@ export default function Pagination({
         {/* Next Button */}
         <button
           onClick={() => onPageChange(currentPage + 1)}
-          disabled={currentPage === totalPages || totalPages === 0}
+          disabled={currentPage >= totalPages || totalPages === 0 || totalItems === 0}
           className={`px-3 py-1.5 rounded-lg border font-medium flex items-center gap-1 transition-colors ${
-            currentPage === totalPages || totalPages === 0
+            currentPage >= totalPages || totalPages === 0 || totalItems === 0
               ? 'bg-gray-50 border-gray-200 text-gray-300 cursor-not-allowed'
               : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-gray-900'
           }`}

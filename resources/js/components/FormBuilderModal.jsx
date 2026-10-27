@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import api from '../services/api';
 
 export default function FormBuilderModal({
   isOpen,
@@ -9,6 +10,8 @@ export default function FormBuilderModal({
   saving = false
 }) {
   const [fields, setFields] = useState([]);
+  const [masterDiamondColors, setMasterDiamondColors] = useState([]);
+  const [masterDiamondClarities, setMasterDiamondClarities] = useState([]);
   const [showAddFieldForm, setShowAddFieldForm] = useState(false);
   const [newField, setNewField] = useState({
     label: '',
@@ -24,6 +27,20 @@ export default function FormBuilderModal({
     } else {
       setFields([]);
     }
+
+    api.get('/diamond-colors')
+      .then(res => {
+        const colors = res.data?.data || res.data || [];
+        setMasterDiamondColors(Array.isArray(colors) ? colors.filter(c => c.status !== 'inactive').map(c => c.name || c.code) : []);
+      })
+      .catch(() => {});
+
+    api.get('/diamond-clarities')
+      .then(res => {
+        const clarities = res.data?.data || res.data || [];
+        setMasterDiamondClarities(Array.isArray(clarities) ? clarities.filter(c => c.status !== 'inactive').map(c => c.name || c.code) : []);
+      })
+      .catch(() => {});
   }, [targetItem]);
 
   if (!isOpen || !targetItem) return null;
@@ -82,8 +99,8 @@ export default function FormBuilderModal({
     } else if (templateType === 'diamond') {
       setFields([
         { key: 'cut', label: 'Diamond Cut', type: 'select', options: ['Round Brilliant', 'Princess Cut', 'Emerald Cut', 'Oval Cut', 'Marquise Cut'], required: true },
-        { key: 'clarity', label: 'Clarity', type: 'select', options: ['FL/IF (Flawless)', 'VVS1', 'VVS2', 'VS1', 'SI1'], required: true },
-        { key: 'color', label: 'Color Grade', type: 'select', options: ['D-F (Colorless)', 'E-F (Rare White)', 'G-H (Near Colorless)', 'I-J (Slight Yellowish)'], required: true },
+        { key: 'clarity', label: 'Clarity', type: 'select', options: masterDiamondClarities, required: true },
+        { key: 'color', label: 'Color Grade', type: 'select', options: masterDiamondColors, required: true },
         { key: 'carat_weight', label: 'Carat Weight (ct)', type: 'number', options: [], required: true },
         { key: 'piece_count', label: 'Piece Count', type: 'number', options: [], required: false },
         { key: 'metal_setting', label: 'Metal Setting Purity', type: 'text', options: [], required: false }

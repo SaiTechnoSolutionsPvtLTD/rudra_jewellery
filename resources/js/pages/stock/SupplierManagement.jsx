@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import api from '../../services/api';
+import api, { sanitizeErrorMessage } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import Pagination from '../../components/Pagination';
+import SupplierLedgerModal from '../../components/SupplierLedgerModal';
+import AdjustSupplierBalanceModal from '../../components/AdjustSupplierBalanceModal';
 import {
   validateMobile,
   handleMobileKeyDown,
@@ -36,6 +38,11 @@ export default function SupplierManagement() {
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+
+  // Supplier Ledger Modal State
+  const [showLedgerModal, setShowLedgerModal] = useState(false);
+  const [ledgerSupplierId, setLedgerSupplierId] = useState(null);
+  const [adjustSupplierTarget, setAdjustSupplierTarget] = useState(null);
 
   // Modals state
   const [showAddEditModal, setShowAddEditModal] = useState(false);
@@ -80,7 +87,7 @@ export default function SupplierManagement() {
       setSuppliers(res.data?.data || []);
     } catch (err) {
       console.error(err);
-      showToast('Failed to load suppliers list', 'error');
+      showToast(sanitizeErrorMessage(err, 'Unable to connect to the server. Please try again later.'), 'error');
     } finally {
       setLoading(false);
     }
@@ -423,6 +430,7 @@ export default function SupplierManagement() {
           <table className="w-full text-left border-collapse">
             <thead className="bg-gray-100/70 border-b border-gray-200 text-[11px] font-bold uppercase tracking-wider text-gray-600">
               <tr>
+                <th className="py-3.5 px-4 text-center w-14">S.No</th>
                 <th className="py-3.5 px-4">Code & Firm Name</th>
                 <th className="py-3.5 px-4">Supplier Category</th>
                 <th className="py-3.5 px-4">Contact Info</th>
@@ -435,35 +443,82 @@ export default function SupplierManagement() {
             <tbody className="divide-y divide-gray-200 text-xs">
               {loading ? (
                 <tr>
-                  <td colSpan="7" className="py-12 text-center text-gray-500">
+                  <td colSpan="8" className="py-12 text-center text-gray-500">
                     <i className="fa-solid fa-spinner animate-spin text-xl text-[#b01622] mb-2"></i>
                     <p>Loading suppliers list...</p>
                   </td>
                 </tr>
               ) : paginatedSuppliers.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="py-12 text-center text-gray-500">
+                  <td colSpan="8" className="py-12 text-center text-gray-500">
                     <i className="fa-solid fa-users-slash text-3xl text-gray-300 mb-2"></i>
                     <p className="font-semibold text-gray-700">No suppliers found</p>
                     <p className="text-xs text-gray-400 mt-1">Try resetting filters or search criteria.</p>
                   </td>
                 </tr>
               ) : (
-                paginatedSuppliers.map((item) => {
+                paginatedSuppliers.map((item, idx) => {
                   const typeBadge = getSupplierTypeBadge(item.supplier_type);
+                  const serialNo = (currentPage - 1) * itemsPerPage + idx + 1;
 
                   return (
-                    <tr key={item.id} className="hover:bg-gray-50/80 transition-colors">
+                    <tr
+                      key={item.id}
+                      onClick={() => {
+                        setLedgerSupplierId(item.id);
+                        setShowLedgerModal(true);
+                      }}
+                      className="hover:bg-amber-50/60 cursor-pointer transition-colors group"
+                    >
+                      {/* S.No */}
+                      <td className="py-3.5 px-4 text-center font-mono text-gray-500 font-semibold">
+                        {serialNo}
+                      </td>
                       
                       {/* Code & Firm Name */}
                       <td className="py-3.5 px-4">
-                        <div className="font-bold text-gray-900">{item.name}</div>
+                        <div className="font-bold text-gray-900 group-hover:text-[#b01622] group-hover:underline transition-colors flex items-center gap-1.5">
+                          <span>{item.name}</span>
+                          <i className="fa-solid fa-arrow-up-right-from-square text-[10px] text-stone-400 group-hover:text-[#b01622] opacity-0 group-hover:opacity-100 transition-opacity"></i>
+                        </div>
                         {item.company_name && (
                           <div className="text-gray-500 text-[11px] truncate max-w-xs">{item.company_name}</div>
                         )}
-                        <span className="inline-block font-mono text-[10px] font-semibold text-[#b01622] bg-red-50 px-1.5 py-0.2 rounded border border-red-100 mt-1">
-                          {item.supplier_code}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1 mt-1">
+                          <span className="inline-block font-mono text-[10px] font-semibold text-[#b01622] bg-red-50 px-1.5 py-0.2 rounded border border-red-100">
+                            {item.supplier_code}
+                          </span>
+                          {parseFloat(item.current_balance) < 0 && (
+                            <span className="inline-block font-mono text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.2 rounded border border-rose-200" title="We Owe Money to Supplier">
+                              Owes ₹{Math.abs(parseFloat(item.current_balance)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </span>
+                          )}
+                          {parseFloat(item.current_balance) > 0 && (
+                            <span className="inline-block font-mono text-[10px] font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-300" title="Supplier Holds Extra Money (Advance)">
+                              Advance ₹{parseFloat(item.current_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })} (Extra)
+                            </span>
+                          )}
+                          {parseFloat(item.gold_balance_grams) < 0 && (
+                            <span className="inline-block font-mono text-[10px] font-bold text-amber-900 bg-amber-100 px-1.5 py-0.2 rounded border border-amber-300" title="We Owe 24K Pure Gold to Supplier">
+                              Owes {Math.abs(parseFloat(item.gold_balance_grams)).toFixed(3)}g (24K Gold)
+                            </span>
+                          )}
+                          {parseFloat(item.gold_balance_grams) > 0 && (
+                            <span className="inline-block font-mono text-[10px] font-bold text-cyan-900 bg-cyan-100 px-1.5 py-0.2 rounded border border-cyan-300" title="Supplier Holds Extra Pure Gold (Advance)">
+                              Advance {parseFloat(item.gold_balance_grams).toFixed(3)}g (24K Gold)
+                            </span>
+                          )}
+                          {parseFloat(item.silver_balance_grams) < 0 && (
+                            <span className="inline-block font-mono text-[10px] font-bold text-slate-800 bg-slate-100 px-1.5 py-0.2 rounded border border-slate-300" title="We Owe Silver to Supplier">
+                              Owes {Math.abs(parseFloat(item.silver_balance_grams)).toFixed(3)}g (Silver)
+                            </span>
+                          )}
+                          {parseFloat(item.silver_balance_grams) > 0 && (
+                            <span className="inline-block font-mono text-[10px] font-bold text-teal-900 bg-teal-100 px-1.5 py-0.2 rounded border border-teal-300" title="Supplier Holds Extra Silver (Advance)">
+                              Advance {parseFloat(item.silver_balance_grams).toFixed(3)}g (Silver)
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Supplier Category Badge */}
@@ -516,27 +571,64 @@ export default function SupplierManagement() {
                       <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <button
-                            onClick={() => openViewModal(item)}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setLedgerSupplierId(item.id);
+                              setShowLedgerModal(true);
+                            }}
+                            className="p-1.5 text-stone-600 hover:text-[#b01622] hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                            title="Open Supplier Ledger & Settlements"
+                          >
+                            <i className="fa-solid fa-book-journal-whills text-xs"></i>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAdjustSupplierTarget(item);
+                            }}
+                            className="p-1.5 text-amber-700 hover:text-amber-900 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
+                            title="Edit / Adjust Balance Due"
+                          >
+                            <i className="fa-solid fa-pen-to-square text-xs"></i>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openViewModal(item);
+                            }}
                             className="p-1.5 text-gray-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
                             title="View Full Supplier Profile"
                           >
-                            <i className="fa-regular fa-eye"></i>
+                            <i className="fa-regular fa-eye text-xs"></i>
                           </button>
 
                           <button
-                            onClick={() => openEditModal(item)}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEditModal(item);
+                            }}
                             className="p-1.5 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
                             title="Edit Supplier Details"
                           >
-                            <i className="fa-regular fa-pen-to-square"></i>
+                            <i className="fa-regular fa-pen-to-square text-xs"></i>
                           </button>
 
                           <button
-                            onClick={() => openDeleteModal(item)}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openDeleteModal(item);
+                            }}
                             className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
                             title="Delete Supplier"
                           >
-                            <i className="fa-regular fa-trash-can"></i>
+                            <i className="fa-regular fa-trash-can text-xs"></i>
                           </button>
                         </div>
                       </td>
@@ -1117,6 +1209,24 @@ export default function SupplierManagement() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* MODAL 4: SUPPLIER DETAILS / LEDGER MODAL */}
+      <SupplierLedgerModal
+        isOpen={showLedgerModal}
+        onClose={() => setShowLedgerModal(false)}
+        supplierId={ledgerSupplierId}
+        onUpdate={fetchSuppliers}
+      />
+
+      {/* MODAL 5: ADJUST SUPPLIER BALANCE DUE MODAL */}
+      {adjustSupplierTarget && (
+        <AdjustSupplierBalanceModal
+          isOpen={!!adjustSupplierTarget}
+          onClose={() => setAdjustSupplierTarget(null)}
+          supplier={adjustSupplierTarget}
+          onSuccess={fetchSuppliers}
+        />
       )}
 
     </div>

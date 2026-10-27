@@ -44,6 +44,13 @@ export default function Stamps() {
 
   useEffect(() => {
     fetchStamps();
+    const handleUpdate = () => fetchStamps();
+    window.addEventListener('rudhra_stamps_updated', handleUpdate);
+    window.addEventListener('rudhra_inventory_updated', handleUpdate);
+    return () => {
+      window.removeEventListener('rudhra_stamps_updated', handleUpdate);
+      window.removeEventListener('rudhra_inventory_updated', handleUpdate);
+    };
   }, []);
 
   const openAddModal = () => {

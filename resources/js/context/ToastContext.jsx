@@ -35,9 +35,24 @@ export const ToastProvider = ({ children }) => {
     );
   };
 
+  const lastToastRef = React.useRef({ message: '', type: '', timestamp: 0 });
+
   const showToast = (message, type = 'error', title = '') => {
-    const id = Date.now();
     const cleanMessage = type === 'error' ? sanitizeErrorMessage(message) : message;
+    if (!cleanMessage) return;
+
+    // Prevent multiple duplicate notifications for a single failure within 2.5 seconds
+    const now = Date.now();
+    if (
+      lastToastRef.current.message === cleanMessage &&
+      lastToastRef.current.type === type &&
+      now - lastToastRef.current.timestamp < 2500
+    ) {
+      return;
+    }
+    lastToastRef.current = { message: cleanMessage, type, timestamp: now };
+
+    const id = now;
     const isStockError = isStockUnavailable(cleanMessage);
 
     let effectiveTitle = title;
@@ -215,7 +230,7 @@ export const ToastProvider = ({ children }) => {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-[10px] font-bold text-[#b01622] uppercase tracking-wider">
-                  Rudra Jewellers System Alert
+                  Rudra Jewellery System Alert
                 </div>
                 <h3 className="text-base font-bold text-stone-900 leading-snug truncate">
                   {modalConfig.title}

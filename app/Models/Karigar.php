@@ -64,6 +64,11 @@ class Karigar extends Model
         return $this->hasMany(KarigarMaterialTransaction::class, 'karigar_id')->latest('transaction_date');
     }
 
+    public function payments()
+    {
+        return $this->hasMany(KarigarPayment::class, 'karigar_id')->latest('transaction_date');
+    }
+
     public function user()
     {
         return $this->belongsTo(User::class);

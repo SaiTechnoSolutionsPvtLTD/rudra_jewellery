@@ -113,14 +113,22 @@ export default function Users() {
   const handleAvatarUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
+    if (!validTypes.includes(file.type)) {
+      showToast('Please upload a supported image format (JPEG, PNG, or WebP).', 'error');
+      return;
+    }
     if (file.size > 5 * 1024 * 1024) {
-      showToast('Image size should be less than 5MB', 'error');
+      showToast('Image size must not exceed the allowed limit of 5 MB.', 'error');
       return;
     }
     setAvatarFile(file);
     const reader = new FileReader();
     reader.onload = () => {
       setFormData(prev => ({ ...prev, avatar: reader.result }));
+    };
+    reader.onerror = () => {
+      showToast('Image upload failed. Please try again.', 'error');
     };
     reader.readAsDataURL(file);
   };
@@ -422,6 +430,7 @@ export default function Users() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-[#f6eee9] border-b border-gray-200/60 text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                <th className="px-6 py-4 text-center w-14">S.No</th>
                 <th className="px-6 py-4">USER DETAILS</th>
                 <th className="px-6 py-4">EMAIL ADDRESS</th>
                 <th className="px-6 py-4">MOBILE NUMBER</th>
@@ -433,21 +442,25 @@ export default function Users() {
             <tbody className="text-sm divide-y divide-gray-100">
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="px-6 py-8 text-center text-gray-400">
+                  <td colSpan="7" className="px-6 py-8 text-center text-gray-400">
                     <i className="fa-solid fa-circle-notch fa-spin mr-2"></i> Loading user accounts...
                   </td>
                 </tr>
               ) : paginatedUsers.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="px-6 py-8 text-center text-gray-400">
+                  <td colSpan="7" className="px-6 py-8 text-center text-gray-400">
                     No user accounts found.
                   </td>
                 </tr>
               ) : (
-                paginatedUsers.map(user => {
+                paginatedUsers.map((user, idx) => {
+                  const serialNo = (currentPage - 1) * itemsPerPage + idx + 1;
                   const initials = (user.name || 'U').split(' ').map(n => n[0]).join('');
                   return (
                     <tr key={user.id} className="hover:bg-gray-50/60 transition-colors">
+                      <td className="px-6 py-4 text-center font-mono text-gray-500 font-semibold">
+                        {serialNo}
+                      </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           {user.avatar || user.avatar_url ? (

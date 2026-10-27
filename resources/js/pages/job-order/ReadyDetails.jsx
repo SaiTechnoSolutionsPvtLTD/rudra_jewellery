@@ -215,6 +215,7 @@ export default function ReadyDetails() {
               <table className="w-full text-left text-xs bg-white">
                 <thead>
                   <tr className="bg-stone-50 border-b border-stone-100 text-[11px] font-bold text-stone-500 uppercase tracking-wider">
+                    <th className="py-3 px-3 text-center w-12">S.NO</th>
                     <th className="py-3 px-4">WORK ORDER & DESIGN</th>
                     <th className="py-3 px-4">PRODUCT & ARTISAN</th>
                     <th className="py-3 px-4 text-center">QUANTITIES (APP / REC / FIN)</th>
@@ -226,7 +227,7 @@ export default function ReadyDetails() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
-                  {paginatedOrders.map((wo) => {
+                  {paginatedOrders.map((wo, idx) => {
                     const designNo = wo.design_no || wo.items?.[0]?.design_no || wo.design_code || 'D-WO-' + (wo.work_order_id || wo.id);
                     const certStatus = wo.certification_status || 'pending';
                     const hallStatus = wo.hallmarking_status || 'pending';
@@ -238,6 +239,9 @@ export default function ReadyDetails() {
                         key={`${targetWoId}-${targetPieceId}`}
                         className="hover:bg-stone-50/80 transition-colors"
                       >
+                        <td className="py-3.5 px-3 text-center font-mono font-bold text-stone-400 text-xs">
+                          {startIndex + idx + 1}
+                        </td>
                         <td className="py-3.5 px-4 font-mono">
                           <span className="font-bold text-[#b01622] block">{wo.work_order_number}</span>
                           <span className="text-[10.5px] text-stone-500 font-semibold">{designNo}</span>

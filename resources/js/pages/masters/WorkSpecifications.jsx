@@ -670,6 +670,7 @@ export default function WorkSpecifications() {
             <table className="w-full text-left text-xs sm:text-sm text-stone-700">
               <thead className="bg-stone-50 text-[11px] font-bold text-stone-500 uppercase tracking-wider border-b border-stone-200">
                 <tr>
+                  <th className="py-3.5 px-4 text-center w-14">S.No</th>
                   <th className="py-3.5 px-5">Craft Specification</th>
                   <th className="py-3.5 px-4">Code</th>
                   <th className="py-3.5 px-4 text-right">Standard Wastage</th>
@@ -682,10 +683,14 @@ export default function WorkSpecifications() {
               <tbody className="divide-y divide-stone-100">
                 {specs
                   .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
-                  .map((spec) => {
+                  .map((spec, idx) => {
                   const colorMeta = getColorClasses(spec.color);
                   return (
                     <tr key={spec.id} className="hover:bg-stone-50/70 transition-colors">
+                      {/* S.No */}
+                      <td className="py-3.5 px-4 text-center font-mono text-stone-500 font-semibold text-xs">
+                        {(currentPage - 1) * itemsPerPage + idx + 1}
+                      </td>
                       <td className="py-3.5 px-5">
                         <div className="flex items-center gap-3">
                           <div

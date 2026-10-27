@@ -60,7 +60,7 @@ export default function Sidebar({ sidebarOpen = true }) {
       <div className="w-64 flex flex-col h-full shrink-0">
         {/* Logo Area */}
         <div className="bg-[#b9121b] flex items-center justify-center border-b border-black/10 px-6 py-6 shrink-0">
-          <img src="/logo.png" alt="Rudra Jewellers" className="w-auto h-20 max-h-20 object-contain drop-shadow-xs" />
+          <img src="/logo.png" alt="Rudra Jewellery" className="w-auto h-20 max-h-20 object-contain drop-shadow-xs" />
         </div>
 
         {/* Navigation */}
@@ -268,8 +268,6 @@ export default function Sidebar({ sidebarOpen = true }) {
                     <div className="flex flex-col gap-1 mt-1 pl-4 pr-2">
                       <Link to="/sales" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/sales' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Dashboard</Link>
                       <Link to="/sales/create" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/sales/create' || location.pathname === '/sales/customer' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Customer</Link>
-                      <Link to="/sales/rates" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/sales/rates' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Live rates</Link>
-                      <Link to="/clients/price-list" className={`flex items-center py-2 px-3 rounded-md text-sm transition-colors ${location.pathname === '/clients/price-list' ? 'text-[#b01622] font-bold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>Price List Management</Link>
                     </div>
                   )}
                 </>

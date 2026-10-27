@@ -91,7 +91,7 @@ class CategoryController extends Controller
             if (Schema::hasTable('categories')) {
                 $existing = Category::where('code', $validated['code'])->first();
                 if ($existing) {
-                    return response()->json(['message' => 'Category code already exists.'], 422);
+                    return response()->json(['message' => 'This code already exists.'], 422);
                 }
 
                 $category = Category::create($validated);
@@ -104,10 +104,10 @@ class CategoryController extends Controller
             }
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Failed to create category: ' . $e->getMessage());
-            return response()->json(['message' => 'Failed to create category (500). Please try again later.'], 500);
+            return response()->json(['message' => 'Unable to connect to the server. Please try again later.'], 500);
         }
 
-        return response()->json(['message' => 'Categories table not found.'], 500);
+        return response()->json(['message' => 'Unable to connect to the server. Please try again later.'], 500);
     }
 
     public function show(Request $request, $id)
@@ -120,10 +120,10 @@ class CategoryController extends Controller
                 }
             }
         } catch (\Exception $e) {
-            // Fallback
+            \Illuminate\Support\Facades\Log::error('Category fetch error: ' . $e->getMessage());
         }
 
-        return response()->json(['message' => 'Category not found'], 404);
+        return response()->json(['message' => 'The requested record could not be found.'], 404);
     }
 
     public function update(Request $request, $id)
@@ -146,7 +146,7 @@ class CategoryController extends Controller
                         ->where('id', '!=', $id)
                         ->first();
                     if ($existing) {
-                        return response()->json(['message' => 'Category code already exists.'], 422);
+                        return response()->json(['message' => 'This code already exists.'], 422);
                     }
 
                     $category->update($validated);
@@ -159,10 +159,10 @@ class CategoryController extends Controller
                 }
             }
         } catch (\Exception $e) {
-            // Fallback
+            \Illuminate\Support\Facades\Log::error('Category update error: ' . $e->getMessage());
         }
 
-        return response()->json(['message' => 'Category not found'], 404);
+        return response()->json(['message' => 'The requested record could not be found.'], 404);
     }
 
     public function destroy(Request $request, $id)
@@ -180,9 +180,9 @@ class CategoryController extends Controller
                 }
             }
         } catch (\Exception $e) {
-            // Fallback
+            \Illuminate\Support\Facades\Log::error('Category deletion error: ' . $e->getMessage());
         }
 
-        return response()->json(['message' => 'Category not found'], 404);
+        return response()->json(['message' => 'The requested record could not be found.'], 404);
     }
 }

@@ -76,7 +76,7 @@ class ProductController extends Controller
 
     public function lookupDesign(Request $request)
     {
-        $designNo = trim($request->input('design_number', ''));
+        $designNo = trim($request->input('design_number', $request->input('design_no', '')));
         if (empty($designNo)) {
             return response()->json(['found' => false]);
         }
@@ -137,34 +137,127 @@ class ProductController extends Controller
 
             // Extract component details (diamonds, stones, etc.)
             $components = $attrs['components'] ?? [];
-            $diaWt = $attrs['dia_wt_ct'] ?? $attrs['diamond_wt'] ?? null;
-            $diaCount = $attrs['diamond_count'] ?? $attrs['dia_count'] ?? null;
+            $diaWt = $attrs['dia_wt_ct'] ?? $attrs['diamond_wt'] ?? $attrs['diamond_weight'] ?? null;
+            $diaCount = $attrs['diamond_count'] ?? $attrs['dia_count'] ?? $attrs['no_of_diamonds'] ?? null;
             $diaStamp = $attrs['diamond_stamp'] ?? null;
             $colorStoneWt = $attrs['stone_weight'] ?? $attrs['color_stone_weight'] ?? null;
-            $colorStoneCount = $attrs['stone_count'] ?? $attrs['color_stone_count'] ?? null;
+            $colorStoneCount = $attrs['stone_count'] ?? $attrs['color_stone_count'] ?? $attrs['no_of_colour_stones'] ?? null;
             $colorStoneStamp = $attrs['color_stone_stamp'] ?? null;
+
+            $diamondComponents = [];
+            $stoneComponents = [];
+            $totalCalculatedDiaWt = 0.0;
+            $totalCalculatedDiaCount = 0;
 
             if (is_array($components)) {
                 foreach ($components as $c) {
-                    $catName = strtolower($c['category_name'] ?? $c['item_name'] ?? '');
-                    if (str_contains($catName, 'diamond') || str_contains($catName, 'dia')) {
-                        if ($diaWt === null && isset($c['gross_wt'])) $diaWt = (float)$c['gross_wt'];
-                        if ($diaCount === null && isset($c['no_of_pieces'])) $diaCount = (int)$c['no_of_pieces'];
-                        if ($diaStamp === null && !empty($c['stamp'])) $diaStamp = $c['stamp'];
-                    } elseif (str_contains($catName, 'stone') || str_contains($catName, 'ruby') || str_contains($catName, 'emerald') || str_contains($catName, 'sapphire')) {
-                        if ($colorStoneWt === null && isset($c['gross_wt'])) $colorStoneWt = (float)$c['gross_wt'];
-                        if ($colorStoneCount === null && isset($c['no_of_pieces'])) $colorStoneCount = (int)$c['no_of_pieces'];
-                        if ($colorStoneStamp === null && !empty($c['stamp'])) $colorStoneStamp = $c['stamp'];
+                    $catName = strtolower($c['category_name'] ?? $c['item_name'] ?? $c['component_type'] ?? '');
+                    $isMetal = !empty($c['is_metal']) || !empty($c['is_primary']) || in_array(strtolower($c['material_type'] ?? ''), ['gold', 'silver', 'platinum', 'metal']);
+                    
+                    $isDia = !$isMetal && (
+                        !empty($c['is_diamond']) ||
+                        strtolower($c['component_type'] ?? '') === 'diamond' ||
+                        (
+                            (str_contains($catName, 'diamond') || preg_match('/\bdia\b/', $catName)) &&
+                            !str_contains($catName, 'diamond cut') &&
+                            !str_contains($catName, 'diamond-cut') &&
+                            !str_contains($catName, 'ring') &&
+                            !str_contains($catName, 'bangle') &&
+                            !str_contains($catName, 'necklace') &&
+                            !str_contains($catName, 'chain') &&
+                            !str_contains($catName, 'earring') &&
+                            !str_contains($catName, 'pendant') &&
+                            !str_contains($catName, 'choker')
+                        )
+                    );
+                    $isStn = !$isMetal && !$isDia && (!empty($c['is_stone']) || str_contains($catName, 'stone') || str_contains($catName, 'ruby') || str_contains($catName, 'emerald') || str_contains($catName, 'sapphire') || str_contains($catName, 'colour') || str_contains($catName, 'color'));
+
+                    $unit = strtolower($c['unit'] ?? '');
+                    $isCarat = in_array($unit, ['ct', 'carat', 'carats']);
+
+                    if ($isDia) {
+                        $cWt = isset($c['stone_weight']) && (float)$c['stone_weight'] > 0
+                            ? (float)$c['stone_weight']
+                            : ($isCarat ? (float)($c['gross_wt'] ?? $c['weight'] ?? 0) : (float)($c['diamond_weight'] ?? 0));
+                        $cPcs = (int)($c['no_of_pieces'] ?? $c['quantity'] ?? $c['pieces'] ?? $c['count'] ?? 1);
+                        $cRate = isset($c['purchase_rate']) ? (float)$c['purchase_rate'] : 0.0;
+                        $cVal = isset($c['purchase_value']) ? (float)$c['purchase_value'] : ($cRate > 0 ? $cWt * $cRate : 0.0);
+
+                        if ($cWt > 0) {
+                            $diamondComponents[] = [
+                                'stamp' => $c['stamp'] ?? $c['size'] ?? '',
+                                'count' => $cPcs,
+                                'diamond_count' => $cPcs,
+                                'weight' => $cWt,
+                                'diamond_weight' => $cWt,
+                                'rate' => $cRate,
+                                'purchase_rate' => $cRate,
+                                'value' => $cVal,
+                                'purchase_value' => $cVal,
+                                'item_name' => $c['item_name'] ?? $c['category_name'] ?? 'Diamond',
+                            ];
+                            $totalCalculatedDiaWt += $cWt;
+                            $totalCalculatedDiaCount += $cPcs;
+                            if ($diaStamp === null && !empty($c['stamp'])) $diaStamp = $c['stamp'];
+                        }
+                    } elseif ($isStn) {
+                        $cWt = isset($c['stone_weight']) && (float)$c['stone_weight'] > 0
+                            ? (float)$c['stone_weight']
+                            : ($isCarat ? (float)($c['gross_wt'] ?? $c['weight'] ?? 0) : (float)($c['weight'] ?? 0));
+                        $cPcs = (int)($c['no_of_pieces'] ?? $c['quantity'] ?? $c['pieces'] ?? $c['count'] ?? 1);
+                        $cRate = isset($c['purchase_rate']) ? (float)$c['purchase_rate'] : 0.0;
+                        $cVal = isset($c['purchase_value']) ? (float)$c['purchase_value'] : ($cRate > 0 ? $cWt * $cRate : 0.0);
+
+                        if ($cWt > 0) {
+                            $stoneComponents[] = [
+                                'stamp' => $c['stamp'] ?? $c['size'] ?? '',
+                                'count' => $cPcs,
+                                'weight' => $cWt,
+                                'rate' => $cRate,
+                                'value' => $cVal,
+                                'item_name' => $c['item_name'] ?? $c['category_name'] ?? 'Stone',
+                            ];
+                            if ($colorStoneWt === null) $colorStoneWt = $cWt;
+                            if ($colorStoneCount === null) $colorStoneCount = $cPcs;
+                            if ($colorStoneStamp === null && !empty($c['stamp'])) $colorStoneStamp = $c['stamp'];
+                        }
                     }
                 }
             }
 
+            if ($totalCalculatedDiaWt > 0) {
+                $diaWt = $totalCalculatedDiaWt;
+            } elseif (empty($diamondComponents)) {
+                // If there are no diamond components, check if diaWt in attributes was leaked gross weight
+                $grossVal = (float)($attrs['gross_wt'] ?? $product->opening_stock_weight ?? 0);
+                $rawDia = (float)($attrs['dia_wt_ct'] ?? $attrs['diamond_wt'] ?? $attrs['diamond_weight'] ?? 0);
+                $rawCnt = (int)($attrs['diamond_count'] ?? $attrs['dia_count'] ?? $attrs['no_of_diamonds'] ?? 0);
+                if ($rawCnt === 0 || ($grossVal > 0 && abs($rawDia - $grossVal) < 0.001)) {
+                    $diaWt = null;
+                    $diaCount = null;
+                }
+            }
+
+            if ($totalCalculatedDiaCount > 0) {
+                $diaCount = $totalCalculatedDiaCount;
+            }
+
             $goldWeight = $attrs['net_wt'] ?? $attrs['gold_weight'] ?? $product->opening_fine_weight ?? $product->opening_stock_weight ?? 0;
             $grossWeight = $attrs['gross_wt'] ?? $product->opening_stock_weight ?? 0;
-            $purity = $attrs['purity'] ?? $attrs['gold_type'] ?? ($product->opening_touch ? "{$product->opening_touch}%" : '22K (916)');
-            $karat = $attrs['karat'] ?? '22K';
-            $goldStamp = $attrs['stamp'] ?? $product->stamp ?? '916';
+            $purity = $attrs['purity'] ?? $attrs['gold_purity'] ?? $attrs['gold_type'] ?? ($product->opening_touch ? "{$product->opening_touch}%" : '22K (916)');
+            $karat = $attrs['karat'] ?? $attrs['gold_karat'] ?? '22K';
+            $goldStamp = $attrs['stamp'] ?? $attrs['gold_stamp'] ?? $product->stamp ?? '916';
             $size = $attrs['size'] ?? null;
+
+            $purityPercent = 91.6;
+            $purityStr = strtolower((string)$purity);
+            if (str_contains($purityStr, '24') || str_contains($purityStr, '999')) $purityPercent = 99.9;
+            elseif (str_contains($purityStr, '22') || str_contains($purityStr, '916')) $purityPercent = 91.6;
+            elseif (str_contains($purityStr, '18') || str_contains($purityStr, '750')) $purityPercent = 75.0;
+            elseif (str_contains($purityStr, '14') || str_contains($purityStr, '585')) $purityPercent = 58.5;
+            elseif (preg_match('/(\d+(?:\.\d+)?)\s*%/', $purityStr, $m)) $purityPercent = (float)$m[1];
+
+            $fineGoldWeight = round(((float)$goldWeight * $purityPercent) / 100, 3);
 
             $prodImage = $product->image_url ?: $product->thumbnail_url ?: $product->image;
             if ($prodImage && (str_contains($prodImage, 'placeholder-jewelry.png') || str_contains($prodImage, '/samples/'))) {
@@ -190,6 +283,8 @@ class ProductController extends Controller
                 'gold_weight' => (float)$goldWeight,
                 'gross_weight' => (float)$grossWeight,
                 'net_gold_weight' => (float)$goldWeight,
+                'fine_gold_weight' => (float)$fineGoldWeight,
+                'purity_percentage' => (float)$purityPercent,
                 'diamond_weight' => $diaWt !== null ? (float)$diaWt : null,
                 'diamond_count' => $diaCount !== null ? (int)$diaCount : null,
                 'diamond_stamp' => $diaStamp,
@@ -197,6 +292,8 @@ class ProductController extends Controller
                 'color_stone_count' => $colorStoneCount !== null ? (int)$colorStoneCount : null,
                 'color_stone_stamp' => $colorStoneStamp,
                 'components' => $components,
+                'diamond_components' => $diamondComponents,
+                'stone_components' => $stoneComponents,
                 'setting_type' => $attrs['setting_style'] ?? 'Prong',
             ]);
         }
@@ -255,8 +352,8 @@ class ProductController extends Controller
             'opening_stock_date' => 'nullable|date',
             'current_stock_qty' => 'nullable|numeric|min:0',
             'status' => 'required|in:active,inactive',
-            'image' => 'nullable',
-            'thumbnail' => 'nullable',
+            'image' => 'nullable|file|image|mimes:jpeg,png,jpg,webp|max:5120',
+            'thumbnail' => 'nullable|file|image|mimes:jpeg,png,jpg,webp|max:5120',
         ]);
 
         $validated['product_code'] = strtoupper(trim($validated['product_code']));
@@ -281,7 +378,7 @@ class ProductController extends Controller
             if (Schema::hasTable('products')) {
                 $existing = Product::where('product_code', $validated['product_code'])->first();
                 if ($existing) {
-                    return response()->json(['message' => 'Product code/SKU already exists.'], 422);
+                    return response()->json(['message' => 'This product code already exists.'], 422);
                 }
 
                 $product = Product::create($validated);
@@ -295,10 +392,10 @@ class ProductController extends Controller
                 ], 201);
             }
         } catch (\Exception $e) {
-            // Fallback
+            \Illuminate\Support\Facades\Log::error('Product creation error: ' . $e->getMessage());
         }
 
-        return response()->json(['message' => 'Database error'], 500);
+        return response()->json(['message' => 'Unable to connect to the server. Please try again later.'], 500);
     }
 
     public function show(Request $request, $id)
@@ -311,10 +408,10 @@ class ProductController extends Controller
                 }
             }
         } catch (\Exception $e) {
-            // Fallback
+            \Illuminate\Support\Facades\Log::error('Product fetch error: ' . $e->getMessage());
         }
 
-        return response()->json(['message' => 'Product not found'], 404);
+        return response()->json(['message' => 'The requested record could not be found.'], 404);
     }
 
     public function update(Request $request, $id)
@@ -344,8 +441,8 @@ class ProductController extends Controller
             'opening_stock_date' => 'nullable|date',
             'current_stock_qty' => 'nullable|numeric|min:0',
             'status' => 'required|in:active,inactive',
-            'image' => 'nullable',
-            'thumbnail' => 'nullable',
+            'image' => 'nullable|file|image|mimes:jpeg,png,jpg,webp|max:5120',
+            'thumbnail' => 'nullable|file|image|mimes:jpeg,png,jpg,webp|max:5120',
         ]);
 
         $validated['product_code'] = strtoupper(trim($validated['product_code']));
@@ -360,7 +457,7 @@ class ProductController extends Controller
                         ->where('id', '!=', $id)
                         ->first();
                     if ($existing) {
-                        return response()->json(['message' => 'Product code/SKU already exists.'], 422);
+                        return response()->json(['message' => 'This product code already exists.'], 422);
                     }
 
                     // Handle Main Image file upload
@@ -401,10 +498,10 @@ class ProductController extends Controller
                 }
             }
         } catch (\Exception $e) {
-            // Fallback
+            \Illuminate\Support\Facades\Log::error('Product update error: ' . $e->getMessage());
         }
 
-        return response()->json(['message' => 'Product not found'], 404);
+        return response()->json(['message' => 'The requested record could not be found.'], 404);
     }
 
     public function destroy(Request $request, $id)
@@ -427,10 +524,10 @@ class ProductController extends Controller
                 }
             }
         } catch (\Exception $e) {
-            // Fallback
+            \Illuminate\Support\Facades\Log::error('Product deletion error: ' . $e->getMessage());
         }
 
-        return response()->json(['message' => 'Product not found'], 404);
+        return response()->json(['message' => 'The requested record could not be found.'], 404);
     }
 
     public function updateOpeningStock(Request $request, $id)

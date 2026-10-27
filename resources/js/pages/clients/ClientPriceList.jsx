@@ -4,52 +4,39 @@ import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import ConfirmModal from '../../components/ConfirmModal';
 
-// Baseline Default Template Data
+// Baseline Empty Template Data (Each client has their own custom blank price list to configure)
 const DEFAULT_PRICE_LIST_DATA = {
   version: '01',
   effective_from: new Date().toISOString().split('T')[0],
   effective_to: 'Open / Till Updated',
-  diamond_stone_rates: [
-    { id: 1, shape: 'Round Diamond', quality: 'EF-VVS', sieve: '-2', stone_cents: '0.000-0.01', rate_per_ct: 60000 },
-    { id: 2, shape: 'Round Diamond', quality: 'EF-VVS', sieve: '(+2 - 6)', stone_cents: '0.011-0.019', rate_per_ct: 60000 },
-    { id: 3, shape: 'Round Diamond', quality: 'EF-VVS', sieve: '(+6 - 9)', stone_cents: '0.02-0.05', rate_per_ct: 56000 },
-    { id: 4, shape: 'Round Diamond', quality: 'EF-VVS', sieve: '(+9 - 10.5)', stone_cents: '0.06-0.07', rate_per_ct: 58000 },
-  ],
-  color_stone_charges: [
-    { id: 1, stone: 'Navaratna Stones', rate_per_ct: 1800 },
-    { id: 2, stone: 'Emerald', rate_per_ct: 2000 },
-    { id: 3, stone: 'Onyx', rate_per_ct: 550 },
-  ],
+  gold_rates: {
+    rate_24k: 0,
+    rate_22k: 0,
+    rate_18k: 0,
+    rate_14k: 0,
+  },
+  diamond_stone_rates: [],
+  color_stone_charges: [],
   additional_charges: {
-    minimum_labour: 1500,
-    minimum_labour_desc: 'Per Piece for below 1.00 gms items',
-    single_nose_pin: 850,
+    minimum_labour: 0,
+    minimum_labour_desc: 'Per Piece',
+    single_nose_pin: 0,
     single_nose_pin_desc: 'Per Piece',
-    multi_stones: 1000,
+    multi_stones: 0,
     multi_stones_desc: 'Per Piece',
     step_nose_pin: 0,
     tongai: 0,
   },
-  making_charges: [
-    { id: 1, type_design: '22KT: Close Setting', wastage_percent: '6%', labour_charge: 'Rs. 500/- per gms wt', gold_purity: '916', on_wt: '92%' },
-    { id: 2, type_design: '18KT: Open Setting', wastage_percent: '6%', labour_charge: 'Rs. 450/- per gms wt', gold_purity: '916', on_wt: '92%' },
-    { id: 3, type_design: '18KT: Open / Close', wastage_percent: '6%', labour_charge: 'Rs. 500/- per gms wt', gold_purity: '750', on_wt: '76%' },
-  ],
+  making_charges: [],
   stamping_instructions: {
-    stamping_detail: 'DIA WT.NO OF DIA/ RJ Seal',
+    stamping_detail: 'DIA WT / RJ Seal',
     certification: '-',
     hallmark_huid: 'NO',
     metal_colour: '-',
     client_qc_before_billing: 'NO',
     necklace_back_chain: '-',
   },
-  payment_terms: [
-    { id: 1, type: 'Gold', terms: 'COD' },
-    { id: 2, type: 'Diamond', terms: 'COD' },
-    { id: 3, type: 'MC', terms: 'COD' },
-    { id: 4, type: 'MC', terms: 'COD' },
-    { id: 5, type: 'Diamond', terms: 'COD' },
-  ],
+  payment_terms: [],
 };
 
 export default function ClientPriceList() {
@@ -70,6 +57,7 @@ export default function ClientPriceList() {
   const [effectiveTo, setEffectiveTo] = useState('Open / Till Updated');
   const [updatedAtStr, setUpdatedAtStr] = useState('');
 
+  const [goldRates, setGoldRates] = useState(DEFAULT_PRICE_LIST_DATA.gold_rates);
   const [diamondRates, setDiamondRates] = useState(DEFAULT_PRICE_LIST_DATA.diamond_stone_rates);
   const [colorStoneRates, setColorStoneRates] = useState(DEFAULT_PRICE_LIST_DATA.color_stone_charges);
   const [additionalCharges, setAdditionalCharges] = useState(DEFAULT_PRICE_LIST_DATA.additional_charges);
@@ -82,7 +70,7 @@ export default function ClientPriceList() {
   const [historyData, setHistoryData] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
-  const [activeModalType, setActiveModalType] = useState(null); // 'diamond' | 'color_stone' | 'additional' | 'making' | 'stamping' | 'payment_term'
+  const [activeModalType, setActiveModalType] = useState(null); // 'gold_rate' | 'diamond' | 'color_stone' | 'additional' | 'making' | 'stamping' | 'payment_term'
   const [editingIndex, setEditingIndex] = useState(null);
 
   // Bulk Import Modal States
@@ -93,6 +81,7 @@ export default function ClientPriceList() {
   const fileInputRef = useRef(null);
 
   // Modal Form States
+  const [goldForm, setGoldForm] = useState({ ...DEFAULT_PRICE_LIST_DATA.gold_rates });
   const [diamondForm, setDiamondForm] = useState({ shape: 'Round Diamond', quality: 'EF-VVS', sieve: '', stone_cents: '', rate_per_ct: '' });
   const [colorStoneForm, setColorStoneForm] = useState({ stone: '', rate_per_ct: '' });
   const [additionalForm, setAdditionalForm] = useState({ ...DEFAULT_PRICE_LIST_DATA.additional_charges });
@@ -137,12 +126,13 @@ export default function ClientPriceList() {
           setStatus(pl.status ? (pl.status.charAt(0).toUpperCase() + pl.status.slice(1)) : 'Active');
           setEffectiveFrom(pl.effective_from ? String(pl.effective_from).split('T')[0] : new Date().toISOString().split('T')[0]);
           setEffectiveTo(pl.effective_to || 'Open / Till Updated');
-          setDiamondRates(pl.diamond_stone_rates?.length ? pl.diamond_stone_rates : DEFAULT_PRICE_LIST_DATA.diamond_stone_rates);
-          setColorStoneRates(pl.color_stone_charges?.length ? pl.color_stone_charges : DEFAULT_PRICE_LIST_DATA.color_stone_charges);
-          if (pl.additional_charges && Object.keys(pl.additional_charges).length) setAdditionalCharges(pl.additional_charges);
-          setMakingCharges(pl.making_charges?.length ? pl.making_charges : DEFAULT_PRICE_LIST_DATA.making_charges);
-          if (pl.stamping_instructions && Object.keys(pl.stamping_instructions).length) setStampingInstructions(pl.stamping_instructions);
-          setPaymentTerms(pl.payment_terms?.length ? pl.payment_terms : DEFAULT_PRICE_LIST_DATA.payment_terms);
+          setGoldRates(pl.gold_rates && Object.keys(pl.gold_rates).length ? pl.gold_rates : DEFAULT_PRICE_LIST_DATA.gold_rates);
+          setDiamondRates(Array.isArray(pl.diamond_stone_rates) ? pl.diamond_stone_rates : []);
+          setColorStoneRates(Array.isArray(pl.color_stone_charges) ? pl.color_stone_charges : []);
+          setAdditionalCharges(pl.additional_charges && Object.keys(pl.additional_charges).length ? pl.additional_charges : DEFAULT_PRICE_LIST_DATA.additional_charges);
+          setMakingCharges(Array.isArray(pl.making_charges) ? pl.making_charges : []);
+          setStampingInstructions(pl.stamping_instructions && Object.keys(pl.stamping_instructions).length ? pl.stamping_instructions : DEFAULT_PRICE_LIST_DATA.stamping_instructions);
+          setPaymentTerms(Array.isArray(pl.payment_terms) ? pl.payment_terms : []);
 
           if (pl.updated_at) {
             const date = new Date(pl.updated_at);
@@ -150,6 +140,19 @@ export default function ClientPriceList() {
           } else {
             setUpdatedAtStr(new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) + ' • 10:30 AM');
           }
+        } else {
+          setVersion('01');
+          setStatus('Active');
+          setEffectiveFrom(new Date().toISOString().split('T')[0]);
+          setEffectiveTo('Open / Till Updated');
+          setGoldRates(DEFAULT_PRICE_LIST_DATA.gold_rates);
+          setDiamondRates([]);
+          setColorStoneRates([]);
+          setAdditionalCharges(DEFAULT_PRICE_LIST_DATA.additional_charges);
+          setMakingCharges([]);
+          setStampingInstructions(DEFAULT_PRICE_LIST_DATA.stamping_instructions);
+          setPaymentTerms([]);
+          setUpdatedAtStr('Not yet configured');
         }
         setPriceListLoading(false);
       })
@@ -171,6 +174,7 @@ export default function ClientPriceList() {
         status: status.toLowerCase(),
         effective_from: effectiveFrom,
         effective_to: effectiveTo,
+        gold_rates: overrideData.gold_rates !== undefined ? overrideData.gold_rates : goldRates,
         diamond_stone_rates: overrideData.diamond_stone_rates !== undefined ? overrideData.diamond_stone_rates : diamondRates,
         color_stone_charges: overrideData.color_stone_charges !== undefined ? overrideData.color_stone_charges : colorStoneRates,
         additional_charges: overrideData.additional_charges !== undefined ? overrideData.additional_charges : additionalCharges,
@@ -183,8 +187,15 @@ export default function ClientPriceList() {
       if (res.data && res.data.price_list) {
         const pl = res.data.price_list;
         setVersion(pl.version || versionToUse);
+        if (pl.gold_rates) setGoldRates(pl.gold_rates);
         const date = pl.updated_at ? new Date(pl.updated_at) : new Date();
         setUpdatedAtStr(date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) + ' • ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+
+        try {
+          localStorage.setItem(`rudhra_client_price_list_${selectedClient.id}`, JSON.stringify(pl));
+          window.dispatchEvent(new CustomEvent('rudhra_client_price_list_updated', { detail: { clientId: selectedClient.id, priceList: pl } }));
+        } catch (e) {}
+
         showToast(`Price list version ${versionToUse} saved successfully!`, 'success', 'Saved');
       }
     } catch (err) {
@@ -204,6 +215,7 @@ export default function ClientPriceList() {
     setVersion(nextVer);
     setEffectiveFrom(new Date().toISOString().split('T')[0]);
     setEffectiveTo('Open / Till Updated');
+    setGoldRates(DEFAULT_PRICE_LIST_DATA.gold_rates);
     setDiamondRates(DEFAULT_PRICE_LIST_DATA.diamond_stone_rates);
     setColorStoneRates(DEFAULT_PRICE_LIST_DATA.color_stone_charges);
     setAdditionalCharges(DEFAULT_PRICE_LIST_DATA.additional_charges);
@@ -212,6 +224,7 @@ export default function ClientPriceList() {
     setPaymentTerms(DEFAULT_PRICE_LIST_DATA.payment_terms);
 
     handleSavePriceList(nextVer, {
+      gold_rates: DEFAULT_PRICE_LIST_DATA.gold_rates,
       diamond_stone_rates: DEFAULT_PRICE_LIST_DATA.diamond_stone_rates,
       color_stone_charges: DEFAULT_PRICE_LIST_DATA.color_stone_charges,
       additional_charges: DEFAULT_PRICE_LIST_DATA.additional_charges,
@@ -329,6 +342,19 @@ export default function ClientPriceList() {
   };
 
   // Modals Save Handlers
+  const saveGoldRates = () => {
+    const updated = {
+      rate_24k: parseFloat(goldForm.rate_24k) || 0,
+      rate_22k: parseFloat(goldForm.rate_22k) || 0,
+      rate_18k: parseFloat(goldForm.rate_18k) || 0,
+      rate_14k: parseFloat(goldForm.rate_14k) || 0,
+    };
+    setGoldRates(updated);
+    setActiveModalType(null);
+    handleSavePriceList(null, { gold_rates: updated });
+    showToast('Client gold rates linked and saved successfully!', 'success', 'Gold Rates Saved');
+  };
+
   const saveDiamondRateItem = () => {
     if (!diamondForm.shape || !diamondForm.rate_per_ct) {
       showToast('Please fill in required diamond rate fields', 'error');
@@ -568,6 +594,41 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
   const clientPhone = selectedClient ? (selectedClient.primary_phone || '+91 98765 43210') : '+91 98765 43210';
   const clientGst = selectedClient?.gst_percentage ? `${selectedClient.gst_percentage}%` : '3% (Default)';
 
+  const goldRateRows = [
+    {
+      purity: '24K (999 Fine Gold)',
+      touch: '99.9%',
+      description: 'Pure Gold Ingot / Bullion / 24K Castings',
+      clientRate: Number(goldRates?.rate_24k || 0),
+      defaultLiveRate: 13886,
+      key: 'rate_24k',
+    },
+    {
+      purity: '22K (916 BIS Hallmark)',
+      touch: '91.6%',
+      description: 'Standard Fine Jewellery / Chains / Bangles / Rings',
+      clientRate: Number(goldRates?.rate_22k || 0),
+      defaultLiveRate: 12729,
+      key: 'rate_22k',
+    },
+    {
+      purity: '18K (750 Fine Gold)',
+      touch: '75.0%',
+      description: 'Studded Diamond Jewellery / Rose & White Gold',
+      clientRate: Number(goldRates?.rate_18k || 0),
+      defaultLiveRate: 10415,
+      key: 'rate_18k',
+    },
+    {
+      purity: '14K (585 Fine Gold)',
+      touch: '58.5%',
+      description: 'Lightweight & Daily Wear Diamond Jewellery',
+      clientRate: Number(goldRates?.rate_14k || 0),
+      defaultLiveRate: 8100,
+      key: 'rate_14k',
+    },
+  ];
+
   return (
     <div className="w-full pb-12 font-sans">
       {/* Top Header Bar */}
@@ -656,6 +717,45 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
             <div className="text-xs font-bold text-gray-800 mb-1">{clientGst}</div>
             <div className="text-[10px] text-gray-400 font-medium">{updatedAtStr || '23 Jul 2026 • 10:30 AM'}</div>
           </div>
+
+          {/* Linked Client Gold Rates Bar */}
+          <div className="col-span-full pt-3.5 mt-1 border-t border-gray-200/60 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className="text-[11px] font-bold text-gray-800 uppercase tracking-wide">
+                Linked Gold Rates:
+              </span>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="bg-white px-2.5 py-1 rounded-lg border border-gray-200 shadow-2xs font-semibold text-gray-700">
+                  24K: <strong className="text-[#b01622] font-mono">₹{goldRates?.rate_24k > 0 ? Number(goldRates.rate_24k).toLocaleString('en-IN') : '13,886 (Live)'}</strong>
+                  {goldRates?.rate_24k > 0 ? <span className="ml-1 text-[9px] text-emerald-600 font-bold uppercase">[Client]</span> : null}
+                </span>
+                <span className="bg-white px-2.5 py-1 rounded-lg border border-gray-200 shadow-2xs font-semibold text-gray-700">
+                  22K (916): <strong className="text-[#b01622] font-mono">₹{goldRates?.rate_22k > 0 ? Number(goldRates.rate_22k).toLocaleString('en-IN') : '12,729 (Live)'}</strong>
+                  {goldRates?.rate_22k > 0 ? <span className="ml-1 text-[9px] text-emerald-600 font-bold uppercase">[Client]</span> : null}
+                </span>
+                <span className="bg-white px-2.5 py-1 rounded-lg border border-gray-200 shadow-2xs font-semibold text-gray-700">
+                  18K (750): <strong className="text-[#b01622] font-mono">₹{goldRates?.rate_18k > 0 ? Number(goldRates.rate_18k).toLocaleString('en-IN') : '10,415 (Live)'}</strong>
+                  {goldRates?.rate_18k > 0 ? <span className="ml-1 text-[9px] text-emerald-600 font-bold uppercase">[Client]</span> : null}
+                </span>
+                <span className="bg-white px-2.5 py-1 rounded-lg border border-gray-200 shadow-2xs font-semibold text-gray-700">
+                  14K: <strong className="text-[#b01622] font-mono">₹{goldRates?.rate_14k > 0 ? Number(goldRates.rate_14k).toLocaleString('en-IN') : '8,100 (Live)'}</strong>
+                  {goldRates?.rate_14k > 0 ? <span className="ml-1 text-[9px] text-emerald-600 font-bold uppercase">[Client]</span> : null}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setGoldForm({ ...goldRates });
+                setActiveModalType('gold_rate');
+              }}
+              className="px-3 py-1 bg-white hover:bg-stone-50 border border-amber-300 hover:border-amber-400 text-stone-800 text-[11px] font-bold rounded-lg shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <i className="fa-solid fa-pen-to-square text-[#b01622] text-[10px]"></i>
+              Configure Client Gold Rates
+            </button>
+          </div>
         </div>
       </div>
 
@@ -664,11 +764,103 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
         {/* Left Column Content */}
         <div className="lg:col-span-2 space-y-6">
 
-          {/* 1. Diamond Stone Rate (Per Carat) */}
+          {/* 1. Gold Rates [Per Gram] */}
           <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xs overflow-hidden">
             <div className="p-4 border-b border-gray-100 flex items-center justify-between gap-4">
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-bold text-gray-900">1. Diamond Stone Rate</h3>
+                <h3 className="text-sm font-bold text-gray-900">1. Gold Rates</h3>
+                <span className="text-[10px] text-gray-400 font-normal">[Per Gram]</span>
+                <span className="text-[10px] bg-amber-50 text-amber-800 border border-amber-200 font-bold px-2 py-0.5 rounded-full">
+                  Linked to Client
+                </span>
+              </div>
+              <div className="flex items-center gap-2 print:hidden">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGoldForm({ ...goldRates });
+                    setActiveModalType('gold_rate');
+                  }}
+                  className="px-3 py-1.5 bg-[#b01622] hover:bg-[#90121b] text-white text-[11px] font-bold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <i className="fa-solid fa-plus text-[10px]"></i>
+                  Configure Gold Rates
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-gray-50/80 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                    <th className="px-3 py-3 w-12 text-center">S.No</th>
+                    <th className="px-4 py-3">PURITY / KARAT</th>
+                    <th className="px-4 py-3">TOUCH / PURITY %</th>
+                    <th className="px-4 py-3">APPLICATION</th>
+                    <th className="px-4 py-3 font-bold text-gray-900">RATE / G (₹)</th>
+                    <th className="px-4 py-3">STATUS</th>
+                    <th className="px-4 py-3 text-right print:hidden">ACTION</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {goldRateRows.map((row, idx) => (
+                    <tr key={idx} className="hover:bg-gray-50/50 transition-colors">
+                      <td className="px-3 py-3.5 text-center font-mono text-gray-400 font-medium">{idx + 1}</td>
+                      <td className="px-4 py-3.5 text-gray-900 font-bold flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                        {row.purity}
+                      </td>
+                      <td className="px-4 py-3.5 text-gray-700 font-medium font-mono">{row.touch}</td>
+                      <td className="px-4 py-3.5 text-gray-600 font-medium">{row.description}</td>
+                      <td className="px-4 py-3.5 font-bold text-gray-900 font-mono text-sm">
+                        {row.clientRate > 0 ? (
+                          <span className="text-[#b01622]">₹{Number(row.clientRate).toLocaleString('en-IN')}</span>
+                        ) : (
+                          <span className="text-stone-600">₹{Number(row.defaultLiveRate).toLocaleString('en-IN')} <span className="text-[10px] text-gray-400 font-normal">(Daily Live)</span></span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3.5">
+                        {row.clientRate > 0 ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            Custom Client Rate
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600">
+                            Live Master Rate
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3.5 text-right print:hidden">
+                        <div className="inline-flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setGoldForm({ ...goldRates });
+                              setActiveModalType('gold_rate');
+                            }}
+                            className="text-gray-400 hover:text-[#b01622] text-xs cursor-pointer p-1 rounded hover:bg-red-50"
+                            title="Edit Gold Rate"
+                          >
+                            <i className="fa-solid fa-pen"></i>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="px-4 py-2.5 bg-gray-50/60 border-t border-gray-100 flex items-center justify-between text-[10px] text-gray-500">
+              <span>Showing 4 standard gold purities (24K, 22K, 18K, 14K) linked with this client</span>
+              <span className="font-semibold text-stone-700">Rates auto-populate when billing this client</span>
+            </div>
+          </div>
+
+          {/* 2. Diamond Stone Rate (Per Carat) */}
+          <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xs overflow-hidden">
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-gray-900">2. Diamond Stone Rate</h3>
                 <span className="text-[10px] text-gray-400 font-normal">[Per Carat]</span>
               </div>
               <div className="flex items-center gap-2 print:hidden">
@@ -699,6 +891,7 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-gray-50/80 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                    <th className="px-3 py-3 w-12 text-center">S.No</th>
                     <th className="px-4 py-3">SHAPE</th>
                     <th className="px-4 py-3">QUALITY</th>
                     <th className="px-4 py-3">SIEVE</th>
@@ -710,6 +903,7 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
                 <tbody className="divide-y divide-gray-100">
                   {diamondRates.map((row, idx) => (
                     <tr key={idx} className="hover:bg-gray-50/50 transition-colors">
+                      <td className="px-3 py-3.5 text-center font-mono text-gray-400 font-medium">{idx + 1}</td>
                       <td className="px-4 py-3.5 text-gray-700 font-medium">{row.shape}</td>
                       <td className="px-4 py-3.5 text-gray-700 font-medium">{row.quality}</td>
                       <td className="px-4 py-3.5 text-gray-700 font-medium">{row.sieve}</td>
@@ -753,14 +947,14 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
             </div>
           </div>
 
-          {/* Color Stone Charges & 4. Additional Charges (2 Grid) */}
+          {/* Color Stone Charges & 3. Additional Charges (2 Grid) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
 
-            {/* Color Stone Charges */}
+            {/* 3. Color Stone Charges */}
             <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xs overflow-hidden">
               <div className="p-4 border-b border-gray-100 flex items-center justify-between">
                 <div>
-                  <h3 className="text-xs font-bold text-gray-900">Color Stone Charges</h3>
+                  <h3 className="text-xs font-bold text-gray-900">3. Color Stone Charges</h3>
                   <span className="text-[10px] text-gray-400">[Per Carat]</span>
                 </div>
                 <button
@@ -779,6 +973,7 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-gray-50/80 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                    <th className="px-3 py-2.5 w-12 text-center">S.No</th>
                     <th className="px-4 py-2.5">STONE</th>
                     <th className="px-4 py-2.5 font-bold text-gray-900">RATE / CT (₹)</th>
                     <th className="px-4 py-2.5 text-right print:hidden">ACTION</th>
@@ -787,6 +982,7 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
                 <tbody className="divide-y divide-gray-100">
                   {colorStoneRates.map((cs, idx) => (
                     <tr key={idx} className="hover:bg-gray-50/50">
+                      <td className="px-3 py-3 text-center font-mono text-gray-400 font-medium">{idx + 1}</td>
                       <td className="px-4 py-3 text-gray-700 font-medium">{cs.stone}</td>
                       <td className="px-4 py-3 font-bold text-gray-900 font-mono">
                         {Number(cs.rate_per_ct).toLocaleString('en-IN')} / CT
@@ -885,10 +1081,10 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
 
           </div>
 
-          {/* 3. Making Charges Table */}
+          {/* 5. Making Charges Table */}
           <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xs overflow-hidden">
             <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="text-xs font-bold text-gray-900">Making Charges</h3>
+              <h3 className="text-xs font-bold text-gray-900">5. Making Charges</h3>
               <button
                 type="button"
                 onClick={() => {
@@ -906,6 +1102,7 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-gray-50/80 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                    <th className="px-3 py-3 w-12 text-center">S.No</th>
                     <th className="px-4 py-3">TYPE / DESIGN</th>
                     <th className="px-4 py-3">WASTAGE (%)</th>
                     <th className="px-4 py-3">LABOUR CHARGE</th>
@@ -917,6 +1114,7 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
                 <tbody className="divide-y divide-gray-100">
                   {makingCharges.map((mc, idx) => (
                     <tr key={idx} className="hover:bg-gray-50/50">
+                      <td className="px-3 py-3.5 text-center font-mono text-gray-400 font-medium">{idx + 1}</td>
                       <td className="px-4 py-3.5 text-gray-900 font-bold">{mc.type_design}</td>
                       <td className="px-4 py-3.5 text-gray-700 font-medium">{mc.wastage_percent}</td>
                       <td className="px-4 py-3.5 text-gray-700 font-medium">{mc.labour_charge}</td>
@@ -958,11 +1156,11 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
           {/* Stamping Instructions & Payment Terms (2 Grid) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
 
-            {/* Instruction for Inscription on Product (Stamping) */}
+            {/* 6. Instruction for Inscription on Product (Stamping) */}
             <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xs p-4">
               <div className="flex items-center justify-between border-b border-gray-100 pb-2 mb-3">
                 <h3 className="text-xs font-bold text-gray-900">
-                  Instruction for Inscription on Product (Stamping)
+                  6. Instruction for Inscription on Product (Stamping)
                 </h3>
                 <button
                   type="button"
@@ -1018,10 +1216,10 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
               </div>
             </div>
 
-            {/* Payment Terms */}
+            {/* 7. Payment Terms */}
             <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xs overflow-hidden">
               <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-                <h3 className="text-xs font-bold text-gray-900">Payment Terms</h3>
+                <h3 className="text-xs font-bold text-gray-900">7. Payment Terms</h3>
                 <button
                   type="button"
                   onClick={() => {
@@ -1038,6 +1236,7 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-[#f8f9fa] border-b border-gray-200 text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
+                    <th className="px-3 py-2.5 w-12 text-center">S.No</th>
                     <th className="px-4 py-2.5">TYPE</th>
                     <th className="px-4 py-2.5">TERMS</th>
                     <th className="px-4 py-2.5 text-right print:hidden">ACTION</th>
@@ -1046,6 +1245,7 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
                 <tbody className="divide-y divide-gray-100">
                   {paymentTerms.map((pt, idx) => (
                     <tr key={idx} className="hover:bg-gray-50/50">
+                      <td className="px-3 py-3 text-center font-mono text-gray-400 font-medium">{idx + 1}</td>
                       <td className="px-4 py-3 text-gray-700 font-medium">{pt.type}</td>
                       <td className="px-4 py-3 font-bold text-gray-900">{pt.terms}</td>
                       <td className="px-4 py-3 text-right print:hidden">
@@ -1355,7 +1555,7 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
               {/* Single Large Subtle Background Watermark Overlay with Name in Grey Colour */}
               <div className="sheet-watermark-overlay absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden select-none z-0 opacity-[0.045] print:opacity-[0.05]">
                 <div className="text-[110px] sm:text-[140px] font-black tracking-[0.25em] text-gray-500 uppercase -rotate-[38deg] whitespace-nowrap leading-none">
-                  RUDRA JEWELLERS
+                  RUDRA JEWELLERY
                 </div>
               </div>
 
@@ -1365,9 +1565,9 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
                 {/* Header section matching Image 2 */}
                 <div className="flex flex-row items-center justify-between gap-4 pb-3 border-b border-gray-200 print-flex-row">
                   
-                  {/* Left: Rudra Jewellers Website Logo (Only Logo in Bigger Size) */}
+                  {/* Left: Rudra Jewellery Website Logo (Only Logo in Bigger Size) */}
                   <div className="flex items-center justify-start shrink-0 min-w-[190px]">
-                    <img src="/logo.png" alt="Rudra Jewellers" className="w-auto h-16 max-h-20 sm:h-20 object-contain drop-shadow-xs" />
+                    <img src="/logo.png" alt="Rudra Jewellery" className="w-auto h-16 max-h-20 sm:h-20 object-contain drop-shadow-xs" />
                   </div>
 
                   {/* Center: PRICE LIST Header & Version Subtitle */}
@@ -1468,17 +1668,63 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
                   {/* Left Column (2/3 Wide) */}
                   <div className="col-span-2 space-y-3 print-col-2">
                     
-                    {/* 1. DIAMOND RATES (per carat) */}
+                    {/* 1. GOLD RATES (per gram) */}
                     <div className="space-y-1">
                       <h3 className="text-xs font-black uppercase tracking-wide text-[#70111a] flex items-center gap-1.5">
-                        <i className="fa-solid fa-globe text-[10px] text-[#70111a]"></i>
-                        <span>1. DIAMOND RATES <span className="text-[9px] font-normal text-gray-500 uppercase">(per carat)</span></span>
+                        <i className="fa-solid fa-coins text-[10px] text-[#70111a]"></i>
+                        <span>1. GOLD RATES <span className="text-[9px] font-normal text-gray-500 uppercase">(per gram)</span></span>
                       </h3>
 
                       <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-2xs">
                         <table className="w-full text-left text-xs border-collapse">
                           <thead>
                             <tr className="bg-[#f7f5f2] border-b border-gray-200 text-[9px] font-extrabold text-gray-600 uppercase tracking-wider">
+                              <th className="py-1.5 px-2 text-center w-8">S.No</th>
+                              <th className="py-1.5 px-2.5">PURITY / KARAT</th>
+                              <th className="py-1.5 px-2.5">TOUCH / FINENESS</th>
+                              <th className="py-1.5 px-2.5 text-right">RATE / G (₹)</th>
+                              <th className="py-1.5 px-2.5 text-center">SOURCE</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100 font-medium text-gray-800">
+                            {goldRateRows.map((r, idx) => (
+                              <tr key={idx} className="hover:bg-gray-50/50">
+                                <td className="py-1.5 px-2 text-center font-mono text-gray-400 font-medium">{idx + 1}</td>
+                                <td className="py-1.5 px-2.5 font-bold text-gray-900">{r.purity}</td>
+                                <td className="py-1.5 px-2.5 font-mono text-gray-600">{r.touch}</td>
+                                <td className="py-1.5 px-2.5 text-right font-bold text-gray-900 font-mono">
+                                  {r.clientRate > 0 ? (
+                                    <span className="text-[#b01622]">₹ {Number(r.clientRate).toLocaleString('en-IN')}</span>
+                                  ) : (
+                                    <span>₹ {Number(r.defaultLiveRate).toLocaleString('en-IN')}</span>
+                                  )}
+                                </td>
+                                <td className="py-1.5 px-2.5 text-center text-[9px] font-bold">
+                                  {r.clientRate > 0 ? (
+                                    <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">Client Linked</span>
+                                  ) : (
+                                    <span className="text-gray-500">Live Master</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* 2. DIAMOND RATES (per carat) */}
+                    <div className="space-y-1">
+                      <h3 className="text-xs font-black uppercase tracking-wide text-[#70111a] flex items-center gap-1.5">
+                        <i className="fa-solid fa-globe text-[10px] text-[#70111a]"></i>
+                        <span>2. DIAMOND RATES <span className="text-[9px] font-normal text-gray-500 uppercase">(per carat)</span></span>
+                      </h3>
+
+                      <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-[#f7f5f2] border-b border-gray-200 text-[9px] font-extrabold text-gray-600 uppercase tracking-wider">
+                              <th className="py-1.5 px-2 text-center w-8">S.No</th>
                               <th className="py-1.5 px-2.5">SHAPE</th>
                               <th className="py-1.5 px-2.5">QUALITY</th>
                               <th className="py-1.5 px-2.5">SIZE (CT)</th>
@@ -1489,6 +1735,7 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
                           <tbody className="divide-y divide-gray-100 font-medium text-gray-800">
                             {diamondRates.map((r, idx) => (
                               <tr key={idx} className="hover:bg-gray-50/50">
+                                <td className="py-1.5 px-2 text-center font-mono text-gray-400 font-medium">{idx + 1}</td>
                                 <td className="py-1.5 px-2.5 font-semibold text-gray-900">{r.shape || 'Round Diamond'}</td>
                                 <td className="py-1.5 px-2.5">{r.quality || 'IF - VVS'}</td>
                                 <td className="py-1.5 px-2.5">{r.stone_cents || r.sieve || '0.00 - 0.10'}</td>
@@ -1504,19 +1751,20 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
                       <p className="text-[9px] text-gray-400 italic pl-1">* Rates are exclusive of GST and other charges.</p>
                     </div>
 
-                    {/* 2. COLOR STONE & 3. ADDITIONAL CHARGES Grid */}
+                    {/* 3. COLOR STONE & 4. ADDITIONAL CHARGES Grid */}
                     <div className="grid grid-cols-2 gap-3 print-grid-sub">
                       
-                      {/* 2. COLOR STONE CHARGES */}
+                      {/* 3. COLOR STONE CHARGES */}
                       <div className="space-y-1">
                         <h3 className="text-xs font-black uppercase tracking-wide text-[#70111a] flex items-center gap-1.5">
                           <i className="fa-solid fa-file-lines text-[10px] text-[#70111a]"></i>
-                          <span>2. COLOR STONE CHARGES</span>
+                          <span>3. COLOR STONE CHARGES</span>
                         </h3>
                         <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-2xs">
                           <table className="w-full text-left text-xs border-collapse">
                             <thead>
                               <tr className="bg-[#fcecee] border-b border-rose-200/80 text-[9px] font-extrabold text-[#70111a] uppercase tracking-wider">
+                                <th className="py-1 px-2 text-center w-8">S.No</th>
                                 <th className="py-1 px-2.5">TYPE</th>
                                 <th className="py-1 px-1.5 text-center">OVERRIDE</th>
                                 <th className="py-1 px-2.5 text-right">RATE</th>
@@ -1525,6 +1773,7 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
                             <tbody className="divide-y divide-gray-100 font-medium text-gray-800">
                               {colorStoneRates.map((cs, idx) => (
                                 <tr key={idx}>
+                                  <td className="py-1 px-2 text-center font-mono text-gray-400 font-medium">{idx + 1}</td>
                                   <td className="py-1 px-2.5 font-semibold text-gray-900">{cs.stone}</td>
                                   <td className="py-1 px-1.5 text-center text-gray-400 font-bold">+</td>
                                   <td className="py-1 px-2.5 text-right font-bold text-gray-900 font-mono">
@@ -1540,16 +1789,17 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
                         </div>
                       </div>
 
-                      {/* 3. ADDITIONAL CHARGES */}
+                      {/* 4. ADDITIONAL CHARGES */}
                       <div className="space-y-1">
                         <h3 className="text-xs font-black uppercase tracking-wide text-[#70111a] flex items-center gap-1.5">
                           <i className="fa-solid fa-rotate-right text-[10px] text-[#70111a]"></i>
-                          <span>3. ADDITIONAL CHARGES</span>
+                          <span>4. ADDITIONAL CHARGES</span>
                         </h3>
                         <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-2xs">
                           <table className="w-full text-left text-xs border-collapse">
                             <thead>
                               <tr className="bg-[#fcecee] border-b border-rose-200/80 text-[9px] font-extrabold text-[#70111a] uppercase tracking-wider">
+                                <th className="py-1 px-2 text-center w-8">S.No</th>
                                 <th className="py-1 px-2.5">CHARGE TYPE</th>
                                 <th className="py-1 px-1.5 text-center">TYPE</th>
                                 <th className="py-1 px-2.5 text-right">RATE (₹)</th>
@@ -1557,16 +1807,19 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
                             </thead>
                             <tbody className="divide-y divide-gray-100 font-medium text-gray-800">
                               <tr>
+                                <td className="py-1 px-2 text-center font-mono text-gray-400 font-medium">1</td>
                                 <td className="py-1 px-2.5 font-semibold text-gray-900">Tag Charges</td>
                                 <td className="py-1 px-1.5 text-center text-gray-600">Fixed</td>
                                 <td className="py-1 px-2.5 text-right font-bold text-gray-900 font-mono">₹ 500</td>
                               </tr>
                               <tr>
+                                <td className="py-1 px-2 text-center font-mono text-gray-400 font-medium">2</td>
                                 <td className="py-1 px-2.5 font-semibold text-gray-900">Certificate</td>
                                 <td className="py-1 px-1.5 text-center text-gray-600">Fixed</td>
                                 <td className="py-1 px-2.5 text-right font-bold text-gray-900 font-mono">₹ 300</td>
                               </tr>
                               <tr>
+                                <td className="py-1 px-2 text-center font-mono text-gray-400 font-medium">3</td>
                                 <td className="py-1 px-2.5 font-semibold text-gray-900">Hallmark</td>
                                 <td className="py-1 px-1.5 text-center text-gray-600">Fixed</td>
                                 <td className="py-1 px-2.5 text-right font-bold text-gray-900 font-mono">₹ 250</td>
@@ -1581,16 +1834,17 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
 
                     </div>
 
-                    {/* 4. MAKING CHARGES */}
+                    {/* 5. MAKING CHARGES */}
                     <div className="space-y-1">
                       <h3 className="text-xs font-black uppercase tracking-wide text-[#70111a] flex items-center gap-1.5">
                         <i className="fa-solid fa-rotate-right text-[10px] text-[#70111a]"></i>
-                        <span>4. MAKING CHARGES</span>
+                        <span>5. MAKING CHARGES</span>
                       </h3>
                       <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-2xs">
                         <table className="w-full text-left text-xs border-collapse">
                           <thead>
                             <tr className="bg-[#f7f5f2] border-b border-gray-200 text-[9px] font-extrabold text-gray-600 uppercase tracking-wider">
+                              <th className="py-1.5 px-2 text-center w-8">S.No</th>
                               <th className="py-1.5 px-2.5">TYPE (CATEGORY)</th>
                               <th className="py-1.5 px-2.5">WASTAGE (%)</th>
                               <th className="py-1.5 px-2.5">LABOUR CHARGE</th>
@@ -1602,6 +1856,7 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
                           <tbody className="divide-y divide-gray-100 font-medium text-gray-800">
                             {makingCharges.map((mc, idx) => (
                               <tr key={idx} className="hover:bg-gray-50/50">
+                                <td className="py-1.5 px-2 text-center font-mono text-gray-400 font-medium">{idx + 1}</td>
                                 <td className="py-1.5 px-2.5 font-semibold text-gray-900">{mc.type_design}</td>
                                 <td className="py-1.5 px-2.5 font-bold">{mc.wastage_percent}</td>
                                 <td className="py-1.5 px-2.5 font-medium text-gray-800">{mc.labour_charge} *</td>
@@ -1653,48 +1908,49 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
                       </div>
                     </div>
 
-                    {/* 5. INSTRUCTIONS FOR PRICE SETTING ON PRODUCT (STAMPER) */}
+                    {/* 6. Instruction for Inscription on Product (Stamping) */}
                     <div className="bg-[#f8f9fa] rounded-xl border border-gray-200/80 p-2.5 space-y-1.5 shadow-2xs">
                       <h3 className="text-[11px] font-black uppercase tracking-wide text-[#70111a] flex items-center gap-1">
                         <i className="fa-solid fa-file-lines text-[10px] text-[#70111a]"></i>
-                        <span>5. INSTRUCTIONS FOR PRICE SETTING</span>
+                        <span>6. INSTRUCTION FOR INSCRIPTION ON PRODUCT (STAMPING)</span>
                       </h3>
                       <div className="text-[11px] space-y-1 divide-y divide-gray-200/60 font-medium">
                         <div className="flex justify-between pt-0.5">
-                          <span className="text-gray-500 uppercase text-[9px] font-bold">DIAMOND LOSS (%)</span>
-                          <span className="font-bold text-gray-900">1.50</span>
+                          <span className="text-gray-500 uppercase text-[9px] font-bold">STAMPING DETAIL</span>
+                          <span className="font-bold text-gray-900">{stampingInstructions?.stamping_detail || 'DIA WT/RJ Seal'}</span>
                         </div>
                         <div className="flex justify-between pt-0.5">
-                          <span className="text-gray-500 uppercase text-[9px] font-bold">STONE LOSS (%)</span>
-                          <span className="font-bold text-gray-900">2.00</span>
+                          <span className="text-gray-500 uppercase text-[9px] font-bold">CERTIFICATION</span>
+                          <span className="font-bold text-gray-900">{stampingInstructions?.certification || '-'}</span>
                         </div>
                         <div className="flex justify-between pt-0.5">
-                          <span className="text-gray-500 uppercase text-[9px] font-bold">METAL LOSS (%)</span>
-                          <span className="font-bold text-gray-900">1.00</span>
+                          <span className="text-gray-500 uppercase text-[9px] font-bold">HALLMARK / HUID</span>
+                          <span className="font-bold text-gray-900">{stampingInstructions?.hallmark_huid || 'NO'}</span>
                         </div>
                         <div className="flex justify-between pt-0.5">
-                          <span className="text-gray-500 uppercase text-[9px] font-bold">WASTAGE (%)</span>
-                          <span className="font-bold text-gray-900">0.00</span>
+                          <span className="text-gray-500 uppercase text-[9px] font-bold">METAL COLOUR</span>
+                          <span className="font-bold text-gray-900">{stampingInstructions?.metal_colour || '-'}</span>
                         </div>
                         <div className="flex justify-between pt-0.5">
-                          <span className="text-gray-500 uppercase text-[9px] font-bold">MIN. CHARGES (₹)</span>
-                          <span className="font-bold text-gray-900">500</span>
+                          <span className="text-gray-500 uppercase text-[9px] font-bold">CLIENT QC BEFORE BILL</span>
+                          <span className="font-bold text-gray-900">{stampingInstructions?.client_qc_before_billing || 'NO'}</span>
                         </div>
                         <div className="flex justify-between pt-0.5">
-                          <span className="text-gray-500 uppercase text-[9px] font-bold">ROUND OFF (₹)</span>
-                          <span className="font-bold text-gray-900">10</span>
+                          <span className="text-gray-500 uppercase text-[9px] font-bold">NECKLACE BACK CHAIN</span>
+                          <span className="font-bold text-gray-900">{stampingInstructions?.necklace_back_chain || '-'}</span>
                         </div>
                       </div>
                     </div>
 
-                    {/* Payment Terms */}
+                    {/* 7. Payment Terms */}
                     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-2xs">
                       <div className="p-2 font-bold text-[11px] text-gray-900 border-b border-gray-100 bg-[#f8f9fa]">
-                        Payment Terms
+                        7. PAYMENT TERMS
                       </div>
                       <table className="w-full text-left text-xs border-collapse">
                         <thead>
                           <tr className="bg-[#f8f9fa] border-b border-gray-200 text-[9px] font-extrabold text-gray-500 uppercase tracking-wider">
+                            <th className="py-1.5 px-2 text-center w-8">S.No</th>
                             <th className="py-1.5 px-2.5">TYPE</th>
                             <th className="py-1.5 px-2.5 text-right">TERMS</th>
                           </tr>
@@ -1702,6 +1958,7 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
                         <tbody className="divide-y divide-gray-100 font-bold text-gray-900">
                           {paymentTerms.map((pt, idx) => (
                             <tr key={idx}>
+                              <td className="py-1.5 px-2 text-center font-mono text-gray-400 font-medium">{idx + 1}</td>
                               <td className="py-1.5 px-2.5 font-medium text-gray-700">{pt.type}</td>
                               <td className="py-1.5 px-2.5 text-right font-black text-gray-900">{pt.terms}</td>
                             </tr>
@@ -1719,7 +1976,7 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
                   
                   {/* Rudra Seal Badge */}
                   <div className="w-13 h-13 rounded-full border-2 border-[#70111a] flex flex-col items-center justify-center text-center p-1 text-[#70111a] shrink-0">
-                    <span className="text-[6px] font-extrabold uppercase tracking-tighter">RUDRA JEWELLERS</span>
+                    <span className="text-[6px] font-extrabold uppercase tracking-tighter">RUDRA JEWELLERY</span>
                     <span className="font-serif font-black text-[11px] leading-tight">RJ</span>
                     <span className="text-[5px] font-extrabold uppercase tracking-tighter">CHENNAI</span>
                   </div>
@@ -1733,11 +1990,11 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
                   {/* Authorized Signature */}
                   <div className="text-center sm:text-right min-w-[160px] shrink-0">
                     <div className="font-serif italic text-lg font-bold text-gray-800 tracking-wider mb-0.5">
-                      Rudhra
+                      Rudra
                     </div>
                     <div className="border-t border-gray-400 pt-0.5">
                       <div className="text-[9px] font-black uppercase text-gray-800 tracking-wider">AUTHORIZED SIGNATURE</div>
-                      <div className="text-[8px] text-gray-400">Rudra Jewellers, Chennai</div>
+                      <div className="text-[8px] text-gray-400">Rudra Jewellery, Chennai</div>
                     </div>
                   </div>
 
@@ -1749,6 +2006,102 @@ Type / Design,Wastage (%),Labour Charge,Gold Purity,On Wt
           </div>
         </div>
       )}
+
+      {/* Gold Rates Modal */}
+      {activeModalType === 'gold_rate' && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in print:hidden">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <div>
+                <h3 className="text-base font-bold text-gray-900">
+                  Configure Client Gold Rates
+                </h3>
+                <p className="text-[11px] text-gray-500 mt-0.5">
+                  Set client-specific rates or enter 0 to use Daily Live Rates.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveModalType(null)}
+                className="w-8 h-8 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex items-center justify-center cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark text-sm"></i>
+              </button>
+            </div>
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  24K Gold Rate (₹ / Gram)
+                </label>
+                <input
+                  type="number"
+                  value={goldForm.rate_24k || ''}
+                  onChange={(e) => setGoldForm({ ...goldForm, rate_24k: e.target.value })}
+                  placeholder="e.g. 13886 (or 0 for Daily Live Rate)"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono font-bold focus:outline-none focus:border-[#b01622]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  22K (916) Gold Rate (₹ / Gram)
+                </label>
+                <input
+                  type="number"
+                  value={goldForm.rate_22k || ''}
+                  onChange={(e) => setGoldForm({ ...goldForm, rate_22k: e.target.value })}
+                  placeholder="e.g. 12729 (or 0 for Daily Live Rate)"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono font-bold focus:outline-none focus:border-[#b01622]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  18K (750) Gold Rate (₹ / Gram)
+                </label>
+                <input
+                  type="number"
+                  value={goldForm.rate_18k || ''}
+                  onChange={(e) => setGoldForm({ ...goldForm, rate_18k: e.target.value })}
+                  placeholder="e.g. 10415 (or 0 for Daily Live Rate)"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono font-bold focus:outline-none focus:border-[#b01622]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  14K Gold Rate (₹ / Gram)
+                </label>
+                <input
+                  type="number"
+                  value={goldForm.rate_14k || ''}
+                  onChange={(e) => setGoldForm({ ...goldForm, rate_14k: e.target.value })}
+                  placeholder="e.g. 8100 (or 0 for Daily Live Rate)"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono font-bold focus:outline-none focus:border-[#b01622]"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setActiveModalType(null)}
+                className="px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={saveGoldRates}
+                className="px-4 py-2 bg-[#b01622] hover:bg-[#90121b] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+              >
+                Save Gold Rates
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 1. Diamond Modal */}
       {activeModalType === 'diamond' && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in print:hidden">

@@ -73,11 +73,11 @@ export const AuthProvider = ({ children }) => {
         setIsAuthenticated(true);
         return { success: true, user: userData };
       }
-      return { success: false, message: sanitizeErrorMessage(response.data?.message, 'Invalid credentials') };
+      return { success: false, message: sanitizeErrorMessage(response.data?.message, 'Invalid email/username or password.') };
     } catch (error) {
       return {
         success: false,
-        message: sanitizeErrorMessage(error, 'Login failed. Please check credentials.')
+        message: sanitizeErrorMessage(error, 'Invalid email/username or password.')
       };
     }
   };

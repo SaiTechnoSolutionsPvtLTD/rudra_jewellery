@@ -13,7 +13,7 @@ class SaleItem extends Model
         'invoice_id', 'product_id', 'product_name', 'product_code', 'quantity',
         'gross_weight', 'net_weight', 'stone_weight', 'purity', 'rate',
         'making_charge', 'labour_charge', 'stone_charge', 'diamond_charge',
-        'other_charge', 'line_total', 'cost_amount', 'details',
+        'other_charge', 'line_total', 'cost_amount', 'details', 'price_list_version',
     ];
 
     protected $casts = [

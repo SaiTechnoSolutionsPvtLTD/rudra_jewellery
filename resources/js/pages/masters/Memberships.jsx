@@ -30,7 +30,6 @@ export default function Memberships() {
     name: '',
     code: '',
     discount_percentage: '5.00',
-    reward_points_multiplier: '1.50',
     validity_months: '12',
     min_purchase_amount: '50000',
     description: '',
@@ -66,7 +65,6 @@ export default function Memberships() {
       name: '',
       code: '',
       discount_percentage: '5.00',
-      reward_points_multiplier: '1.50',
       validity_months: '12',
       min_purchase_amount: '50000',
       description: '',
@@ -81,7 +79,6 @@ export default function Memberships() {
       name: item.name || '',
       code: item.code || '',
       discount_percentage: item.discount_percentage !== undefined ? item.discount_percentage : '5.00',
-      reward_points_multiplier: item.reward_points_multiplier !== undefined ? item.reward_points_multiplier : '1.50',
       validity_months: item.validity_months !== undefined ? item.validity_months : '12',
       min_purchase_amount: item.min_purchase_amount !== undefined ? item.min_purchase_amount : '0',
       description: item.description || '',
@@ -106,7 +103,6 @@ export default function Memberships() {
     if (!formData.name?.trim()) missing.push('Plan Name');
     if (!formData.code?.trim()) missing.push('Plan Code');
     if (formData.discount_percentage === '' || formData.discount_percentage === null) missing.push('Discount Percentage');
-    if (formData.reward_points_multiplier === '' || formData.reward_points_multiplier === null) missing.push('Reward Points Multiplier');
     if (formData.validity_months === '' || formData.validity_months === null) missing.push('Validity Period');
     if (formData.min_purchase_amount === '' || formData.min_purchase_amount === null) missing.push('Minimum Purchase');
 
@@ -274,10 +270,10 @@ export default function Memberships() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-[#f6eee9] border-b border-gray-200/60 text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                <th className="px-6 py-4 text-center w-14">S.NO</th>
                 <th className="px-6 py-4">PLAN NAME</th>
                 <th className="px-6 py-4">CODE</th>
                 <th className="px-6 py-4">DISCOUNT %</th>
-                <th className="px-6 py-4">POINTS MULTIPLIER</th>
                 <th className="px-6 py-4">VALIDITY</th>
                 <th className="px-6 py-4">MIN PURCHASE</th>
                 <th className="px-6 py-4">STATUS</th>
@@ -298,8 +294,12 @@ export default function Memberships() {
                   </td>
                 </tr>
               ) : (
-                paginatedItems.map(item => (
+                paginatedItems.map((item, idx) => (
                   <tr key={item.id} className="hover:bg-gray-50/60 transition-colors">
+                    {/* S.NO */}
+                    <td className="px-6 py-4 text-center font-mono text-gray-500 font-semibold">
+                      {(currentPage - 1) * itemsPerPage + idx + 1}
+                    </td>
                     <td className="px-6 py-4 font-bold text-gray-900 flex items-center gap-3">
                       <div className="w-9 h-9 rounded-lg bg-red-50 text-[#b01622] flex items-center justify-center text-xs font-semibold shrink-0">
                         <i className="fa-solid fa-[#b01622] fa-crown"></i>
@@ -319,11 +319,6 @@ export default function Memberships() {
                     <td className="px-6 py-4">
                       <span className="inline-flex items-center gap-1 bg-red-50 text-[#b01622] text-xs font-bold px-2.5 py-1 rounded-full border border-red-100">
                         {item.discount_percentage}% OFF
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 font-semibold text-gray-800">
-                      <span className="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs border border-amber-200">
-                        {item.reward_points_multiplier}x Points
                       </span>
                     </td>
                     <td className="px-6 py-4 text-xs font-medium text-gray-700">
@@ -459,28 +454,6 @@ export default function Memberships() {
                   />
                 </div>
 
-                {/* Reward Points Multiplier */}
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-2">
-                    Reward Points Multiplier <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    inputMode="decimal"
-                    onKeyDown={handleDecimalKeyDown}
-                    name="reward_points_multiplier"
-                    value={formData.reward_points_multiplier}
-                    onChange={(e) => setFormData({ ...formData, reward_points_multiplier: sanitizeDecimal(e.target.value) })}
-                    placeholder="1.5"
-                    required
-                    className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Validity Period */}
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-2">
@@ -499,7 +472,9 @@ export default function Memberships() {
                     className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
                   />
                 </div>
+              </div>
 
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Minimum Purchase Amount */}
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-2">
@@ -519,23 +494,23 @@ export default function Memberships() {
                     className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
                   />
                 </div>
-              </div>
 
-              {/* Status */}
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-2">
-                  Status <span className="text-red-500">*</span>
-                </label>
-                <select
-                  name="status"
-                  value={formData.status}
-                  onChange={handleInputChange}
-                  required
-                  className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
-                >
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
+                {/* Status */}
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-2">
+                    Status <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    name="status"
+                    value={formData.status}
+                    onChange={handleInputChange}
+                    required
+                    className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622] transition-colors"
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </div>
               </div>
 
               {/* Description */}

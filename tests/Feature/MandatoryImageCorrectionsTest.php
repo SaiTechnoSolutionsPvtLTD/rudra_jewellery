@@ -45,6 +45,12 @@ class MandatoryImageCorrectionsTest extends TestCase
             'status' => 'active',
         ]);
 
+        $rawDia = \App\Models\RawMaterial::firstOrCreate(
+            ['material_type' => 'diamond'],
+            ['name' => 'Raw Diamonds Vault', 'current_balance' => 100.0, 'current_count' => 100, 'unit' => 'ct']
+        );
+        $rawDia->update(['current_balance' => max($rawDia->current_balance, 100.0), 'current_count' => max($rawDia->current_count, 100)]);
+
         $product = Product::create([
             'name' => 'Royal Bridal Choker',
             'product_code' => "RBC-{$unique}",

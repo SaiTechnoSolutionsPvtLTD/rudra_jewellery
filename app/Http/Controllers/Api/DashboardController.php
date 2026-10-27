@@ -105,7 +105,7 @@ class DashboardController extends Controller
             Cache::forget($cacheKey);
         }
 
-        $cachedResult = Cache::remember($cacheKey, 15, function () use ($request, $periodParam, $startDate, $endDate, $prevPeriodStart, $prevPeriodEnd, $vsLabel, $isCustomRange) {
+        $cachedResult = Cache::remember($cacheKey, 30, function () use ($request, $periodParam, $startDate, $endDate, $prevPeriodStart, $prevPeriodEnd, $vsLabel, $isCustomRange) {
 
         // Helper for dynamic percentage changes & direction
         $calcMetricChange = function ($curr, $prev) use ($vsLabel) {
@@ -166,22 +166,22 @@ class DashboardController extends Controller
         $prevClientsCount = \App\Models\Client::whereBetween('created_at', [$prevPeriodStart, $prevPeriodEnd])->count();
         $clientsMetricChange = $calcMetricChange($periodClientsCount, $prevClientsCount);
 
-        // 4. Inventory Products Metric (Historical Inventory Snapshot)
+        // 4. Inventory Products Metric (Total Product Stock Count - sum of current_stock_qty)
         $validProductsBaseQuery = \App\Models\Product::where(function ($q) {
             $q->whereNull('status')->orWhere('status', '!=', 'inactive');
         });
-        $allTimeActiveProducts = (clone $validProductsBaseQuery)->count();
+        $allTimeActiveProducts = (int)(clone $validProductsBaseQuery)->selectRaw('COALESCE(SUM(CASE WHEN current_stock_qty > 0 THEN current_stock_qty ELSE 1 END), 0) as total_units')->value('total_units');
 
         // Helper to calculate historical active inventory snapshot at a specific point in time:
-        // Products created on or before the snapshot date, excluding products deactivated before or at that date
+        // Sums active stock units (current_stock_qty > 0 or 1 per product) created on or before snapshot date
         $calcHistoricalProductCount = function ($snapshotDate) {
             if (!$snapshotDate) {
-                return \App\Models\Product::where(function ($q) {
+                return (int)\App\Models\Product::where(function ($q) {
                     $q->whereNull('status')->orWhere('status', '!=', 'inactive');
-                })->count();
+                })->selectRaw('COALESCE(SUM(CASE WHEN current_stock_qty > 0 THEN current_stock_qty ELSE 1 END), 0) as total_units')->value('total_units');
             }
 
-            return \App\Models\Product::where('created_at', '<=', $snapshotDate)
+            return (int)\App\Models\Product::where('created_at', '<=', $snapshotDate)
                 ->where(function ($q) use ($snapshotDate) {
                     // Include products that are active, OR products that were deactivated AFTER the snapshot date
                     $q->where(function ($sub) {
@@ -197,13 +197,15 @@ class DashboardController extends Controller
                             });
                     });
                 })
-                ->count();
+                ->selectRaw('COALESCE(SUM(CASE WHEN current_stock_qty > 0 THEN current_stock_qty ELSE 1 END), 0) as total_units')
+                ->value('total_units');
         };
 
         // Products created strictly during the period (for diagnostic/reporting transparency)
-        $periodCreatedProductsCount = (clone $validProductsBaseQuery)
+        $periodCreatedProductsCount = (int)(clone $validProductsBaseQuery)
             ->whereBetween('created_at', [$startDate, $endDate])
-            ->count();
+            ->selectRaw('COALESCE(SUM(CASE WHEN current_stock_qty > 0 THEN current_stock_qty ELSE 1 END), 0) as total_units')
+            ->value('total_units');
 
         if ($periodParam === 'all' && !$isCustomRange) {
             $periodProductsCount = $allTimeActiveProducts;
@@ -295,11 +297,19 @@ class DashboardController extends Controller
                 ];
             }
         } elseif ($periodParam === 'week') {
+            $weekStart = Carbon::now()->startOfWeek()->startOfDay();
+            $weekEnd = Carbon::now()->endOfWeek()->endOfDay();
+            $dailySums = \App\Models\Invoice::whereBetween('created_at', [$weekStart, $weekEnd])
+                ->whereNotIn('status', ['cancelled', 'void', 'returned'])
+                ->selectRaw('DATE(created_at) as dt, SUM(total_amount) as total')
+                ->groupBy('dt')
+                ->pluck('total', 'dt');
+
             $runningTot = 0;
             for ($i = 0; $i < 7; $i++) {
                 $dayDate = Carbon::now()->startOfWeek()->addDays($i);
                 if ($dayDate->gt(Carbon::now()->endOfDay())) continue;
-                $invTotal = (float) \App\Models\Invoice::whereDate('created_at', $dayDate)->sum('total_amount');
+                $invTotal = (float) ($dailySums->get($dayDate->toDateString()) ?? 0);
                 $runningTot += $invTotal;
                 $chartPoints[] = [
                     'date' => $dayDate->format('D, d M'),
@@ -308,14 +318,22 @@ class DashboardController extends Controller
                 ];
             }
         } elseif ($periodParam === 'month') {
+            $monthStart = Carbon::now()->startOfMonth()->startOfDay();
+            $monthEnd = Carbon::now()->endOfMonth()->endOfDay();
+            $dailySums = \App\Models\Invoice::whereBetween('created_at', [$monthStart, $monthEnd])
+                ->whereNotIn('status', ['cancelled', 'void', 'returned'])
+                ->selectRaw('DATE(created_at) as dt, SUM(total_amount) as total')
+                ->groupBy('dt')
+                ->pluck('total', 'dt');
+
             $days = [1, 5, 10, 15, 20, 25, Carbon::now()->day];
             $days = array_values(array_unique($days));
             sort($days);
             foreach ($days as $d) {
                 $dt = Carbon::now()->startOfMonth()->addDays($d - 1);
                 if ($dt->gt(Carbon::now())) continue;
-                $invTotal = (float) \App\Models\Invoice::whereDate('created_at', '<=', $dt)->whereDate('created_at', '>=', Carbon::now()->startOfMonth())->sum('total_amount');
-                $tot = $invTotal;
+                $dtStr = $dt->toDateString();
+                $tot = (float) $dailySums->filter(fn($val, $key) => $key <= $dtStr)->sum();
                 $chartPoints[] = [
                     'date' => $dt->format('d M'),
                     'val' => $tot,
@@ -323,12 +341,19 @@ class DashboardController extends Controller
                 ];
             }
         } else {
+            $sixMonthsAgo = Carbon::now()->subMonths(5)->startOfMonth()->startOfDay();
+            $driver = \Illuminate\Support\Facades\DB::connection()->getDriverName();
+            $dateFormat = $driver === 'sqlite' ? "strftime('%Y-%m', created_at)" : "DATE_FORMAT(created_at, '%Y-%m')";
+            $monthlySums = \App\Models\Invoice::where('created_at', '>=', $sixMonthsAgo)
+                ->whereNotIn('status', ['cancelled', 'void', 'returned'])
+                ->selectRaw("{$dateFormat} as ym, SUM(total_amount) as total")
+                ->groupBy('ym')
+                ->pluck('total', 'ym');
+
             for ($i = 5; $i >= 0; $i--) {
                 $mDate = Carbon::now()->subMonths($i);
-                $mStart = $mDate->copy()->startOfMonth();
-                $mEnd = $mDate->copy()->endOfMonth();
-                $invTotal = (float) \App\Models\Invoice::whereBetween('created_at', [$mStart, $mEnd])->sum('total_amount');
-                $tot = $invTotal;
+                $ymKey = $mDate->format('Y-m');
+                $tot = (float) ($monthlySums->get($ymKey) ?? 0);
                 $chartPoints[] = [
                     'date' => $mDate->format('M Y'),
                     'val' => $tot,
@@ -341,35 +366,16 @@ class DashboardController extends Controller
         $ordersList = collect();
 
         // Work Orders
-        $woQuery = \App\Models\WorkOrder::with('client');
+        $woQuery = \App\Models\WorkOrder::with(['client', 'receivedPieces']);
         if ($periodParam !== 'all') {
             $woQuery->where('created_at', '>=', $startDate);
         }
         $workOrders = $woQuery->orderBy('created_at', 'desc')->take(10)->get();
 
         foreach ($workOrders as $wo) {
-            $st = strtolower($wo->status ?? '');
-            $stage = strtolower($wo->current_stage ?? '');
-
-            if (in_array($st, ['cancelled', 'void', 'rejected'])) {
-                $statusLabel = 'Cancelled';
-                $statusStyle = 'bg-[#fee2e2] text-[#b91c1c]';
-            } elseif (in_array($st, ['completed', 'ready', 'delivered']) || in_array($stage, ['completed', 'delivered'])) {
-                $statusLabel = 'Delivered';
-                $statusStyle = 'bg-[#dcfce7] text-[#15803d]';
-            } elseif (in_array($st, ['received', 'final_received']) || in_array($stage, ['received', 'final_received'])) {
-                $statusLabel = 'Received';
-                $statusStyle = 'bg-[#e0e7ff] text-[#4338ca]';
-            } elseif (in_array($st, ['pending_approval']) || in_array($stage, ['quality_check', 'qc', 'sent_for_approval', 'work_completed', 'certification', 'hallmarking'])) {
-                $statusLabel = 'Quality Check';
-                $statusStyle = 'bg-[#f1f5f9] text-[#475569]';
-            } elseif (in_array($st, ['assigned', 'created']) || in_array($stage, ['created', 'assigned'])) {
-                $statusLabel = 'Pending';
-                $statusStyle = 'bg-[#fef3c7] text-[#b45309]';
-            } else {
-                $statusLabel = 'In Progress';
-                $statusStyle = 'bg-[#dbeafe] text-[#1d4ed8]';
-            }
+            $statusInfo = $wo->getDeliveryStatusInfo();
+            $statusLabel = $statusInfo['label'];
+            $statusStyle = $statusInfo['style'];
 
             $rawName = $wo->client ? $wo->client->full_name : ($wo->customer_name ?? 'Client Order');
             $shortName = str_replace([' (Retail Partner)', ' Showroom', ' India Pvt Ltd', ' India Ltd'], '', $rawName);
@@ -472,18 +478,11 @@ class DashboardController extends Controller
         $totalSalesGoldWtTemp = (float) \App\Models\SaleItem::sum('gross_weight');
         $avg24kSellingRateGram = $totalSalesGoldWtTemp > 0 ? ($totalSalesGoldAmtTemp / $totalSalesGoldWtTemp) : 0.0;
 
-        $calcCategorySalesForRange = function($meta, $rangeStart, $rangeEnd = null) {
-            $sum = 0.0;
-            $keywords = $meta['keywords'] ?? [];
-            $prodIds = $meta['product_ids'] ?? [];
-            $catId = $meta['id'] ?? null;
-            $catNameLower = strtolower($meta['name'] ?? '');
-            
-            $handledInvoiceIds = [];
-
-            // A. Search SaleItem records belonging to valid, non-cancelled/non-void invoices
+        $fetchSaleData = function($rStart, $rEnd) {
+            $items = collect();
+            $invoices = collect();
             try {
-                $siQuery = \App\Models\SaleItem::query()
+                $siQ = \App\Models\SaleItem::query()
                     ->whereHas('invoice', function ($iq) {
                         $iq->whereNotIn('status', ['cancelled', 'void', 'returned'])
                            ->where(function ($sub) {
@@ -491,112 +490,132 @@ class DashboardController extends Controller
                                    ->orWhereNotIn('sale_status', ['cancelled', 'void', 'returned', 'reversed']);
                            });
                     });
+                if ($rStart) $siQ->where('created_at', '>=', $rStart);
+                if ($rEnd) $siQ->where('created_at', '<=', $rEnd);
+                $items = $siQ->with('product:id,category_id')->get();
 
-                if ($rangeStart) $siQuery->where('created_at', '>=', $rangeStart);
-                if ($rangeEnd) $siQuery->where('created_at', '<=', $rangeEnd);
-                
-                foreach ($siQuery->with('product')->get() as $item) {
-                    $pId = $item->product_id ?? null;
-                    $pName = strtolower($item->product_name ?? '');
-                    $cName = strtolower($item->category ?? '');
-                    $mType = strtolower($item->metal_type ?? '');
-                    
-                    $matched = false;
-                    if ($pId && in_array($pId, $prodIds)) {
-                        $matched = true;
-                    } elseif ($item->product && $item->product->category_id == $catId) {
-                        $matched = true;
-                    } elseif ($cName && ($cName === $catNameLower || str_contains($cName, $catNameLower))) {
-                        $matched = true;
-                    } else {
-                        foreach ($keywords as $kw) {
-                            if ($kw && (str_contains($pName, $kw) || str_contains($cName, $kw) || str_contains($mType, $kw))) {
-                                $matched = true;
-                                break;
-                            }
-                        }
-                    }
-                    
-                    if ($matched) {
-                        $sum += (float) ($item->line_total ?: $item->total_price ?: 0);
-                        if ($item->invoice_id) {
-                            $handledInvoiceIds[$item->invoice_id] = true;
-                        }
-                    }
-                }
-            } catch (\Exception $e) {}
-            
-            // B. Search Invoices JSON items for invoices without separate SaleItem rows
-            try {
-                $invQuery = \App\Models\Invoice::query()
+                $invQ = \App\Models\Invoice::query()
                     ->whereNotIn('status', ['cancelled', 'void', 'returned'])
                     ->where(function ($sub) {
                         $sub->whereNull('sale_status')
                             ->orWhereNotIn('sale_status', ['cancelled', 'void', 'returned', 'reversed']);
                     });
+                if ($rStart) $invQ->where('created_at', '>=', $rStart);
+                if ($rEnd) $invQ->where('created_at', '<=', $rEnd);
+                $invoices = $invQ->get();
+            } catch (\Exception $e) {}
+            return [$items, $invoices];
+        };
 
-                if ($rangeStart) $invQuery->where('created_at', '>=', $rangeStart);
-                if ($rangeEnd) $invQuery->where('created_at', '<=', $rangeEnd);
-                
-                foreach ($invQuery->get() as $inv) {
-                    if (isset($handledInvoiceIds[$inv->id])) continue;
+        [$currSaleItems, $currInvoices] = $fetchSaleData($startDate, $endDate);
+        [$prevSaleItems, $prevInvoices] = $fetchSaleData($prevPeriodStart, $prevPeriodEnd);
 
-                    $invTotal = (float) ($inv->total_amount ?? 0);
-                    $items = is_array($inv->items) ? $inv->items : json_decode($inv->items ?? '[]', true);
-                    if (is_array($items) && count($items) > 0) {
-                        $itemCount = count($items);
-                        foreach ($items as $it) {
-                            $itPId = $it['product_id'] ?? $it['id'] ?? null;
-                            $itCode = strtolower($it['code'] ?? $it['product_code'] ?? $it['item_code'] ?? '');
-                            $desc = strtolower($it['desc'] ?? $it['description'] ?? $it['name'] ?? $it['item_name'] ?? '');
-                            $cName = strtolower($it['category'] ?? '');
-                            
-                            $matched = false;
-                            if (($catId && ($it['category_id'] ?? null) == $catId) || ($itPId && in_array($itPId, $prodIds))) {
-                                $matched = true;
-                            } elseif ($cName && ($cName === $catNameLower || str_contains($cName, $catNameLower))) {
-                                $matched = true;
-                            } elseif ($itCode) {
-                                $codeProd = \App\Models\Product::where('product_code', $itCode)->orWhere('id', $itCode)->first();
-                                if ($codeProd && ($codeProd->category_id == $catId || in_array($codeProd->id, $prodIds))) {
-                                    $matched = true;
-                                }
-                            }
-                            
-                            if (!$matched) {
-                                $fullSearchText = "$desc $cName $itCode";
-                                foreach ($keywords as $kw) {
-                                    if ($kw && str_contains($fullSearchText, $kw)) {
-                                        $matched = true;
-                                        break;
-                                    }
-                                }
-                            }
+        $calcCategorySalesForRange = function($meta, $preloadedItems, $preloadedInvoices) {
+            $sum = 0.0;
+            $keywords = $meta['keywords'] ?? [];
+            $prodIds = $meta['product_ids'] ?? [];
+            $catId = $meta['id'] ?? null;
+            $catNameLower = strtolower($meta['name'] ?? '');
+            $handledInvoiceIds = [];
 
-                            if ($matched) {
-                                $itAmt = (float) ($it['total'] ?? $it['line_total'] ?? $it['taxable'] ?? 0);
-                                if ($itAmt <= 0 && $itemCount === 1) {
-                                    $itAmt = $invTotal;
-                                } elseif ($itAmt <= 0) {
-                                    $itAmt = $invTotal / $itemCount;
-                                }
-                                $sum += $itAmt;
-                            }
+            foreach ($preloadedItems as $item) {
+                $pId = $item->product_id ?? null;
+                $pName = strtolower($item->product_name ?? '');
+                $cName = strtolower($item->category ?? '');
+                $mType = strtolower($item->metal_type ?? '');
+
+                $matched = false;
+                if ($pId && in_array($pId, $prodIds)) {
+                    $matched = true;
+                } elseif ($item->product && $item->product->category_id == $catId) {
+                    $matched = true;
+                } elseif ($cName && ($cName === $catNameLower || str_contains($cName, $catNameLower))) {
+                    $matched = true;
+                } else {
+                    foreach ($keywords as $kw) {
+                        if ($kw && (str_contains($pName, $kw) || str_contains($cName, $kw) || str_contains($mType, $kw))) {
+                            $matched = true;
+                            break;
                         }
                     }
                 }
-            } catch (\Exception $e) {}
-            
+
+                if ($matched) {
+                    $sum += (float) ($item->line_total ?: $item->total_price ?: 0);
+                    if ($item->invoice_id) {
+                        $handledInvoiceIds[$item->invoice_id] = true;
+                    }
+                }
+            }
+
+            foreach ($preloadedInvoices as $inv) {
+                if (isset($handledInvoiceIds[$inv->id])) continue;
+
+                $invTotal = (float) ($inv->total_amount ?? 0);
+                $items = is_array($inv->items) ? $inv->items : json_decode($inv->items ?? '[]', true);
+                if (is_array($items) && count($items) > 0) {
+                    $itemCount = count($items);
+                    foreach ($items as $it) {
+                        $itPId = $it['product_id'] ?? $it['id'] ?? null;
+                        $itCode = strtolower($it['code'] ?? $it['product_code'] ?? $it['item_code'] ?? '');
+                        $desc = strtolower($it['desc'] ?? $it['description'] ?? $it['name'] ?? $it['item_name'] ?? '');
+                        $cName = strtolower($it['category'] ?? '');
+
+                        $matched = false;
+                        if (($catId && ($it['category_id'] ?? null) == $catId) || ($itPId && in_array($itPId, $prodIds))) {
+                            $matched = true;
+                        } elseif ($cName && ($cName === $catNameLower || str_contains($cName, $catNameLower))) {
+                            $matched = true;
+                        }
+
+                        if (!$matched) {
+                            $fullSearchText = "$desc $cName $itCode";
+                            foreach ($keywords as $kw) {
+                                if ($kw && str_contains($fullSearchText, $kw)) {
+                                    $matched = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if ($matched) {
+                            $itAmt = (float) ($it['total'] ?? $it['line_total'] ?? $it['taxable'] ?? 0);
+                            if ($itAmt <= 0 && $itemCount === 1) {
+                                $itAmt = $invTotal;
+                            } elseif ($itAmt <= 0) {
+                                $itAmt = $invTotal / $itemCount;
+                            }
+                            $sum += $itAmt;
+                        }
+                    }
+                }
+            }
             return $sum;
         };
+
+        // Pre-aggregate Work Orders by category in 1 query
+        $woCategoryStats = \App\Models\WorkOrder::selectRaw('category_id,
+            COUNT(CASE WHEN status NOT IN ("completed", "delivered", "final_received") THEN 1 END) as pending_count,
+            COALESCE(SUM(CASE WHEN status NOT IN ("completed", "delivered", "final_received") THEN total_price ELSE 0 END), 0) as pending_value,
+            COUNT(CASE WHEN current_stage = "delayed" THEN 1 END) as delayed_count
+        ')
+        ->groupBy('category_id')
+        ->get()
+        ->keyBy('category_id');
+
+        // Pre-aggregate low stock products by category in 1 query
+        $lowStockByCategory = \App\Models\Product::selectRaw('category_id, COUNT(*) as low_count')
+            ->where('current_stock_qty', '<=', 2)
+            ->groupBy('category_id')
+            ->pluck('low_count', 'category_id');
 
         $topCategoriesList = [];
         $actionRequiresList = [];
 
         foreach ($categoriesMeta as $catName => $meta) {
             $catId = $meta['id'];
-            $catSales = $calcCategorySalesForRange($meta, $startDate, $endDate);
-            $catSalesPrev = $calcCategorySalesForRange($meta, $prevPeriodStart, $prevPeriodEnd);
+            $catSales = $calcCategorySalesForRange($meta, $currSaleItems, $currInvoices);
+            $catSalesPrev = $calcCategorySalesForRange($meta, $prevSaleItems, $prevInvoices);
 
             // STRICT REQUIREMENT: Only actual qualifying sales are displayed in Top-Selling Categories.
             // Inventory addition or work order creation must NEVER count as a sale!
@@ -628,22 +647,12 @@ class DashboardController extends Controller
                 ];
             }
 
-            // Compute Action Requires metrics per category
-            $catPendingOrdersCount = \App\Models\WorkOrder::where('category_id', $catId)
-                ->whereNotIn('status', ['completed', 'delivered', 'final_received'])
-                ->count();
-
-            $pendingValue = (float) \App\Models\WorkOrder::where('category_id', $catId)
-                ->whereNotIn('status', ['completed', 'delivered', 'final_received'])
-                ->sum('total_price');
-
-            $delayedCount = \App\Models\WorkOrder::where('category_id', $catId)
-                ->where('current_stage', 'delayed')
-                ->count();
-
-            $lowStockCount = \App\Models\Product::where('category_id', $catId)
-                ->where('current_stock_qty', '<=', 2)
-                ->count();
+            // Retrieve pre-computed stats without per-category queries
+            $cStats = $woCategoryStats->get($catId);
+            $catPendingOrdersCount = (int) ($cStats->pending_count ?? 0);
+            $pendingValue = (float) ($cStats->pending_value ?? 0);
+            $delayedCount = (int) ($cStats->delayed_count ?? 0);
+            $lowStockCount = (int) ($lowStockByCategory[$catId] ?? 0);
 
             if ($catPendingOrdersCount > 0 || $lowStockCount > 0 || $pendingValue > 0) {
                 $actionValStr = $pendingValue > 0 ? ('₹ ' . number_format($pendingValue, 0)) : ($catPendingOrdersCount . ' Pending Jobs');
@@ -768,7 +777,9 @@ class DashboardController extends Controller
             return !str_contains($m, 'silver') && !str_contains($m, 'diamond');
         })->sum('allotted_weight');
 
-        \App\Models\RawMaterial::recalculateAllocations();
+        if ($request->has('refresh') || $request->has('nocache')) {
+            \App\Models\RawMaterial::recalculateAllocations();
+        }
 
         // 6. Authoritative Total Diamond Carats from persisted stock records & movements
         $diamondRawMat = \App\Models\RawMaterial::where('material_type', 'diamond')->first();
@@ -777,9 +788,8 @@ class DashboardController extends Controller
         $totalDiamondPurchasedCarats = (float) \App\Models\PurchaseEntry::where('purchase_type', 'raw_material')->where('metal_type', 'diamond')->sum('weight');
         $totalDiamondPurchasedCount = (float) \App\Models\PurchaseEntry::where('purchase_type', 'raw_material')->where('metal_type', 'diamond')->sum('count_qty');
 
-        $activeOrdersForDia = \App\Models\WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received', 'delivered'])->get();
-        $totalAllocatedDiaCarats = (float) $activeOrdersForDia->sum('total_dia_cts');
-        $totalAllocatedDiaCount = (float) $activeOrdersForDia->sum('total_dia_pcs');
+        $totalAllocatedDiaCarats = (float) $activeOrdersForDash->sum('total_dia_cts');
+        $totalAllocatedDiaCount = (float) $activeOrdersForDash->sum('total_dia_pcs');
 
         if ($diamondRawMat && $diamondRawMat->current_balance > 0) {
             $dashTotalDiamondCarats = round((float) $diamondRawMat->current_balance, 3);
@@ -953,12 +963,23 @@ class DashboardController extends Controller
             $rate = (float) ($pu->rate ?? 0);
             $amt = (float) ($pu->total_amount ?? 0);
 
-            if ($amt <= 0 && $rate > 0 && $wt > 0) {
-                $amt = $rate * $wt;
+            // Exclude unpriced / unfixed gold purchases ("Gold Payable (No Rate)")
+            // An unpriced gold entry has no agreed rupee gold rate; liability is in physical grams.
+            // Any total_amount on unpriced entries is solely making charges/tax, which must NOT be treated as the gold purchase rate.
+            $isUnpriced = ($rate <= 0)
+                || !empty($pu->is_unpriced)
+                || strtolower($pu->payment_status ?? '') === 'gold_payable'
+                || strtolower($pu->payable_type ?? '') === 'gold';
+
+            if ($isUnpriced) {
+                continue;
             }
 
-            if ($wt > 0 && $amt > 0) {
-                $totalPurchaseGoldValue += $amt;
+            // For priced gold purchases, metal purchase cost is rate * weight (or total_amount if consistent)
+            $goldValue = ($rate > 0 && $wt > 0) ? ($rate * $wt) : $amt;
+
+            if ($wt > 0 && $goldValue > 0) {
+                $totalPurchaseGoldValue += $goldValue;
                 $totalPurchaseGoldWeight += $wt;
                 $purchaseCount++;
             }
@@ -1271,155 +1292,12 @@ class DashboardController extends Controller
 
     public static function getLiveMetalRatesData()
     {
-        $todayDateKey = 'manual_metal_rates_' . Carbon::now()->toDateString();
-        if (Cache::has($todayDateKey)) {
-            $manualData = Cache::get($todayDateKey);
-            if ($manualData) {
-                return $manualData;
-            }
-        }
-
-        return Cache::remember('live_metal_rates_chennai_v7', 1800, function () {
-            try {
-                // Fetch Gold, Silver spot prices and USD/INR rate asynchronously from internet
-                $goldResponse = Http::timeout(5)->get('https://api.gold-api.com/price/XAU');
-                $silverResponse = Http::timeout(5)->get('https://api.gold-api.com/price/XAG');
-                $erResponse = Http::timeout(5)->get('https://open.er-api.com/v6/latest/USD');
-
-                if ($goldResponse->successful() && $erResponse->successful()) {
-                    $goldUsd = $goldResponse->json('price');
-                    $silverUsd = $silverResponse->successful() ? $silverResponse->json('price') : 31.5;
-                    $usdInr = $erResponse->json('rates.INR', 95.9);
-
-                    if ($goldUsd) {
-                        // International Spot Rate per gram in INR (1 Troy Oz = 31.1034768 grams)
-                        $spotGoldInr = ($goldUsd * $usdInr) / 31.1034768;
-                        $spotSilverInr = ($silverUsd * $usdInr) / 31.1034768;
-
-                        // Apply Domestic Market Duty & Taxes
-                        $chennai24kGram = $spotGoldInr * 1.09;
-                        $chennai22kGram = $chennai24kGram * (22 / 24);
-                        $chennai18kGram = $chennai24kGram * (18 / 24);
-                        $chennaiSilverGram = $spotSilverInr * 1.09;
-
-                        $g24 = round($chennai24kGram);
-                        $g22 = round($chennai22kGram);
-                        $g18 = round($chennai18kGram);
-                        $sGram = round($chennaiSilverGram, 1);
-                        $sKg = round($chennaiSilverGram * 1000);
-
-                        return [
-                            'location' => 'Chennai',
-                            'date' => Carbon::now()->format('j F Y'),
-                            'gold24k' => number_format($g24),
-                            'gold22k' => number_format($g22),
-                            'gold18k' => number_format($g18),
-                            'gold24kGram' => number_format($g24),
-                            'gold22kGram' => number_format($g22),
-                            'gold18kGram' => number_format($g18),
-                            'gold24k_10g' => number_format($g24 * 10),
-                            'gold22k_10g' => number_format($g22 * 10),
-                            'raw24k' => $g24,
-                            'raw22k' => $g22,
-                            'raw18k' => $g18,
-                            'silverGram' => number_format($sGram, 1),
-                            'silverKg' => number_format($sKg),
-                            'rawSilverGram' => $sGram,
-                            'rawSilverKg' => $sKg,
-                            'usdInr' => number_format($usdInr, 2),
-                            'isLive' => true,
-                            'isManual' => false,
-                        ];
-                    }
-                }
-            } catch (\Exception $e) {
-                // Network issue with primary API
-            }
-
-            // Secondary live API check
-            try {
-                $erResponse = Http::timeout(5)->get('https://api.exchangerate-api.com/v4/latest/USD');
-                $goldResponse = Http::timeout(5)->get('https://api.gold-api.com/price/XAU');
-                if ($goldResponse->successful() && $erResponse->successful()) {
-                    $goldUsd = $goldResponse->json('price');
-                    $usdInr = $erResponse->json('rates.INR', 95.9);
-                    if ($goldUsd) {
-                        $spotGoldInr = ($goldUsd * $usdInr) / 31.1034768;
-                        $g24 = round($spotGoldInr * 1.09);
-                        $g22 = round($g24 * (22 / 24));
-                        $g18 = round($g24 * (18 / 24));
-                        $sGram = round(($g24 / 65), 1);
-                        return [
-                            'location' => 'Chennai',
-                            'date' => Carbon::now()->format('j F Y'),
-                            'gold24k' => number_format($g24),
-                            'gold22k' => number_format($g22),
-                            'gold18k' => number_format($g18),
-                            'gold24kGram' => number_format($g24),
-                            'gold22kGram' => number_format($g22),
-                            'gold18kGram' => number_format($g18),
-                            'gold24k_10g' => number_format($g24 * 10),
-                            'gold22k_10g' => number_format($g22 * 10),
-                            'raw24k' => $g24,
-                            'raw22k' => $g22,
-                            'raw18k' => $g18,
-                            'silverGram' => number_format($sGram, 1),
-                            'silverKg' => number_format($sGram * 1000),
-                            'rawSilverGram' => $sGram,
-                            'rawSilverKg' => round($sGram * 1000),
-                            'usdInr' => number_format($usdInr, 2),
-                            'isLive' => true,
-                            'isManual' => false,
-                        ];
-                    }
-                }
-            } catch (\Exception $e) {
-            }
-
-            // Calculate dynamic rates from DB purchase entries if external network unavailable
-            $dbPurchases = \App\Models\PurchaseEntry::all();
-            $totAmt = 0.0;
-            $totFine = 0.0;
-            foreach ($dbPurchases as $pu) {
-                $amt = (float) $pu->total_amount;
-                $wt = (float) $pu->weight;
-                $touch = \App\Helpers\GoldConversionHelper::getTouchPercent($pu->touch ?: 91.66);
-                $fineWt = $pu->fine_weight > 0 ? (float)$pu->fine_weight : \App\Helpers\GoldConversionHelper::convertTo24kFineWeight($wt, $touch);
-                $totAmt += $amt;
-                $totFine += $fineWt;
-            }
-            $dyn24kGram = $totFine > 0 ? round($totAmt / $totFine) : 14408;
-            $dyn22kGram = round($dyn24kGram * (22 / 24));
-            $dyn18kGram = round($dyn24kGram * (18 / 24));
-
-            return [
-                'location' => 'Chennai',
-                'date' => Carbon::now()->format('d F Y'),
-                'gold24k' => number_format($dyn24kGram),
-                'gold22k' => number_format($dyn22kGram),
-                'gold18k' => number_format($dyn18kGram),
-                'gold24kGram' => number_format($dyn24kGram),
-                'gold22kGram' => number_format($dyn22kGram),
-                'gold18kGram' => number_format($dyn18kGram),
-                'gold24k_10g' => number_format($dyn24kGram * 10),
-                'gold22k_10g' => number_format($dyn22kGram * 10),
-                'raw24k' => $dyn24kGram,
-                'raw22k' => $dyn22kGram,
-                'raw18k' => $dyn18kGram,
-                'silverGram' => number_format(round($dyn24kGram / 65, 1), 1),
-                'silverKg' => number_format(round(($dyn24kGram / 65) * 1000)),
-                'rawSilverGram' => round($dyn24kGram / 65, 1),
-                'rawSilverKg' => round(($dyn24kGram / 65) * 1000),
-                'usdInr' => '95.90',
-                'isLive' => false,
-                'isManual' => false,
-            ];
-        });
+        return \App\Services\MetalRateService::getCurrentRates();
     }
 
     public function metalRates()
     {
-        return response()->json(self::getLiveMetalRatesData());
+        return response()->json(\App\Services\MetalRateService::getCurrentRates());
     }
 
     /**
@@ -1431,47 +1309,12 @@ class DashboardController extends Controller
             'gold24k' => 'required',
             'gold22k' => 'required',
             'gold18k' => 'nullable',
+            'gold14k' => 'nullable',
             'silverGram' => 'nullable',
             'silverKg' => 'nullable',
         ]);
 
-        $cleanNum = fn($val) => (float) str_replace([',', '₹', ' '], '', (string)$val);
-
-        $val24k = $cleanNum($request->gold24k);
-        $val22k = $cleanNum($request->gold22k);
-
-        // Normalize if user entered per 10g value (e.g. > 50,000) vs per gram
-        $gram24k = $val24k > 50000 ? round($val24k / 10) : round($val24k);
-        $gram22k = $val22k > 50000 ? round($val22k / 10) : round($val22k);
-
-        $tenG24k = $gram24k * 10;
-        $tenG22k = $gram22k * 10;
-
-        $silverG = $cleanNum($request->silverGram ?? 110);
-        $silverK = $cleanNum($request->silverKg ?? ($silverG * 1000));
-
-        $data = [
-            'location' => 'Chennai',
-            'date' => Carbon::now()->format('d F Y'),
-            'gold24k' => number_format($gram24k),
-            'gold22k' => number_format($gram22k),
-            'gold24k_10g' => number_format($tenG24k),
-            'gold22k_10g' => number_format($tenG22k),
-            'raw24k' => $gram24k,
-            'raw22k' => $gram22k,
-            'silverGram' => number_format($silverG, 1),
-            'silverKg' => number_format($silverK),
-            'rawSilverGram' => $silverG,
-            'rawSilverKg' => $silverK,
-            'usdInr' => '86.50',
-            'isLive' => false,
-            'isManual' => true,
-            'updatedAt' => Carbon::now()->toDateTimeString(),
-        ];
-
-        $todayDateKey = 'manual_metal_rates_' . Carbon::now()->toDateString();
-        Cache::put($todayDateKey, $data, 86400); // Saved for today (24 hours)
-        Cache::forget('live_metal_rates_chennai_v5');
+        $data = \App\Services\MetalRateService::saveManualRates($request->all());
 
         return response()->json([
             'status' => 'success',
@@ -1485,10 +1328,12 @@ class DashboardController extends Controller
      */
     public function resetMetalRates()
     {
-        $todayDateKey = 'manual_metal_rates_' . Carbon::now()->toDateString();
-        Cache::forget($todayDateKey);
-        Cache::forget('live_metal_rates_chennai_v5');
+        $liveRates = \App\Services\MetalRateService::resetToLive();
 
-        return $this->metalRates();
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Reset to live internet rates successfully!',
+            'rates' => $liveRates,
+        ]);
     }
 }

@@ -406,4 +406,67 @@ class DashboardGoldAveragesTest extends TestCase
         $monthGold = $resMonth->json('summary.currentGoldAverage');
         $this->assertEquals(6400.0, (float)$monthGold['buyingValRaw']);
     }
+
+    /**
+     * Case 6: Unpriced / Gold Payable (No Rate) purchases do NOT dilute or corrupt gold average buying price.
+     */
+    public function test_unpriced_gold_payable_purchases_do_not_distort_buying_average(): void
+    {
+        $today = Carbon::today();
+
+        // 1. Unpriced Gold Payable Purchase: 34g 22K with Rate = 0, but Making Charge + Tax = 94,384
+        PurchaseEntry::create([
+            'purchase_no' => 'PUR-UNPRICED-TEST',
+            'supplier_id' => $this->supplier->id,
+            'metal_type' => 'gold',
+            'purity' => '22K',
+            'weight' => 34.0,
+            'net_weight' => 34.0,
+            'fine_weight' => 31.167,
+            'rate' => 0.0,
+            'making_charge' => 13600.0,
+            'total_tax_amount' => 80784.0,
+            'total_amount' => 94384.0,
+            'is_unpriced' => true,
+            'payment_status' => 'gold_payable',
+            'payable_type' => 'gold',
+            'purchase_date' => $today->toDateString(),
+            'created_at' => $today,
+        ]);
+
+        // When only unpriced purchases exist, buyingVal should safely be '0' and NOT 2776 (94384/34)
+        $resEmpty = $this->getJson('/api/dashboard?period=today&refresh=1');
+        $resEmpty->assertOk();
+        $goldDataEmpty = $resEmpty->json('summary.currentGoldAverage');
+        $this->assertSame('0', (string)$goldDataEmpty['buyingVal']);
+        $this->assertEquals(0.0, (float)$goldDataEmpty['buyingValRaw']);
+        $this->assertFalse($goldDataEmpty['hasBuyingData']);
+
+        // 2. Now add a real priced gold purchase: 10g @ ₹7,500/g = ₹75,000
+        PurchaseEntry::create([
+            'purchase_no' => 'PUR-PRICED-TEST',
+            'supplier_id' => $this->supplier->id,
+            'metal_type' => 'gold',
+            'purity' => '22K',
+            'weight' => 10.0,
+            'net_weight' => 10.0,
+            'fine_weight' => 9.167,
+            'rate' => 7500.0,
+            'total_amount' => 75000.0,
+            'is_unpriced' => false,
+            'payment_status' => 'unpaid',
+            'payable_type' => 'monetary',
+            'purchase_date' => $today->toDateString(),
+            'created_at' => $today,
+        ]);
+
+        // Average buying price should strictly be ₹7,500/g, completely undistorted by the 34g unpriced deposit
+        $resPriced = $this->getJson('/api/dashboard?period=today&refresh=1');
+        $resPriced->assertOk();
+        $goldDataPriced = $resPriced->json('summary.currentGoldAverage');
+        $this->assertEquals(7500.0, (float)$goldDataPriced['buyingValRaw']);
+        $this->assertStringContainsString('7,500', (string)$goldDataPriced['buyingVal']);
+        $this->assertTrue($goldDataPriced['hasBuyingData']);
+    }
 }
+

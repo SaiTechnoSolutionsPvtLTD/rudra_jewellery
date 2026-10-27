@@ -261,17 +261,17 @@ export default function JobOrdersList() {
                     {/* Image Thumbnail */}
                     <td className="py-2 px-3 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                       <div
-                        onClick={() => setPreviewModal({ open: true, title: `${job.work_order_number} - ${job.item_type}`, src: job.image_url || '/images/samples/peacock_choker.jpg' })}
+                        onClick={() => setPreviewModal({ open: true, title: `${job.work_order_number} - ${job.item_type}`, src: job.image_url || '/images/placeholder-jewelry.svg' })}
                         className="w-10 h-10 rounded-lg overflow-hidden border border-stone-200 bg-stone-100 mx-auto flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-[#9e1b27] hover:border-[#9e1b27] transition-all shadow-2xs group/img relative"
                         title="Click to view full design image"
                       >
                         <img
-                          src={job.image_url || '/images/samples/peacock_choker.jpg'}
+                          src={job.image_url || '/images/placeholder-jewelry.svg'}
                           alt={job.item_type || 'Work Order Image'}
                           className="w-full h-full object-cover"
                           onError={(e) => {
                             e.target.onerror = null;
-                            e.target.src = '/images/samples/peacock_choker.jpg';
+                            e.target.src = '/images/placeholder-jewelry.svg';
                           }}
                         />
                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 flex items-center justify-center transition-opacity">
@@ -468,7 +468,7 @@ export default function JobOrdersList() {
                 className="max-h-[65vh] max-w-full object-contain rounded-lg shadow-sm"
                 onError={(e) => {
                   e.target.onerror = null;
-                  e.target.src = '/images/samples/peacock_choker.jpg';
+                  e.target.src = '/images/placeholder-jewelry.svg';
                 }}
               />
             </div>

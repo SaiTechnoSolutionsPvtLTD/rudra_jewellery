@@ -890,4 +890,94 @@ class NotificationService
             ],
         ]);
     }
+
+    /**
+     * Notify when purchase payment status changes or payment is recorded.
+     */
+    public static function notifyPurchasePaymentStatusChanged(
+        int $purchaseId,
+        string $billNo,
+        string $supplierName,
+        string $status,
+        float $paidAmount,
+        float $remainingBalance,
+        ?int $actorId = null
+    ): array {
+        $statusLabel = ucfirst($status);
+        $message = "Payment status for {$billNo} ({$supplierName}) updated to {$statusLabel}. Paid: Rs. " . number_format($paidAmount, 2) . ", Balance: Rs. " . number_format($remainingBalance, 2);
+        if (strtolower($status) === 'paid' || strtolower($status) === 'fully paid') {
+            $title = "Purchase Paid: {$billNo}";
+            $message = "Purchase bill {$billNo} from {$supplierName} is now Fully Paid (Rs. " . number_format($paidAmount, 2) . ").";
+        } elseif (strtolower($status) === 'partial') {
+            $title = "Partial Payment Recorded: {$billNo}";
+        } else {
+            $title = "Payment Status Updated: {$billNo}";
+        }
+
+        return self::send([
+            'type' => 'purchase_payment_update',
+            'title' => $title,
+            'message' => $message,
+            'entity_type' => 'purchase_entry',
+            'entity_id' => $purchaseId,
+            'action_url' => "/purchase/details",
+            'roles' => ['Super Admin', 'Admin', 'Manager'],
+            'permissions' => ['inventory.view'],
+            'exclude_user_id' => $actorId,
+            'idempotency_key' => "purchase_pay_status_{$purchaseId}_" . strtolower($status) . "_" . round($paidAmount, 2),
+            'data' => [
+                'purchase_id' => $purchaseId,
+                'bill_no' => $billNo,
+                'supplier_name' => $supplierName,
+                'status' => $status,
+                'paid_amount' => $paidAmount,
+                'remaining_balance' => $remainingBalance,
+            ],
+        ]);
+    }
+
+    /**
+     * Notify due date reminder for credit purchase (7 days before, 2 days before, on due date).
+     */
+    public static function notifyPurchaseDueReminder(
+        int $purchaseId,
+        string $billNo,
+        string $supplierName,
+        float $remainingBalance,
+        int $daysRemaining,
+        string $dueDate
+    ): array {
+        if ($daysRemaining <= 0) {
+            $title = "Payment Due TODAY: {$billNo}";
+            $message = "Reminder: Payment of Rs. " . number_format($remainingBalance, 2) . " for purchase {$billNo} ({$supplierName}) is DUE TODAY ({$dueDate}).";
+        } elseif ($daysRemaining <= 2) {
+            $title = "Payment Due in {$daysRemaining} Days: {$billNo}";
+            $message = "Upcoming Due: Payment of Rs. " . number_format($remainingBalance, 2) . " for purchase {$billNo} ({$supplierName}) is due in {$daysRemaining} days on {$dueDate}.";
+        } else {
+            $title = "Payment Due in 1 Week: {$billNo}";
+            $message = "Upcoming Due Notice: Payment of Rs. " . number_format($remainingBalance, 2) . " for purchase {$billNo} ({$supplierName}) is due in {$daysRemaining} days on {$dueDate}.";
+        }
+
+        $todayStr = date('Y-m-d');
+        return self::send([
+            'type' => 'purchase_due_reminder',
+            'title' => $title,
+            'message' => $message,
+            'entity_type' => 'purchase_entry',
+            'entity_id' => $purchaseId,
+            'action_url' => "/purchase/details",
+            'roles' => ['Super Admin', 'Admin', 'Manager'],
+            'permissions' => ['inventory.view'],
+            'idempotency_key' => "purchase_due_{$purchaseId}_{$todayStr}_{$daysRemaining}d",
+            'data' => [
+                'purchase_id' => $purchaseId,
+                'bill_no' => $billNo,
+                'supplier_name' => $supplierName,
+                'remaining_balance' => $remainingBalance,
+                'days_remaining' => $daysRemaining,
+                'due_date' => $dueDate,
+            ],
+        ]);
+    }
 }
+

@@ -111,9 +111,17 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
     }
   };
 
+  // Lazy fetch search items only when user interacts with search bar
+  const hasLoadedSearchRef = useRef(false);
+  useEffect(() => {
+    if ((searchOpen || globalSearch) && !hasLoadedSearchRef.current) {
+      hasLoadedSearchRef.current = true;
+      fetchMasterItemsForSearch();
+    }
+  }, [searchOpen, globalSearch]);
+
   useEffect(() => {
     fetchMetalRates();
-    fetchMasterItemsForSearch();
     const interval = setInterval(fetchMetalRates, 60000);
     const handleSync = (e) => {
       if (e?.detail) setRates(prev => ({ ...prev, ...e.detail }));
@@ -217,7 +225,11 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
 
   useEffect(() => {
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 12000);
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchNotifications();
+      }
+    }, 45000);
     return () => clearInterval(interval);
   }, []);
 
@@ -274,7 +286,16 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
     setShowLogoutModal(false);
   };
 
-  const currentAvatar = user?.avatar || user?.avatar_url || user?.karigar?.avatar_url || '/images/samples/arvind_profile.jpg';
+  const resolveAvatarUrl = (raw) => {
+    if (!raw) return '';
+    const cleaned = String(raw).replace('/storage//images', '/images').replace('/storage/images/', '/images/');
+    if (cleaned.startsWith('http') || cleaned.startsWith('data:image')) return cleaned;
+    if (cleaned.startsWith('/')) return cleaned;
+    if (cleaned.startsWith('storage/') || cleaned.startsWith('images/')) return `/${cleaned}`;
+    return `/storage/${cleaned}`;
+  };
+
+  const currentAvatar = resolveAvatarUrl(user?.avatar_url || user?.avatar || user?.karigar?.avatar_url);
 
   return (
     <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0 z-10 print:hidden">
@@ -381,29 +402,31 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
 
       {/* Right Side */}
       <div className="flex items-center gap-3">
-        {/* Today's Gold Rate Widget (Clickable to Edit Rates) */}
+        {/* Today's Live Metal Rates Widget (Clickable to Edit Rates) */}
         <div
           onClick={() => setIsRateModalOpen(true)}
-          className="hidden lg:flex items-center gap-3 bg-[#fdf6ea] hover:bg-[#faeed6] border border-[#f5e7c8] hover:border-[#d69f2e] rounded-full px-4 py-1.5 shadow-2xs cursor-pointer group transition-all select-none"
-          title="Click to edit or view today's gold rates"
+          className="flex items-center gap-2 sm:gap-3 bg-[#fdf6ea] hover:bg-[#faeed6] border border-[#f5e7c8] hover:border-[#d69f2e] rounded-full px-2.5 sm:px-4 py-1 sm:py-1.5 shadow-2xs cursor-pointer group transition-all select-none"
+          title={`Click to edit or view today's live rates: 24K: ₹${rates?.gold24k || '...'}, 22K: ₹${rates?.gold22k || '...'}, 18K: ₹${rates?.gold18k || '...'}, 14K: ₹${rates?.gold14k || '...'}, Silver: ₹${rates?.silverGram || '...'}/g (${rates?.source || 'Live'})`}
         >
-          <div className="w-8 h-8 rounded-full bg-gradient-to-b from-[#f5ca56] via-[#d69f2e] to-[#b37f1a] p-[1.5px] shadow-2xs shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
+          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-b from-[#f5ca56] via-[#d69f2e] to-[#b37f1a] p-[1.5px] shadow-2xs shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
             <div className="w-full h-full rounded-full bg-gradient-to-b from-[#ffdb73] via-[#e5aa32] to-[#bc8320] flex items-center justify-center border border-[#ffea9f]/60">
-              <span className="text-white font-serif font-black text-sm drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)] leading-none">₹</span>
+              <span className="text-white font-serif font-black text-xs sm:text-sm drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)] leading-none">₹</span>
             </div>
           </div>
           <div className="flex flex-col">
-            <div className="text-[11px] font-semibold text-[#2D2A26] leading-tight whitespace-nowrap flex items-center gap-1.5">
-              <span>Today's Gold Rate : <span className="font-normal text-[#4A4641]">{rates?.date || new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</span></span>
-              <i className="fa-solid fa-pen text-[9px] text-[#a38749] opacity-60 group-hover:opacity-100 transition-opacity"></i>
-            </div>
-            <div className="flex items-center gap-2 text-[10px] mt-0.5 whitespace-nowrap">
-              <span className="text-[#a38749] font-semibold">24K (999) <span className="text-[#b01622] font-bold text-[11px]">{rates?.gold24kGram || rates?.gold24k ? `₹${rates?.gold24kGram || rates?.gold24k}/g` : '...'}</span></span>
-              <span className="text-stone-300">|</span>
-              <span className="text-[#a38749] font-semibold">22K (916) <span className="text-[#b01622] font-bold text-[11px]">{rates?.gold22kGram || rates?.gold22k ? `₹${rates?.gold22kGram || rates?.gold22k}/g` : '...'}</span></span>
-              {rates?.isManual && (
+            <div className="text-[10px] sm:text-[11px] font-semibold text-[#2D2A26] leading-tight whitespace-nowrap flex items-center gap-1.5">
+              <span>Today's Rates : <span className="font-normal text-[#4A4641] hidden sm:inline">{rates?.date || new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span></span>
+              <i className="fa-solid fa-pen text-[9px] text-[#a38749] opacity-70 group-hover:opacity-100 transition-opacity"></i>
+              {rates?.isManual ? (
                 <span className="text-[8px] font-extrabold bg-amber-200/80 text-amber-900 px-1 rounded uppercase tracking-wider">Manual</span>
+              ) : (
+                <span className="text-[8px] font-bold bg-emerald-100 text-emerald-800 px-1 rounded uppercase tracking-wider hidden sm:inline">Live</span>
               )}
+            </div>
+            <div className="flex items-center gap-1.5 sm:gap-2 text-[9px] sm:text-[10px] mt-0.5 whitespace-nowrap">
+              <span className="text-[#a38749] font-semibold">24K <span className="text-[#b01622] font-bold text-[10px] sm:text-[11px]">{rates?.gold24kGram || rates?.gold24k ? `₹${rates?.gold24kGram || rates?.gold24k}` : '...'}</span></span>
+              <span className="text-stone-300">|</span>
+              <span className="text-[#a38749] font-semibold">22K <span className="text-[#b01622] font-bold text-[10px] sm:text-[11px]">{rates?.gold22kGram || rates?.gold22k ? `₹${rates?.gold22kGram || rates?.gold22k}` : '...'}</span></span>
             </div>
           </div>
         </div>
@@ -581,8 +604,8 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
           className="flex items-center gap-1.5 pl-4 pr-1 py-1 rounded-full border border-gray-300 bg-white hover:bg-gray-50 transition-colors cursor-pointer shadow-2xs"
           title="Account Menu / Logout"
         >
-          <span className="text-[#a5141f] font-bold text-xs">{user?.name || 'Arvind'}</span>
-          <span className="text-gray-500 font-normal text-xs">({user?.role || 'Super Admin'})</span>
+          <span className="text-[#a5141f] font-bold text-xs">{user?.name || 'User'}</span>
+          <span className="text-gray-500 font-normal text-xs">({user?.role || 'Staff'})</span>
           <i className="fa-solid fa-chevron-down text-[10px] text-gray-700 mx-1"></i>
           {currentAvatar ? (
             <img
@@ -591,12 +614,12 @@ export default function Header({ toggleSidebar, sidebarOpen }) {
               className="w-7 h-7 rounded-full object-cover border border-stone-200 shrink-0 shadow-2xs"
               onError={(e) => {
                 e.target.onerror = null;
-                e.target.src = '/images/samples/arvind_profile.jpg';
+                e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'User')}&background=b01622&color=ffffff&bold=true&size=128`;
               }}
             />
           ) : (
             <div className="w-7 h-7 rounded-full bg-[#b01622] text-white flex items-center justify-center font-bold text-xs shrink-0">
-              {(user?.name || 'A')[0]}
+              {(user?.name || 'U')[0]?.toUpperCase()}
             </div>
           )}
         </button>

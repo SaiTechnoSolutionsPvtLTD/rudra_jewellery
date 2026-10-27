@@ -47,113 +47,201 @@ export function isMetalPurityStamp(val) {
     || /\b(916|750|585|925|999|22k?|24k?|18k?|14k?)\b/i.test(str);
 }
 
-export function formatTagDiamondSpec(piece) {
-  const numWeight = parseFloat(
-    piece?.diamond_weight ??
-    piece?.product?.attributes?.dia_wt_ct ??
-    piece?.product?.attributes?.diamond_weight ??
-    0
-  );
-  const validWeight = !isNaN(numWeight) && numWeight > 0 ? numWeight : 0;
+export function isDiamondComponent(c) {
+  if (!c) return false;
+  if (c.is_diamond === true || c.component_type === 'diamond' || c.material_type === 'diamond') return true;
+  const name = String(c.category_name || c.item_name || c.component_type || c.type || c.name || '').toLowerCase().trim();
+  if (name.includes('diamond cut') || name.includes('diamond-cut')) return false;
+  return name.includes('diamond') || name.includes('solitaire') || /\bdia\b/.test(name) || /\bc-dia\b/.test(name);
+}
 
-  // 2. Dynamic diamond count from piece or inventory product details
-  let count = piece?.dynamic_dia_count;
-  if (count === undefined || count === null) {
-    if (piece?.diamond_count !== undefined && piece?.diamond_count !== null && piece?.diamond_count !== '') {
-      count = parseInt(piece.diamond_count, 10);
-    } else if (piece?.product?.attributes?.diamond_count !== undefined) {
-      count = parseInt(piece.product.attributes.diamond_count, 10);
-    } else if (piece?.product?.attributes?.dia_count !== undefined) {
-      count = parseInt(piece.product.attributes.dia_count, 10);
-    } else if (Array.isArray(piece?.product?.attributes?.components)) {
-      const diaComp = piece.product.attributes.components.find((c) => {
-        const name = (c.category_name || c.item_name || c.component_type || '').toLowerCase();
-        return c.is_diamond || name.includes('diamond') || name.includes('dia');
-      });
-      if (diaComp) {
-        count = parseInt(diaComp.no_of_pieces || diaComp.quantity || 0, 10);
+export function getParsedDiamondList(piece) {
+  if (!piece) return [];
+
+  // 1. Check piece.diamond_sieves
+  let rawList = piece.diamond_sieves;
+
+  // 2. Check piece.qc_submission_data?.diamond_sieves
+  if (!rawList || !Array.isArray(rawList) || rawList.length === 0) {
+    if (piece.qc_submission_data && Array.isArray(piece.qc_submission_data.diamond_sieves)) {
+      rawList = piece.qc_submission_data.diamond_sieves;
+    }
+  }
+
+  // 3. Check piece.item?.stone_details
+  if (!rawList || !Array.isArray(rawList) || rawList.length === 0) {
+    let sd = piece.item?.stone_details || piece.stone_details;
+    if (typeof sd === 'string' && sd.trim().startsWith('[')) {
+      try { sd = JSON.parse(sd); } catch (_) {}
+    }
+    if (Array.isArray(sd) && sd.length > 0) {
+      rawList = sd;
+    }
+  }
+
+  // 4. Check piece.item?.diamond_sieves
+  if (!rawList || !Array.isArray(rawList) || rawList.length === 0) {
+    if (piece.item && Array.isArray(piece.item.diamond_sieves)) {
+      rawList = piece.item.diamond_sieves;
+    }
+  }
+
+  // 5. Check components on product attributes
+  if (!rawList || !Array.isArray(rawList) || rawList.length === 0) {
+    const allComponents = [
+      ...(Array.isArray(piece?.product?.attributes?.components) ? piece.product.attributes.components : []),
+      ...(Array.isArray(piece?.components) ? piece.components : []),
+      ...(Array.isArray(piece?.item?.components) ? piece.item.components : []),
+    ];
+    const diaComps = allComponents.filter(isDiamondComponent);
+    if (diaComps.length > 0) {
+      rawList = diaComps.map((c) => ({
+        stamp: c.stamp || c.sieve || '0',
+        count: c.no_of_pieces || c.quantity || c.count || 0,
+        weight: c.weight || c.carats || c.diamond_weight || 0,
+      }));
+    }
+  }
+
+  let parsed = [];
+  if (Array.isArray(rawList) && rawList.length > 0) {
+    parsed = rawList
+      .map((item) => {
+        if (!item) return null;
+        let stamp = item.stamp || item.sieve || item.diamond_stamp || '';
+        if (isMetalPurityStamp(stamp)) stamp = '0';
+        let cleanStamp = String(stamp).replace(/^\++/, '').trim();
+        if (!cleanStamp) cleanStamp = '0';
+        const formattedStamp = cleanStamp.startsWith('-')
+          ? cleanStamp
+          : (cleanStamp === '0' ? '+0' : `+${cleanStamp}`);
+
+        const count = parseInt(item.count ?? item.pieces ?? item.no_of_diamonds ?? item.quantity ?? 0, 10) || 0;
+        const weight = parseFloat(item.weight ?? item.carats ?? item.diamond_weight ?? 0) || 0;
+
+        return {
+          stamp: formattedStamp,
+          rawStamp: cleanStamp,
+          count,
+          weight,
+        };
+      })
+      .filter((item) => item && (item.rawStamp !== '0' || item.count > 0 || item.weight > 0));
+  }
+
+  // 6. Check if diamond_details string has pattern like "Dia-0.90/+3/4"
+  if (parsed.length === 0 && piece.diamond_details && typeof piece.diamond_details === 'string') {
+    const match = piece.diamond_details.match(/Dia-([0-9.]+)\/(\+?[A-Za-z0-9_-]+)\/([0-9]+)/i);
+    if (match) {
+      const wt = parseFloat(match[1]) || 0;
+      let st = match[2].replace(/^\++/, '').trim();
+      if (isMetalPurityStamp(st)) st = '0';
+      const formattedStamp = st.startsWith('-') ? st : (st === '0' ? '+0' : `+${st}`);
+      const cnt = parseInt(match[3], 10) || 0;
+      if (wt > 0 || cnt > 0 || st !== '0') {
+        parsed.push({
+          stamp: formattedStamp,
+          rawStamp: st,
+          count: cnt,
+          weight: wt,
+        });
       }
     }
   }
-  const validCount = !isNaN(count) && count > 0 ? count : 0;
 
-  // If there are 0 diamonds (0 weight and 0 count), diamond stamp is strictly 0
-  if (validWeight <= 0 && validCount <= 0) {
-    return 'Dia-0.00/+0/0';
-  }
+  // 7. Fallback to piece's primary diamond fields if still empty
+  if (parsed.length === 0) {
+    const wt = parseFloat(piece?.diamond_weight ?? piece?.product?.attributes?.dia_wt_ct ?? 0) || 0;
+    const cnt = parseInt(piece?.diamond_count ?? piece?.dynamic_dia_count ?? piece?.product?.attributes?.diamond_count ?? 0, 10) || 0;
+    let st = piece?.diamond_stamp || piece?.dynamic_stamp || '0';
+    if (isMetalPurityStamp(st)) st = '0';
+    let cleanSt = String(st).replace(/^\++/, '').trim();
+    if (!cleanSt) cleanSt = '0';
+    const formattedStamp = cleanSt.startsWith('-') ? cleanSt : (cleanSt === '0' ? '+0' : `+${cleanSt}`);
 
-  // 3. Dynamic stamp strictly linked to diamonds (never metal hallmarks like 916, 24, 22, 750)
-  let stamp = null;
-
-  // 3a. Check piece diamond_stamp or dynamic_stamp
-  const candPieceStamp = piece?.diamond_stamp || piece?.dynamic_stamp;
-  if (candPieceStamp && !isMetalPurityStamp(candPieceStamp)) {
-    stamp = candPieceStamp;
-  }
-
-  // 3b. Check all attached components for diamond components specifically
-  const allComponents = [
-    ...(Array.isArray(piece?.product?.attributes?.components) ? piece.product.attributes.components : []),
-    ...(Array.isArray(piece?.components) ? piece.components : []),
-    ...(Array.isArray(piece?.product?.components) ? piece.product.components : []),
-    ...(Array.isArray(piece?.item?.components) ? piece.item.components : []),
-  ];
-
-  if (!stamp && allComponents.length > 0) {
-    const diaComp = allComponents.find((c) => {
-      const name = (c.category_name || c.item_name || c.component_type || c.type || '').toLowerCase();
-      return (c.is_diamond || name.includes('diamond') || name.includes('dia')) && c.stamp;
-    });
-    if (diaComp?.stamp && !isMetalPurityStamp(diaComp.stamp)) {
-      stamp = diaComp.stamp;
+    if (wt > 0 || cnt > 0 || cleanSt !== '0') {
+      parsed.push({
+        stamp: formattedStamp,
+        rawStamp: cleanSt,
+        count: cnt,
+        weight: wt,
+      });
     }
   }
 
-  // 3c. Check attributes.diamond_stamp or product.diamond_stamp from product details
-  if (!stamp) {
-    const candAttrStamp = piece?.product?.attributes?.diamond_stamp || piece?.product?.diamond_stamp;
-    if (candAttrStamp && !isMetalPurityStamp(candAttrStamp)) {
-      stamp = candAttrStamp;
+  return parsed;
+}
+
+export function getOverallDiamondTotals(piece) {
+  const diaList = getParsedDiamondList(piece);
+  if (diaList.length > 0) {
+    const totalWt = diaList.reduce((acc, s) => acc + (parseFloat(s.weight) || 0), 0);
+    const totalCount = diaList.reduce((acc, s) => acc + (parseInt(s.count, 10) || 0), 0);
+    return {
+      list: diaList,
+      totalWeight: totalWt,
+      totalCount: totalCount,
+      totalDiaString: `${totalWt.toFixed(2)}Ct.`,
+    };
+  }
+
+  const rawWt = parseFloat(piece?.diamond_weight ?? piece?.product?.attributes?.dia_wt_ct ?? 0) || 0;
+  const rawCnt = parseInt(piece?.diamond_count ?? piece?.dynamic_dia_count ?? 0, 10) || 0;
+  return {
+    list: [],
+    totalWeight: rawWt,
+    totalCount: rawCnt,
+    totalDiaString: `${rawWt.toFixed(2)}Ct.`,
+  };
+}
+
+export function formatTagDiamondLines(piece) {
+  const diaList = getParsedDiamondList(piece);
+  if (diaList.length === 0) {
+    return ['+0/0/0.00'];
+  }
+
+  // Display up to 3 individual diamond lines formatted like +3/4/0.9
+  const lines = diaList.slice(0, 3).map((item) => {
+    let cleanStamp = item.rawStamp || '0';
+    if (!cleanStamp || cleanStamp === '0' || cleanStamp === '+0') {
+      cleanStamp = '0';
     }
-  }
+    const stampStr = cleanStamp.startsWith('+') || cleanStamp.startsWith('-')
+      ? cleanStamp
+      : (cleanStamp === '0' ? '+0' : `+${cleanStamp}`);
 
-  // 3d. Check diamond_details string if saved (e.g. Dia-0.09/+7/2 -> +7)
-  if (!stamp && piece?.diamond_details) {
-    const m = String(piece.diamond_details).match(/\/(\+?[A-Za-z0-9]+)\//);
-    if (m && m[1] && !isMetalPurityStamp(m[1])) {
-      stamp = m[1];
+    const count = parseInt(item.count, 10) || 0;
+    const wtNum = parseFloat(item.weight) || 0;
+
+    let wtStr = '0.00';
+    if (wtNum > 0) {
+      wtStr = wtNum.toFixed(3);
+      wtStr = wtStr.replace(/(\.[0-9]*[1-9])0+$/, '$1').replace(/\.000$/, '.0');
     }
-  }
 
-  // Format clean stamp: e.g. "7" -> "+7", "+7" -> "+7", "+8" -> "+8", "0" -> "+0"
-  let cleanStamp = String(stamp || '0').trim();
-  if (!cleanStamp || cleanStamp === '0' || cleanStamp === '+0') {
-    cleanStamp = '0';
-  }
-  const stampStr = cleanStamp.startsWith('+') || cleanStamp.startsWith('-')
-    ? cleanStamp
-    : (cleanStamp === '0' ? '+0' : `+${cleanStamp}`);
-  const wtStr = validWeight.toFixed(2);
+    return `${stampStr}/${count}/${wtStr}`;
+  });
 
-  return `Dia-${wtStr}/${stampStr}/${validCount}`;
+  return lines.length > 0 ? lines : ['+0/0/0.00'];
+}
+
+export function formatTagDiamondSpec(piece) {
+  const lines = formatTagDiamondLines(piece);
+  return lines[0] || '+0/0/0.00';
 }
 
 export function formatTagTotalDia(piece) {
-  const rawWeight =
-    piece?.diamond_weight ??
-    piece?.product?.attributes?.dia_wt_ct ??
-    piece?.product?.attributes?.diamond_weight ??
-    null;
-  if (rawWeight == null || rawWeight === '' || parseFloat(rawWeight) <= 0) {
+  const { totalWeight } = getOverallDiamondTotals(piece);
+  if (totalWeight <= 0) {
     return '0.00Ct.';
   }
-  const wt = parseFloat(rawWeight).toFixed(2);
-  return `${wt}Ct.`;
+  return `${totalWeight.toFixed(2)}Ct.`;
 }
 
 /**
  * Builds printable HTML for one or more tags matching exact specification:
- * Left: G.Wt (top left), Design No (top right), Dia-spec (mid left), Karat (mid right), T.Dia (bottom left)
+ * Left: G.Wt (top left), Design No (top right), up to 3 dia lines like +3/4/0.9, Karat (aligned with 1st line), T.Dia (bottom left)
  * Right: Barcode -> Tag Number -> Design No -> Total Dia
  */
 export function buildPrintableTagsHtml(items, title = 'Print Jewellery Tags') {
@@ -161,8 +249,10 @@ export function buildPrintableTagsHtml(items, title = 'Print Jewellery Tags') {
     const grossWt = piece.gross_weight != null ? parseFloat(piece.gross_weight).toFixed(3) : '—';
     const designNo = piece.design_no || '—';
     const karat = piece.gold_karat || '—';
-    const diaSpec = formatTagDiamondSpec(piece);
+    const diaList = getParsedDiamondList(piece);
+    const diaLines = formatTagDiamondLines(piece);
     const totalDia = formatTagTotalDia(piece);
+    const hasMoreDiamonds = diaList.length > 3;
     const tagNo = piece.tag_number || piece.product?.master_tag_number || piece.product?.product_code || '';
     const barcodeSvg = tagNo ? generateBarcodeSvgString(tagNo, 26) : '';
 
@@ -174,10 +264,27 @@ export function buildPrintableTagsHtml(items, title = 'Print Jewellery Tags') {
             <span class="gwt">G.Wt -${grossWt}</span>
             <span class="design-top">${designNo}</span>
           </div>
-          <div class="tag-row row-2">
-            <span class="dia-spec">${diaSpec}</span>
-            <span class="karat">${karat}</span>
+
+          <!-- Diamond details section: up to 3 diff dia details like +3/4/0.9 -->
+          <div class="dia-section">
+            <div class="tag-row dia-row">
+              <span class="dia-spec">${diaLines[0]}</span>
+              <span class="karat">${karat}</span>
+            </div>
+            ${diaLines.length > 1 ? `
+            <div class="tag-row dia-row">
+              <span class="dia-spec">${diaLines[1]}</span>
+            </div>` : ''}
+            ${diaLines.length > 2 ? `
+            <div class="tag-row dia-row">
+              <span class="dia-spec">${diaLines[2]}</span>
+            </div>` : ''}
+            ${hasMoreDiamonds ? `
+            <div class="tag-row dia-row dia-dots-row">
+              <span class="dia-spec dia-dots">....</span>
+            </div>` : ''}
           </div>
+
           <div class="tag-row row-3">
             <span class="tdia-spec">T.Dia- ${totalDia}</span>
           </div>
@@ -226,7 +333,7 @@ export function buildPrintableTagsHtml(items, title = 'Print Jewellery Tags') {
     }
     .tag-card {
       width: 125mm;
-      height: 33mm;
+      height: 38mm;
       border: 2px solid #000000;
       border-radius: 4px;
       padding: 2.5mm 4mm;
@@ -270,11 +377,25 @@ export function buildPrintableTagsHtml(items, title = 'Print Jewellery Tags') {
       text-align: right;
       letter-spacing: -0.2px;
     }
+    .dia-section {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5px;
+      margin: 1px 0;
+      justify-content: center;
+    }
+    .dia-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      line-height: 1.15;
+    }
     .dia-spec {
       font-weight: 900;
-      font-size: 14px;
-      letter-spacing: -0.3px;
+      font-size: 13.5px;
+      letter-spacing: -0.2px;
       flex-shrink: 0;
+      font-family: Arial, Helvetica, sans-serif;
     }
     .karat {
       font-weight: 900;
@@ -288,6 +409,17 @@ export function buildPrintableTagsHtml(items, title = 'Print Jewellery Tags') {
       font-weight: 900;
       font-size: 13px;
       text-align: left;
+    }
+    .dia-dots-row {
+      line-height: 0.8;
+      margin-top: -1px;
+      margin-bottom: 0px;
+    }
+    .dia-dots {
+      font-weight: 900;
+      font-size: 14px;
+      letter-spacing: 2px;
+      font-family: Arial, Helvetica, sans-serif;
     }
     .tag-divider {
       border-left: 2px dotted #000000;
@@ -356,6 +488,7 @@ export function buildPrintableTagsHtml(items, title = 'Print Jewellery Tags') {
         gap: 0;
       }
       .tag-card {
+        height: 38mm;
         margin: 0 0 6mm 0;
         page-break-after: always;
         -webkit-print-color-adjust: exact;
@@ -392,8 +525,10 @@ export default function JewelleryTagCard({ piece, id = 'jewellery-tag-card' }) {
   const grossWt = piece.gross_weight != null ? parseFloat(piece.gross_weight).toFixed(3) : '—';
   const designNo = piece.design_no || '—';
   const karat = piece.gold_karat || '—';
-  const diaSpec = formatTagDiamondSpec(piece);
+  const diaList = getParsedDiamondList(piece);
+  const diaLines = formatTagDiamondLines(piece);
   const totalDia = formatTagTotalDia(piece);
+  const hasMoreDiamonds = diaList.length > 3;
   const tagNo = piece.tag_number || piece.product?.master_tag_number || piece.product?.product_code || '—';
 
   return (
@@ -402,8 +537,8 @@ export default function JewelleryTagCard({ piece, id = 'jewellery-tag-card' }) {
       className="tag-label-card bg-white text-black font-['Arial',Helvetica,sans-serif] select-none border-2 border-black rounded-sm shadow-md"
       style={{
         width: '125mm',
-        minHeight: '33mm',
-        maxHeight: '36mm',
+        minHeight: '38mm',
+        maxHeight: '42mm',
         boxSizing: 'border-box',
         display: 'flex',
         alignItems: 'stretch',
@@ -436,18 +571,41 @@ export default function JewelleryTagCard({ piece, id = 'jewellery-tag-card' }) {
           </span>
         </div>
 
-        {/* Row 2: Dia-0.09/+7U/3 (left), 22K (right) */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '2px', gap: '8px' }}>
-          <span style={{ fontWeight: '900', fontSize: '14px', color: '#000000', letterSpacing: '-0.3px', whiteSpace: 'nowrap', flexShrink: 0 }}>
-            {diaSpec}
-          </span>
-          <span style={{ fontWeight: '900', fontSize: '14px', color: '#000000', whiteSpace: 'nowrap', textAlign: 'right' }}>
-            {karat}
-          </span>
+        {/* Diamond details section: up to 3 diff dia details like +3/4/0.9 */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', margin: '2px 0' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
+            <span style={{ fontWeight: '900', fontSize: '13.5px', color: '#000000', letterSpacing: '-0.2px', whiteSpace: 'nowrap', flexShrink: 0 }}>
+              {diaLines[0]}
+            </span>
+            <span style={{ fontWeight: '900', fontSize: '14px', color: '#000000', whiteSpace: 'nowrap', textAlign: 'right' }}>
+              {karat}
+            </span>
+          </div>
+          {diaLines.length > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'baseline' }}>
+              <span style={{ fontWeight: '900', fontSize: '13.5px', color: '#000000', letterSpacing: '-0.2px', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                {diaLines[1]}
+              </span>
+            </div>
+          )}
+          {diaLines.length > 2 && (
+            <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'baseline' }}>
+              <span style={{ fontWeight: '900', fontSize: '13.5px', color: '#000000', letterSpacing: '-0.2px', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                {diaLines[2]}
+              </span>
+            </div>
+          )}
+          {hasMoreDiamonds && (
+            <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'baseline', lineHeight: '0.8', marginTop: '-1px', marginBottom: '0' }}>
+              <span style={{ fontWeight: '900', fontSize: '14px', color: '#000000', letterSpacing: '2px', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                ....
+              </span>
+            </div>
+          )}
         </div>
 
-        {/* Row 3: T.Dia- 0.00Ct. (left-aligned below dia details) */}
-        <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'baseline', marginTop: '2px' }}>
+        {/* Row 3: T.Dia- {totalDia} (left-aligned below dia details) */}
+        <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'baseline', marginTop: '1px' }}>
           <span style={{ fontWeight: '900', fontSize: '13px', color: '#000000', whiteSpace: 'nowrap' }}>
             T.Dia- {totalDia}
           </span>

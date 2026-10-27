@@ -18,10 +18,10 @@ export default function DiamondRanges() {
     name: 'DIAMOND',
     code: '',
     item_name: 'DIAMOND',
-    stamp: '1',
+    stamp: '',
     part: '-',
-    colour: 'D',
-    clarity: 'VS',
+    colour: '',
+    clarity: '',
     remarks: '-',
     unit: 'Carat',
     tunch: '-',
@@ -82,12 +82,12 @@ export default function DiamondRanges() {
       name: 'DIAMOND',
       code: '',
       item_name: 'DIAMOND',
-      stamp: '1',
+      stamp: stamps[0]?.name || stamps[0]?.code || '',
       part: '-',
-      colour: 'D',
-      clarity: 'VS',
+      colour: masterColors[0]?.name || masterColors[0]?.code || '',
+      clarity: masterClarities[0]?.name || masterClarities[0]?.code || '',
       remarks: '-',
-      unit: 'Carat',
+      unit: units[0]?.name || 'Carat',
       tunch: '-',
       sale_lb: '-',
       pc: 1,
@@ -107,10 +107,10 @@ export default function DiamondRanges() {
       name: item.name || 'DIAMOND',
       code: item.code || '',
       item_name: item.item_name || 'DIAMOND',
-      stamp: item.stamp || '1',
+      stamp: item.stamp || '',
       part: item.part || '-',
-      colour: item.colour || 'D',
-      clarity: item.clarity || 'VS',
+      colour: item.colour || '',
+      clarity: item.clarity || '',
       remarks: item.remarks || '-',
       unit: item.unit || 'Carat',
       tunch: item.tunch || '-',
@@ -130,6 +130,14 @@ export default function DiamondRanges() {
     e.preventDefault();
     if (!formData.name.trim()) {
       showToast('Please enter a Diamond item name', 'error');
+      return;
+    }
+    if (!formData.colour) {
+      showToast('Please select a Colour grade (configure in Diamond Colour Master if empty)', 'error');
+      return;
+    }
+    if (!formData.clarity) {
+      showToast('Please select a Clarity grade (configure in Diamond Clarity Master if empty)', 'error');
       return;
     }
 
@@ -246,6 +254,7 @@ export default function DiamondRanges() {
               <table className="w-full text-left border-collapse text-[11px]">
                 <thead>
                   <tr className="bg-stone-50/80 border-b border-stone-200 text-[10px] font-bold text-stone-500 uppercase tracking-wider whitespace-nowrap">
+                    <th className="px-3 py-3 text-center w-12">S.NO</th>
                     <th className="px-4 py-3">ITEM NAME</th>
                     <th className="px-3 py-3 text-center">STAMP</th>
                     <th className="px-3 py-3 text-center">PART</th>
@@ -268,8 +277,11 @@ export default function DiamondRanges() {
                 <tbody className="divide-y divide-gray-100 text-xs">
                   {ranges
                     .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
-                    .map((item) => (
+                    .map((item, idx) => (
                       <tr key={item.id} className="hover:bg-amber-50/20 transition-colors whitespace-nowrap">
+                        <td className="px-3 py-3 text-center font-mono text-stone-500 font-semibold">
+                          {(currentPage - 1) * itemsPerPage + idx + 1}
+                        </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
                             <span className="w-7 h-7 rounded-lg bg-red-50 text-[#b01622] flex items-center justify-center text-xs shrink-0 font-bold">
@@ -454,53 +466,80 @@ export default function DiamondRanges() {
               {/* Row 3: Colour, Clarity, PC */}
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-stone-600 font-bold mb-1">Colour</label>
+                  <label className="block text-stone-600 font-bold mb-1">
+                    Colour <span className="text-[#b01622]">*</span>
+                  </label>
                   <select
                     value={formData.colour}
                     onChange={(e) => setFormData({ ...formData, colour: e.target.value })}
-                    className="w-full px-3 py-2 border border-stone-300 rounded-xl focus:outline-hidden focus:border-[#b01622]"
+                    className="w-full px-3 py-2 border border-stone-300 rounded-xl focus:outline-hidden focus:border-[#b01622] bg-white cursor-pointer"
+                    required
                   >
                     {masterColors.length > 0 ? (
-                      masterColors.map((c) => (
-                        <option key={c.id} value={c.code || c.name}>
-                          {c.name}
-                        </option>
-                      ))
+                      <>
+                        <option value="">Select Colour Grade</option>
+                        {formData.colour && !masterColors.some(c => (c.code || c.name) === formData.colour || c.name === formData.colour) && (
+                          <option value={formData.colour}>{formData.colour} (Current)</option>
+                        )}
+                        {masterColors.map((c) => (
+                          <option key={c.id} value={c.name || c.code}>
+                            {c.name} {c.code && c.code !== c.name ? `(${c.code})` : ''}
+                          </option>
+                        ))}
+                      </>
                     ) : (
                       <>
-                        <option value="D">D (Colorless)</option>
-                        <option value="E">E (Colorless)</option>
-                        <option value="F">F (Colorless)</option>
-                        <option value="G">G (Near Colorless)</option>
-                        <option value="H">H (Near Colorless)</option>
-                        <option value="I">I (Slight Tint)</option>
+                        <option value="">No colour grades in master</option>
+                        {formData.colour && (
+                          <option value={formData.colour}>{formData.colour} (Current)</option>
+                        )}
                       </>
                     )}
                   </select>
+                  {masterColors.length === 0 && (
+                    <p className="text-[10px] text-amber-700 mt-1 font-medium leading-tight">
+                      <i className="fa-solid fa-circle-exclamation mr-1"></i>
+                      Colour Master is empty. Please add colour grades in <strong>Diamond Colour Master</strong>.
+                    </p>
+                  )}
                 </div>
                 <div>
-                  <label className="block text-stone-600 font-bold mb-1">Clarity</label>
+                  <label className="block text-stone-600 font-bold mb-1">
+                    Clarity <span className="text-[#b01622]">*</span>
+                  </label>
                   <select
                     value={formData.clarity}
                     onChange={(e) => setFormData({ ...formData, clarity: e.target.value })}
-                    className="w-full px-3 py-2 border border-stone-300 rounded-xl focus:outline-hidden focus:border-[#b01622]"
+                    className="w-full px-3 py-2 border border-stone-300 rounded-xl focus:outline-hidden focus:border-[#b01622] bg-white cursor-pointer"
+                    required
                   >
                     {masterClarities.length > 0 ? (
-                      masterClarities.map((cl) => (
-                        <option key={cl.id} value={cl.code || cl.name}>
-                          {cl.name}
-                        </option>
-                      ))
+                      <>
+                        <option value="">Select Clarity Grade</option>
+                        {formData.clarity && !masterClarities.some(cl => (cl.code || cl.name) === formData.clarity || cl.name === formData.clarity) && (
+                          <option value={formData.clarity}>{formData.clarity} (Current)</option>
+                        )}
+                        {masterClarities.map((cl) => (
+                          <option key={cl.id} value={cl.name || cl.code}>
+                            {cl.name} {cl.code && cl.code !== cl.name ? `(${cl.code})` : ''}
+                          </option>
+                        ))}
+                      </>
                     ) : (
                       <>
-                        <option value="FL/IF">FL / IF (Flawless)</option>
-                        <option value="VVS1">VVS1</option>
-                        <option value="VVS2">VVS2</option>
-                        <option value="VS">VS (VS1/VS2)</option>
-                        <option value="SI1">SI1</option>
+                        <option value="">No clarity grades in master</option>
+                        {formData.clarity && (
+                          <option value={formData.clarity}>{formData.clarity} (Current)</option>
+                        )}
                       </>
                     )}
                   </select>
+                  {masterClarities.length === 0 && (
+                    <p className="text-[10px] text-amber-700 mt-1 font-medium leading-tight">
+                      <i className="fa-solid fa-circle-exclamation mr-1"></i>
+                      Clarity Master is empty. Please add clarity grades in <strong>Diamond Clarity Master</strong>.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-stone-600 font-bold mb-1">Pieces (PC)</label>
@@ -524,11 +563,11 @@ export default function DiamondRanges() {
                     type="number"
                     inputMode="decimal"
                     min="0"
-                    step="0.001"
+                    step="any"
                     required
                     value={formData.wt_ct}
                     onKeyDown={handleDecimalKeyDown}
-                    onChange={(e) => setFormData({ ...formData, wt_ct: sanitizeDecimal(e.target.value, false, 3) })}
+                    onChange={(e) => setFormData({ ...formData, wt_ct: sanitizeDecimal(e.target.value, false, 5) })}
                     className="w-full px-3 py-2 border border-stone-300 rounded-xl font-mono font-bold focus:outline-hidden focus:border-[#b01622]"
                   />
                 </div>
@@ -538,7 +577,7 @@ export default function DiamondRanges() {
                     type="number"
                     inputMode="decimal"
                     min="0"
-                    step="0.01"
+                    step="any"
                     required
                     value={formData.rate}
                     onKeyDown={handleDecimalKeyDown}

@@ -20,6 +20,7 @@ export default function WorkInProgress() {
   const [currentOrder, setCurrentOrder] = useState(null);
   const [selectedOrderId, setSelectedOrderId] = useState(queryOrderId || null);
   const [selectedJobId, setSelectedJobId] = useState(null);
+  const [selectedPieceId, setSelectedPieceId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -32,9 +33,10 @@ export default function WorkInProgress() {
   const [formCompletedWeight, setFormCompletedWeight] = useState('');
   const [formActualWeight, setFormActualWeight] = useState('');
   const [formOldWeight, setFormOldWeight] = useState('');
-  const [formNewGoldWeight, setFormNewGoldWeight] = useState('');
+  const [formGoldWastage, setFormGoldWastage] = useState('');
   const [formPurity, setFormPurity] = useState('91.6% (22K)');
   const [formColorStoneWeight, setFormColorStoneWeight] = useState('');
+  const [formColorStoneCount, setFormColorStoneCount] = useState('');
   const [formSilverWeight, setFormSilverWeight] = useState('');
   const [formDiamondWeight, setFormDiamondWeight] = useState('');
   const [formDiamondCount, setFormDiamondCount] = useState('');
@@ -182,7 +184,12 @@ export default function WorkInProgress() {
           if (!matchesSearch(item.product_name, item.design_no)) return;
           const reqQty = Number(item.required_qty || 1);
           const compQty = Number(item.completed_qty || 0);
-          const reworkQty = Number(item.rework_qty || 0) || (item.status === 'rework' ? 1 : 0);
+          const rawPieces = wo.received_pieces || wo.receivedPieces || [];
+          const hasPieceRework = rawPieces.some(
+            p => p.work_order_item_id === item.id && (p.qc_status === 'rejected' || p.status === 'rework' || p.status === 'returned' || p.qc_submission_data?.is_returned)
+          );
+          const isItemRework = item.status === 'rework' || item.status === 'returned' || hasPieceRework || Number(item.rework_qty || 0) > 0;
+          const reworkQty = Number(item.rework_qty || 0) || (isItemRework ? 1 : 0);
           const pendQty = Math.max(0, reqQty - compQty);
           const totalInProcess = pendQty + reworkQty;
 
@@ -209,9 +216,9 @@ export default function WorkInProgress() {
             rework_qty: reworkQty,
             total_in_process: totalInProcess,
             return_reason: item.return_reason || wo.return_reason || null,
-            qc_pending_qty: Number(item.qc_pending_qty || (['quality_check', 'pending_approval', 'ready_for_qc'].includes(item.status) || ['quality_check', 'pending_approval'].includes(wo.current_stage) || wo.status === 'pending_approval' ? (wo.qc_pending_qty || compQty || reqQty || 1) : 0)),
-            status: item.status || wo.status || 'in_progress',
-            current_stage: wo.current_stage || 'in_progress',
+            qc_pending_qty: isItemRework ? 0 : Number(item.qc_pending_qty || (['quality_check', 'pending_approval', 'ready_for_qc'].includes(item.status) || ['quality_check', 'pending_approval'].includes(wo.current_stage) || wo.status === 'pending_approval' ? (wo.qc_pending_qty || compQty || reqQty || 1) : 0)),
+            status: isItemRework ? 'rework' : (item.status || wo.status || 'in_progress'),
+            current_stage: isItemRework ? 'rework' : (wo.current_stage || 'in_progress'),
             is_delayed: Boolean(wo.is_delayed || wo.status === 'delayed'),
             delay_days: wo.delay_days || 0,
             thumbnail: wo.reference_image || wo.image_url || wo.design_image || null,
@@ -221,7 +228,12 @@ export default function WorkInProgress() {
         if (!matchesSearch(wo.product_name, wo.design_code)) return;
         const reqQty = Number(wo.required_qty || 1);
         const compQty = Number(wo.completed_qty || 0);
-        const reworkQty = Number(wo.rework_qty || 0) || (wo.status === 'returned' || wo.current_stage === 'rework' ? 1 : 0);
+        const rawPieces = wo.received_pieces || wo.receivedPieces || [];
+        const hasPieceRework = rawPieces.some(
+          p => (p.qc_status === 'rejected' || p.status === 'rework' || p.status === 'returned' || p.qc_submission_data?.is_returned)
+        );
+        const isWoRework = wo.status === 'returned' || wo.current_stage === 'rework' || Number(wo.rework_qty || 0) > 0 || hasPieceRework;
+        const reworkQty = Number(wo.rework_qty || 0) || (isWoRework ? 1 : 0);
         const pendQty = Math.max(0, reqQty - compQty);
         const totalInProcess = pendQty + reworkQty;
 
@@ -248,9 +260,9 @@ export default function WorkInProgress() {
           rework_qty: reworkQty,
           total_in_process: totalInProcess,
           return_reason: wo.return_reason || null,
-          qc_pending_qty: Number(wo.qc_pending_qty || (['quality_check', 'pending_approval', 'ready_for_qc'].includes(wo.current_stage) || wo.status === 'pending_approval' ? (compQty || reqQty || 1) : 0)),
-          status: wo.status || 'in_progress',
-          current_stage: wo.current_stage || 'in_progress',
+          qc_pending_qty: isWoRework ? 0 : Number(wo.qc_pending_qty || (['quality_check', 'pending_approval', 'ready_for_qc'].includes(wo.current_stage) || wo.status === 'pending_approval' ? (compQty || reqQty || 1) : 0)),
+          status: isWoRework ? 'returned' : (wo.status || 'in_progress'),
+          current_stage: isWoRework ? 'rework' : (wo.current_stage || 'in_progress'),
           is_delayed: Boolean(wo.is_delayed || wo.status === 'delayed'),
           delay_days: wo.delay_days || 0,
           thumbnail: wo.reference_image || wo.image_url || wo.design_image || null,
@@ -447,26 +459,138 @@ export default function WorkInProgress() {
   // Sync form state when currentOrder changes
   useEffect(() => {
     if (currentOrder) {
-      setFormStatus(currentOrder.status === 'delayed' ? 'delayed' : (currentOrder.current_stage || 'in_progress'));
-      const pendingProd = Math.max(0, (currentOrder.required_qty || 1) - (currentOrder.completed_qty || 0));
-      setFormCompletedNow(pendingProd > 0 ? 1 : 0);
-      setFormCompletedWeight(
-        currentOrder.completed_weight !== undefined && currentOrder.completed_weight !== null
-          ? String(currentOrder.completed_weight)
-          : ''
+      const activeJob = currentOrder.items?.find((it) => it.id === selectedJobId) || currentOrder.items?.[0] || null;
+      const reqQty = activeJob ? (activeJob.required_qty || 1) : (currentOrder.required_qty || 1);
+      const compQty = activeJob ? (activeJob.completed_qty || 0) : (currentOrder.completed_qty || 0);
+
+      const rawPieces = currentOrder.received_pieces || currentOrder.receivedPieces || [];
+      const itemPieces = rawPieces.filter(
+        p => (!activeJob || p.work_order_item_id === activeJob.id)
       );
-      setFormActualWeight(currentOrder.completed_weight ? String(currentOrder.completed_weight) : '');
-      setFormNewGoldWeight(currentOrder.completed_weight ? String(currentOrder.completed_weight) : '');
-      setFormPurity(currentOrder.purity || '91.6% (22K)');
-      setFormExpectedDate(currentOrder.delivery_date ? String(currentOrder.delivery_date).split('T')[0] : '2024-04-28');
-      setFormRemarks(currentOrder.karigar_notes || currentOrder.notes || '');
+
+      // Determine which piece is selected: prefer piece in rework, else first in-progress piece
+      let targetPiece = itemPieces.find(p => p.id === selectedPieceId);
+      if (!targetPiece && itemPieces.length > 0) {
+        const reworkPiece = itemPieces.find(
+          p => p.qc_status === 'rejected' || p.status === 'rework' || p.status === 'returned' || p.qc_submission_data?.is_returned
+        );
+        const inProgPiece = itemPieces.find(p => !p.received_at && p.qc_status !== 'passed');
+        targetPiece = reworkPiece || inProgPiece || itemPieces[0];
+        if (targetPiece) {
+          setSelectedPieceId(targetPiece.id);
+        }
+      }
+
+      const isRework = Boolean(
+        targetPiece
+          ? (targetPiece.qc_status === 'rejected' || targetPiece.status === 'rework' || targetPiece.status === 'returned' || targetPiece.qc_submission_data?.is_returned)
+          : (
+            Number(activeJob?.rework_qty || 0) > 0 ||
+            Number(currentOrder.rework_qty || 0) > 0 ||
+            ['rework', 'returned', 'rejected', 'qc_rejected'].includes(activeJob?.status) ||
+            ['returned', 'rework', 'rejected'].includes(currentOrder.status) ||
+            ['rework', 'returned'].includes(currentOrder.current_stage) ||
+            ['returned', 'rejected', 'partial_rework'].includes(currentOrder.quality_status)
+          )
+      );
+      const reworkQty = Number(activeJob?.rework_qty || 0) || Number(currentOrder.rework_qty || 0) || (isRework ? 1 : 0);
+      const pendingProd = Math.max(0, reqQty - compQty) + reworkQty;
+      setFormCompletedNow(pendingProd > 0 ? 1 : 0);
+
+      const pieceWeight = (targetPiece && Number(targetPiece.gross_weight || 0) > 0)
+        ? Number(targetPiece.gross_weight)
+        : (itemPieces.length > 0 && Number(itemPieces[0].gross_weight || 0) > 0 ? Number(itemPieces[0].gross_weight) : 0);
+
+      const jobCompletedWeight = pieceWeight > 0
+        ? String(pieceWeight)
+        : (activeJob
+            ? (activeJob.completed_weight !== undefined && activeJob.completed_weight !== null && activeJob.completed_weight !== '' ? String(activeJob.completed_weight) : '')
+            : (currentOrder.completed_weight !== undefined && currentOrder.completed_weight !== null ? String(currentOrder.completed_weight) : ''));
+
+      setFormCompletedWeight(jobCompletedWeight);
+      setFormActualWeight(jobCompletedWeight);
+
+      const rawAttrs = activeJob?.product?.attributes || currentOrder.product?.attributes;
+      const attrs = typeof rawAttrs === 'string' ? JSON.parse(rawAttrs) : (rawAttrs || {});
+      const pd = activeJob?.pricing_details || {};
+
+      const jobPurity = targetPiece?.purity ||
+                        activeJob?.purity ||
+                        activeJob?.karat ||
+                        pd?.gold_purity ||
+                        pd?.purity ||
+                        pd?.karat ||
+                        attrs?.purity ||
+                        attrs?.gold_purity ||
+                        attrs?.karat ||
+                        currentOrder.purity ||
+                        currentOrder.karat ||
+                        '';
+
+      setFormPurity(jobPurity);
+      setFormExpectedDate(currentOrder.delivery_date ? String(currentOrder.delivery_date).split('T')[0] : (currentOrder.allotted_date ? String(currentOrder.allotted_date).split('T')[0] : ''));
+      setFormRemarks(targetPiece?.qc_notes || currentOrder.karigar_notes || currentOrder.notes || '');
       setFormIsDelayed(Boolean(currentOrder.is_delayed || currentOrder.status === 'delayed'));
       setFormDelayDays(currentOrder.delay_days || 0);
       setFormDelayReason(currentOrder.delay_reason || '');
       setFormDelayRemarks(currentOrder.delay_remarks || '');
       setShowDelayReasonInput(Boolean(currentOrder.is_delayed || currentOrder.status === 'delayed'));
+
+      // Prepopulate stone and metal details from target piece, active job or order
+      const stDetails = (activeJob?.stone_details && typeof activeJob.stone_details === 'object')
+        ? activeJob.stone_details
+        : (currentOrder.stone_details && typeof currentOrder.stone_details === 'object' ? currentOrder.stone_details : {});
+
+      const defaultStoneWeight = targetPiece?.color_stone_weight ?? activeJob?.color_stone_weight ?? stDetails.color_stone_weight ?? currentOrder.color_stone_weight ?? attrs.color_stone_weight ?? attrs.stone_weight ?? '';
+      const defaultStoneCount = targetPiece?.color_stone_count ?? activeJob?.color_stone_count ?? stDetails.color_stone_count ?? currentOrder.color_stone_count ?? attrs.color_stone_count ?? attrs.stone_count ?? '';
+      const defaultSilverWeight = targetPiece?.silver_weight ?? activeJob?.silver_weight ?? stDetails.silver_weight ?? currentOrder.silver_weight ?? attrs.silver_weight ?? '';
+      const defaultDiamondWeight = targetPiece?.diamond_weight ?? activeJob?.diamond_weight ?? stDetails.diamond_weight ?? currentOrder.diamond_weight ?? attrs.dia_wt_ct ?? attrs.diamond_weight ?? '';
+      const defaultDiamondCount = targetPiece?.diamond_count ?? activeJob?.diamond_count ?? stDetails.diamond_count ?? currentOrder.diamond_count ?? attrs.diamond_count ?? attrs.dia_count ?? '';
+
+      // Restore Gold Wastage
+      const defaultWastage = activeJob?.pricing_details?.wastage_weight
+        ?? activeJob?.pricing_details?.gold_wastage
+        ?? activeJob?.wastage_weight
+        ?? currentOrder.wastage_weight
+        ?? currentOrder.pricing_details?.wastage_weight
+        ?? currentOrder.pricing_details?.gold_wastage
+        ?? '';
+
+      setFormColorStoneWeight(defaultStoneWeight !== undefined && defaultStoneWeight !== null && defaultStoneWeight !== '' ? String(defaultStoneWeight) : '');
+      setFormColorStoneCount(defaultStoneCount !== undefined && defaultStoneCount !== null && defaultStoneCount !== '' ? String(defaultStoneCount) : '');
+      setFormSilverWeight(defaultSilverWeight !== undefined && defaultSilverWeight !== null && defaultSilverWeight !== '' ? String(defaultSilverWeight) : '');
+      setFormDiamondWeight(defaultDiamondWeight !== undefined && defaultDiamondWeight !== null && defaultDiamondWeight !== '' ? String(defaultDiamondWeight) : '');
+      setFormDiamondCount(defaultDiamondCount !== undefined && defaultDiamondCount !== null && defaultDiamondCount !== '' ? String(defaultDiamondCount) : '');
+      setFormGoldWastage(defaultWastage !== undefined && defaultWastage !== null && defaultWastage !== '' ? String(defaultWastage) : '');
     }
-  }, [currentOrder?.id]);
+  }, [currentOrder?.id, selectedJobId]);
+
+  const handleSelectPiece = (piece) => {
+    setSelectedPieceId(piece.id);
+    setFormCompletedNow(1);
+    if (piece.gross_weight && Number(piece.gross_weight) > 0) {
+      setFormActualWeight(String(piece.gross_weight));
+      setFormCompletedWeight(String(piece.gross_weight));
+    }
+    if (piece.diamond_weight !== undefined && piece.diamond_weight !== null && piece.diamond_weight !== '') {
+      setFormDiamondWeight(String(piece.diamond_weight));
+    }
+    if (piece.diamond_count !== undefined && piece.diamond_count !== null && piece.diamond_count !== '') {
+      setFormDiamondCount(String(piece.diamond_count));
+    }
+    if (piece.color_stone_weight !== undefined && piece.color_stone_weight !== null && piece.color_stone_weight !== '') {
+      setFormColorStoneWeight(String(piece.color_stone_weight));
+    }
+    if (piece.color_stone_count !== undefined && piece.color_stone_count !== null && piece.color_stone_count !== '') {
+      setFormColorStoneCount(String(piece.color_stone_count));
+    }
+    if (piece.silver_weight !== undefined && piece.silver_weight !== null && piece.silver_weight !== '') {
+      setFormSilverWeight(String(piece.silver_weight));
+    }
+    if (piece.qc_notes) {
+      setFormRemarks(piece.qc_notes);
+    }
+  };
 
   // Automatic Real-Time Synchronization: Poll every 4 seconds
   useEffect(() => {
@@ -495,16 +619,24 @@ export default function WorkInProgress() {
       const activeJob = currentOrder.items?.find((it) => it.id === selectedJobId) || currentOrder.items?.[0] || null;
       const payload = {
         work_order_item_id: activeJob?.id || null,
+        piece_id: selectedPieceId || null,
         completed_now: 0,
         completed_weight: parseFloat(formCompletedWeight || 0),
         actual_weight: parseFloat(formActualWeight || formCompletedWeight || 0),
+        gold_wastage: parseFloat(formGoldWastage || 0),
+        wastage_weight: parseFloat(formGoldWastage || 0),
         old_weight: parseFloat(formOldWeight || 0),
-        new_gold_weight: parseFloat(formNewGoldWeight || formCompletedWeight || 0),
         purity: formPurity,
         color_stone_weight: parseFloat(formColorStoneWeight || 0),
+        colour_stone: parseFloat(formColorStoneWeight || 0),
+        color_stone_count: parseInt(formColorStoneCount || 0, 10),
+        no_of_colour_stones: parseInt(formColorStoneCount || 0, 10),
         silver_weight: parseFloat(formSilverWeight || 0),
+        silver: parseFloat(formSilverWeight || 0),
         diamond_weight: parseFloat(formDiamondWeight || 0),
+        diamond: parseFloat(formDiamondWeight || 0),
         diamond_count: parseInt(formDiamondCount || 0, 10),
+        no_of_diamonds: parseInt(formDiamondCount || 0, 10),
         remarks: formRemarks,
         delivery_date: formExpectedDate || null,
         is_delayed: formIsDelayed || formStatus === 'delayed',
@@ -542,8 +674,38 @@ export default function WorkInProgress() {
 
     const reqQty = activeJob ? (activeJob.required_qty || 1) : (currentOrder.required_qty || 1);
     const compQty = activeJob ? (activeJob.completed_qty || 0) : (currentOrder.completed_qty || 0);
-    const pendingProduction = Math.max(0, reqQty - compQty);
+
+    const rawPieces = currentOrder.received_pieces || currentOrder.receivedPieces || [];
+    const activePieces = rawPieces.filter(
+      p => !activeJob || p.work_order_item_id === activeJob.id
+    );
+    const selectedPiece = activePieces.find(p => p.id === selectedPieceId) || null;
+
+    const activeRework = (() => {
+      const jobRework = Number(activeJob?.rework_qty || 0);
+      if (jobRework > 0) return jobRework;
+      const orderRework = Number(currentOrder?.rework_qty || 0);
+      if (orderRework > 0) return orderRework;
+      if (['rework', 'returned', 'rejected', 'qc_rejected'].includes(activeJob?.status)) return 1;
+      if (
+        ['returned', 'rework', 'rejected'].includes(currentOrder?.status) ||
+        ['rework', 'returned'].includes(currentOrder?.current_stage) ||
+        ['returned', 'rejected', 'partial_rework'].includes(currentOrder?.quality_status)
+      ) {
+        return 1;
+      }
+      const rejectedPieces = activePieces.filter(p => (p.qc_status === 'rejected' || p.status === 'rework' || p.status === 'returned' || p.qc_submission_data?.is_returned));
+      if (rejectedPieces.length > 0) return rejectedPieces.length;
+      return 0;
+    })();
+
+    const isPieceRework = selectedPiece
+      ? Boolean(selectedPiece.qc_status === 'rejected' || selectedPiece.status === 'rework' || selectedPiece.status === 'returned' || selectedPiece.qc_submission_data?.is_returned)
+      : (activeRework > 0);
+
+    const pendingProduction = Math.max(0, reqQty - compQty) + activeRework;
     const jobLabel = activeJob ? `${activeJob.design_no || 'Job'} (${activeJob.product_name})` : 'Work Order';
+    const pieceLabel = selectedPiece ? `Product #${selectedPiece.piece_number}` : `${formCompletedNow} pc(s)`;
 
     const completedNow = parseInt(formCompletedNow || 1, 10);
 
@@ -551,16 +713,23 @@ export default function WorkInProgress() {
       showToast?.('Please enter completed quantity greater than 0', 'warning');
       return;
     }
-    if (completedNow > pendingProduction) {
-      showToast?.(`Completed quantity (${completedNow}) cannot exceed remaining production (${pendingProduction} pcs) for ${jobLabel}`, 'warning');
+    if (completedNow > pendingProduction && !selectedPiece) {
+      showToast?.(`Completed quantity (${completedNow}) cannot exceed available production/rework (${pendingProduction} pcs) for ${jobLabel}`, 'warning');
       return;
     }
 
+    const titleText = isPieceRework
+      ? `Resubmit ${pieceLabel} to QC after Rework — ${jobLabel}`
+      : `Submit ${pieceLabel} for QC — ${jobLabel}`;
+    const messageText = isPieceRework
+      ? `Resubmit ${pieceLabel} for ${jobLabel} back to Quality Check for re-inspection after completing rework?`
+      : `Submit ${pieceLabel} for ${jobLabel} to Quality Check? The remaining piece(s) will stay active in Work In Process for the artisan.`;
+
     const confirmed = await showConfirm({
-      title: `Submit Completed Pieces for QC — ${jobLabel}`,
-      message: `Submit ${completedNow} finished piece(s) for ${jobLabel} to Quality Check? The remaining ${pendingProduction - completedNow} piece(s) will stay active in Work In Process for the artisan.`,
-      icon: 'fa-solid fa-circle-check',
-      confirmText: 'Submit to QC'
+      title: titleText,
+      message: messageText,
+      icon: isPieceRework ? 'fa-solid fa-rotate-right' : 'fa-solid fa-circle-check',
+      confirmText: isPieceRework ? `Resubmit ${pieceLabel} to QC` : `Submit ${pieceLabel} to QC`
     });
     if (!confirmed) return;
 
@@ -568,17 +737,25 @@ export default function WorkInProgress() {
       setActionLoading(true);
       const payload = {
         work_order_item_id: workOrderItemId,
+        piece_id: selectedPiece?.id || selectedPieceId || null,
         completed_now: completedNow,
         completed_weight: parseFloat(formCompletedWeight || 0),
         actual_weight: parseFloat(formActualWeight || formCompletedWeight || 0),
+        gold_wastage: parseFloat(formGoldWastage || 0),
+        wastage_weight: parseFloat(formGoldWastage || 0),
         old_weight: parseFloat(formOldWeight || 0),
-        new_gold_weight: parseFloat(formNewGoldWeight || formCompletedWeight || 0),
         purity: formPurity,
         color_stone_weight: parseFloat(formColorStoneWeight || 0),
+        colour_stone: parseFloat(formColorStoneWeight || 0),
+        color_stone_count: parseInt(formColorStoneCount || 0, 10),
+        no_of_colour_stones: parseInt(formColorStoneCount || 0, 10),
         silver_weight: parseFloat(formSilverWeight || 0),
+        silver: parseFloat(formSilverWeight || 0),
         diamond_weight: parseFloat(formDiamondWeight || 0),
+        diamond: parseFloat(formDiamondWeight || 0),
         diamond_count: parseInt(formDiamondCount || 0, 10),
-        remarks: formRemarks || `Completed ${completedNow} piece(s) of ${jobLabel} submitted for Quality Check`,
+        no_of_diamonds: parseInt(formDiamondCount || 0, 10),
+        remarks: formRemarks || (isPieceRework ? `Resubmitted ${pieceLabel} of ${jobLabel} to QC after rework` : `Completed ${pieceLabel} of ${jobLabel} submitted for Quality Check`),
         delivery_date: formExpectedDate || null,
         is_delayed: formIsDelayed || formStatus === 'delayed',
         delay_days: parseInt(formDelayDays || 0, 10),
@@ -588,7 +765,7 @@ export default function WorkInProgress() {
 
       const res = await api.post(`/work-orders/${currentOrder.id}/wip-update`, payload);
       setCurrentOrder(res.data.data || res.data);
-      showToast?.(`${completedNow} piece(s) of ${jobLabel} successfully moved to Quality Check!`, 'success');
+      showToast?.(`${pieceLabel} of ${jobLabel} successfully moved to Quality Check!`, 'success');
       fetchOrderDetails(currentOrder.id, true);
     } catch (err) {
       showToast?.(err.response?.data?.message || 'Failed to submit completed pieces for QC', 'error');
@@ -628,52 +805,81 @@ export default function WorkInProgress() {
     );
   };
 
-  // Computed weights and status directly from form input & database
-  const allocatedWeight = currentOrder ? parseFloat(currentOrder.allotted_weight || 0) : 0;
-  const completedWeight = formCompletedWeight !== '' ? (parseFloat(formCompletedWeight) || 0) : (currentOrder ? parseFloat(currentOrder.completed_weight || 0) : 0);
-  const pendingWeight = currentOrder ? (currentOrder.pending_weight !== undefined ? parseFloat(currentOrder.pending_weight) : Math.max(0, allocatedWeight - completedWeight)) : Math.max(0, allocatedWeight - completedWeight);
+  // Active job item resolution (respects individual jobs in multi-item work orders)
+  const activeJob = currentOrder?.items?.find((it) => it.id === selectedJobId) || currentOrder?.items?.[0] || null;
+
+  // Computed weights and status directly from form input & database (respecting active item in multi-item orders)
+  const activeAllocatedWeight = activeJob
+    ? parseFloat(activeJob.allotted_weight ?? activeJob.allocated_weight ?? activeJob.gold_weight ?? activeJob.total_weight ?? 0)
+    : 0;
+  const totalOrderAllocatedWeight = currentOrder ? parseFloat(currentOrder.allotted_weight || 0) : 0;
+  const allocatedWeight = activeAllocatedWeight > 0 ? activeAllocatedWeight : totalOrderAllocatedWeight;
+
+  const activeJobCompletedDb = activeJob
+    ? parseFloat(activeJob.completed_weight ?? activeJob.actual_weight ?? activeJob.done_weight ?? 0)
+    : (currentOrder ? parseFloat(currentOrder.completed_weight || 0) : 0);
+
+  const completedWeight = formCompletedWeight !== ''
+    ? (parseFloat(formCompletedWeight) || 0)
+    : activeJobCompletedDb;
+
+  const pendingWeight = Math.max(0, allocatedWeight - completedWeight);
   const progressPercent = allocatedWeight > 0 ? Math.min(100, Math.max(0, (completedWeight / allocatedWeight) * 100)) : 0;
 
-  // Real Database Details
-  const jobId = currentOrder?.design_code || currentOrder?.work_order_number || (currentOrder?.id ? `RJ-3836-${String(currentOrder.id).padStart(6, '0')}` : 'RJ-3836-000125');
-  const clientId = currentOrder?.client?.client_code || (currentOrder?.client_id ? `CL-2024-${String(currentOrder.client_id).padStart(5, '0')}` : 'CL-2024-00458');
-  const clientName = currentOrder?.customer_name || currentOrder?.client?.full_name || currentOrder?.client?.name || currentOrder?.client_name || 'Rajesh Vishwakarma';
-  const karigarName = currentOrder?.karigar?.name || currentOrder?.karigar_name || 'Manikandan';
-  const workStartedDate = formatDateDisplay(currentOrder?.allotted_date || currentOrder?.created_at || '2024-04-24');
+  // Real Database Details (Strictly from database - NO FAKE HARDCODED FALLBACKS)
+  const jobId = activeJob?.design_no || currentOrder?.design_code || currentOrder?.work_order_number || (currentOrder?.id ? `WO-${currentOrder.id}` : '—');
+  const clientId = currentOrder?.client?.client_code || (currentOrder?.client_id ? `CL-${currentOrder.client_id}` : '—');
+  const clientName = currentOrder?.customer_name || currentOrder?.client?.full_name || currentOrder?.client?.name || currentOrder?.client_name || '—';
+  const karigarName = currentOrder?.karigar?.name || currentOrder?.karigar_name || '—';
+  const workStartedDate = currentOrder?.allotted_date || currentOrder?.created_at ? formatDateDisplay(currentOrder.allotted_date || currentOrder.created_at) : '—';
 
-  const jobType = currentOrder?.product_name || 'Gold Necklace';
-  const categoryName = currentOrder?.category?.name || 'Necklace';
-  const materialType = currentOrder?.material_type || '22K Gold';
-  const purityLabel = currentOrder?.purity || '22 Karat';
+  // Real Item Details strictly from the selected product in the work order
+  const rawItemAttrs = activeJob?.product?.attributes || currentOrder?.product?.attributes;
+  const productAttrs = typeof rawItemAttrs === 'string' ? JSON.parse(rawItemAttrs) : (rawItemAttrs || {});
+  const pd = activeJob?.pricing_details || {};
 
-  // Real Timelines from Database
-  const rawTimelines = currentOrder?.timelines || [];
-  const timelines = rawTimelines.length > 0 ? rawTimelines : [
-    {
-      id: 'step-1',
-      created_at: '2024-04-24T10:00:00',
-      action_by_name: karigarName,
-      stage_label: 'Work Started',
-      notes: 'Work started at workshop',
-      completed_weight_at_step: 0.000,
-    },
-    {
-      id: 'step-2',
-      created_at: '2024-04-25T16:30:00',
-      action_by_name: karigarName,
-      stage_label: 'Progress Update',
-      notes: 'Designing completed',
-      completed_weight_at_step: 5.250,
-    },
-    {
-      id: 'step-3',
-      created_at: '2024-04-26T14:15:00',
-      action_by_name: karigarName,
-      stage_label: 'Progress Update',
-      notes: 'Stone setting completed',
-      completed_weight_at_step: 12.250,
-    }
-  ];
+  const jobType = activeJob?.product_name ||
+                  activeJob?.product?.name ||
+                  activeJob?.design_no ||
+                  currentOrder?.product?.name ||
+                  currentOrder?.product_name ||
+                  '—';
+
+  const categoryName = activeJob?.category?.name ||
+                       activeJob?.product?.category?.name ||
+                       activeJob?.category_name ||
+                       activeJob?.category ||
+                       currentOrder?.category?.name ||
+                       currentOrder?.product?.category?.name ||
+                       '—';
+
+  const materialType = activeJob?.material_type ||
+                       pd?.material_type ||
+                       productAttrs?.metal_type ||
+                       currentOrder?.material_type ||
+                       currentOrder?.metal_type ||
+                       '—';
+
+  const purityLabel = activeJob?.purity ||
+                      activeJob?.karat ||
+                      pd?.gold_purity ||
+                      pd?.purity ||
+                      pd?.karat ||
+                      productAttrs?.purity ||
+                      productAttrs?.gold_purity ||
+                      currentOrder?.purity ||
+                      currentOrder?.karat ||
+                      '—';
+
+  const designNo = activeJob?.design_no ||
+                   activeJob?.item_code ||
+                   activeJob?.product?.design_no ||
+                   activeJob?.product?.product_code ||
+                   currentOrder?.design_code ||
+                   '—';
+
+  // Real Timelines from Database (Strictly from real database updates - NO FABRICATED STEPS)
+  const timelines = currentOrder?.timelines || [];
 
   // Real Pagination Calculation
   const totalTimelines = timelines.length;
@@ -861,6 +1067,7 @@ export default function WorkInProgress() {
                       className="rounded border-stone-300 text-[#b01622] focus:ring-[#b01622] cursor-pointer"
                     />
                   </th>
+                  <th className="py-3 px-3 whitespace-nowrap text-center w-12">S.NO</th>
                   <th className="py-3 px-3 whitespace-nowrap">WORK ORDER NO</th>
                   <th className="py-3 px-3 text-center whitespace-nowrap">PRODUCT NO.</th>
                   <th className="py-3 px-3 whitespace-nowrap">PRODUCT &amp; DESIGN</th>
@@ -878,19 +1085,19 @@ export default function WorkInProgress() {
               <tbody className="divide-y divide-stone-100">
                 {loading ? (
                   <tr>
-                    <td colSpan="13" className="py-12 text-center text-stone-400 text-xs">
+                    <td colSpan="14" className="py-12 text-center text-stone-400 text-xs">
                       <i className="fa-solid fa-spinner fa-spin text-[#b01622] mr-2"></i>
                       Loading Work In Progress jobs...
                     </td>
                   </tr>
                 ) : allWipItems.length === 0 ? (
                   <tr>
-                    <td colSpan="13" className="py-12 text-center text-stone-400 text-xs">
+                    <td colSpan="14" className="py-12 text-center text-stone-400 text-xs">
                       No Work In Progress product items found matching your search.
                     </td>
                   </tr>
                 ) : (
-                  paginatedWipItems.map((row) => {
+                  paginatedWipItems.map((row, idx) => {
                     const isSelected = selectedRowKeys.includes(row.rowKey);
                     return (
                       <tr
@@ -906,6 +1113,9 @@ export default function WorkInProgress() {
                             onChange={() => toggleSelectRow(row.rowKey)}
                             className="rounded border-stone-300 text-[#b01622] focus:ring-[#b01622] cursor-pointer"
                           />
+                        </td>
+                        <td className="py-3.5 px-3 text-center font-mono font-bold text-stone-400 text-xs whitespace-nowrap">
+                          {startIndex + idx + 1}
                         </td>
                         <td className="py-3.5 px-3 font-mono font-bold text-[#b01622] whitespace-nowrap">
                           {row.work_order_number}
@@ -1195,6 +1405,7 @@ export default function WorkInProgress() {
                 <table className="w-full text-xs text-left">
                   <thead>
                     <tr className="border-b border-stone-200 bg-stone-50/60 text-stone-600 text-[10px] font-bold uppercase">
+                      <th className="py-2 px-3 text-center w-12">S.No</th>
                       <th className="py-2 px-3">Job / Design</th>
                       <th className="py-2 px-3">Product Name</th>
                       <th className="py-2 px-2 text-center">Req Qty</th>
@@ -1209,7 +1420,7 @@ export default function WorkInProgress() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100 font-mono text-[11px]">
-                    {currentOrder.items.map((it) => {
+                    {currentOrder.items.map((it, idx) => {
                       const isSelected = selectedJobId === it.id;
                       const pend = Math.max(0, (it.required_qty || 1) - (it.completed_qty || 0));
                       return (
@@ -1221,6 +1432,9 @@ export default function WorkInProgress() {
                           }}
                           className={`cursor-pointer transition-colors ${isSelected ? 'bg-red-50/70 border-l-4 border-l-[#b01622]' : 'hover:bg-stone-50/60'}`}
                         >
+                          <td className="py-2.5 px-3 text-center font-mono font-bold text-stone-400 text-xs">
+                            {idx + 1}
+                          </td>
                           <td className="py-2.5 px-3 font-bold text-[#b01622]">
                             {it.design_no || it.item_code || `JOB-${it.id}`}
                           </td>
@@ -1232,7 +1446,16 @@ export default function WorkInProgress() {
                           <td className="py-2.5 px-2 text-center font-bold text-purple-600">{it.received_qty || 0}</td>
                           <td className="py-2.5 px-2 text-center font-bold text-amber-700">{pend}</td>
                           <td className="py-2.5 px-3 text-right">{Number(it.allotted_weight ?? it.allocated_weight ?? it.gold_weight ?? it.total_weight ?? 0).toFixed(3)}g</td>
-                          <td className="py-2.5 px-3 text-right text-emerald-700">{Number(it.completed_weight ?? it.done_weight ?? it.actual_weight ?? 0).toFixed(3)}g</td>
+                          <td className="py-2.5 px-3 text-right text-emerald-700">
+                            {(() => {
+                              const itPieces = (currentOrder.received_pieces || currentOrder.receivedPieces || []).filter(
+                                p => p.work_order_item_id === it.id && Number(p.gross_weight || 0) > 0
+                              );
+                              const pSum = itPieces.reduce((sum, p) => sum + Number(p.gross_weight || 0), 0);
+                              const displayWt = pSum > 0 ? pSum : Number(it.completed_weight ?? it.done_weight ?? it.actual_weight ?? 0);
+                              return Number(displayWt).toFixed(3);
+                            })()}g
+                          </td>
                           <td className="py-2.5 px-3 font-sans">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold capitalize ${it.status === 'completed' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>
                               {it.status || 'in_progress'}
@@ -1259,7 +1482,25 @@ export default function WorkInProgress() {
                   const activeJob = currentOrder.items?.find((it) => it.id === selectedJobId) || currentOrder.items?.[0] || null;
                   const activeReq = activeJob ? (activeJob.required_qty || 1) : (currentOrder.required_qty || 1);
                   const activeComp = activeJob ? (activeJob.completed_qty || 0) : (currentOrder.completed_qty || 0);
-                  const activePending = Math.max(0, activeReq - activeComp);
+                  const activeRework = (() => {
+                    const jobRework = Number(activeJob?.rework_qty || 0);
+                    if (jobRework > 0) return jobRework;
+                    const orderRework = Number(currentOrder?.rework_qty || 0);
+                    if (orderRework > 0) return orderRework;
+                    if (['rework', 'returned', 'rejected', 'qc_rejected'].includes(activeJob?.status)) return 1;
+                    if (
+                      ['returned', 'rework', 'rejected'].includes(currentOrder?.status) ||
+                      ['rework', 'returned'].includes(currentOrder?.current_stage) ||
+                      ['returned', 'rejected', 'partial_rework'].includes(currentOrder?.quality_status)
+                    ) {
+                      return 1;
+                    }
+                    const pieces = currentOrder?.received_pieces || currentOrder?.receivedPieces || [];
+                    const rejectedPieces = pieces.filter(p => (!activeJob || p.work_order_item_id === activeJob.id) && (p.qc_status === 'rejected' || p.status === 'rework' || p.status === 'returned'));
+                    if (rejectedPieces.length > 0) return rejectedPieces.length;
+                    return 0;
+                  })();
+                  const activePending = Math.max(0, activeReq - activeComp) + activeRework;
                   const activeJobLabel = activeJob ? `${activeJob.design_no || 'Job'} — ${activeJob.product_name}` : currentOrder.product_name;
 
                   return (
@@ -1285,7 +1526,10 @@ export default function WorkInProgress() {
                               onChange={(e) => {
                                 const id = parseInt(e.target.value, 10);
                                 setSelectedJobId(id);
-                                setFormCompletedNow(1);
+                                const selectedItem = currentOrder.items?.find((it) => it.id === id);
+                                const itemRework = selectedItem ? (Number(selectedItem.rework_qty || 0) || (['rework', 'returned'].includes(selectedItem.status) ? 1 : 0)) : 0;
+                                const itemAvail = Math.max(0, (selectedItem?.required_qty || 1) - (selectedItem?.completed_qty || 0)) + itemRework;
+                                setFormCompletedNow(itemAvail > 0 ? 1 : 0);
                               }}
                               className="px-2.5 py-1 bg-white border border-stone-300 rounded-lg text-xs font-bold text-[#b01622] focus:outline-none shadow-2xs"
                             >
@@ -1298,10 +1542,133 @@ export default function WorkInProgress() {
                           </div>
                         )}
 
-                        <span className="text-[11px] font-bold text-stone-500">
-                          Remaining to Produce: <span className="text-[#b01622] font-black">{activePending} pcs</span>
+                        <span className="text-[11px] font-bold text-stone-500 flex items-center gap-1">
+                          Remaining in WIP / Rework: <span className="text-[#b01622] font-black">{activePending} pcs</span>
+                          {activeRework > 0 && (
+                            <span className="text-amber-700 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded text-[10px] font-extrabold">
+                              ({activeRework} returned for rework)
+                            </span>
+                          )}
                         </span>
                       </div>
+
+                      {/* Physical Products / Pieces Queue Selection */}
+                      {(() => {
+                        const rawPieces = currentOrder.received_pieces || currentOrder.receivedPieces || [];
+                        const activePieces = rawPieces.filter(
+                          p => !activeJob || p.work_order_item_id === activeJob.id
+                        );
+                        const selectedPiece = activePieces.find(p => p.id === selectedPieceId) || null;
+                        const isSelectedPieceRework = selectedPiece ? Boolean(
+                          selectedPiece.qc_status === 'rejected' ||
+                          selectedPiece.status === 'rework' ||
+                          selectedPiece.status === 'returned' ||
+                          selectedPiece.qc_submission_data?.is_returned
+                        ) : false;
+
+                        if (activePieces.length === 0) return null;
+
+                        return (
+                          <div className="bg-white p-3.5 rounded-lg border border-red-100 shadow-2xs space-y-3">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                              <label className="text-xs font-bold text-stone-900 flex items-center gap-1.5">
+                                <i className="fa-solid fa-shapes text-[#b01622]"></i>
+                                <span>Physical Products / Pieces ({activePieces.length} total)</span>
+                              </label>
+                              <span className="text-[11px] text-stone-500 font-medium">
+                                Select product to view defect status or submit to QC
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                              {activePieces.map((piece) => {
+                                const isRework = Boolean(
+                                  piece.qc_status === 'rejected' ||
+                                  piece.status === 'rework' ||
+                                  piece.status === 'returned' ||
+                                  piece.qc_submission_data?.is_returned
+                                );
+                                const isSelected = selectedPieceId === piece.id;
+                                const isAwaitingQc = piece.status === 'qc_pending' || piece.qc_status === 'pending';
+                                const isPassed = piece.status === 'ready' || piece.qc_status === 'passed';
+                                const isReceived = Boolean(piece.received_at);
+
+                                let badgeBg = 'bg-stone-100 text-stone-700 border-stone-200';
+                                let badgeLabel = 'In Workshop';
+                                let badgeIcon = 'fa-hammer';
+
+                                if (isRework) {
+                                  badgeBg = 'bg-red-100 text-red-800 border-red-300 font-bold';
+                                  badgeLabel = 'Rework Required';
+                                  badgeIcon = 'fa-triangle-exclamation';
+                                } else if (isAwaitingQc) {
+                                  badgeBg = 'bg-amber-100 text-amber-800 border-amber-300 font-bold';
+                                  badgeLabel = 'In QC';
+                                  badgeIcon = 'fa-magnifying-glass';
+                                } else if (isPassed) {
+                                  badgeBg = 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold';
+                                  badgeLabel = 'QC Passed';
+                                  badgeIcon = 'fa-check';
+                                } else if (isReceived) {
+                                  badgeBg = 'bg-blue-100 text-blue-800 border-blue-300 font-bold';
+                                  badgeLabel = 'Stock Received';
+                                  badgeIcon = 'fa-box-archive';
+                                }
+
+                                return (
+                                  <button
+                                    key={piece.id}
+                                    type="button"
+                                    onClick={() => handleSelectPiece(piece)}
+                                    className={`text-left p-3 rounded-lg border-2 transition-all cursor-pointer flex flex-col justify-between gap-2 shadow-2xs ${
+                                      isSelected
+                                        ? 'border-[#b01622] bg-red-50/40 ring-2 ring-red-100'
+                                        : 'border-stone-200 bg-white hover:border-stone-400'
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between w-full">
+                                      <span className="font-bold text-xs text-stone-900 flex items-center gap-1.5">
+                                        <span className={`w-2.5 h-2.5 rounded-full ${isSelected ? 'bg-[#b01622]' : 'bg-stone-300'}`}></span>
+                                        Product #{piece.piece_number}
+                                      </span>
+                                      <span className={`text-[10px] px-2 py-0.5 rounded-full border flex items-center gap-1 ${badgeBg}`}>
+                                        <i className={`fa-solid ${badgeIcon} text-[9px]`}></i>
+                                        {badgeLabel}
+                                      </span>
+                                    </div>
+
+                                    <div className="flex items-center justify-between text-[11px] text-stone-600 pt-1 border-t border-stone-100 w-full">
+                                      <span>Weight: <strong className="font-mono text-stone-900">{Number(piece.gross_weight || piece.allotted_weight || 0).toFixed(3)}g</strong></span>
+                                      {Number(piece.diamond_weight || 0) > 0 && (
+                                        <span className="text-cyan-800 font-semibold">{piece.diamond_weight} ct</span>
+                                      )}
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            {/* Prominent Rework Defect Notice Banner if selected piece was returned */}
+                            {selectedPiece && isSelectedPieceRework && (
+                              <div className="bg-red-50 border-2 border-red-300 rounded-lg p-3 text-xs text-red-900 space-y-1 shadow-2xs">
+                                <div className="flex items-center gap-2 font-bold text-xs text-[#b01622]">
+                                  <i className="fa-solid fa-triangle-exclamation"></i>
+                                  <span>Product #{selectedPiece.piece_number} Returned from QC for Rework</span>
+                                </div>
+                                <p className="text-stone-700">
+                                  <span className="font-semibold text-stone-900">Defect Reason:</span>{" "}
+                                  <span className="italic font-bold text-[#b01622]">
+                                    "{selectedPiece.qc_notes || selectedPiece.qc_submission_data?.return_reason || currentOrder.return_reason || 'Rework required'}"
+                                  </span>
+                                </p>
+                                <p className="text-[11px] text-stone-600">
+                                  Artisan should repair the piece, verify finished weight, and click "Resubmit Product #{selectedPiece.piece_number} to QC after Rework".
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {/* Partial Completion Quantity Selector */}
                       <div className="bg-white p-3.5 rounded-lg border border-red-100 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1316,10 +1683,13 @@ export default function WorkInProgress() {
                         <div className="flex items-center gap-2">
                           <input
                             type="number"
-                            min="0"
-                            max={activePending}
-                            value={formCompletedNow}
-                            onChange={(e) => setFormCompletedNow(Math.max(0, parseInt(e.target.value || 0, 10)))}
+                            min={activePending > 0 ? "1" : "0"}
+                            max={Math.max(1, activePending)}
+                            value={formCompletedNow > 0 ? formCompletedNow : (activePending > 0 ? 1 : 0)}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value, 10);
+                              setFormCompletedNow(isNaN(val) ? 0 : val);
+                            }}
                             className="w-24 px-3 py-1.5 text-center font-bold font-mono text-base border-2 border-[#b01622] rounded-lg focus:outline-hidden bg-red-50 text-[#b01622]"
                           />
                           <span className="text-xs font-bold text-stone-600">pcs</span>
@@ -1351,20 +1721,6 @@ export default function WorkInProgress() {
 
                   <div>
                     <label className="block text-[11px] font-semibold text-stone-600 mb-1">
-                      New Gold Wt (gm)
-                    </label>
-                    <input
-                      type="text"
-                      value={formNewGoldWeight}
-                      onChange={(e) => setFormNewGoldWeight(sanitizeDecimal(e.target.value))}
-                      onKeyDown={handleDecimalKeyDown}
-                      placeholder="e.g. 7.900"
-                      className="w-full bg-white border border-[#eed5d1] rounded-md px-3 py-2 text-xs font-mono font-semibold text-stone-900 focus:outline-hidden focus:border-[#b01622]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-stone-600 mb-1">
                       Purity / Touch
                     </label>
                     <input
@@ -1378,15 +1734,15 @@ export default function WorkInProgress() {
 
                   <div>
                     <label className="block text-[11px] font-semibold text-stone-600 mb-1">
-                      Colour Stone (gm)
+                      Gold Wastage (g)
                     </label>
                     <input
                       type="text"
-                      value={formColorStoneWeight}
-                      onChange={(e) => setFormColorStoneWeight(sanitizeDecimal(e.target.value))}
+                      value={formGoldWastage}
+                      onChange={(e) => setFormGoldWastage(sanitizeDecimal(e.target.value))}
                       onKeyDown={handleDecimalKeyDown}
                       placeholder="0.000"
-                      className="w-full bg-white border border-[#eed5d1] rounded-md px-3 py-2 text-xs font-mono text-stone-900 focus:outline-hidden focus:border-[#b01622]"
+                      className="w-full bg-white border border-[#eed5d1] rounded-md px-3 py-2 text-xs font-mono font-semibold text-stone-900 focus:outline-hidden focus:border-[#b01622]"
                     />
                   </div>
 
@@ -1406,6 +1762,34 @@ export default function WorkInProgress() {
 
                   <div>
                     <label className="block text-[11px] font-semibold text-stone-600 mb-1">
+                      Colour Stone (ct)
+                    </label>
+                    <input
+                      type="text"
+                      value={formColorStoneWeight}
+                      onChange={(e) => setFormColorStoneWeight(sanitizeDecimal(e.target.value))}
+                      onKeyDown={handleDecimalKeyDown}
+                      placeholder="0.000"
+                      className="w-full bg-white border border-[#eed5d1] rounded-md px-3 py-2 text-xs font-mono text-stone-900 focus:outline-hidden focus:border-[#b01622]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-stone-600 mb-1">
+                      No. of Colour Stones
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={formColorStoneCount}
+                      onChange={(e) => setFormColorStoneCount(e.target.value)}
+                      placeholder="Pcs"
+                      className="w-full bg-white border border-[#eed5d1] rounded-md px-3 py-2 text-xs font-mono text-stone-900 focus:outline-hidden focus:border-[#b01622]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-stone-600 mb-1">
                       Diamond (cts / pcs)
                     </label>
                     <div className="grid grid-cols-2 gap-1">
@@ -1419,6 +1803,7 @@ export default function WorkInProgress() {
                       />
                       <input
                         type="number"
+                        min="0"
                         value={formDiamondCount}
                         onChange={(e) => setFormDiamondCount(e.target.value)}
                         placeholder="Pcs"
@@ -1543,16 +1928,41 @@ export default function WorkInProgress() {
                   </div>
 
                   {/* Right primary action button: Submit Completed Quantity to QC */}
-                  <button
-                    type="button"
-                    onClick={handleWorkCompletedQC}
-                    disabled={actionLoading || formCompletedNow <= 0}
-                    className="px-5 py-2.5 bg-[#b01622] hover:bg-[#8f1019] text-white text-xs font-black rounded-lg shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                  >
-                    {actionLoading && <i className="fa-solid fa-circle-notch fa-spin"></i>}
-                    <i className="fa-solid fa-clipboard-check"></i>
-                    <span>Submit {formCompletedNow} pc(s) for QC</span>
-                  </button>
+                  {(() => {
+                    const rawPieces = currentOrder.received_pieces || currentOrder.receivedPieces || [];
+                    const activeJob = currentOrder.items?.find((it) => it.id === selectedJobId) || currentOrder.items?.[0] || null;
+                    const activePieces = rawPieces.filter(p => !activeJob || p.work_order_item_id === activeJob.id);
+                    const selectedPiece = activePieces.find(p => p.id === selectedPieceId) || null;
+                    const isSelectedPieceRework = selectedPiece ? Boolean(
+                      selectedPiece.qc_status === 'rejected' ||
+                      selectedPiece.status === 'rework' ||
+                      selectedPiece.status === 'returned' ||
+                      selectedPiece.qc_submission_data?.is_returned
+                    ) : false;
+
+                    return (
+                      <button
+                        type="button"
+                        onClick={handleWorkCompletedQC}
+                        disabled={actionLoading || formCompletedNow <= 0}
+                        className={`px-5 py-2.5 text-white text-xs font-black rounded-lg shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 ${
+                          isSelectedPieceRework
+                            ? 'bg-amber-600 hover:bg-amber-700'
+                            : 'bg-[#b01622] hover:bg-[#8f1019]'
+                        }`}
+                      >
+                        {actionLoading && <i className="fa-solid fa-circle-notch fa-spin"></i>}
+                        <i className={isSelectedPieceRework ? "fa-solid fa-rotate-right" : "fa-solid fa-clipboard-check"}></i>
+                        <span>
+                          {isSelectedPieceRework && selectedPiece
+                            ? `Resubmit Product #${selectedPiece.piece_number} to QC after Rework`
+                            : selectedPiece
+                            ? `Submit Product #${selectedPiece.piece_number} for QC`
+                            : `Submit ${formCompletedNow} pc(s) for QC`}
+                        </span>
+                      </button>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
@@ -1560,15 +1970,37 @@ export default function WorkInProgress() {
             {/* RIGHT COLUMN: Item Details (5 Cols) */}
             <div className="lg:col-span-5">
               <div className="bg-[#F4F6F7] rounded-xl border border-[#eed5d1] p-5 shadow-2xs space-y-3.5">
-                <h3 className="text-lg font-bold text-[#1c1917] pb-2 border-b border-[#f5f5f4]">
-                  Item Details
-                </h3>
+                <div className="flex items-center justify-between pb-2 border-b border-[#f5f5f4]">
+                  <div>
+                    <h3 className="text-lg font-bold text-[#1c1917]">
+                      Item Details
+                    </h3>
+                    {currentOrder?.items && currentOrder.items.length > 1 && (
+                      <p className="text-[11px] text-[#b01622] font-semibold mt-0.5">
+                        <i className="fa-solid fa-gem mr-1 text-[10px]"></i>
+                        Job Item {currentOrder.items.findIndex(it => it.id === activeJob?.id) + 1} of {currentOrder.items.length} (Selected)
+                      </p>
+                    )}
+                  </div>
+                  {designNo && designNo !== '—' && (
+                    <span className="font-mono text-xs font-bold text-[#b01622] bg-red-50 border border-red-200 px-2 py-0.5 rounded-md">
+                      {designNo}
+                    </span>
+                  )}
+                </div>
 
                 <div className="space-y-3.5 text-xs">
                   <div className="flex items-center justify-between py-1 border-b border-stone-100/60">
-                    <span className="text-stone-600 font-medium">Job Type</span>
-                    <span className="font-bold text-[#1c1917]">{jobType}</span>
+                    <span className="text-stone-600 font-medium">Job Type / Product</span>
+                    <span className="font-bold text-[#1c1917] text-right max-w-[60%] truncate" title={jobType}>{jobType}</span>
                   </div>
+
+                  {designNo && designNo !== '—' && designNo !== jobType && (
+                    <div className="flex items-center justify-between py-1 border-b border-stone-100/60">
+                      <span className="text-stone-600 font-medium">Design / Item Code</span>
+                      <span className="font-mono font-bold text-stone-900">{designNo}</span>
+                    </div>
+                  )}
 
                   <div className="flex items-center justify-between py-1 border-b border-stone-100/60">
                     <span className="text-stone-600 font-medium">Category</span>
@@ -1587,20 +2019,35 @@ export default function WorkInProgress() {
 
                   <div className="flex items-center justify-between py-1 border-b border-stone-100/60">
                     <span className="text-stone-600 font-medium">Weight (Alloc.)</span>
-                    <span className="font-bold text-[#1c1917]">{allocatedWeight.toFixed(3)} gm</span>
+                    <div className="text-right">
+                      <span className="font-bold text-[#1c1917] font-mono">{allocatedWeight.toFixed(3)} gm</span>
+                      {currentOrder?.items && currentOrder.items.length > 1 && totalOrderAllocatedWeight > 0 && activeAllocatedWeight > 0 && totalOrderAllocatedWeight !== activeAllocatedWeight && (
+                        <span className="text-[10px] text-stone-400 block font-mono">
+                          (Order Total: {totalOrderAllocatedWeight.toFixed(3)} gm)
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Completed (gm) highlighted in crimson bold font */}
                   <div className="flex items-center justify-between py-2 px-3 bg-[#fef2f2] rounded-md border border-rose-100">
                     <span className="text-stone-800 font-semibold">Completed (gm)</span>
-                    <span className="font-black text-sm text-[#991b1b] font-serif">
+                    <span className="font-black text-sm text-[#991b1b] font-serif font-mono">
                       {completedWeight.toFixed(3)} gm
                     </span>
                   </div>
 
-                  <div className="flex items-center justify-between py-1">
+                  <div className="flex items-center justify-between py-1 border-b border-stone-100/60">
                     <span className="text-stone-600 font-medium">Pending (gm)</span>
-                    <span className="font-bold text-[#1c1917]">{pendingWeight.toFixed(3)} gm</span>
+                    <span className="font-bold text-[#1c1917] font-mono">{pendingWeight.toFixed(3)} gm</span>
+                  </div>
+
+                  {/* Quantity Breakdown for this Item */}
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-stone-600 font-medium">Item Quantity Status</span>
+                    <span className="font-bold text-stone-800 font-mono text-[11px]">
+                      Req: <span className="text-stone-900">{activeJob?.required_qty ?? currentOrder?.required_qty ?? 1}</span> &bull; Done: <span className="text-emerald-700">{activeJob?.completed_qty ?? currentOrder?.completed_qty ?? 0}</span> &bull; Pending: <span className="text-amber-800">{Math.max(0, (activeJob?.required_qty ?? currentOrder?.required_qty ?? 1) - (activeJob?.completed_qty ?? currentOrder?.completed_qty ?? 0))}</span>
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1619,6 +2066,7 @@ export default function WorkInProgress() {
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="border-b border-[#eed5d1] bg-[#fafaf9] text-[#78716c] font-bold uppercase text-[11px] tracking-wider">
+                    <th className="py-3 px-3 text-center w-12">S.No</th>
                     <th className="py-3 px-4">UPDATE DATE</th>
                     <th className="py-3 px-4">UPDATED BY</th>
                     <th className="py-3 px-4">UPDATE TYPE</th>
@@ -1627,25 +2075,37 @@ export default function WorkInProgress() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
-                  {paginatedTimelines.map((step, idx) => (
-                    <tr key={step.id || idx} className="hover:bg-stone-50/70 transition-colors">
-                      <td className="py-3.5 px-4 text-stone-700 font-medium whitespace-nowrap">
-                        {formatTimelineDate(step.created_at)}
-                      </td>
-                      <td className="py-3.5 px-4 text-stone-900 font-semibold whitespace-nowrap">
-                        {step.action_by_name || karigarName}
-                      </td>
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-                        {renderUpdateBadge(step.stage_label || step.stage)}
-                      </td>
-                      <td className="py-3.5 px-4 text-stone-700">
-                        {step.notes || step.stage_label || 'Work progress update'}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-bold text-stone-900 whitespace-nowrap">
-                        {formatWeight(step.completed_weight_at_step !== undefined ? step.completed_weight_at_step : completedWeight)}
+                  {paginatedTimelines.length === 0 ? (
+                    <tr>
+                      <td colSpan="6" className="py-8 text-center text-stone-400">
+                        <i className="fa-solid fa-clock-rotate-left text-2xl text-stone-300 block mb-2"></i>
+                        <span>No work progress timeline updates recorded yet for this order.</span>
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    paginatedTimelines.map((step, idx) => (
+                      <tr key={step.id || idx} className="hover:bg-stone-50/70 transition-colors">
+                        <td className="py-3.5 px-3 text-center font-mono font-bold text-stone-400 text-xs whitespace-nowrap">
+                          {startTimelineIndex + idx + 1}
+                        </td>
+                        <td className="py-3.5 px-4 text-stone-700 font-medium whitespace-nowrap">
+                          {formatTimelineDate(step.created_at)}
+                        </td>
+                        <td className="py-3.5 px-4 text-stone-900 font-semibold whitespace-nowrap">
+                          {step.action_by_name || karigarName}
+                        </td>
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          {renderUpdateBadge(step.stage_label || step.stage)}
+                        </td>
+                        <td className="py-3.5 px-4 text-stone-700">
+                          {step.notes || step.stage_label || 'Work progress update'}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-stone-900 whitespace-nowrap">
+                          {formatWeight(step.completed_weight_at_step !== undefined ? step.completed_weight_at_step : completedWeight)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1792,13 +2252,13 @@ export default function WorkInProgress() {
                   </div>
 
                   <div>
-                    <label className="block text-stone-600 font-semibold mb-0.5">Stone Wt (g)</label>
+                    <label className="block text-stone-600 font-semibold mb-0.5">Stone Wt (ct)</label>
                     <input
                       type="text"
                       value={inlineStoneWeight}
                       onKeyDown={handleDecimalKeyDown}
                       onChange={(e) => setInlineStoneWeight(sanitizeDecimal(e.target.value))}
-                      placeholder="e.g. 0.250"
+                      placeholder="e.g. 1.250"
                       className="w-full bg-stone-50 border border-stone-300 rounded-lg px-3 py-1.5 font-mono text-stone-900 focus:border-[#b01622]"
                     />
                   </div>

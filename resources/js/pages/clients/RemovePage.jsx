@@ -359,7 +359,8 @@ export default function RemovePage() {
           <table className="w-full text-left border-collapse min-w-[840px]">
             <thead>
               <tr className="bg-[#fff6f5] border-b border-[#fae5e3] text-[10.5px] font-bold uppercase tracking-wider text-[#9b4b4b]">
-                <th className="pl-4 pr-2 py-3.5 w-[18%]">CLIENT NAME</th>
+                <th className="pl-4 pr-2 py-3.5 text-center w-12">S.NO</th>
+                <th className="px-2 py-3.5 w-[18%]">CLIENT NAME</th>
                 <th className="px-2 py-3.5 w-[16%]">EMAIL / MOBILE</th>
                 <th className="px-2 py-3.5 w-[12%]">TOTAL PURCHASES</th>
                 <th className="px-2 py-3.5 w-[12%]">REMOVE DATE</th>
@@ -372,20 +373,24 @@ export default function RemovePage() {
             <tbody className="divide-y divide-gray-100 bg-white">
               {loading ? (
                 <tr>
-                  <td colSpan="8" className="py-12 text-center text-gray-400 text-xs">
+                  <td colSpan="9" className="py-12 text-center text-gray-400 text-xs">
                     <i className="fa-solid fa-circle-notch fa-spin text-xl text-[#a91d22] mr-2"></i>
                     Loading removed client records...
                   </td>
                 </tr>
               ) : paginatedClients.length === 0 ? (
                 <tr>
-                  <td colSpan="8" className="py-12 text-center text-gray-400 text-xs">
+                  <td colSpan="9" className="py-12 text-center text-gray-400 text-xs">
                     No removed clients match the selected criteria.
                   </td>
                 </tr>
               ) : (
                 paginatedClients.map((client, idx) => (
                   <tr key={client.id || idx} className="hover:bg-[#fffdfd] transition-colors">
+                    {/* S.NO */}
+                    <td className="pl-4 pr-2 py-3.5 text-center font-mono text-gray-500 font-semibold text-xs">
+                      {startIndex + idx + 1}
+                    </td>
                     
                     {/* CLIENT NAME (Initials Avatar + Bold Name) */}
                     <td className="pl-4 pr-2 py-3.5">

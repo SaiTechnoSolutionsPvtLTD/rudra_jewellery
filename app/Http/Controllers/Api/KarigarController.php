@@ -4,9 +4,12 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Karigar;
+use App\Helpers\GoldConversionHelper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 
 class KarigarController extends Controller
 {
@@ -133,6 +136,59 @@ class KarigarController extends Controller
             $currentOrder = $activeOrders->get($k->id)?->first();
             $wl = $workloadStats->get($k->id);
 
+            // Compute live bench metal WIP from active work orders
+            $activeWosForK = $activeOrders->get($k->id) ?? collect();
+            $liveBenchGold = (float) $activeWosForK->sum(function($wo) {
+                return (float) ($wo->pending_weight ?? max(0, ((float)$wo->allotted_weight + (float)($wo->additional_allocated_weight ?? 0)) - (float)$wo->completed_weight - (float)$wo->wastage_weight - (float)($wo->returned_weight ?? 0)));
+            });
+
+            $hasLedgerTxs = \App\Models\KarigarMaterialTransaction::where('karigar_id', $k->id)->exists();
+            if ($hasLedgerTxs) {
+                app(\App\Http\Controllers\Api\KarigarMaterialController::class)->syncKarigarBalances($k);
+                $k->refresh();
+                $k->bench_metal_wip = round((float)$k->current_gold_balance_grams, 3);
+            } else {
+                $k->bench_metal_wip = round($liveBenchGold, 3);
+                if (((float)$k->current_gold_balance_grams == 0 && $liveBenchGold > 0) || abs((float)$k->current_gold_balance_grams - $liveBenchGold) > 0.001) {
+                    $k->current_gold_balance_grams = round($liveBenchGold, 3);
+                    \App\Models\Karigar::where('id', $k->id)->update(['current_gold_balance_grams' => round($liveBenchGold, 3)]);
+                }
+            }
+
+            // Calculate pure 24K fine gold balance
+            $fineGoldBal = 0.0;
+            $diaCarats = 0.0;
+            $diaPcs = 0;
+            foreach ($activeWosForK as $wo) {
+                $m = strtolower($wo->material_type ?? '');
+                $purity = $wo->purity ?? $wo->material_type ?? '22K Gold';
+                $pnd = (float) ($wo->pending_weight ?? max(0, ((float)$wo->allotted_weight + (float)($wo->additional_allocated_weight ?? 0)) - (float)$wo->completed_weight - (float)$wo->wastage_weight - (float)($wo->returned_weight ?? 0)));
+                if (!str_contains($m, 'silver') && !str_contains($m, 'diamond')) {
+                    $fineGoldBal += GoldConversionHelper::convertTo24kPureWeight($pnd, $purity);
+                }
+                // Diamonds
+                if ($wo->relationLoaded('items') || $wo->items) {
+                    foreach ($wo->items as $itm) {
+                        $p = $itm->pricing_details ?? [];
+                        $st = $itm->stone_details ?? [];
+                        $qty = max(1, (int)($itm->required_qty ?? 1));
+                        $diaCarats += (float)($p['diamond_weight'] ?? $st['diamond_weight'] ?? 0) * $qty;
+                        $diaPcs += (int)($p['no_of_diamonds'] ?? $p['diamond_count'] ?? $st['diamond_count'] ?? 0) * $qty;
+                    }
+                }
+            }
+            if ($fineGoldBal == 0 && (float)$k->current_gold_balance_grams > 0) {
+                $fineGoldBal = GoldConversionHelper::convertTo24kPureWeight((float)$k->current_gold_balance_grams, '22K Gold');
+            }
+            $k->fine_gold_balance = round($fineGoldBal, 3);
+
+            // Compute financial cash balance
+            $karigarMatController = app(\App\Http\Controllers\Api\KarigarMaterialController::class);
+            $fin = $karigarMatController->calculateFinancialSummary($k->id);
+            $k->cash_balance = (float)($fin['net_balance'] ?? 0);
+            $k->diamond_balance_carats = round($diaCarats, 3);
+            $k->diamond_balance_pieces = $diaPcs;
+
             $k->current_assigned_order = $currentOrder ? [
                 'id' => $currentOrder->id,
                 'work_order_number' => $currentOrder->work_order_number,
@@ -186,26 +242,131 @@ class KarigarController extends Controller
     }
 
     /**
+     * Sanitize phone number to standard 10 digits.
+     */
+    private function sanitizePhone($val)
+    {
+        if (!$val) return $val;
+        $digits = preg_replace('/\D/', '', (string)$val);
+        if (strlen($digits) === 12 && str_starts_with($digits, '91')) {
+            $digits = substr($digits, 2);
+        } elseif (strlen($digits) === 11 && str_starts_with($digits, '0')) {
+            $digits = substr($digits, 1);
+        }
+        return strlen($digits) === 10 ? $digits : $val;
+    }
+
+    /**
+     * Process avatar input: handles uploaded file or base64 image data URI,
+     * stores the file in public storage, and returns the public path.
+     */
+    private function processAvatarInput(Request $request, $rawAvatar, $karigarId = null): ?string
+    {
+        // 1. Check for directly uploaded file
+        $fileKeys = ['avatar_file', 'avatar', 'avatar_url', 'image', 'photo'];
+        foreach ($fileKeys as $key) {
+            if ($request->hasFile($key)) {
+                $file = $request->file($key);
+                if ($file && $file->isValid()) {
+                    Storage::disk('public')->makeDirectory('karigars/avatars');
+                    $path = $file->store('karigars/avatars', 'public');
+
+                    // Also copy directly to public/storage for environment compatibility
+                    try {
+                        $publicStorageDir = public_path('storage/karigars/avatars');
+                        if (!file_exists($publicStorageDir)) {
+                            @mkdir($publicStorageDir, 0755, true);
+                        }
+                        $targetPath = public_path('storage/' . $path);
+                        @copy(storage_path('app/public/' . $path), $targetPath);
+                    } catch (\Exception $e) {
+                        Log::warning('Failed copying karigar avatar to public storage: ' . $e->getMessage());
+                    }
+
+                    return '/storage/' . $path;
+                }
+            }
+        }
+
+        if (empty($rawAvatar) || $rawAvatar === 'null' || $rawAvatar === 'undefined') {
+            return null;
+        }
+
+        $rawAvatar = trim((string)$rawAvatar);
+
+        // 2. Handle base64 data URI
+        if (stripos($rawAvatar, 'data:image') === 0) {
+            try {
+                if (preg_match('/^data:image\/([a-zA-Z0-9\+\-\.]+)(?:;[a-zA-Z0-9\=\-]+)*;base64,(.*)$/is', $rawAvatar, $matches)) {
+                    $rawType = strtolower($matches[1]);
+                    $base64Data = $matches[2];
+                } else {
+                    $commaPos = strpos($rawAvatar, ',');
+                    $header = substr($rawAvatar, 0, $commaPos);
+                    $base64Data = substr($rawAvatar, $commaPos + 1);
+                    preg_match('/data:image\/([a-zA-Z0-9\+\-\.]+)/i', $header, $typeMatch);
+                    $rawType = strtolower($typeMatch[1] ?? 'png');
+                }
+
+                $extMap = [
+                    'jpeg' => 'jpg',
+                    'jpg' => 'jpg',
+                    'png' => 'png',
+                    'webp' => 'webp',
+                    'gif' => 'gif',
+                    'svg+xml' => 'svg',
+                    'svg' => 'svg',
+                    'avif' => 'avif',
+                ];
+                $ext = $extMap[$rawType] ?? 'png';
+
+                $base64Data = str_replace(' ', '+', trim($base64Data));
+                $decoded = base64_decode($base64Data);
+
+                if ($decoded !== false && strlen($decoded) > 0) {
+                    Storage::disk('public')->makeDirectory('karigars/avatars');
+                    $fileName = 'karigars/avatars/karigar_' . ($karigarId ?: uniqid()) . '_' . time() . '.' . $ext;
+                    Storage::disk('public')->put($fileName, $decoded);
+
+                    try {
+                        $publicStorageDir = public_path('storage/karigars/avatars');
+                        if (!file_exists($publicStorageDir)) {
+                            @mkdir($publicStorageDir, 0755, true);
+                        }
+                        @file_put_contents(public_path('storage/' . $fileName), $decoded);
+                    } catch (\Exception $e) {
+                        Log::warning('Failed saving karigar avatar to public storage: ' . $e->getMessage());
+                    }
+
+                    return '/storage/' . $fileName;
+                }
+            } catch (\Exception $e) {
+                Log::error('Karigar avatar base64 processing error: ' . $e->getMessage());
+            }
+        }
+
+        // 3. If it's already a saved relative path or URL
+        if (str_starts_with($rawAvatar, '/storage/') || str_starts_with($rawAvatar, 'storage/')) {
+            return str_starts_with($rawAvatar, '/') ? $rawAvatar : '/' . $rawAvatar;
+        }
+
+        if (filter_var($rawAvatar, FILTER_VALIDATE_URL)) {
+            return $rawAvatar;
+        }
+
+        return $rawAvatar;
+    }
+
+    /**
      * Store a newly created karigar in storage.
      */
     public function store(Request $request)
     {
-        $sanitizePhone = function ($val) {
-            if (!$val) return $val;
-            $digits = preg_replace('/\D/', '', (string)$val);
-            if (strlen($digits) === 12 && str_starts_with($digits, '91')) {
-                $digits = substr($digits, 2);
-            } elseif (strlen($digits) === 11 && str_starts_with($digits, '0')) {
-                $digits = substr($digits, 1);
-            }
-            return strlen($digits) === 10 ? $digits : $val;
-        };
-
         if ($request->has('primary_phone')) {
-            $request->merge(['primary_phone' => $sanitizePhone($request->primary_phone)]);
+            $request->merge(['primary_phone' => $this->sanitizePhone($request->primary_phone)]);
         }
         if ($request->has('secondary_phone')) {
-            $request->merge(['secondary_phone' => $sanitizePhone($request->secondary_phone)]);
+            $request->merge(['secondary_phone' => $this->sanitizePhone($request->secondary_phone)]);
         }
 
         $validator = Validator::make($request->all(), [
@@ -231,7 +392,8 @@ class KarigarController extends Controller
             'making_charge_per_gram' => 'nullable|numeric|min:0',
             'current_gold_balance_grams' => 'nullable|numeric|min:0',
             'status' => 'nullable|in:active,on_leave,inactive',
-            'avatar_url' => 'nullable|string',
+            'avatar' => 'nullable',
+            'avatar_url' => 'nullable',
             'notes' => 'nullable|string',
         ]);
 
@@ -257,6 +419,14 @@ class KarigarController extends Controller
         if (!empty($data['email'])) {
             $data['email'] = strtolower(trim($data['email']));
         }
+
+        // Process avatar: write image to disk and save only public URL path in database
+        if ($request->has('avatar_url') || $request->has('avatar') || $request->hasFile('avatar_url') || $request->hasFile('avatar')) {
+            $rawAvatar = $request->input('avatar_url') ?? $request->input('avatar');
+            $data['avatar_url'] = $this->processAvatarInput($request, $rawAvatar);
+        }
+
+        unset($data['avatar']);
 
         $karigar = Karigar::create($data);
 
@@ -302,10 +472,10 @@ class KarigarController extends Controller
         }
 
         if ($request->has('primary_phone')) {
-            $request->merge(['primary_phone' => $sanitizePhone($request->primary_phone)]);
+            $request->merge(['primary_phone' => $this->sanitizePhone($request->primary_phone)]);
         }
         if ($request->has('secondary_phone')) {
-            $request->merge(['secondary_phone' => $sanitizePhone($request->secondary_phone)]);
+            $request->merge(['secondary_phone' => $this->sanitizePhone($request->secondary_phone)]);
         }
 
         $validator = Validator::make($request->all(), [
@@ -331,7 +501,8 @@ class KarigarController extends Controller
             'making_charge_per_gram' => 'nullable|numeric|min:0',
             'current_gold_balance_grams' => 'nullable|numeric|min:0',
             'status' => 'nullable|in:active,on_leave,inactive',
-            'avatar_url' => 'nullable|string',
+            'avatar' => 'nullable',
+            'avatar_url' => 'nullable',
             'notes' => 'nullable|string',
         ]);
 
@@ -347,6 +518,20 @@ class KarigarController extends Controller
         if (!empty($validatedData['email'])) {
             $validatedData['email'] = strtolower(trim($validatedData['email']));
         }
+
+        // Process avatar: write image to disk and save only public URL path in database
+        if ($request->has('avatar_url') || $request->has('avatar') || $request->hasFile('avatar_url') || $request->hasFile('avatar')) {
+            $rawAvatar = $request->input('avatar_url') ?? $request->input('avatar');
+            $newAvatar = $this->processAvatarInput($request, $rawAvatar, $karigar->id);
+            if ($karigar->avatar_url && $newAvatar !== $karigar->avatar_url && str_starts_with($karigar->avatar_url, '/storage/karigars/')) {
+                $oldRel = str_replace('/storage/', '', $karigar->avatar_url);
+                @Storage::disk('public')->delete($oldRel);
+                @unlink(public_path('storage/' . $oldRel));
+            }
+            $validatedData['avatar_url'] = $newAvatar;
+        }
+
+        unset($validatedData['avatar']);
 
         $karigar->update($validatedData);
 
@@ -380,149 +565,6 @@ class KarigarController extends Controller
     }
 
     /**
-     * Helper to populate initial master artisans.
-     */
-    private function seedInitialKarigars()
-    {
-        $initials = [
-            [
-                'karigar_code' => 'KRG-1001',
-                'name' => 'Rajesh Varma',
-                'primary_phone' => '+91 98401 23456',
-                'secondary_phone' => '+91 98401 23457',
-                'email' => 'rajesh.varma@craftgoldsmith.in',
-                'specialization' => 'Antique & Temple Work',
-                'experience_years' => 18,
-                'workshop_name' => 'Varma Handcrafted Filigree & Temple Arts',
-                'workshop_address' => 'No. 42, NSC Bose Road, Sowcarpet',
-                'city' => 'Chennai',
-                'state' => 'Tamil Nadu',
-                'zip_code' => '600079',
-                'pan_number' => 'ABCDE1234F',
-                'aadhar_number' => '4321 8765 2109',
-                'bank_name' => 'State Bank of India',
-                'account_number' => '30982415124',
-                'ifsc_code' => 'SBIN0001234',
-                'upi_id' => 'rajeshvarma@sbi',
-                'standard_wastage_percent' => 5.20,
-                'making_charge_per_gram' => 680.00,
-                'current_gold_balance_grams' => 142.500,
-                'status' => 'active',
-                'avatar_url' => 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-                'notes' => 'Master artisan specializing in 22K Nagas and South Indian traditional Temple necklace sets.',
-            ],
-            [
-                'karigar_code' => 'KRG-1002',
-                'name' => 'Suresh Achari',
-                'primary_phone' => '+91 97890 87654',
-                'secondary_phone' => null,
-                'email' => 'suresh.achari@gemsettings.com',
-                'specialization' => 'Diamond & Prong Setting',
-                'experience_years' => 14,
-                'workshop_name' => 'Precision Micro Pave Studio',
-                'workshop_address' => '12/4, Mint Street, George Town',
-                'city' => 'Chennai',
-                'state' => 'Tamil Nadu',
-                'zip_code' => '600001',
-                'pan_number' => 'FGHIJ5678K',
-                'aadhar_number' => '8765 4321 9876',
-                'bank_name' => 'HDFC Bank',
-                'account_number' => '501004128965',
-                'ifsc_code' => 'HDFC0000124',
-                'upi_id' => 'sureshadorn@hdfcbank',
-                'standard_wastage_percent' => 3.80,
-                'making_charge_per_gram' => 850.00,
-                'current_gold_balance_grams' => 88.250,
-                'status' => 'active',
-                'avatar_url' => 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
-                'notes' => 'Micro-prong and invisible diamond setter for solitaires, bridal sets and eternity rings.',
-            ],
-            [
-                'karigar_code' => 'KRG-1003',
-                'name' => 'Gopal Das',
-                'primary_phone' => '+91 94440 33221',
-                'secondary_phone' => '+91 94440 33222',
-                'email' => 'gopaldas.casting@gmail.com',
-                'specialization' => 'Plain Gold & Machine Casting',
-                'experience_years' => 12,
-                'workshop_name' => 'Das Casting & Vacuum Foundry',
-                'workshop_address' => 'Plot 88, SIDCO Industrial Estate, Guindy',
-                'city' => 'Chennai',
-                'state' => 'Tamil Nadu',
-                'zip_code' => '600032',
-                'pan_number' => 'KLMNO9012P',
-                'aadhar_number' => '1122 3344 5566',
-                'bank_name' => 'ICICI Bank',
-                'account_number' => '001105023412',
-                'ifsc_code' => 'ICIC0000011',
-                'upi_id' => 'gopaldas@icici',
-                'standard_wastage_percent' => 3.50,
-                'making_charge_per_gram' => 450.00,
-                'current_gold_balance_grams' => 210.800,
-                'status' => 'active',
-                'avatar_url' => 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80',
-                'notes' => 'High throughput automated centrifugal and vacuum casting. Handles daily bullion batches.',
-            ],
-            [
-                'karigar_code' => 'KRG-1004',
-                'name' => 'Babu Mistry',
-                'primary_phone' => '+91 98840 99887',
-                'secondary_phone' => null,
-                'email' => 'babu.mistry@jaipurenka.in',
-                'specialization' => 'Kundan & Meenakari',
-                'experience_years' => 22,
-                'workshop_name' => 'Royal Heritage Enamel Works',
-                'workshop_address' => '25, Govindappa Naicken Street',
-                'city' => 'Chennai',
-                'state' => 'Tamil Nadu',
-                'zip_code' => '600001',
-                'pan_number' => 'QRSTU3456V',
-                'aadhar_number' => '9988 7766 5544',
-                'bank_name' => 'Canara Bank',
-                'account_number' => '1205101034561',
-                'ifsc_code' => 'CNRB0001205',
-                'upi_id' => 'babumistry@upi',
-                'standard_wastage_percent' => 6.00,
-                'making_charge_per_gram' => 920.00,
-                'current_gold_balance_grams' => 64.100,
-                'status' => 'on_leave',
-                'avatar_url' => 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=150&auto=format&fit=crop&q=80',
-                'notes' => 'Expert in traditional reverse Jaipur meenakari enameling and jadau foil backing.',
-            ],
-            [
-                'karigar_code' => 'KRG-1005',
-                'name' => 'Kavitha Swaminathan',
-                'primary_phone' => '+91 94451 12389',
-                'secondary_phone' => '+91 94451 12390',
-                'email' => 'kavitha.swami@gemstonecraft.in',
-                'specialization' => 'Stone Setting & Polishing',
-                'experience_years' => 9,
-                'workshop_name' => 'Sri Lakshmi Gem Finishers',
-                'workshop_address' => '15, South Mada Street, Mylapore',
-                'city' => 'Chennai',
-                'state' => 'Tamil Nadu',
-                'zip_code' => '600004',
-                'pan_number' => 'WXYZ12345A',
-                'aadhar_number' => '3344 5566 7788',
-                'bank_name' => 'Axis Bank',
-                'account_number' => '916020045612348',
-                'ifsc_code' => 'UTIB0000054',
-                'upi_id' => 'kavithas@axisbank',
-                'standard_wastage_percent' => 4.20,
-                'making_charge_per_gram' => 520.00,
-                'current_gold_balance_grams' => 35.450,
-                'status' => 'active',
-                'avatar_url' => 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
-                'notes' => 'Specialized in semi-precious navaratna settings and high-luster rhodium finish.',
-            ],
-        ];
-
-        foreach ($initials as $item) {
-            Karigar::create($item);
-        }
-    }
-
-    /**
      * Get active and completed works assigned to a specific karigar
      */
     public function works(Request $request, $id)
@@ -551,6 +593,76 @@ class KarigarController extends Controller
             'completed_works' => $completedWorks,
             'active_count' => $activeWorks->count(),
             'completed_count' => $completedWorks->count(),
+        ]);
+    }
+
+    /**
+     * Get consolidated Metal Hisab (Settlement) summary and balance sheet for a Karigar.
+     */
+    public function hisabSummary(Request $request, $id)
+    {
+        $karigar = Karigar::findOrFail($id);
+
+        // 1. Raw Material Issues & Returns
+        $transactions = \App\Models\KarigarMaterialTransaction::where('karigar_id', $id)
+            ->with('rawMaterial')
+            ->latest('transaction_date')
+            ->get();
+
+        $totalIssuedGold = (float) $transactions->where('transaction_type', 'issue')->where('material_type', 'gold')->sum('quantity');
+        $totalReturnedGold = (float) $transactions->where('transaction_type', 'return')->where('material_type', 'gold')->sum('quantity');
+        $totalIssuedSilver = (float) $transactions->where('transaction_type', 'issue')->where('material_type', 'silver')->sum('quantity');
+        $totalReturnedSilver = (float) $transactions->where('transaction_type', 'return')->where('material_type', 'silver')->sum('quantity');
+
+        // 2. Finished Physical Pieces Received
+        $pieces = \App\Models\WorkOrderReceivedPiece::where('karigar_id', $id)
+            ->orWhereHas('workOrder', fn ($q) => $q->where('karigar_id', $id))
+            ->with(['workOrder:id,work_order_number,status', 'product:id,name,product_code'])
+            ->latest('received_at')
+            ->get();
+
+        $totalPiecesCount = $pieces->count();
+        $totalFinishedGross = (float) $pieces->sum('gross_weight');
+        $totalFinishedNetGold = (float) $pieces->sum('net_gold_weight');
+        $standardWastagePct = (float) ($karigar->standard_wastage_percent ?: 3.50);
+        $totalAllowedWastageGold = round($totalFinishedNetGold * ($standardWastagePct / 100), 3);
+        $totalMakingChargesEarned = round((float) $pieces->sum('total_making_charge'), 2);
+
+        // 3. Current Live Net Metal Balance Formula:
+        // Net Balance = (Issued Gold) - (Finished Pieces Net Gold + Direct Metal Returned + Allowed Wastage)
+        $accountedGold = round($totalFinishedNetGold + $totalReturnedGold + $totalAllowedWastageGold, 3);
+        $calculatedGoldBalance = round($totalIssuedGold - $accountedGold, 3);
+
+        // Fallback to model's live field if transactions are legacy
+        $liveGoldBalance = round((float) ($karigar->current_gold_balance_grams ?: $calculatedGoldBalance), 3);
+
+        return response()->json([
+            'status' => 'success',
+            'karigar' => [
+                'id' => $karigar->id,
+                'name' => $karigar->name,
+                'karigar_code' => $karigar->karigar_code,
+                'workshop_name' => $karigar->workshop_name,
+                'primary_phone' => $karigar->primary_phone,
+                'standard_wastage_percent' => $standardWastagePct,
+                'making_charge_per_gram' => (float) $karigar->making_charge_per_gram,
+                'current_gold_balance_grams' => $liveGoldBalance,
+            ],
+            'summary' => [
+                'total_issued_gold_grams' => round($totalIssuedGold, 3),
+                'total_returned_gold_grams' => round($totalReturnedGold, 3),
+                'total_pieces_produced' => $totalPiecesCount,
+                'total_finished_gross_weight' => round($totalFinishedGross, 3),
+                'total_finished_net_gold_grams' => round($totalFinishedNetGold, 3),
+                'total_allowed_wastage_grams' => $totalAllowedWastageGold,
+                'total_accounted_gold_grams' => $accountedGold,
+                'net_gold_balance_grams' => $liveGoldBalance,
+                'total_making_charges_earned' => $totalMakingChargesEarned,
+                'total_issued_silver_grams' => round($totalIssuedSilver, 3),
+                'total_returned_silver_grams' => round($totalReturnedSilver, 3),
+            ],
+            'recent_pieces' => $pieces->take(15)->values(),
+            'recent_transactions' => $transactions->take(15)->values(),
         ]);
     }
 }

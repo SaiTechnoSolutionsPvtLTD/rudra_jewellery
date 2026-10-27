@@ -48,6 +48,12 @@ export default function QualityCheckDetails() {
 
   const [selectedPieceNumber, setSelectedPieceNumber] = useState(queryPieceNumber || null);
 
+  // Editable Product Inspection Data (Finished Gross Weight, Diamond Wt/Count, Wastage)
+  const [qcFinishedWeight, setQcFinishedWeight] = useState('');
+  const [qcDiamondWeight, setQcDiamondWeight] = useState('');
+  const [qcDiamondCount, setQcDiamondCount] = useState('');
+  const [qcWastageWeight, setQcWastageWeight] = useState('');
+
   useEffect(() => {
     let mounted = true;
     const load = async () => {
@@ -131,6 +137,22 @@ export default function QualityCheckDetails() {
     setCurrentPage(1);
   }, [searchTerm]);
 
+  // Real-time synchronization: poll order details so Workbench wastage updates refresh QC Inspect Summary automatically
+  useEffect(() => {
+    if (!queryOrderId) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await api.get(`/work-orders/${queryOrderId}`);
+        if (res.data?.data) {
+          setOrder(res.data.data);
+        }
+      } catch (err) {
+        // silent sync catch
+      }
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [queryOrderId]);
+
   // Flatten every product/piece sent for QC into an individual row
   const allProductRows = useMemo(() => {
     const rows = [];
@@ -167,10 +189,17 @@ export default function QualityCheckDetails() {
             completed_weight: Number(piece.gross_weight || piece.completed_weight || wo.completed_weight || 0),
             qc_pending_qty: 1,
             piece_number: piece.piece_number || idx + 1,
-            submitted_date: piece.qc_checked_at || piece.created_at || wo.karigar_submitted_at || wo.updated_at,
-            status: wo.status,
-            current_stage: wo.current_stage,
-            is_returned: Boolean(wo.is_returned || (wo.return_count || 0) > 0),
+            status: piece.status || wo.status,
+            current_stage: piece.current_stage || wo.current_stage,
+            is_returned: Boolean(
+              piece.qc_submission_data?.is_resubmitted ||
+              piece.qc_submission_data?.is_returned ||
+              piece.qc_status === 'rejected' ||
+              piece.status === 'rework' ||
+              piece.status === 'returned' ||
+              (piece.return_count && Number(piece.return_count) > 0)
+            ),
+            rework_reason: piece.qc_notes || piece.qc_submission_data?.return_reason || null,
             thumbnail: wo.reference_image || wo.image_url || wo.design_image || null,
           });
         });
@@ -302,8 +331,106 @@ export default function QualityCheckDetails() {
   
   const receivedWeight = Number(activePiece?.gross_weight ?? activePiece?.completed_weight ?? activeJob?.completed_weight ?? order?.completed_weight ?? activeJob?.allotted_weight ?? order?.allotted_weight ?? 0);
   const allottedWeight = Number(activePiece?.allotted_weight ?? activeJob?.allotted_weight ?? order?.allotted_weight ?? receivedWeight);
-  const wastage = Number(order?.wastage_weight ?? (allottedWeight > receivedWeight ? (allottedWeight - receivedWeight) : 0));
-  const wastagePercent = Number(order?.wastage_allowed_percent ?? (receivedWeight > 0 ? ((wastage / receivedWeight) * 100) : 0));
+
+  // Pre-fill editable QC inspection values:
+  // Priority 1: Actual finished weight and diamond weight from Workbench
+  // Priority 2: Work Order specifications if moved directly to QC without workbench
+  const pieceQcData = activePiece?.qc_submission_data || {};
+  const isFromWorkbench = Boolean(
+    (activePiece?.gross_weight && Number(activePiece.gross_weight) > 0) ||
+    (activePiece?.completed_weight && Number(activePiece.completed_weight) > 0) ||
+    (pieceQcData.completed_weight && Number(pieceQcData.completed_weight) > 0) ||
+    (pieceQcData.gross_weight && Number(pieceQcData.gross_weight) > 0) ||
+    (activeJob?.completed_weight && Number(activeJob.completed_weight) > 0) ||
+    (order?.completed_weight && Number(order.completed_weight) > 0)
+  );
+
+  useEffect(() => {
+    if (!order) return;
+
+    // 1. Finished Gross Weight
+    const benchGross = activePiece?.gross_weight
+      ?? activePiece?.completed_weight
+      ?? pieceQcData.completed_weight
+      ?? pieceQcData.gross_weight
+      ?? activeJob?.completed_weight
+      ?? order?.completed_weight;
+
+    const fallbackGross = activeJob?.allotted_weight
+      ?? order?.expected_weight
+      ?? order?.allotted_weight
+      ?? order?.pricing_details?.total_gross_wt
+      ?? order?.pricing_details?.gold_weight
+      ?? '';
+
+    const initialGross = (benchGross !== undefined && benchGross !== null && Number(benchGross) > 0)
+      ? String(Number(benchGross).toFixed(3))
+      : (fallbackGross ? String(Number(fallbackGross).toFixed(3)) : '');
+
+    // 2. Diamond Weight (ct)
+    const benchDiaWt = activePiece?.diamond_weight
+      ?? pieceQcData.diamond_weight
+      ?? activeJob?.pricing_details?.diamond_weight
+      ?? order?.diamond_weight;
+
+    const fallbackDiaWt = order?.pricing_details?.diamond_weight
+      ?? order?.pricing_details?.total_dia_cts
+      ?? '';
+
+    const initialDiaWt = (benchDiaWt !== undefined && benchDiaWt !== null && benchDiaWt !== '')
+      ? String(benchDiaWt)
+      : (fallbackDiaWt ? String(fallbackDiaWt) : '');
+
+    // 3. Diamond Count (pcs)
+    const benchDiaCount = activePiece?.diamond_count
+      ?? pieceQcData.diamond_count
+      ?? activeJob?.pricing_details?.diamond_count
+      ?? order?.diamond_count;
+
+    const fallbackDiaCount = order?.pricing_details?.diamond_count
+      ?? order?.pricing_details?.no_of_diamonds
+      ?? '';
+
+    const initialDiaCount = (benchDiaCount !== undefined && benchDiaCount !== null && benchDiaCount !== '')
+      ? String(benchDiaCount)
+      : (fallbackDiaCount ? String(fallbackDiaCount) : '');
+
+    // 4. Gold Wastage (g)
+    const benchWastage = pieceQcData.wastage_weight
+      ?? pieceQcData.gold_wastage
+      ?? activeJob?.pricing_details?.wastage_weight
+      ?? activeJob?.pricing_details?.gold_wastage
+      ?? order?.wastage_weight;
+
+    const fallbackWastage = order?.pricing_details?.wastage_weight
+      ?? order?.pricing_details?.gold_wastage
+      ?? '';
+
+    const initialWastage = (benchWastage !== undefined && benchWastage !== null && benchWastage !== '')
+      ? String(benchWastage)
+      : (fallbackWastage ? String(fallbackWastage) : '');
+
+    setQcFinishedWeight(initialGross);
+    setQcDiamondWeight(initialDiaWt);
+    setQcDiamondCount(initialDiaCount);
+    setQcWastageWeight(initialWastage);
+  }, [order?.id, selectedJobId, selectedPieceId]);
+
+  const numFinishedGross = parseFloat(qcFinishedWeight) || 0;
+  const numDiaWt = parseFloat(qcDiamondWeight) || 0;
+  const numDiaCount = parseInt(qcDiamondCount, 10) || 0;
+  const numWastage = parseFloat(qcWastageWeight) || 0;
+  const calculatedNetGold = Math.max(0, numFinishedGross - (numDiaWt * 0.2));
+
+  // Legacy fallback compatibility
+  const reconciliation = {
+    purity: activePiece?.gold_karat || activePiece?.purity || activeJob?.purity || order?.purity || order?.karat || '22K',
+    touch: (activePiece?.purity && Number(activePiece.purity) > 1) ? Number(activePiece.purity) : (Number(order?.touch) || 91.6),
+    recorded_wastage_weight: numWastage,
+  };
+
+  const wastage = numWastage;
+  const wastagePercent = Number(order?.wastage_allowed_percent ?? (numFinishedGross > 0 ? ((wastage / numFinishedGross) * 100) : 0));
 
   useEffect(() => {
     setImageError(false);
@@ -327,6 +454,13 @@ export default function QualityCheckDetails() {
         piece_id: selectedPieceId || null,
         action: 'pass',
         quantity: pendingQc,
+        actual_weight: numFinishedGross > 0 ? numFinishedGross : null,
+        gross_weight: numFinishedGross > 0 ? numFinishedGross : null,
+        completed_weight: numFinishedGross > 0 ? numFinishedGross : null,
+        diamond_weight: numDiaWt,
+        diamond_count: numDiaCount,
+        wastage_weight: numWastage,
+        gold_wastage: numWastage,
         quality_notes: notes || 'Quality check approved.',
       });
       showToast(`${pendingQc} piece(s) approved! Moved to Ready / Certification.`, 'success');
@@ -346,10 +480,17 @@ export default function QualityCheckDetails() {
         work_order_item_id: activeJob?.id || null,
         piece_id: selectedPieceId || null,
         action: 'update_remarks',
+        actual_weight: numFinishedGross > 0 ? numFinishedGross : null,
+        gross_weight: numFinishedGross > 0 ? numFinishedGross : null,
+        completed_weight: numFinishedGross > 0 ? numFinishedGross : null,
+        diamond_weight: numDiaWt,
+        diamond_count: numDiaCount,
+        wastage_weight: numWastage,
+        gold_wastage: numWastage,
         notes: notes,
         remarks: notes,
       });
-      showToast('QC inspection remarks saved successfully!', 'success');
+      showToast('QC inspection details and weights saved successfully!', 'success');
     } catch (error) {
       showToast(error.response?.data?.message || 'Failed to save QC remarks.', 'error');
     } finally {
@@ -527,6 +668,7 @@ export default function QualityCheckDetails() {
               <table className="w-full text-left text-xs bg-white">
                 <thead>
                   <tr className="bg-stone-50 border-b border-stone-100 text-[11px] font-bold text-stone-500 uppercase tracking-wider">
+                    <th className="py-3 px-3 text-center w-12">S.NO</th>
                     <th className="py-3 px-4">WORK ORDER NO</th>
                     <th className="py-3 px-4 text-center">PRODUCT NO.</th>
                     <th className="py-3 px-4">PRODUCT &amp; DESIGN</th>
@@ -540,12 +682,15 @@ export default function QualityCheckDetails() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
-                  {paginatedProducts.map((row) => (
+                  {paginatedProducts.map((row, idx) => (
                     <tr
                       key={row.rowKey}
                       onClick={() => handleSelectProductRow(row)}
                       className="hover:bg-stone-50/80 transition-colors cursor-pointer group"
                     >
+                      <td className="py-3.5 px-3 text-center font-mono font-bold text-stone-400 text-xs">
+                        {startIndex + idx + 1}
+                      </td>
                       <td className="py-3.5 px-4">
                         <span className="font-mono font-bold text-[#b01622] group-hover:underline">
                           {row.work_order_number}
@@ -792,6 +937,7 @@ export default function QualityCheckDetails() {
                   <table className="w-full text-xs text-left">
                     <thead>
                       <tr className="border-b border-stone-200 text-[10.5px] font-bold text-stone-500 uppercase tracking-wider bg-stone-100/80">
+                        <th className="py-2.5 px-3 text-center w-12">S.NO</th>
                         <th className="py-2.5 px-3">CHECK POINT</th>
                         <th className="py-2.5 px-3">STANDARD</th>
                         <th className="py-2.5 px-3">RESULT</th>
@@ -799,23 +945,28 @@ export default function QualityCheckDetails() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-stone-200">
-                      {checkItems.map((item) => {
+                      {checkItems.map((item, idx) => {
                         const statusVal = statuses[item.key] || 'Accept';
                         let expectedText = item.expected;
                         if (item.key === 'purity') {
-                          expectedText = order?.karat || activeJob?.karat || order?.purity || '22K (916)';
+                          expectedText = activeJob?.gold_purity || order?.gold_purity || activeJob?.purity || order?.purity || (activeJob?.gold_karat ? `${activeJob.gold_karat}K` : '22K (916)');
                         } else if (item.key === 'weight') {
-                          expectedText = allottedWeight > 0 ? `${allottedWeight.toFixed(3)} gm` : `${receivedWeight.toFixed(3)} gm`;
+                          expectedText = allottedWeight > 0 ? `${allottedWeight.toFixed(3)} gm` : (activeJob?.gold_weight ? `${Number(activeJob.gold_weight).toFixed(3)} gm` : `${receivedWeight.toFixed(3)} gm`);
                         } else if (item.key === 'diamond') {
                           const diaCt = activeJob?.diamond_weight || order?.diamond_weight;
-                          const diaCnt = activeJob?.diamond_count || order?.diamond_count;
-                          expectedText = diaCt ? `${diaCnt || 1} Pcs / ${diaCt} Ct` : (order?.stone_details?.clarity ? `${order.stone_details.clarity} / ${order.stone_details.color || 'G'}` : 'VVS1 / G - Good');
+                          const diaCnt = activeJob?.diamond_count || order?.diamond_count || activeJob?.no_of_diamonds;
+                          expectedText = diaCt && diaCt !== '—' ? `${diaCnt || 1} Pcs / ${diaCt} Ct` : (activeJob?.diamond_details || order?.stone_details?.clarity ? `${order.stone_details?.clarity || 'VVS'} / ${order.stone_details?.color || 'G'}` : 'As per work order');
+                        } else if (item.key === 'polish') {
+                          expectedText = activeJob?.setting_type ? `${activeJob.setting_type} / High Finish` : 'Standard High Polish';
                         }
 
                         return (
                           <tr key={item.key} className="hover:bg-white transition-colors">
+                            <td className="py-3.5 px-3 text-center font-mono font-bold text-stone-400 text-xs">
+                              {idx + 1}
+                            </td>
                             <td className="py-3.5 px-3 font-medium text-stone-900">{item.label}</td>
-                            <td className="py-3.5 px-3 text-stone-600">{expectedText}</td>
+                            <td className="py-3.5 px-3 text-stone-700 font-semibold">{expectedText}</td>
                             <td className="py-3.5 px-3">
                               <select
                                 value={statusVal}
@@ -841,6 +992,28 @@ export default function QualityCheckDetails() {
                       })}
                     </tbody>
                   </table>
+                </div>
+              </div>
+
+              {/* Work Order Instructions & Remarks Verification Box */}
+              <div className="bg-amber-50/60 border border-amber-200/80 rounded-2xl p-5 shadow-2xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5 uppercase tracking-wider">
+                    <i className="fa-solid fa-clipboard-check text-amber-800"></i>
+                    Work Order Crafting Remarks &amp; Instructions
+                  </span>
+                  <label className="flex items-center gap-1.5 cursor-pointer text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-300 shadow-2xs">
+                    <input
+                      type="checkbox"
+                      checked={statuses.wo_remarks_verified === 'Accept'}
+                      onChange={(e) => setStatuses(prev => ({ ...prev, wo_remarks_verified: e.target.checked ? 'Accept' : 'Pending' }))}
+                      className="accent-emerald-700 w-4 h-4 cursor-pointer"
+                    />
+                    <span>Verified All Work Order Remarks</span>
+                  </label>
+                </div>
+                <div className="bg-white p-3 rounded-xl border border-amber-200/70 text-xs text-stone-800 font-mono leading-relaxed">
+                  {order?.crafting_instructions || activeJob?.remark || order?.remarks || 'Craft according to standard approved showroom CAD design and specified metal purity.'}
                 </div>
               </div>
 
@@ -917,57 +1090,143 @@ export default function QualityCheckDetails() {
               </div>
 
               <div className="bg-white rounded-2xl border border-stone-200/80 p-6 shadow-2xs space-y-6">
-                <h2 className="text-base font-bold text-stone-900 tracking-tight">Inspection Summary</h2>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-base font-bold text-stone-900 tracking-tight">Inspection Summary</h2>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                    isFromWorkbench 
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' 
+                      : 'bg-amber-50 text-amber-800 border border-amber-200'
+                  }`}>
+                    {isFromWorkbench ? 'From Workbench' : 'From Work Order'}
+                  </span>
+                </div>
 
                 <div className="bg-stone-50/70 rounded-xl border border-stone-200 p-4 space-y-4 text-xs">
-                  <div className="flex justify-between items-center">
-                    <span className="text-stone-500">Received Weight</span>
-                    <span className="font-mono font-bold text-stone-900 text-sm">
-                      {receivedWeight.toFixed(3)}g
+                  {/* Actual Finished Weight (Gross Wt) */}
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-600 mb-1">
+                      Actual Finished Weight (g) <span className="text-[#b01622]">*</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="0.001"
+                        min="0"
+                        value={qcFinishedWeight}
+                        onChange={(e) => setQcFinishedWeight(e.target.value)}
+                        placeholder="0.000"
+                        className="w-full bg-white border border-stone-300 rounded-lg px-3 py-2 text-sm font-mono font-bold text-stone-900 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622]"
+                      />
+                      <span className="absolute right-3 top-2.5 text-xs font-semibold text-stone-400">g</span>
+                    </div>
+                  </div>
+
+                  {/* Diamond Weight & Diamond Count */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-600 mb-1">
+                        Diamond Wt (ct)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.001"
+                          min="0"
+                          value={qcDiamondWeight}
+                          onChange={(e) => setQcDiamondWeight(e.target.value)}
+                          placeholder="0.000"
+                          className="w-full bg-white border border-stone-300 rounded-lg px-3 py-2 text-sm font-mono font-bold text-stone-900 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622]"
+                        />
+                        <span className="absolute right-3 top-2.5 text-xs font-semibold text-stone-400">ct</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-600 mb-1">
+                        Diamond Pcs
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="1"
+                          min="0"
+                          value={qcDiamondCount}
+                          onChange={(e) => setQcDiamondCount(e.target.value)}
+                          placeholder="0"
+                          className="w-full bg-white border border-stone-300 rounded-lg px-3 py-2 text-sm font-mono font-bold text-stone-900 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622]"
+                        />
+                        <span className="absolute right-3 top-2.5 text-xs font-semibold text-stone-400">pcs</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Gold Wastage */}
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-600 mb-1">
+                      Gold Wastage (g)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="0.001"
+                        min="0"
+                        value={qcWastageWeight}
+                        onChange={(e) => setQcWastageWeight(e.target.value)}
+                        placeholder="0.000"
+                        className="w-full bg-white border border-stone-300 rounded-lg px-3 py-2 text-sm font-mono font-bold text-amber-900 focus:outline-none focus:border-[#b01622] focus:ring-1 focus:ring-[#b01622]"
+                      />
+                      <span className="absolute right-3 top-2.5 text-xs font-semibold text-stone-400">g</span>
+                    </div>
+                  </div>
+
+                  {/* Calculated Net Gold Weight */}
+                  <div className="flex justify-between items-center py-2 px-3 bg-amber-50/70 border border-amber-200/80 rounded-lg">
+                    <span className="text-[11px] font-bold text-amber-900">Calculated Net Gold Wt:</span>
+                    <span className="font-mono font-bold text-sm text-amber-950">
+                      {calculatedNetGold.toFixed(3)}g
                     </span>
                   </div>
 
-                  <div className="flex justify-between items-center">
-                    <span className="text-stone-500">Wastage (gm)</span>
-                    <span className="font-mono font-bold text-stone-900 text-sm">
-                      {wastage.toFixed(3)}g
-                    </span>
-                  </div>
+                  {/* Save weights button */}
+                  <button
+                    type="button"
+                    onClick={handleSaveRemarks}
+                    disabled={saving}
+                    className="w-full py-2 bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-300 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  >
+                    <i className="fa-solid fa-floppy-disk text-xs text-stone-600"></i>
+                    <span>Save / Update Weights &amp; Wastage</span>
+                  </button>
 
-                  <div className="flex justify-between items-center">
-                    <span className="text-stone-500">Wastage (%)</span>
-                    <span className="font-mono font-bold text-stone-900 text-sm">
-                      {wastagePercent.toFixed(2)}%
-                    </span>
-                  </div>
+                  {/* Status, Verified By, Verification Date */}
+                  <div className="pt-2 border-t border-stone-200/60 space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-stone-500">QC Status</span>
+                      {order?.status === 'completed' || order?.approved_at ? (
+                        <span className="px-2.5 py-0.5 rounded bg-[#E6F4EA] text-[#137333] font-semibold text-[11px]">
+                          Approved
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-0.5 rounded bg-[#EBF5FF] text-[#1E429F] border border-[#BFDBFE] font-semibold text-[11px]">
+                          Pending Verification
+                        </span>
+                      )}
+                    </div>
 
-                  <div className="flex justify-between items-center">
-                    <span className="text-stone-500">QC Status</span>
-                    {order?.status === 'completed' || order?.approved_at ? (
-                      <span className="px-2.5 py-0.5 rounded bg-[#E6F4EA] text-[#137333] font-semibold text-[11px]">
-                        Approved
+                    <div className="flex justify-between items-center">
+                      <span className="text-stone-500">Verified By</span>
+                      <span className="font-bold text-gray-900 text-xs">
+                        {order?.approved_by_user?.name || order?.verified_by || 'Floor Manager'}
                       </span>
-                    ) : (
-                      <span className="px-2.5 py-0.5 rounded bg-[#EBF5FF] text-[#1E429F] border border-[#BFDBFE] font-semibold text-[11px]">
-                        Pending Verification
+                    </div>
+
+                    <div className="flex justify-between items-center">
+                      <span className="text-stone-500">Verification Date</span>
+                      <span className="font-medium text-gray-900 text-xs">
+                        {order?.approved_at
+                          ? new Date(order.approved_at).toLocaleString('en-GB')
+                          : new Date().toLocaleDateString('en-GB')}
                       </span>
-                    )}
-                  </div>
-
-                  <div className="flex justify-between items-center">
-                    <span className="text-stone-500">Verified By</span>
-                    <span className="font-bold text-gray-900 text-xs">
-                      {order?.approved_by_user?.name || order?.verified_by || 'Floor Manager'}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between items-center">
-                    <span className="text-stone-500">Verification Date</span>
-                    <span className="font-medium text-gray-900 text-xs">
-                      {order?.approved_at
-                        ? new Date(order.approved_at).toLocaleString('en-GB')
-                        : new Date().toLocaleDateString('en-GB')}
-                    </span>
+                    </div>
                   </div>
                 </div>
 

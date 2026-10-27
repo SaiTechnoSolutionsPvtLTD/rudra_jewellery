@@ -6,6 +6,7 @@ import QuickDropdownCrudModal from '../../components/QuickDropdownCrudModal';
 import { STAMP_OPTIONS, GOLD_STAMP_OPTIONS, DIAMOND_STAMP_OPTIONS, STONE_SIZE_OPTIONS, STONE_COLOR_OPTIONS } from '../../constants/productOptions';
 import { cleanProductName } from '../../utils/formatters';
 import Pagination from '../../components/Pagination';
+import { isDiamondComponent } from '../../components/JewelleryTagCard';
 
 export default function InventoryViewProduct() {
   const { id } = useParams();
@@ -26,8 +27,12 @@ export default function InventoryViewProduct() {
   const [huid, setHuid] = useState('');
   const [movements, setMovements] = useState([]);
   const [pieceTags, setPieceTags] = useState([]);
+  const [childPiecesSummary, setChildPiecesSummary] = useState(null);
+  const [tagFilterStatus, setTagFilterStatus] = useState('available'); // 'available', 'sold', 'all'
+  const [tagSearchQuery, setTagSearchQuery] = useState('');
+  const [selectedPieceModal, setSelectedPieceModal] = useState(null);
   const [tagsPage, setTagsPage] = useState(1);
-  const [tagsPerPage, setTagsPerPage] = useState(5);
+  const [tagsPerPage, setTagsPerPage] = useState(10);
 
   // Pagination for stock movements
   const [currentPage, setCurrentPage] = useState(1);
@@ -121,7 +126,7 @@ export default function InventoryViewProduct() {
     try {
       setLoading(true);
       const res = await api.get(`/inventory/products/${id}`);
-      const tagsRes = await api.get(`/inventory/products/${id}/tags`).catch(() => ({ data: { data: [] } }));
+      const tagsRes = await api.get(`/inventory/products/${id}/tags?status=all`).catch(() => ({ data: { data: [], summary: {} } }));
       const p = res.data.product;
       const attrs = res.data.attributes || {};
       setProduct(p);
@@ -129,8 +134,10 @@ export default function InventoryViewProduct() {
       setKarigar(res.data.karigar || null);
       const effectiveHuid = res.data.huid || attrs.huid || ('H-' + String(p.id).padStart(6, '0'));
       setHuid(effectiveHuid);
-      setMovements(res.data.movements || []);
-      setPieceTags((tagsRes.data?.data || []).filter((piece) => Boolean(piece.tag_number)));
+      const rawTags = tagsRes.data?.data || [];
+      setPieceTags(rawTags);
+      setChildPiecesSummary(tagsRes.data?.summary || res.data?.child_pieces_summary || null);
+      setMovements(Array.isArray(res.data.movements) ? res.data.movements : []);
       setTagsPage(1);
 
       const rawImgs = res.data.images || [];
@@ -140,13 +147,11 @@ export default function InventoryViewProduct() {
       setImages(cleanImgs.length > 0 ? cleanImgs : [p.image || p.image_url || '/placeholder-jewelry.png']);
 
       // Preload diamond details from attributes or components
-      const diaComp = Array.isArray(attrs.components) ? attrs.components.find((c) => {
-        const n = (c.category_name || c.item_name || c.component_type || '').toLowerCase();
-        return c.is_diamond || n.includes('diamond') || n.includes('dia');
-      }) : null;
+      const diaComp = Array.isArray(attrs.components) ? attrs.components.find(isDiamondComponent) : null;
+      const isCaratUnit = diaComp && (diaComp.unit === 'ct' || diaComp.unit === 'Carats' || diaComp.unit === 'carat');
       const initialDiaStamp = attrs.diamond_stamp || diaComp?.stamp || '';
       const initialGoldStamp = attrs.stamp || attrs.gold_stamp || attrs.hallmark || (attrs.purity?.includes('22') ? '916' : '750');
-      const initialDiaWt = attrs.dia_wt_ct || attrs.diamond_wt || (diaComp ? (diaComp.stone_weight || diaComp.gross_wt) : '');
+      const initialDiaWt = attrs.dia_wt_ct || attrs.diamond_wt || (diaComp ? (diaComp.stone_weight || (isCaratUnit ? diaComp.gross_wt : '')) : '');
       const initialDiaCount = attrs.diamond_count || attrs.dia_count || (diaComp ? diaComp.no_of_pieces : '');
 
       // Preload edit form
@@ -284,23 +289,72 @@ export default function InventoryViewProduct() {
   const stockQtyNum = Number(product.current_stock_qty ?? product.opening_stock_qty ?? 1);
   const quantity = String(stockQtyNum).padStart(2, '0');
 
+  // Extract diamonds and colour stones components first to derive non-metal weights
+  const rawProductComps = Array.isArray(attributes?.components) ? attributes.components : [];
+  // Deduplicate identical component entries if any were inadvertently saved
+  const productComps = rawProductComps.filter((c, index, arr) => {
+    return arr.findIndex((other) => {
+      const typeA = (c.component_type || c.category_name || '').toLowerCase();
+      const typeB = (other.component_type || other.category_name || '').toLowerCase();
+      const stampA = c.stamp || c.diamond_stamp || c.size || '';
+      const stampB = other.stamp || other.diamond_stamp || other.size || '';
+      const wtA = Number(c.stone_weight ?? c.weight ?? c.gross_wt ?? 0);
+      const wtB = Number(other.stone_weight ?? other.weight ?? other.gross_wt ?? 0);
+      const pcsA = Number(c.no_of_pieces ?? c.quantity ?? 1);
+      const pcsB = Number(other.no_of_pieces ?? other.quantity ?? 1);
+      return typeA === typeB && stampA === stampB && Math.abs(wtA - wtB) < 0.001 && pcsA === pcsB;
+    }) === index;
+  });
+  const diaComps = productComps.filter(c => c.is_diamond || (c.component_type && c.component_type.toLowerCase().includes('diamond')) || (c.category_name && c.category_name.toLowerCase().includes('diamond')) || (c.item_name && c.item_name.toLowerCase().includes('diamond')));
+  const diaWtFromComps = diaComps.reduce((sum, c) => sum + (parseFloat(c.stone_weight ?? c.gross_wt ?? c.weight ?? 0) || 0), 0);
+  const diaPcsFromComps = diaComps.reduce((sum, c) => sum + (parseInt(c.no_of_pieces ?? c.quantity ?? 1, 10) || 0), 0);
+  const diamondWeight = diaWtFromComps > 0 ? diaWtFromComps : parseFloat(attributes.dia_wt_ct ?? attributes.diamond_weight ?? product.diamond_weight ?? 0);
+  const diamondCount = diaPcsFromComps > 0 ? diaPcsFromComps : parseInt(attributes.diamond_count ?? attributes.dia_count ?? product.diamond_count ?? 0, 10);
+  const diamondStamp = attributes.diamond_stamp || product.diamond_stamp || (diaComps[0]?.stamp && diaComps[0]?.stamp !== '0.00' ? diaComps[0]?.stamp : null);
+  const diamondPurchaseRate = parseFloat(attributes.diamond_purchase_rate ?? diaComps[0]?.purchase_rate ?? 0);
+  const diamondPurchaseValue = parseFloat(attributes.diamond_purchase_value ?? diaComps[0]?.purchase_value ?? (diamondPurchaseRate > 0 && diamondWeight > 0 ? diamondWeight * diamondPurchaseRate : 0));
+
+  const stoneComps = productComps.filter(c => (c.is_stone || (c.component_type && (c.component_type.toLowerCase().includes('stone') || c.component_type.toLowerCase().includes('colour') || c.component_type.toLowerCase().includes('gem'))) || (c.category_name && (c.category_name.toLowerCase().includes('stone') || c.category_name.toLowerCase().includes('colour') || c.category_name.toLowerCase().includes('gem')))) && !c.is_diamond && !(c.component_type && c.component_type.toLowerCase().includes('diamond')) && !(c.category_name && c.category_name.toLowerCase().includes('diamond')));
+  const stoneWtFromComps = stoneComps.reduce((sum, c) => sum + (parseFloat(c.stone_weight ?? c.gross_wt ?? c.weight ?? 0) || 0), 0);
+  const stonePcsFromComps = stoneComps.reduce((sum, c) => sum + (parseInt(c.no_of_pieces ?? c.quantity ?? 1, 10) || 0), 0);
+  const stoneWeight = stoneWtFromComps > 0 ? stoneWtFromComps : parseFloat(attributes.stone_weight ?? 0);
+  const stoneCount = stonePcsFromComps > 0 ? stonePcsFromComps : parseInt(attributes.stone_count ?? attributes.stone_pieces ?? 0, 10);
+  const stoneStamp = attributes.stone_stamp || (stoneComps[0]?.stamp && stoneComps[0]?.stamp !== '0.00' ? stoneComps[0]?.stamp : null);
+  const stonePurchaseRate = parseFloat(attributes.stone_purchase_rate ?? stoneComps[0]?.purchase_rate ?? 0);
+  const stonePurchaseValue = parseFloat(attributes.stone_purchase_value ?? stoneComps[0]?.purchase_value ?? (stonePurchaseRate > 0 && stoneWeight > 0 ? stoneWeight * stonePurchaseRate : 0));
+
+  // Convert diamond and stone carats into grams (Standard: 1 ct = 0.200 g)
+  const diamondGrams = Number((diamondWeight * 0.2).toFixed(3));
+  const isStoneInGrams = (stoneComps[0]?.unit || attributes.stone_unit || '').toLowerCase() === 'g';
+  const stoneGrams = Number((isStoneInGrams ? stoneWeight : (stoneWeight * 0.2)).toFixed(3));
+  const totalNonMetalGrams = Number((diamondGrams + stoneGrams).toFixed(3));
+
   // Distinguish single product (per-piece) weights from total stock weight
   const rawGross = parseFloat(attributes.gross_wt ?? product.opening_stock_weight ?? 0);
-  const rawNet = parseFloat(attributes.net_wt ?? product.opening_fine_weight ?? rawGross);
   const totalStockWt = parseFloat(attributes.total_stock_weight ?? product.opening_stock_weight ?? (rawGross * stockQtyNum));
 
-  // Determine single product unit weight (if raw attributes was stored as aggregated sum across units, derive per-product weight)
+  // Determine single product gross weight (total finished weight including all components)
   const singleGrossWt = attributes.unit_gross_wt
     ? parseFloat(attributes.unit_gross_wt)
     : (stockQtyNum > 1 && Math.abs(rawGross - totalStockWt) < 0.1
         ? Number((rawGross / stockQtyNum).toFixed(3))
         : rawGross);
 
-  const singleNetWt = attributes.unit_net_wt
-    ? parseFloat(attributes.unit_net_wt)
-    : (stockQtyNum > 1 && rawNet > singleGrossWt
-        ? Number((rawNet / stockQtyNum).toFixed(3))
-        : rawNet);
+  // Flow: Total Gross Weight contains all components.
+  // Net Gold Wt = Gross Wt - (Diamond converted to g + Stone converted to g).
+  // Net Wt (e.g. 44.6g) + Diamond in g (0.4g) = Gross Wt (45g)
+  let calculatedNetWt = singleGrossWt;
+  if (totalNonMetalGrams > 0 && singleGrossWt > totalNonMetalGrams) {
+    const rawNetCandidate = parseFloat(attributes.net_wt ?? product.opening_fine_weight ?? 0);
+    if (rawNetCandidate > 0 && rawNetCandidate < singleGrossWt && Math.abs(rawNetCandidate - (singleGrossWt - totalNonMetalGrams)) < 0.05) {
+      calculatedNetWt = rawNetCandidate;
+    } else {
+      calculatedNetWt = Number((singleGrossWt - totalNonMetalGrams).toFixed(3));
+    }
+  } else if (parseFloat(attributes.net_wt ?? product.opening_fine_weight ?? 0) > 0) {
+    calculatedNetWt = parseFloat(attributes.net_wt ?? product.opening_fine_weight);
+  }
+  const singleNetWt = calculatedNetWt;
 
   const purity = attributes.purity || attributes.gold_type || attributes.karat || attributes.stamp || '22K Gold';
   const quality = attributes.quality || attributes.setting_style || attributes.stamp || 'Standard';
@@ -317,7 +371,6 @@ export default function InventoryViewProduct() {
     : (isLow ? 'bg-amber-50 text-amber-700 border-amber-200/80' : 'bg-rose-50 text-rose-700 border-rose-200/80');
   const statusDotClass = isHealthy ? 'bg-emerald-500' : (isLow ? 'bg-amber-500' : 'bg-rose-500');
 
-
   const karigarName = vendorName;
   const karigarInitials = vendorInitials;
   const karigarWorkshop = attributes.vendor_company || karigar?.workshop_name || 'Registered Vendor';
@@ -326,16 +379,105 @@ export default function InventoryViewProduct() {
     ? new Date(product.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
     : '—';
 
+  // Valuation & Financial Calculations
+  const goldPurchaseRate = parseFloat(attributes.purchase_rate ?? attributes.gold_purchase_rate ?? product.purchase_rate ?? 0);
+  const goldPurchaseValue = parseFloat(attributes.gold_purchase_value ?? (goldPurchaseRate > 0 && singleNetWt > 0 ? (singleNetWt * goldPurchaseRate) : 0));
+
+  const parsePurityPercent = (purityStr) => {
+    if (!purityStr) return 91.6;
+    const str = String(purityStr).toLowerCase();
+    if (str.includes('24') || str.includes('999')) return 99.9;
+    if (str.includes('22') || str.includes('916')) return 91.6;
+    if (str.includes('18') || str.includes('750')) return 75.0;
+    if (str.includes('14') || str.includes('585')) return 58.5;
+    if (str.includes('10')) return 41.7;
+    const m = str.match(/(\d+(?:\.\d+)?)\s*%/);
+    if (m) return parseFloat(m[1]);
+    const num = parseFloat(str);
+    if (!isNaN(num) && num > 0 && num <= 100) return num;
+    return 91.6;
+  };
+  const purityPercentage = parsePurityPercent(purity);
+  const fineGoldWeight = Number((singleNetWt * (purityPercentage / 100)).toFixed(3));
+
+  let totalComponentPieces = 0;
+  if (Array.isArray(productComps)) {
+    productComps.forEach((c) => {
+      const cPcs = parseInt(c.no_of_pieces ?? c.quantity ?? 1, 10);
+      totalComponentPieces += cPcs;
+    });
+  }
+
+  const overallPurchaseValue = Number((goldPurchaseValue + diamondPurchaseValue + stonePurchaseValue).toFixed(2));
+
+  // Unified helper: checks if a piece is sold, invoiced, or delivered
+  const isPieceSold = (piece) => {
+    if (!piece) return false;
+    if (piece.status === 'sold' || Boolean(piece.invoice_id) || Boolean(piece.invoice_no)) return true;
+    const woStatus = (piece.work_order?.status || piece.work_order_status || '').toLowerCase();
+    const woStage = (piece.work_order?.current_stage || '').toLowerCase();
+    if (woStatus === 'delivered' || woStage === 'delivered' || Boolean(piece.is_delivered)) return true;
+    return false;
+  };
+
+  // Child Pieces & Physical Tags Calculations
+  const hasPieces = pieceTags.length > 0;
+  const availablePiecesList = pieceTags.filter((p) => p.tag_number && !isPieceSold(p));
+  const soldPiecesList = pieceTags.filter((p) => p.tag_number && isPieceSold(p));
+
+  const totalPiecesCount = childPiecesSummary?.total_pieces ?? pieceTags.length;
+  const availablePiecesCount = childPiecesSummary?.available_count ?? availablePiecesList.length;
+  const soldPiecesCount = childPiecesSummary?.sold_count ?? soldPiecesList.length;
+
+  const availableGrossWeight = childPiecesSummary?.available_gross_weight ?? availablePiecesList.reduce((sum, p) => sum + Number(p.gross_weight || 0), 0);
+  const availableNetWeight = childPiecesSummary?.available_net_weight ?? availablePiecesList.reduce((sum, p) => sum + Number(p.net_gold_weight || 0), 0);
+  const availableFineWeight = childPiecesSummary?.available_fine_weight ?? availablePiecesList.reduce((sum, p) => sum + Number(p.pure_24k_weight || 0), 0);
+  const availableDiamondWeight = childPiecesSummary?.available_diamond_weight ?? availablePiecesList.reduce((sum, p) => sum + Number(p.diamond_weight || 0), 0);
+  const availableStoneWeight = childPiecesSummary?.available_stone_weight ?? availablePiecesList.reduce((sum, p) => sum + Number(p.color_stone_weight || 0), 0);
+  const availablePurchaseVal = childPiecesSummary?.available_purchase_value ?? availablePiecesList.reduce((sum, p) => sum + Number(p.purchase_value || 0), 0);
+
+  const effectiveStockQty = hasPieces ? availablePiecesCount : stockQtyNum;
+  const effectiveTotalStockWt = hasPieces && availableGrossWeight > 0 ? Number(availableGrossWeight.toFixed(3)) : totalStockWt;
+  const effectiveNetWt = hasPieces && availableNetWeight > 0 ? Number(availableNetWeight.toFixed(3)) : singleNetWt;
+  const effectiveFineWt = hasPieces && availableFineWeight > 0 ? Number(availableFineWeight.toFixed(3)) : fineGoldWeight;
+  const effectivePurchaseVal = hasPieces && availablePurchaseVal > 0 ? availablePurchaseVal : overallPurchaseValue;
+
+  // Filtered physical pieces for table: automatically removes sold pieces from 'available' view
+  const filteredPieceTags = pieceTags.filter((piece) => {
+    if (!piece.tag_number) return false;
+    const isSold = isPieceSold(piece);
+    if (tagFilterStatus === 'available' && isSold) return false;
+    if (tagFilterStatus === 'sold' && !isSold) return false;
+
+    if (tagSearchQuery.trim()) {
+      const q = tagSearchQuery.toLowerCase().trim();
+      const tagMatch = String(piece.tag_number || '').toLowerCase().includes(q);
+      const rwoMatch = String(piece.receive_order_number || '').toLowerCase().includes(q);
+      const woMatch = String(piece.work_order_number || piece.work_order?.work_order_number || '').toLowerCase().includes(q);
+      const statusMatch = String(piece.status || '').toLowerCase().includes(q);
+      const karigarMatch = String(piece.karigar_name || piece.karigar?.name || '').toLowerCase().includes(q);
+      if (!tagMatch && !rwoMatch && !woMatch && !statusMatch && !karigarMatch) return false;
+    }
+    return true;
+  });
+
+  // Sort newest first by default
+  const sortedPieceTags = [...filteredPieceTags].sort((a, b) => {
+    const timeA = new Date(a.received_at || a.created_at || 0).getTime();
+    const timeB = new Date(b.received_at || b.created_at || 0).getTime();
+    return timeB - timeA;
+  });
+
   // Stock movements pagination calculations
   const totalMovements = movements.length;
   const totalPages = Math.ceil(totalMovements / movementsPerPage) || 1;
   const currentMovements = movements.slice((currentPage - 1) * movementsPerPage, currentPage * movementsPerPage);
 
   // Physical piece tags pagination calculations
-  const tagsTotal = pieceTags.length;
+  const tagsTotal = sortedPieceTags.length;
   const tagsTotalPages = Math.max(1, Math.ceil(tagsTotal / tagsPerPage));
   const currentTagsPage = Math.min(tagsPage, tagsTotalPages);
-  const paginatedPieceTags = pieceTags.slice((currentTagsPage - 1) * tagsPerPage, currentTagsPage * tagsPerPage);
+  const paginatedPieceTags = sortedPieceTags.slice((currentTagsPage - 1) * tagsPerPage, currentTagsPage * tagsPerPage);
 
   const getActionBadgeStyle = (actionType = '') => {
     const typeLower = actionType.toLowerCase();
@@ -359,6 +501,15 @@ export default function InventoryViewProduct() {
     if (str.startsWith('+')) return 'text-emerald-600 font-bold';
     if (str.startsWith('-')) return 'text-rose-600 font-bold';
     return 'text-stone-800 font-bold';
+  };
+
+  const calculateDaysSince = (dateStr) => {
+    if (!dateStr) return 0;
+    const created = new Date(dateStr);
+    if (isNaN(created.getTime())) return 0;
+    const now = new Date();
+    const diffTime = Math.max(0, now.getTime() - created.getTime());
+    return Math.floor(diffTime / (1000 * 60 * 60 * 24));
   };
 
   return (
@@ -557,6 +708,15 @@ export default function InventoryViewProduct() {
               </div>
 
               <div>
+                <span className="block text-[10.5px] font-bold text-amber-700 uppercase tracking-wider mb-1">
+                  NET GOLD WEIGHT
+                </span>
+                <span className="font-bold text-amber-900 text-sm font-mono block">
+                  {singleNetWt.toFixed(3)}g
+                </span>
+              </div>
+
+              <div>
                 <span className="block text-[10.5px] font-bold text-stone-400 uppercase tracking-wider mb-1">
                   CURRENT QUANTITY
                 </span>
@@ -565,27 +725,87 @@ export default function InventoryViewProduct() {
                 </span>
               </div>
 
+              <div>
+                <span className="block text-[10.5px] font-bold text-stone-400 uppercase tracking-wider mb-1">
+                  FINE GOLD WEIGHT
+                </span>
+                <span className="font-bold text-amber-700 text-sm font-mono block">
+                  {fineGoldWeight.toFixed(3)}g ({purityPercentage}%)
+                </span>
+              </div>
+
+              <div>
+                <span className="block text-[10.5px] font-bold text-blue-700 uppercase tracking-wider mb-1">
+                  TOTAL DIAMOND WEIGHT
+                </span>
+                <span className="font-bold text-blue-900 text-sm font-mono block">
+                  {diamondWeight > 0 ? `${diamondWeight.toFixed(3)} ct ${diamondCount > 0 ? `(${diamondCount} Pcs)` : ''} (${diamondGrams.toFixed(3)}g)` : '—'}
+                </span>
+              </div>
+
+              <div>
+                <span className="block text-[10.5px] font-bold text-emerald-700 uppercase tracking-wider mb-1">
+                  TOTAL COLOUR STONE WEIGHT
+                </span>
+                <span className="font-bold text-emerald-900 text-sm font-mono block">
+                  {stoneWeight > 0 ? `${stoneWeight.toFixed(3)} ct ${stoneCount > 0 ? `(${stoneCount} Pcs)` : ''} (${stoneGrams.toFixed(3)}g)` : '—'}
+                </span>
+              </div>
+
+              <div>
+                <span className="block text-[10.5px] font-bold text-stone-400 uppercase tracking-wider mb-1">
+                  GOLD PURCHASE RATE
+                </span>
+                <span className="font-bold text-stone-900 text-sm font-mono block">
+                  {goldPurchaseRate > 0 ? `₹${goldPurchaseRate.toLocaleString('en-IN')}/g` : '—'}
+                </span>
+              </div>
+
+              <div>
+                <span className="block text-[10.5px] font-bold text-stone-400 uppercase tracking-wider mb-1">
+                  GOLD PURCHASE VALUE
+                </span>
+                <span className="font-extrabold text-[#b01622] text-sm font-mono block">
+                  {goldPurchaseValue > 0 ? `₹${goldPurchaseValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '—'}
+                </span>
+              </div>
+
+              <div>
+                <span className="block text-[10.5px] font-bold text-stone-400 uppercase tracking-wider mb-1">
+                  OVERALL PURCHASE VALUE
+                </span>
+                <span className="font-black text-emerald-800 text-sm font-mono block">
+                  {overallPurchaseValue > 0 ? `₹${overallPurchaseValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '—'}
+                </span>
+              </div>
+
             </div>
 
             {/* Stock Weight & Available Units Banner */}
-            <div className="bg-stone-50 px-6 py-4 border-t border-stone-200/80 flex items-center justify-between">
+            <div className="bg-stone-50 px-6 py-4 border-t border-stone-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <span className="block text-[10.5px] font-bold text-stone-500 uppercase tracking-wider">
-                  NET WEIGHT / PURITY
+                  {hasPieces ? 'AVAILABLE NET WT / PURITY / FINE WT' : 'NET WEIGHT / PURITY / FINE WT'}
                 </span>
                 <span className="text-xl font-black text-stone-900 tracking-tight block mt-0.5 font-mono">
-                  {singleNetWt}g &bull; {purity}
+                  {effectiveNetWt}g &bull; {purity} <span className="text-sm font-semibold text-amber-800 font-mono">({effectiveFineWt.toFixed(3)}g Pure)</span>
+                  {diamondWeight > 0 && (
+                    <span className="text-xs font-bold text-blue-700 font-mono ml-2">({diamondWeight.toFixed(3)}ct Dia{diamondCount > 0 ? ` - ${diamondCount} Pcs` : ''} = {diamondGrams.toFixed(3)}g)</span>
+                  )}
+                  {stoneWeight > 0 && (
+                    <span className="text-xs font-bold text-emerald-700 font-mono ml-2">({stoneWeight.toFixed(3)}ct Stone{stoneCount > 0 ? ` - ${stoneCount} Pcs` : ''} = {stoneGrams.toFixed(3)}g)</span>
+                  )}
                 </span>
               </div>
-              <div className="text-right">
+              <div className="text-left sm:text-right">
                 <span className="block text-[10.5px] font-bold text-stone-500 uppercase tracking-wider">
-                  STOCK QUANTITY
+                  {hasPieces ? 'AVAILABLE PIECES & PURCHASE VALUATION' : 'STOCK QUANTITY & VALUATION'}
                 </span>
                 <span className="text-xl font-black text-[#b01622] tracking-tight block mt-0.5 font-mono">
-                  {quantity} Units
+                  {effectiveStockQty} Available {effectivePurchaseVal > 0 && <span className="text-sm font-bold text-emerald-700 ml-1 font-mono">(&#8377;{effectivePurchaseVal.toLocaleString('en-IN', { maximumFractionDigits: 2 })})</span>}
                 </span>
                 <span className="text-[11px] font-medium text-stone-500 block">
-                  Total Stock: {totalStockWt}g
+                  {hasPieces ? `Total Gross Wt: ${effectiveTotalStockWt}g (${totalPiecesCount} pieces received)` : `Total Stock: ${totalStockWt}g`}
                 </span>
               </div>
             </div>
@@ -668,7 +888,7 @@ export default function InventoryViewProduct() {
 
 
       {/* Product Components & Breakdown Section */}
-      {Array.isArray(attributes?.components) && attributes.components.length > 0 && (
+      {Array.isArray(productComps) && productComps.length > 0 && (
         <section className="bg-white rounded-2xl border border-stone-200/90 shadow-2xs overflow-hidden">
           <div className="p-5 border-b border-stone-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-stone-50/50">
             <div>
@@ -685,25 +905,25 @@ export default function InventoryViewProduct() {
             <div className="flex flex-wrap items-center gap-2">
               <span className="px-2.5 py-1 rounded-lg bg-stone-100 text-stone-700 text-xs font-semibold border border-stone-200">
                 <i className="fa-solid fa-layer-group mr-1.5 text-stone-500"></i>
-                {attributes.components.length} Component{attributes.components.length > 1 ? 's' : ''}
+                {productComps.length} Component{productComps.length > 1 ? 's' : ''}
               </span>
               {(() => {
-                const diaPcs = attributes.components.filter(c => c.is_diamond || (c.component_type && c.component_type.toLowerCase().includes('diamond')) || (c.category_name && c.category_name.toLowerCase().includes('diamond'))).reduce((sum, c) => sum + (parseInt(c.no_of_pieces) || 0), 0);
-                const diaWt = attributes.components.filter(c => c.is_diamond || (c.component_type && c.component_type.toLowerCase().includes('diamond')) || (c.category_name && c.category_name.toLowerCase().includes('diamond'))).reduce((sum, c) => sum + (parseFloat(c.stone_weight || c.weight) || 0), 0);
+                const diaPcs = diamondCount;
+                const diaWt = diamondWeight;
                 return diaPcs > 0 ? (
-                  <span className="px-2.5 py-1 rounded-lg bg-red-50 text-[#b01622] text-xs font-semibold border border-red-200">
+                  <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold border border-blue-200">
                     <i className="fa-regular fa-gem mr-1.5"></i>
                     {diaPcs} Diamonds ({diaWt.toFixed(3)} ct)
                   </span>
                 ) : null;
               })()}
               {(() => {
-                const stonePcs = attributes.components.filter(c => c.is_stone || (c.component_type && (c.component_type.toLowerCase().includes('stone') || c.component_type.toLowerCase().includes('colour'))) && !(c.component_type && c.component_type.toLowerCase().includes('diamond'))).reduce((sum, c) => sum + (parseInt(c.no_of_pieces) || 0), 0);
-                const stoneWt = attributes.components.filter(c => c.is_stone || (c.component_type && (c.component_type.toLowerCase().includes('stone') || c.component_type.toLowerCase().includes('colour'))) && !(c.component_type && c.component_type.toLowerCase().includes('diamond'))).reduce((sum, c) => sum + (parseFloat(c.stone_weight || c.weight) || 0), 0);
+                const stonePcs = stoneCount;
+                const stoneWt = stoneWeight;
                 return stonePcs > 0 ? (
-                  <span className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 text-xs font-semibold border border-amber-200">
+                  <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 text-xs font-semibold border border-emerald-200">
                     <i className="fa-solid fa-shapes mr-1.5"></i>
-                    {stonePcs} Colour Stones ({stoneWt.toFixed(3)}g)
+                    {stonePcs} Colour Stones ({stoneWt.toFixed(3)} ct)
                   </span>
                 ) : null;
               })()}
@@ -721,12 +941,64 @@ export default function InventoryViewProduct() {
                   <th className="py-3 px-4 text-center">Pieces</th>
                   <th className="py-3 px-4 text-right">Weight</th>
                   <th className="py-3 px-4 text-center">Unit</th>
+                  <th className="py-3 px-4 text-right">Unit Rate</th>
+                  <th className="py-3 px-4 text-right">Purchase Value</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {attributes.components.map((comp, idx) => {
-                  const isDia = comp.is_diamond || (comp.component_type && comp.component_type.toLowerCase().includes('diamond')) || (comp.category_name && comp.category_name.toLowerCase().includes('diamond'));
-                  const isStone = comp.is_stone || (comp.component_type && comp.component_type.toLowerCase().includes('stone')) || (comp.component_type && comp.component_type.toLowerCase().includes('colour'));
+                {productComps.map((comp, idx) => {
+                  const isDia = comp.is_diamond || (comp.component_type && comp.component_type.toLowerCase().includes('diamond')) || (comp.category_name && comp.category_name.toLowerCase().includes('diamond')) || (comp.item_name && comp.item_name.toLowerCase().includes('diamond'));
+                  const isStone = comp.is_stone || (comp.component_type && (comp.component_type.toLowerCase().includes('stone') || comp.component_type.toLowerCase().includes('colour') || comp.component_type.toLowerCase().includes('gem'))) || (comp.category_name && (comp.category_name.toLowerCase().includes('stone') || comp.category_name.toLowerCase().includes('colour') || comp.category_name.toLowerCase().includes('gem')));
+                  const isPrimaryMetal = !isDia && !isStone;
+
+                  // Weight resolution:
+                  // Primary metal weight is the net gold weight (e.g. 44.600g).
+                  // Diamond weight is individual diamond component weight in carats (2.000 ct).
+                  // Stone weight is colour stone weight (in ct or g).
+                  const cWt = isPrimaryMetal
+                    ? (parseFloat(comp.weight ?? comp.net_wt ?? 0) || singleNetWt)
+                    : (parseFloat(comp.stone_weight ?? comp.weight ?? comp.gross_wt ?? 0) || (isDia ? (diamondWeight / (diaComps.length || 1)) : (isStone ? (stoneWeight / (stoneComps.length || 1)) : 0)));
+
+                  const cRate = (parseFloat(comp.purchase_rate ?? 0) > 0)
+                    ? parseFloat(comp.purchase_rate)
+                    : (isPrimaryMetal ? goldPurchaseRate : (isDia ? diamondPurchaseRate : stonePurchaseRate));
+
+                  const cVal = (comp.purchase_value !== undefined && comp.purchase_value !== null && comp.purchase_value !== '' && parseFloat(comp.purchase_value) > 0)
+                    ? parseFloat(comp.purchase_value)
+                    : (cRate > 0 && cWt > 0 ? cWt * cRate : 0);
+
+                  const unitLabel = isPrimaryMetal ? 'g' : (comp.unit || (isDia || isStone ? 'ct' : 'g'));
+
+                  // Type resolution: with respect to the product category (Gold/Silver/Platinum) for primary metal, and Diamond/Stone for others
+                  let displayType = comp.component_type;
+                  if (isDia) {
+                    displayType = 'Diamond';
+                  } else if (isStone) {
+                    displayType = 'Stone';
+                  } else {
+                    const cat = (comp.category_name || categoryName || '').toLowerCase();
+                    if (cat.includes('gold')) {
+                      displayType = 'Gold';
+                    } else if (cat.includes('silver')) {
+                      displayType = 'Silver';
+                    } else if (cat.includes('platinum')) {
+                      displayType = 'Platinum';
+                    } else if (displayType === 'Metal' || !displayType) {
+                      displayType = categoryName || 'Gold';
+                    }
+                  }
+
+                  // Stamp resolution: For diamond and stone, display stamp (or diamond_stamp / stone_stamp / sieve_size)
+                  const compStamp = comp.stamp && comp.stamp !== '0.00' && comp.stamp !== '0'
+                    ? comp.stamp
+                    : (isDia
+                        ? (comp.diamond_stamp || attributes.diamond_stamp || diamondStamp || comp.sieve_size || '—')
+                        : (isStone
+                            ? (comp.stone_stamp || attributes.stone_stamp || stoneStamp || comp.sieve_size || '—')
+                            : (comp.stamp && comp.stamp !== '0.00' ? comp.stamp : (attributes.stamp || attributes.gold_stamp || '916'))
+                          )
+                      );
+
                   return (
                     <tr key={comp.id_temp || idx} className="hover:bg-stone-50/70 transition-colors">
                       <td className="py-3 px-4 text-center text-stone-400 font-mono text-[11px]">
@@ -744,26 +1016,283 @@ export default function InventoryViewProduct() {
                       </td>
                       <td className="py-3 px-4">
                         <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
-                          isDia
-                            ? 'bg-red-50 text-[#b01622] border-red-200'
-                            : isStone
+                          displayType === 'Diamond'
+                            ? 'bg-blue-50 text-blue-700 border-blue-200'
+                            : displayType === 'Stone' || displayType === 'Colour Stone'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : displayType === 'Gold'
                             ? 'bg-amber-50 text-amber-800 border-amber-200'
+                            : displayType === 'Silver'
+                            ? 'bg-slate-100 text-slate-800 border-slate-300'
                             : 'bg-stone-100 text-stone-700 border-stone-200'
                         }`}>
-                          {comp.component_type || (isDia ? 'Diamond' : (isStone ? 'Colour Stone' : 'Metal'))}
+                          {displayType}
                         </span>
                       </td>
                       <td className="py-3 px-4 font-mono font-bold text-stone-800">
-                        {comp.stamp || comp.size || '—'}
+                        {compStamp}
                       </td>
                       <td className="py-3 px-4 text-center font-mono font-bold text-stone-900">
-                        {comp.no_of_pieces || 1}
+                        {comp.no_of_pieces || comp.quantity || 1}
                       </td>
                       <td className="py-3 px-4 text-right font-mono font-bold text-stone-900">
-                        {Number(comp.stone_weight || comp.gross_wt || comp.weight || 0).toFixed(3)}
+                        {cWt.toFixed(3)}
                       </td>
                       <td className="py-3 px-4 text-center font-mono text-stone-600">
-                        {comp.unit || (isDia ? 'ct' : 'g')}
+                        {unitLabel}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-medium text-stone-700">
+                        {cRate > 0 ? `₹${cRate.toLocaleString('en-IN')}/${unitLabel}` : '—'}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-[#b01622]">
+                        {cVal > 0 ? `₹${cVal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="bg-stone-50 border-t-2 border-stone-200 text-stone-800 font-bold">
+                  <td colSpan="4" className="py-3 px-4 uppercase text-[10px] tracking-wider text-stone-600">
+                    Total Components ({productComps.length})
+                  </td>
+                  <td className="py-3 px-4 text-center font-mono font-bold text-stone-900">
+                    {totalComponentPieces}
+                  </td>
+                  <td className="py-3 px-4 text-right font-mono font-bold text-stone-900">
+                    {singleGrossWt.toFixed(3)}
+                  </td>
+                  <td className="py-3 px-4 text-center font-mono text-stone-600">g</td>
+                  <td className="py-3 px-4 text-right font-mono text-stone-400">—</td>
+                  <td className="py-3 px-4 text-right font-mono font-black text-[#b01622]">
+                    {overallPurchaseValue > 0 ? `₹${overallPurchaseValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '—'}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </section>
+      )}
+
+      <section className="bg-white rounded-2xl border border-stone-200/90 shadow-2xs overflow-hidden">
+        {/* Section Header */}
+        <div className="p-5 border-b border-stone-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h2 className="text-base font-bold text-[#b01622] flex items-center gap-2">
+                <i className="fa-solid fa-tags text-sm"></i>
+                <span>Received Pieces / Available Tags</span>
+              </h2>
+              <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
+                {availablePiecesCount} Available
+              </span>
+              {soldPiecesCount > 0 && (
+                <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 border border-stone-200">
+                  {soldPiecesCount} Sold
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-stone-400 mt-1">
+              Every manufactured child piece received from Karigars, linked to this parent design with actual measured weights.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+            <Link
+              to={`/inventory/products/${id}/jewellery-tag`}
+              className="px-3.5 py-1.5 bg-white border border-stone-300 hover:border-stone-400 text-[#b01622] text-xs font-bold rounded-xl flex items-center gap-2 shadow-2xs transition-colors"
+            >
+              <i className="fa-solid fa-barcode"></i>
+              Master Label ({product.product_code || product.sku || `SKU-${product.id}`})
+            </Link>
+          </div>
+        </div>
+
+        {/* Filter and Search Bar */}
+        <div className="p-4 bg-stone-50/70 border-b border-stone-200/80 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5 self-start sm:self-auto">
+            <span className="text-xs font-bold text-stone-500 mr-1">Status:</span>
+            <button
+              type="button"
+              onClick={() => { setTagFilterStatus('available'); setTagsPage(1); }}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                tagFilterStatus === 'available'
+                  ? 'bg-[#b01622] text-white shadow-2xs'
+                  : 'bg-white border border-stone-200 text-stone-600 hover:bg-stone-100'
+              }`}
+            >
+              Available ({availablePiecesCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => { setTagFilterStatus('sold'); setTagsPage(1); }}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                tagFilterStatus === 'sold'
+                  ? 'bg-[#b01622] text-white shadow-2xs'
+                  : 'bg-white border border-stone-200 text-stone-600 hover:bg-stone-100'
+              }`}
+            >
+              Sold ({soldPiecesCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => { setTagFilterStatus('all'); setTagsPage(1); }}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                tagFilterStatus === 'all'
+                  ? 'bg-[#b01622] text-white shadow-2xs'
+                  : 'bg-white border border-stone-200 text-stone-600 hover:bg-stone-100'
+              }`}
+            >
+              All Pieces ({totalPiecesCount})
+            </button>
+          </div>
+
+          <div className="relative w-full sm:w-72">
+            <input
+              type="text"
+              value={tagSearchQuery}
+              onChange={(e) => { setTagSearchQuery(e.target.value); setTagsPage(1); }}
+              placeholder="Search Tag, RWO #, WO #..."
+              className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-stone-300 rounded-xl focus:outline-hidden focus:border-[#b01622]"
+            />
+            <i className="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-xs text-stone-400"></i>
+          </div>
+        </div>
+
+        {/* Pieces Table */}
+        {sortedPieceTags.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-stone-50 border-b border-stone-200 text-stone-500 font-bold uppercase text-[10px] tracking-wider whitespace-nowrap">
+                  <th className="py-3 px-3 w-10 text-center">#</th>
+                  <th className="py-3 px-4">Tag Number</th>
+                  <th className="py-3 px-4">Receive WO</th>
+                  <th className="py-3 px-4">Work Order</th>
+                  <th className="py-3 px-3 text-center whitespace-nowrap">Age (Days)</th>
+                  <th className="py-3 px-3 text-right">Gross Wt</th>
+                  <th className="py-3 px-3 text-right">Net Gold</th>
+                  <th className="py-3 px-3 text-right">Fine (24K)</th>
+                  <th className="py-3 px-3 text-center">Purity</th>
+                  <th className="py-3 px-3 text-right">Dia (ct)</th>
+                  <th className="py-3 px-3 text-right">Stone (ct)</th>
+                  <th className="py-3 px-3 text-right">Silver</th>
+                  <th className="py-3 px-4 text-right">Purchase Val</th>
+                  <th className="py-3 px-3 text-center">Status</th>
+                  <th className="py-3 px-4 whitespace-nowrap">Received Date</th>
+                  <th className="py-3 px-4 text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {paginatedPieceTags.map((piece, idx) => {
+                  const rowNum = (currentTagsPage - 1) * tagsPerPage + idx + 1;
+                  const isSold = isPieceSold(piece);
+                  const daysOld = piece.days_since_received != null
+                    ? piece.days_since_received
+                    : calculateDaysSince(piece.received_at || piece.created_at);
+                  const receivedDateText = piece.received_at
+                    ? new Date(piece.received_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                    : (piece.created_at ? new Date(piece.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+                  const pVal = Number(piece.purchase_value || 0);
+
+                  return (
+                    <tr
+                      key={piece.id}
+                      onClick={() => setSelectedPieceModal(piece)}
+                      className={`hover:bg-red-50/30 transition-colors cursor-pointer select-none ${
+                        isSold ? 'bg-stone-50/40 text-stone-400' : ''
+                      }`}
+                    >
+                      <td className="py-3 px-3 text-center font-mono text-stone-400 font-medium">{rowNum}</td>
+                      <td className="py-3 px-4 font-mono font-bold text-stone-900 whitespace-nowrap">
+                        <span className="bg-red-50 text-[#b01622] border border-red-200/80 px-2 py-0.5 rounded-md">
+                          {piece.tag_number}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 font-mono text-stone-700 whitespace-nowrap">
+                        {piece.receive_order_number || '—'}
+                      </td>
+                      <td className="py-3 px-4 font-mono text-stone-600 whitespace-nowrap">
+                        {piece.work_order_number || piece.work_order?.work_order_number || `WO-${piece.work_order_id || '—'}`}
+                      </td>
+                      <td className="py-3 px-3 text-center font-mono whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center justify-center min-w-[34px] px-2 py-0.5 rounded-md text-xs font-bold font-mono border shadow-2xs ${
+                            daysOld > 60
+                              ? 'bg-rose-50 text-rose-800 border-rose-200'
+                              : daysOld > 30
+                              ? 'bg-amber-50 text-amber-900 border-amber-200'
+                              : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                          }`}
+                          title={`${daysOld} day${daysOld === 1 ? '' : 's'} since received into stock`}
+                        >
+                          {daysOld}d
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono font-semibold text-stone-800 whitespace-nowrap">
+                        {piece.gross_weight != null ? `${Number(piece.gross_weight).toFixed(3)}g` : '—'}
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono font-bold text-[#b01622] whitespace-nowrap">
+                        {piece.net_gold_weight != null ? `${Number(piece.net_gold_weight).toFixed(3)}g` : '—'}
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono text-amber-800 whitespace-nowrap">
+                        {piece.pure_24k_weight != null ? `${Number(piece.pure_24k_weight).toFixed(3)}g` : '—'}
+                      </td>
+                      <td className="py-3 px-3 text-center font-medium whitespace-nowrap">
+                        <span className="text-[11px] px-1.5 py-0.5 rounded bg-stone-100 text-stone-700 font-mono">
+                          {piece.purity || '22K'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
+                        {piece.diamond_weight > 0 ? (
+                          <span className="text-sky-700 font-semibold">{Number(piece.diamond_weight).toFixed(3)}</span>
+                        ) : '—'}
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
+                        {piece.color_stone_weight > 0 ? (
+                          <span className="text-purple-700 font-semibold">{Number(piece.color_stone_weight).toFixed(3)}</span>
+                        ) : '—'}
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
+                        {piece.silver_weight > 0 ? `${Number(piece.silver_weight).toFixed(3)}g` : '—'}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-stone-800 whitespace-nowrap">
+                        {pVal > 0 ? `₹${pVal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '—'}
+                      </td>
+                      <td className="py-3 px-3 text-center whitespace-nowrap">
+                        {isSold ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-stone-200 text-stone-700">
+                            Sold
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            Available
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap text-stone-600 font-mono text-[11px]">
+                        {receivedDateText}
+                      </td>
+                      <td className="py-3 px-4 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedPieceModal(piece)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-stone-100 hover:bg-[#b01622] hover:text-white text-stone-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                            title="View Piece Details"
+                          >
+                            <i className="fa-solid fa-eye text-[10px]"></i>
+                            <span>View</span>
+                          </button>
+                          <Link
+                            to={`/job-order/tag-printing?tag=${encodeURIComponent(piece.tag_number)}`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold rounded-lg transition-colors"
+                            title={`Print tag ${piece.tag_number}`}
+                          >
+                            <i className="fa-solid fa-print text-[10px]"></i>
+                            <span>Print</span>
+                          </Link>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -771,64 +1300,31 @@ export default function InventoryViewProduct() {
               </tbody>
             </table>
           </div>
-        </section>
-      )}
-
-      <section className="bg-white rounded-2xl border border-stone-200/90 shadow-2xs overflow-hidden">
-        <div className="p-5 border-b border-stone-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm sm:text-base font-bold text-[#b01622]">Physical Piece Tags</h2>
-            <p className="text-xs text-stone-400 mt-0.5">Tags are issued to individual received pieces linked to this product master.</p>
-          </div>
-          <Link
-            to={`/inventory/products/${id}/jewellery-tag`}
-            className="px-3.5 py-1.5 bg-white border border-stone-300 text-[#b01622] text-xs font-bold rounded-xl flex items-center gap-2"
-          >
-            <i className="fa-solid fa-barcode"></i>
-            Master Label ({product.product_code || product.sku || `SKU-${product.id}`})
-          </Link>
-        </div>
-        {pieceTags.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-stone-50 border-b border-stone-100 text-stone-500 font-bold uppercase text-[10px]">
-                  <th className="py-3 px-5">Physical Tag</th>
-                  <th className="py-3 px-4">Work Order</th>
-                  <th className="py-3 px-4">Piece</th>
-                  <th className="py-3 px-4 text-right">Gross Wt</th>
-                  <th className="py-3 px-4 text-right">Net Gold Wt</th>
-                  <th className="py-3 px-5 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-stone-100">
-                {paginatedPieceTags.map((piece) => (
-                  <tr key={piece.id} className="hover:bg-stone-50/70">
-                    <td className="py-3 px-5 font-mono font-bold text-stone-900">{piece.tag_number}</td>
-                    <td className="py-3 px-4 font-mono text-[#b01622]">{piece.work_order?.work_order_number || `WO-${piece.work_order_id}`}</td>
-                    <td className="py-3 px-4">#{piece.piece_number}</td>
-                    <td className="py-3 px-4 text-right font-mono">{piece.gross_weight != null ? `${Number(piece.gross_weight).toFixed(3)}g` : '—'}</td>
-                    <td className="py-3 px-4 text-right font-mono">{piece.net_gold_weight != null ? `${Number(piece.net_gold_weight).toFixed(3)}g` : '—'}</td>
-                    <td className="py-3 px-5 text-right">
-                      <Link
-                        to={`/job-order/tag-printing?tag=${encodeURIComponent(piece.tag_number)}`}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold rounded-lg"
-                        title={`Print ${cleanProductName(piece.product_name, piece.design_no)} tag`}
-                      >
-                        <i className="fa-solid fa-print"></i>
-                        <span>Print</span>
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         ) : (
-          <p className="px-5 py-8 text-center text-xs text-stone-500">No received physical-piece tags are linked to this product yet. The master label uses the product SKU above.</p>
+          <div className="px-5 py-12 text-center text-xs text-stone-500">
+            <i className="fa-solid fa-box-open text-3xl text-stone-300 mb-2 block"></i>
+            {pieceTags.length === 0 ? (
+              <p>No manufactured pieces have been received for this product design yet. The master label uses the product SKU.</p>
+            ) : tagFilterStatus === 'available' && soldPiecesCount > 0 ? (
+              <div className="max-w-md mx-auto space-y-2">
+                <p className="font-semibold text-stone-700 text-sm">All received pieces for this design have been sold.</p>
+                <p className="text-stone-400">Sold child products and their tag rows are automatically removed from this available view.</p>
+                <button
+                  type="button"
+                  onClick={() => { setTagFilterStatus('sold'); setTagsPage(1); }}
+                  className="mt-3 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-bold transition-colors cursor-pointer"
+                >
+                  <i className="fa-solid fa-receipt text-stone-500"></i>
+                  <span>View {soldPiecesCount} Sold Pieces</span>
+                </button>
+              </div>
+            ) : (
+              <p>No child pieces match the selected status or search filter.</p>
+            )}
+          </div>
         )}
 
-        {pieceTags.length > 0 && (
+        {sortedPieceTags.length > 0 && (
           <Pagination
             currentPage={currentTagsPage}
             totalPages={tagsTotalPages}
@@ -874,6 +1370,7 @@ export default function InventoryViewProduct() {
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="border-b border-stone-100 bg-stone-50/60 text-stone-500 font-bold text-[10.5px] uppercase tracking-wider">
+                <th className="py-3 px-4 w-12 text-center whitespace-nowrap">S.No</th>
                 <th className="py-3 px-5 whitespace-nowrap">DATE & TIME</th>
                 <th className="py-3 px-4 whitespace-nowrap">ACTION TYPE</th>
                 <th className="py-3 px-4 text-center whitespace-nowrap">CHANGE</th>
@@ -886,6 +1383,9 @@ export default function InventoryViewProduct() {
               {currentMovements && currentMovements.length > 0 ? (
                 currentMovements.map((m, idx) => (
                   <tr key={m.id || idx} className="hover:bg-stone-50/50 transition-colors">
+                    <td className="py-3.5 px-4 text-center font-mono text-stone-400 font-medium text-xs">
+                      {idx + 1}
+                    </td>
                     <td className="py-3.5 px-5 font-semibold text-stone-700 whitespace-nowrap text-xs">
                       {m.date_time || '22 Jul 2024, 02:30 PM'}
                     </td>
@@ -910,7 +1410,7 @@ export default function InventoryViewProduct() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan="6" className="py-10 text-center text-stone-400 font-medium">
+                  <td colSpan="7" className="py-10 text-center text-stone-400 font-medium">
                     No stock movements recorded for this product SKU yet.
                   </td>
                 </tr>
@@ -1279,6 +1779,312 @@ export default function InventoryViewProduct() {
                 alt={product.name}
                 className="max-w-full max-h-[78vh] object-contain rounded-xl"
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Child Piece Detail View Modal */}
+      {selectedPieceModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150 overflow-y-auto"
+          onClick={() => setSelectedPieceModal(null)}
+        >
+          <div
+            className="relative bg-white rounded-3xl max-w-3xl w-full p-6 sm:p-7 shadow-2xl border border-stone-200 animate-in zoom-in-95 duration-150 my-8 overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-stone-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-50 text-[#b01622] flex items-center justify-center font-bold text-sm border border-red-200">
+                  <i className="fa-solid fa-gem"></i>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base sm:text-lg font-bold text-stone-900 font-mono">
+                      Tag: {selectedPieceModal.tag_number}
+                    </h3>
+                    <span
+                      className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                        selectedPieceModal.status === 'sold' || selectedPieceModal.invoice_no
+                          ? 'bg-stone-200 text-stone-700'
+                          : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      }`}
+                    >
+                      {selectedPieceModal.status === 'sold' || selectedPieceModal.invoice_no ? 'Sold' : 'Available / In Stock'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-stone-400 mt-0.5">
+                    Individual manufactured child piece linked to parent design {product.name} ({product.product_code || product.design_no})
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Link
+                  to={`/job-order/tag-printing?tag=${encodeURIComponent(selectedPieceModal.tag_number)}`}
+                  className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors"
+                  title="Print Jewellery Tag"
+                >
+                  <i className="fa-solid fa-print"></i>
+                  <span>Print Tag</span>
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setSelectedPieceModal(null)}
+                  className="w-8 h-8 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-500 hover:text-stone-800 flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  <i className="fa-solid fa-xmark text-sm"></i>
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-6 pt-5 max-h-[75vh] overflow-y-auto pr-1">
+              {/* 1. Identification Grid */}
+              <div>
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-stone-500 mb-2 flex items-center gap-1.5">
+                  <i className="fa-solid fa-id-card text-stone-400"></i>
+                  <span>Piece Identification &amp; Traceability</span>
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-stone-50 p-4 rounded-2xl border border-stone-200/80 text-xs">
+                  <div>
+                    <span className="text-stone-400 block text-[10px] font-bold uppercase">Parent Design</span>
+                    <strong className="text-stone-900 font-medium block truncate" title={product.name}>{product.name}</strong>
+                    <span className="text-stone-500 font-mono text-[11px]">{product.product_code || product.design_no || '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-stone-400 block text-[10px] font-bold uppercase">Piece / Tag #</span>
+                    <strong className="text-[#b01622] font-mono font-bold block">{selectedPieceModal.tag_number}</strong>
+                    <span className="text-stone-500 text-[11px]">Piece #{selectedPieceModal.piece_number || 1}</span>
+                  </div>
+                  <div>
+                    <span className="text-stone-400 block text-[10px] font-bold uppercase">Receive WO #</span>
+                    <strong className="text-stone-800 font-mono font-semibold block">{selectedPieceModal.receive_order_number || '—'}</strong>
+                    <span className="text-stone-500 text-[11px]">WO: {selectedPieceModal.work_order_number || `WO-${selectedPieceModal.work_order_id || '—'}`}</span>
+                  </div>
+                  <div>
+                    <span className="text-stone-400 block text-[10px] font-bold uppercase">Received Date</span>
+                    <strong className="text-stone-800 font-mono block">
+                      {selectedPieceModal.received_at
+                        ? new Date(selectedPieceModal.received_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                        : '—'}
+                    </strong>
+                    <span className="text-amber-800 font-bold text-[10.5px] block mt-0.5">
+                      {(selectedPieceModal.days_since_received != null
+                        ? selectedPieceModal.days_since_received
+                        : calculateDaysSince(selectedPieceModal.received_at || selectedPieceModal.created_at))} days since received
+                    </span>
+                    {selectedPieceModal.invoice_no && (
+                      <span className="text-rose-700 font-bold text-[10px] block mt-0.5">Inv: #{selectedPieceModal.invoice_no}</span>
+                    )}
+                  </div>
+                  {(selectedPieceModal.huid || selectedPieceModal.certificate_no) && (
+                    <div className="col-span-2 sm:col-span-4 flex flex-wrap items-center gap-3 pt-2 border-t border-stone-200/60">
+                      {selectedPieceModal.huid && (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono font-bold text-[11px]">
+                          <i className="fa-solid fa-shield-halved text-emerald-600"></i>
+                          HUID: {selectedPieceModal.huid}
+                        </span>
+                      )}
+                      {selectedPieceModal.certificate_no && (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-800 border border-blue-200 font-mono font-bold text-[11px]">
+                          <i className="fa-solid fa-award text-blue-600"></i>
+                          Cert: {selectedPieceModal.certificate_no}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* 2. Gold Details */}
+              <div>
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-stone-500 mb-2 flex items-center gap-1.5">
+                  <i className="fa-solid fa-coins text-amber-500"></i>
+                  <span>Actual Gold Measurements</span>
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 bg-amber-50/50 p-4 rounded-2xl border border-amber-200/80 text-xs">
+                  <div>
+                    <span className="text-stone-400 block text-[10px] font-bold uppercase">Purity / Karat</span>
+                    <strong className="text-stone-900 font-bold block">{selectedPieceModal.purity || '22K'}</strong>
+                    <span className="text-amber-800 font-medium text-[10px]">{selectedPieceModal.gold_karat ? `${selectedPieceModal.gold_karat}K Gold` : 'Hallmark'}</span>
+                  </div>
+                  <div>
+                    <span className="text-stone-400 block text-[10px] font-bold uppercase">Gross Weight</span>
+                    <strong className="text-stone-900 font-mono text-sm block">
+                      {selectedPieceModal.gross_weight != null ? `${Number(selectedPieceModal.gross_weight).toFixed(3)}g` : '—'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-stone-400 block text-[10px] font-bold uppercase">Net Gold Weight</span>
+                    <strong className="text-[#b01622] font-mono text-sm block">
+                      {selectedPieceModal.net_gold_weight != null ? `${Number(selectedPieceModal.net_gold_weight).toFixed(3)}g` : '—'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-stone-400 block text-[10px] font-bold uppercase">Fine Gold (24K)</span>
+                    <strong className="text-amber-900 font-mono text-sm block">
+                      {selectedPieceModal.pure_24k_weight != null ? `${Number(selectedPieceModal.pure_24k_weight).toFixed(3)}g` : '—'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-stone-400 block text-[10px] font-bold uppercase">Making Charge</span>
+                    <strong className="text-stone-800 font-mono block">
+                      {selectedPieceModal.total_making_charge > 0 ? `₹${Number(selectedPieceModal.total_making_charge).toLocaleString('en-IN')}` : '—'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-stone-400 block text-[10px] font-bold uppercase">Purchase Value</span>
+                    <strong className="text-emerald-700 font-mono font-bold block">
+                      {selectedPieceModal.purchase_value > 0 ? `₹${Number(selectedPieceModal.purchase_value).toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '—'}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Diamond Details Breakdown */}
+              <div>
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-stone-500 mb-2 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <i className="fa-solid fa-gem text-sky-500"></i>
+                    <span>Diamond Breakdown ({selectedPieceModal.diamond_count || 0} pcs &bull; {Number(selectedPieceModal.diamond_weight || 0).toFixed(3)} ct)</span>
+                  </span>
+                </h4>
+                {Array.isArray(selectedPieceModal.diamond_sieves) && selectedPieceModal.diamond_sieves.length > 0 ? (
+                  <div className="border border-stone-200 rounded-xl overflow-hidden">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-stone-50 border-b border-stone-200 text-stone-500 font-bold uppercase text-[10px]">
+                          <th className="py-2.5 px-3">Diamond Sieve / Stamp</th>
+                          <th className="py-2.5 px-3 text-center">Pieces</th>
+                          <th className="py-2.5 px-3 text-right">Carats (ct)</th>
+                          <th className="py-2.5 px-3 text-right">Purchase Rate</th>
+                          <th className="py-2.5 px-3 text-right">Purchase Value</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-stone-100">
+                        {selectedPieceModal.diamond_sieves.map((sieve, sIdx) => {
+                          const sPcs = Number(sieve.pieces ?? sieve.count ?? sieve.no_of_pieces ?? 0);
+                          const sCarats = Number(sieve.carat_weight ?? sieve.weight ?? sieve.carats ?? 0);
+                          const sRate = Number(sieve.purchase_rate ?? sieve.rate ?? 0);
+                          const sVal = Number(sieve.purchase_value ?? sieve.value ?? (sRate > 0 && sCarats > 0 ? sRate * sCarats : 0));
+                          const sName = sieve.sieve_size || sieve.stamp || sieve.sieve || sieve.diamond_type || `Sieve #${sIdx + 1}`;
+
+                          return (
+                            <tr key={sIdx} className="hover:bg-stone-50">
+                              <td className="py-2.5 px-3 font-semibold text-stone-800">{sName}</td>
+                              <td className="py-2.5 px-3 text-center font-mono font-medium">{sPcs > 0 ? sPcs : '—'}</td>
+                              <td className="py-2.5 px-3 text-right font-mono font-bold text-sky-700">{sCarats.toFixed(3)} ct</td>
+                              <td className="py-2.5 px-3 text-right font-mono text-stone-600">{sRate > 0 ? `₹${sRate.toLocaleString('en-IN')}/ct` : '—'}</td>
+                              <td className="py-2.5 px-3 text-right font-mono font-bold text-stone-900">{sVal > 0 ? `₹${sVal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '—'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="bg-stone-50 p-3.5 rounded-xl border border-stone-200/80 text-xs flex items-center justify-between">
+                    <span className="text-stone-500">
+                      Total Diamond Weight: <strong className="text-stone-800 font-mono">{Number(selectedPieceModal.diamond_weight || 0).toFixed(3)} ct</strong>
+                    </span>
+                    <span className="text-stone-500">
+                      Diamond Pieces: <strong className="text-stone-800 font-mono">{selectedPieceModal.diamond_count || 0}</strong>
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* 4. Stone and Other Component Details */}
+              <div>
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-stone-500 mb-2 flex items-center gap-1.5">
+                  <i className="fa-solid fa-shapes text-purple-500"></i>
+                  <span>Stone &amp; Other Material Components</span>
+                </h4>
+                {Array.isArray(selectedPieceModal.components) && selectedPieceModal.components.length > 0 ? (
+                  <div className="border border-stone-200 rounded-xl overflow-hidden">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-stone-50 border-b border-stone-200 text-stone-500 font-bold uppercase text-[10px]">
+                          <th className="py-2.5 px-3">Component Type</th>
+                          <th className="py-2.5 px-3">Stamp / Size</th>
+                          <th className="py-2.5 px-3 text-center">Quantity</th>
+                          <th className="py-2.5 px-3 text-right">Weight</th>
+                          <th className="py-2.5 px-3 text-right">Rate</th>
+                          <th className="py-2.5 px-3 text-right">Value</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-stone-100">
+                        {selectedPieceModal.components.map((comp, cIdx) => {
+                          const cQty = Number(comp.quantity ?? comp.no_of_pieces ?? comp.pieces ?? 1);
+                          const cWt = Number(comp.weight ?? comp.stone_weight ?? comp.gross_wt ?? 0);
+                          const cUnit = comp.unit || 'g';
+                          const cRate = Number(comp.purchase_rate ?? comp.rate ?? 0);
+                          const cVal = Number(comp.purchase_value ?? comp.value ?? (cRate > 0 && cWt > 0 ? cRate * cWt : 0));
+                          const cType = comp.type || comp.name || comp.component_type || 'Component';
+
+                          return (
+                            <tr key={cIdx} className="hover:bg-stone-50">
+                              <td className="py-2.5 px-3 font-semibold text-stone-800">{cType}</td>
+                              <td className="py-2.5 px-3 text-stone-600 font-mono">{comp.stamp || comp.size || '—'}</td>
+                              <td className="py-2.5 px-3 text-center font-mono">{cQty}</td>
+                              <td className="py-2.5 px-3 text-right font-mono font-medium">{cWt.toFixed(3)} {cUnit}</td>
+                              <td className="py-2.5 px-3 text-right font-mono text-stone-600">{cRate > 0 ? `₹${cRate.toLocaleString('en-IN')}` : '—'}</td>
+                              <td className="py-2.5 px-3 text-right font-mono font-bold text-stone-900">{cVal > 0 ? `₹${cVal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '—'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="bg-stone-50 p-3.5 rounded-xl border border-stone-200/80 text-xs flex flex-wrap items-center gap-4">
+                    <span className="text-stone-500">
+                      Color Stone Wt: <strong className="text-stone-800 font-mono">{Number(selectedPieceModal.color_stone_weight || 0).toFixed(3)} ct</strong>
+                      {selectedPieceModal.color_stone_count > 0 && ` (${selectedPieceModal.color_stone_count} pcs)`}
+                    </span>
+                    {selectedPieceModal.silver_weight > 0 && (
+                      <span className="text-stone-500">
+                        Silver Wt: <strong className="text-stone-800 font-mono">{Number(selectedPieceModal.silver_weight).toFixed(3)}g</strong>
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* 5. Manufacturing & Audit Details */}
+              <div>
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-stone-500 mb-2 flex items-center gap-1.5">
+                  <i className="fa-solid fa-industry text-stone-400"></i>
+                  <span>Manufacturing &amp; Audit Reference</span>
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-stone-50 p-3.5 rounded-xl border border-stone-200/80 text-xs">
+                  <div>
+                    <span className="text-stone-400 block text-[10px] font-bold uppercase">Karigar / Vendor</span>
+                    <strong className="text-stone-800 block">{selectedPieceModal.karigar_name || 'In-House Karigar'}</strong>
+                  </div>
+                  <div>
+                    <span className="text-stone-400 block text-[10px] font-bold uppercase">Received By Staff</span>
+                    <strong className="text-stone-800 block">{selectedPieceModal.receiver_name || 'Staff Admin'}</strong>
+                  </div>
+                  <div>
+                    <span className="text-stone-400 block text-[10px] font-bold uppercase">Work Order Reference</span>
+                    <strong className="text-stone-800 font-mono block">
+                      {selectedPieceModal.work_order_number || `WO-${selectedPieceModal.work_order_id || '—'}`}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-5 border-t border-stone-100 flex items-center justify-end mt-4">
+              <button
+                type="button"
+                onClick={() => setSelectedPieceModal(null)}
+                className="px-5 py-2 bg-stone-100 hover:bg-stone-200 text-stone-800 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                Close Preview
+              </button>
             </div>
           </div>
         </div>

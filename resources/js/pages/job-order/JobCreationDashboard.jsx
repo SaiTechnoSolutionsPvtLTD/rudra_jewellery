@@ -10,7 +10,7 @@ export const resolveItemImage = (item) => {
     item?.specifications?.image ||
     item?.product?.image_url ||
     item?.product?.image;
-  if (!raw) return '/images/samples/peacock_choker.jpg';
+  if (!raw) return '/images/placeholder-jewelry.svg';
   if (raw.startsWith('http') || raw.startsWith('data:') || raw.startsWith('/images/')) return raw;
   if (raw.startsWith('/storage/')) return raw;
   if (raw.startsWith('storage/')) return `/${raw}`;
@@ -558,6 +558,7 @@ export default function JobCreationDashboard() {
             <table className="w-full text-left text-xs border-collapse min-w-[780px]">
               <thead>
                 <tr className="text-[10px] font-bold text-[#9ca3af] tracking-wider uppercase border-b border-gray-100">
+                  <th className="py-2.5 px-3 font-semibold whitespace-nowrap text-center w-12">S.NO</th>
                   <th className="py-2.5 px-3 font-semibold whitespace-nowrap">ORDER ID</th>
                   <th className="py-2.5 px-3 font-semibold whitespace-nowrap">ITEM NAME</th>
                   <th className="py-2.5 px-3 font-semibold whitespace-nowrap">ARTISAN NAME</th>
@@ -573,24 +574,29 @@ export default function JobCreationDashboard() {
               <tbody className="divide-y divide-gray-50">
                 {loading && liveJobs.length === 0 ? (
                   <tr>
-                    <td colSpan="10" className="py-8 text-center text-gray-400 text-xs">
+                    <td colSpan="11" className="py-8 text-center text-gray-400 text-xs">
                       <i className="fa-solid fa-spinner fa-spin text-[#9e1b27] mr-2"></i>
                       Loading live jobs...
                     </td>
                   </tr>
                 ) : liveJobs.length === 0 ? (
                   <tr>
-                    <td colSpan="10" className="py-8 text-center text-gray-400 text-xs">
+                    <td colSpan="11" className="py-8 text-center text-gray-400 text-xs">
                       No active work orders found. Click "+ New Work Order" to create one.
                     </td>
                   </tr>
                 ) : (
-                  liveJobs.map((job) => (
+                  liveJobs.map((job, idx) => (
                     <tr
                       key={job.id}
                       onClick={() => navigate(`/job-order/${job.id}`)}
                       className="hover:bg-[#fafafa] transition-colors group cursor-pointer"
                     >
+                      {/* S.No */}
+                      <td className="py-3.5 px-3 text-center font-mono font-bold text-gray-400 text-xs whitespace-nowrap">
+                        {(paginationMeta.current_page - 1) * (paginationMeta.per_page || 5) + idx + 1}
+                      </td>
+
                       {/* 1. Order ID */}
                       <td className="py-3.5 px-3 font-mono font-bold text-gray-700 text-xs whitespace-nowrap">
                         {job.work_order_number}
@@ -961,7 +967,7 @@ export default function JobCreationDashboard() {
                             className="w-full h-full object-cover"
                             onError={(e) => {
                               e.target.onerror = null;
-                              e.target.src = 'https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?auto=format&fit=crop&w=400&q=80';
+                              e.target.src = '/images/placeholder-jewelry.svg';
                             }}
                           />
                           {card.is_priority && (
@@ -1106,6 +1112,7 @@ export default function JobCreationDashboard() {
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase">
+                    <th className="py-2 text-center w-12">S.No</th>
                     <th className="py-2">Artisan</th>
                     <th className="py-2">Material</th>
                     <th className="py-2 text-right">Issued</th>
@@ -1117,7 +1124,7 @@ export default function JobCreationDashboard() {
                 <tbody className="divide-y divide-gray-50">
                   {auditLogs.length === 0 ? (
                     <tr>
-                      <td colSpan="6" className="py-4 text-center text-gray-400">
+                      <td colSpan="7" className="py-4 text-center text-gray-400">
                         No active audit balances found.
                       </td>
                     </tr>
@@ -1130,6 +1137,9 @@ export default function JobCreationDashboard() {
 
                       return paginatedAudit.map((log, idx) => (
                         <tr key={idx}>
+                          <td className="py-3 text-center font-mono font-bold text-gray-400 text-xs">
+                            {(safeAuditPage - 1) * auditPerPage + idx + 1}
+                          </td>
                           <td className="py-3 font-semibold text-gray-900">{log.artisan_name}</td>
                           <td className="py-3 text-stone-600">{log.material}</td>
                           <td className="py-3 text-right font-mono font-bold">{log.issued}</td>

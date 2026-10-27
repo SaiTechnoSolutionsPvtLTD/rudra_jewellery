@@ -31,6 +31,9 @@ export const printElement = (elementId, documentTitle = 'Document', options = {}
     return;
   }
 
+  const pageMargin = options.margin || '10mm 12mm';
+  const bodyPadding = options.bodyPadding || '0';
+
   printWindow.document.open();
   printWindow.document.write(`
     <!DOCTYPE html>
@@ -43,7 +46,7 @@ export const printElement = (elementId, documentTitle = 'Document', options = {}
         <style>
           @page {
             size: A4 ${pageOrientation};
-            margin: 0 !important;
+            margin: ${pageMargin} !important;
           }
           *, *::before, *::after, body, div, table, tr, th, td, span, strong, header, footer, [class*="bg-"], [class*="border-"], [class*="text-"] {
             -webkit-print-color-adjust: exact !important;
@@ -53,7 +56,7 @@ export const printElement = (elementId, documentTitle = 'Document', options = {}
           @media print {
             @page {
               size: A4 ${pageOrientation};
-              margin: 0 !important;
+              margin: ${pageMargin} !important;
             }
             *, *::before, *::after, body, div, table, tr, th, td, span, strong, header, footer, [class*="bg-"], [class*="border-"], [class*="text-"] {
               -webkit-print-color-adjust: exact !important;
@@ -73,7 +76,7 @@ export const printElement = (elementId, documentTitle = 'Document', options = {}
             }
             body {
               margin: 0 !important;
-              padding: 6mm 8mm !important;
+              padding: ${bodyPadding} !important;
               background: #ffffff !important;
               color: #000000 !important;
             }
@@ -100,7 +103,7 @@ export const printElement = (elementId, documentTitle = 'Document', options = {}
             background: #ffffff !important;
             color: #000000 !important;
             margin: 0 !important;
-            padding: 6mm 8mm !important;
+            padding: 0 !important;
             width: 100% !important;
             height: auto !important;
             min-height: 100% !important;
@@ -114,10 +117,7 @@ export const printElement = (elementId, documentTitle = 'Document', options = {}
             display: none !important;
           }
           #${elementId} {
-            display: flex !important;
-            flex-direction: column !important;
-            min-height: auto !important;
-            height: auto !important;
+            display: block !important;
             visibility: visible !important;
             opacity: 1 !important;
             position: static !important;
@@ -134,41 +134,70 @@ export const printElement = (elementId, documentTitle = 'Document', options = {}
           thead {
             display: table-header-group !important;
           }
-          tr {
+          tfoot {
+            display: table-footer-group !important;
+          }
+          tr, .avoid-break, .print-break-inside-avoid, .invoice-avoid-break {
             page-break-inside: avoid !important;
             break-inside: avoid !important;
           }
-          .avoid-break, .print-break-inside-avoid {
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-          }
-          /* Ensure footer section stays anchored naturally at bottom of content without overflowing page */
-          .printable-footer, footer, [class*="footer"], .footer-section, .invoice-footer-section, .signatures-table {
-            margin-top: 20px !important;
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-          }
+          /* Explicit multi-column grid preservation on print */
+          .grid-cols-2 { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+          .grid-cols-3 { display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+          .grid-cols-4 { display: grid !important; grid-template-columns: repeat(4, minmax(0, 1fr)) !important; }
+          .grid-cols-8 { display: grid !important; grid-template-columns: repeat(8, minmax(0, 1fr)) !important; }
+          .grid-cols-12 { display: grid !important; grid-template-columns: repeat(12, minmax(0, 1fr)) !important; }
+          .col-span-7 { grid-column: span 7 / span 7 !important; }
+          .col-span-5 { grid-column: span 5 / span 5 !important; }
+
           /* Retain exact header background colors & card backgrounds */
-          thead, thead tr, thead th, .bg-\\[\\#b01622\\], [style*="background-color: #b01622"] {
+          .bg-\\[\\#b01622\\], th.bg-\\[\\#b01622\\], tr.bg-\\[\\#b01622\\] {
             background-color: #b01622 !important;
             color: #ffffff !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
-          .bg-stone-50 {
-            background-color: #f9fafb !important;
+          .text-\\[\\#b01622\\] { color: #b01622 !important; }
+          .border-\\[\\#b01622\\] { border-color: #b01622 !important; }
+          .bg-stone-50, .bg-stone-50\\/80, .bg-stone-50\\/50 {
+            background-color: #fafaf9 !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
-          .bg-emerald-50\\/70, .bg-emerald-50 {
+          .bg-stone-100 {
+            background-color: #f5f5f4 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .bg-stone-700 {
+            background-color: #44403c !important;
+            color: #ffffff !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .bg-amber-50\\/20, .bg-amber-50\\/10, .bg-amber-50\\/30 {
+            background-color: #fffdf5 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .border-amber-200\\/60, .border-amber-200 {
+            border-color: #fde68a !important;
+          }
+          .bg-emerald-50\\/60, .bg-emerald-50 {
             background-color: #ecfdf5 !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
-          .bg-red-50 {
+          .border-emerald-200 {
+            border-color: #a7f3d0 !important;
+          }
+          .bg-red-50\\/50, .bg-red-50 {
             background-color: #fef2f2 !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
+          }
+          .border-red-200 {
+            border-color: #fecaca !important;
           }
         </style>
       </head>

@@ -200,89 +200,289 @@ class MaterialOpeningStockController extends Controller
     }
 
     /**
+     * Helper to check if a string represents a diamond clarity/color grade rather than a sieve stamp
+     */
+    public static function isClarityGrade(?string $val): bool
+    {
+        if (empty($val)) return false;
+        $clean = trim($val);
+        // Sieve stamps usually have numbers or +, e.g. +0, +2, +9.5, -2, DI12, D-01
+        if (preg_match('/^[+\-]?\d+(?:\.\d+)?(?:\s*(?:stone|sieve|mesh))?$/i', $clean) || preg_match('/^D(?:I|IA)?[\-\s]?\d+/i', $clean)) {
+            return false;
+        }
+        // Clarity grades: VVS1, VVS2, VVS, VS1, VS2, VS, SI1, SI2, SI, I1, I2, I3, FL, IF, EF, GH, IJ, etc.
+        return (bool) preg_match('/^(?:FL|IF|VVS[12]?|VS[12]?|SI[12]?|I[1-3])(?:\s*[\/\-]\s*(?:EF|GH|IJ|[A-Z]{1,2}))?$/i', $clean)
+            || (bool) preg_match('/^(?:EF|GH|IJ)$/i', $clean);
+    }
+
+    /**
      * Unified Available Stock View with Diamond Stock by Stamp
      */
     public function unifiedStock()
     {
         try {
             // 1. Authoritative Diamond Stock with breakdown by stamp/grade
-            $diamondRaw = RawMaterial::where('material_type', 'diamond')->first();
             $diamondOpening = MaterialOpeningStock::where('material_type', 'diamond')->get();
-            $diamondPurchases = PurchaseEntry::where('purchase_type', 'raw_material')
-                ->where('metal_type', 'diamond')
-                ->get();
+            $diamondPurchases = PurchaseEntry::where(function($q) {
+                $q->where('purchase_type', 'raw_material')
+                  ->orWhereNull('purchase_type');
+            })
+            ->where(function($q) {
+                $q->whereRaw('LOWER(metal_type) = ?', ['diamond'])
+                  ->orWhere('unit', 'ct')
+                  ->orWhereHas('rawMaterial', function($rm) {
+                      $rm->whereRaw('LOWER(material_type) = ?', ['diamond'])
+                         ->orWhere('name', 'like', '%diamond%');
+                  });
+            })
+            ->get();
 
-            // Diamond stamps from masters
-            $diamondStampMasters = Stamp::where('applicable_for', 'diamond')
-                ->orWhere('applicable_for', 'all')
-                ->get();
+            // Diamond stamps from masters (all stamps linked to Diamond, or general stamps not specifically restricted to other materials)
+            $diamondStampMasters = Stamp::where(function($q) {
+                $q->whereRaw('LOWER(applicable_for) LIKE ?', ['%diamond%'])
+                  ->orWhere(function($sub) {
+                      $sub->where(function($any) {
+                          $any->whereRaw('LOWER(applicable_for) LIKE ?', ['%all%'])
+                              ->orWhereNull('applicable_for')
+                              ->orWhere('applicable_for', '');
+                      })
+                      ->where(function($inner) {
+                          $inner->whereRaw('LOWER(applicable_for) NOT LIKE ?', ['%stone%'])
+                                ->whereRaw('LOWER(applicable_for) NOT LIKE ?', ['%gold%'])
+                                ->whereRaw('LOWER(applicable_for) NOT LIKE ?', ['%silver%']);
+                      });
+                  });
+            })
+            ->orderBy('sort_order', 'asc')
+            ->orderBy('id', 'asc')
+            ->get();
 
-            $diamondBreakdown = [];
+            // Explicitly exclude non-diamond stamps (Stone/Gold/Silver) from diamond breakdown
+            $nonDiamondStampNames = Stamp::where(function($q) {
+                $q->whereRaw('LOWER(applicable_for) LIKE ?', ['%stone%'])
+                  ->orWhereRaw('LOWER(applicable_for) LIKE ?', ['%gold%'])
+                  ->orWhereRaw('LOWER(applicable_for) LIKE ?', ['%silver%']);
+            })
+            ->whereRaw('LOWER(applicable_for) NOT LIKE ?', ['%diamond%'])
+            ->pluck('name')
+            ->map(fn($n) => strtolower(trim($n)))
+            ->toArray();
+
+            $isDiamondStamp = function(?string $st) use ($nonDiamondStampNames): bool {
+                if (empty($st)) return false;
+                $clean = strtolower(trim($st));
+                if (in_array($clean, $nonDiamondStampNames, true)) return false;
+                if (preg_match('/^(?:24k|22k|18k|14k|10k|916|750|585|999|fine silver|silver)/i', $clean)) return false;
+                if (preg_match('/(?:stone|ruby|emerald|sapphire|navratna|cz|gemstone)/i', $clean)) return false;
+                if (self::isClarityGrade($st)) return false;
+                return true;
+            };
+
             $allDiamondStamps = collect();
 
-            foreach ($diamondOpening as $op) {
-                $st = trim($op->stamp ?: 'Unclassified');
-                if ($st) $allDiamondStamps->push($st);
+            // Push all master diamond stamps first so the Master Stamp sort order is respected
+            foreach ($diamondStampMasters as $m) {
+                $mName = trim($m->name ?? '');
+                if ($mName !== '' && $isDiamondStamp($mName)) {
+                    $allDiamondStamps->push($mName);
+                }
             }
-            foreach ($diamondPurchases as $pur) {
-                $st = trim($pur->purity ?: ($pur->item_name ?: 'Unclassified'));
-                if ($st && !preg_match('/^(?:24k|22k|18k|14k|916|750|585)/i', $st)) {
+
+            foreach ($diamondOpening as $op) {
+                $st = trim($op->stamp ?: '');
+                if ($st && $isDiamondStamp($st)) {
                     $allDiamondStamps->push($st);
                 }
             }
-            foreach ($diamondStampMasters as $m) {
-                $allDiamondStamps->push(trim($m->name));
+            foreach ($diamondPurchases as $pur) {
+                $st = trim($pur->stamp ?: '');
+                if ($st && $isDiamondStamp($st)) {
+                    $allDiamondStamps->push($st);
+                }
+                // Also collect stamps from repeatable diamond components array
+                if (!empty($pur->components) && is_array($pur->components)) {
+                    foreach ($pur->components as $c) {
+                        $cStamp = trim($c['stamp'] ?? $c['diamond_stamp'] ?? $c['sieve_size'] ?? '');
+                        if ($cStamp && $isDiamondStamp($cStamp)) {
+                            $allDiamondStamps->push($cStamp);
+                        }
+                    }
+                }
             }
 
-            $uniqueStamps = $allDiamondStamps->unique()->values();
+            $diamondTransactions = \App\Models\KarigarMaterialTransaction::where('material_type', 'diamond')
+                ->where('is_reversed', false)
+                ->get();
+
+            foreach ($diamondTransactions as $tx) {
+                $txStamp = trim($tx->stamp ?: $tx->sieve_size ?: '');
+                if ($txStamp && $isDiamondStamp($txStamp)) {
+                    $allDiamondStamps->push($txStamp);
+                }
+            }
+
+            $uniqueStamps = $allDiamondStamps->filter()->unique()->values();
 
             $totalDiaCarats = 0.0;
             $totalDiaCount = 0.0;
+            $stampsWithStock = [];
+            $stampsEmpty = [];
+
+            $activeWorkOrders = \App\Models\WorkOrder::whereNotIn('status', ['completed', 'cancelled', 'final_received', 'delivered'])
+                ->with(['items', 'receivedPieces'])
+                ->get();
 
             foreach ($uniqueStamps as $st) {
                 $opCts = (float) $diamondOpening->filter(fn($o) => strcasecmp(trim($o->stamp ?? ''), $st) === 0)->sum('carat_weight');
                 $opPcs = (float) $diamondOpening->filter(fn($o) => strcasecmp(trim($o->stamp ?? ''), $st) === 0)->sum('quantity');
 
-                $matchingPurchases = $diamondPurchases->filter(fn($p) => strcasecmp(trim($p->purity ?? ''), $st) === 0 || strcasecmp(trim($p->item_name ?? ''), $st) === 0);
-                $purCts = (float) $matchingPurchases->sum(function($p) {
-                    return (float) ($p->net_weight > 0 ? $p->net_weight : $p->weight);
-                });
-                $purPcs = (float) $matchingPurchases->sum('count_qty');
+                $purCts = 0.0;
+                $purPcs = 0.0;
 
-                $availCts = round($opCts + $purCts, 3);
-                $availPcs = round($opPcs + $purPcs, 0);
-
-                if ($availCts > 0 || $availPcs > 0 || $diamondStampMasters->pluck('name')->contains($st)) {
-                    $diamondBreakdown[] = [
-                        'stamp' => $st,
-                        'available_weight' => round($availCts * 0.2, 3),
-                        'available_carats' => $availCts,
-                        'available_count' => $availPcs,
-                        'unit' => 'ct',
-                    ];
+                foreach ($diamondPurchases as $p) {
+                    if (!empty($p->components) && is_array($p->components)) {
+                        foreach ($p->components as $c) {
+                            $cStamp = trim($c['stamp'] ?? $c['diamond_stamp'] ?? $c['sieve_size'] ?? '');
+                            if (strcasecmp($cStamp, $st) === 0) {
+                                $purCts += (float) ($c['weight_carats'] ?? $c['total_weight'] ?? $c['weight'] ?? $c['carat_weight'] ?? 0);
+                                $purPcs += (float) ($c['stones_count'] ?? $c['stone_count'] ?? $c['no_of_pieces'] ?? $c['pieces'] ?? $c['count'] ?? 0);
+                            }
+                        }
+                    } else {
+                        $pStamp = trim($p->stamp ?? '');
+                        if (!empty($pStamp) && strcasecmp($pStamp, $st) === 0) {
+                            $purCts += (float) ($p->net_weight > 0 ? $p->net_weight : $p->weight);
+                            $purPcs += (float) ($p->count_qty > 0 ? $p->count_qty : ($p->qty > 0 ? $p->qty : 0));
+                        }
+                    }
                 }
 
-                $totalDiaCarats += $availCts;
-                $totalDiaCount += $availPcs;
+                // Tally active work order allocations for this specific stamp
+                $allocCts = 0.0;
+                $allocPcs = 0;
+                foreach ($activeWorkOrders as $wo) {
+                    $orderAllocCts = 0.0;
+                    $orderAllocPcs = 0;
+                    foreach ($wo->items as $itm) {
+                        $p = $itm->pricing_details ?? [];
+                        $s = $itm->stone_details ?? [];
+                        $itmStamp = trim($p['diamond_stamp'] ?? $p['stamp_and_no'] ?? $p['stamp_details'] ?? $p['stamp'] ?? $s['diamond_stamp'] ?? $s['stamp_and_no'] ?? $s['stamp_details'] ?? $s['stamp'] ?? $itm->stamp ?? '');
+                        if (strcasecmp($itmStamp, $st) === 0) {
+                            $qty = max(1, (int)($itm->required_qty ?? 1));
+                            $dW = (float)($p['diamond_weight'] ?? $s['diamond_weight'] ?? 0);
+                            $dC = (int)($p['no_of_diamonds'] ?? $p['diamond_count'] ?? $s['diamond_count'] ?? 0);
+                            $orderAllocCts += ($dW * $qty);
+                            $orderAllocPcs += ($dC * $qty);
+                        }
+                    }
+
+                    // Deduct pieces of this stamp already received on this order
+                    $recCts = (float) $wo->receivedPieces->whereNotNull('received_at')->filter(function($rp) use ($st) {
+                        $rpStamp = trim($rp->diamond_stamp ?? $rp->stamp ?? '');
+                        return strcasecmp($rpStamp, $st) === 0;
+                    })->sum('diamond_weight');
+
+                    $recPcs = (int) $wo->receivedPieces->whereNotNull('received_at')->filter(function($rp) use ($st) {
+                        $rpStamp = trim($rp->diamond_stamp ?? $rp->stamp ?? '');
+                        return strcasecmp($rpStamp, $st) === 0;
+                    })->sum('diamond_count');
+
+                    $allocCts += max(0.0, $orderAllocCts - $recCts);
+                    $allocPcs += max(0, $orderAllocPcs - $recPcs);
+                }
+
+                // Also tally direct Karigar allocations and issues for this stamp
+                $directAllocCts = (float) $diamondTransactions->filter(function($tx) use ($st) {
+                    return in_array($tx->transaction_type, ['allocation', 'additional_allocation', 'issue'])
+                        && (strcasecmp(trim($tx->stamp ?? ''), $st) === 0 || strcasecmp(trim($tx->sieve_size ?? ''), $st) === 0);
+                })->sum('net_weight');
+
+                $directAllocPcs = (int) $diamondTransactions->filter(function($tx) use ($st) {
+                    return in_array($tx->transaction_type, ['allocation', 'additional_allocation', 'issue'])
+                        && (strcasecmp(trim($tx->stamp ?? ''), $st) === 0 || strcasecmp(trim($tx->sieve_size ?? ''), $st) === 0);
+                })->sum('pieces');
+
+                $directReturnCts = (float) $diamondTransactions->filter(function($tx) use ($st) {
+                    return in_array($tx->transaction_type, ['unused_returned', 'return', 'scrap'])
+                        && (strcasecmp(trim($tx->stamp ?? ''), $st) === 0 || strcasecmp(trim($tx->sieve_size ?? ''), $st) === 0);
+                })->sum('net_weight');
+
+                $directReturnPcs = (int) $diamondTransactions->filter(function($tx) use ($st) {
+                    return in_array($tx->transaction_type, ['unused_returned', 'return', 'scrap'])
+                        && (strcasecmp(trim($tx->stamp ?? ''), $st) === 0 || strcasecmp(trim($tx->sieve_size ?? ''), $st) === 0);
+                })->sum('pieces');
+
+                $netDirectAllocCts = max(0.0, $directAllocCts - $directReturnCts);
+                $netDirectAllocPcs = max(0, $directAllocPcs - $directReturnPcs);
+
+                $allocCts = round(max($allocCts, $netDirectAllocCts), 3);
+                $allocPcs = max($allocPcs, $netDirectAllocPcs);
+
+                $availCts = max(0.0, round($opCts + $purCts - $allocCts, 3));
+                $availPcs = max(0, round($opPcs + $purPcs - $allocPcs, 0));
+
+                $entry = [
+                    'stamp' => $st,
+                    'available_weight' => round($availCts * 0.2, 3),
+                    'available_carats' => $availCts,
+                    'available_count' => (int) $availPcs,
+                    'allocated_carats' => round($allocCts, 3),
+                    'allocated_count' => (int) $allocPcs,
+                    'unit' => 'ct',
+                ];
+
+                if ($availCts > 0 || $availPcs > 0) {
+                    $stampsWithStock[] = $entry;
+                    $totalDiaCarats += $availCts;
+                    $totalDiaCount += $availPcs;
+                } else {
+                    $stampsEmpty[] = $entry;
+                }
             }
 
-            // Deduct allocated diamond from active work orders
-            \App\Models\RawMaterial::recalculateAllocations();
-            $diamondRaw = RawMaterial::where('material_type', 'diamond')->first();
-            $allocatedDiaCarats = $diamondRaw ? (float)$diamondRaw->allocated_weight : 0.0;
-            $allocatedDiaCount = $diamondRaw ? (float)$diamondRaw->allocated_count : 0.0;
+            // Check for unclassified purchases (where stamp is empty or clarity grade)
+            $unclassifiedPurchases = $diamondPurchases->filter(function($p) {
+                $pStamp = trim($p->stamp ?? '');
+                return empty($pStamp) || self::isClarityGrade($pStamp);
+            });
+            $unclassCts = (float) $unclassifiedPurchases->sum(function($p) {
+                return (float) ($p->net_weight > 0 ? $p->net_weight : $p->weight);
+            });
+            $unclassPcs = (float) $unclassifiedPurchases->sum(function($p) {
+                return (float) ($p->count_qty > 0 ? $p->count_qty : ($p->qty > 0 ? $p->qty : 0));
+            });
 
-            // If raw material master has authoritative current_balance, respect it
-            if ($diamondRaw) {
-                $authoritativeCarats = max(0.0, round((float)$diamondRaw->current_balance, 3));
-                $authoritativeCount = max(0.0, round((float)$diamondRaw->current_count, 0));
-                if ($authoritativeCarats > 0 || $totalDiaCarats == 0) {
-                    $totalDiaCarats = $authoritativeCarats;
-                    $totalDiaCount = $authoritativeCount;
-                }
-            } else {
-                $totalDiaCarats = max(0.0, round($totalDiaCarats - $allocatedDiaCarats, 3));
-                $totalDiaCount = max(0.0, round($totalDiaCount - $allocatedDiaCount, 0));
+            if ($unclassCts > 0 || $unclassPcs > 0) {
+                $stampsWithStock[] = [
+                    'stamp' => 'Unclassified / Mixed',
+                    'available_weight' => round($unclassCts * 0.2, 3),
+                    'available_carats' => round($unclassCts, 3),
+                    'available_count' => (int) round($unclassPcs, 0),
+                    'unit' => 'ct',
+                ];
+                $totalDiaCarats += $unclassCts;
+                $totalDiaCount += $unclassPcs;
+            }
+
+            // Sort stamps with stock descending by available carats
+            usort($stampsWithStock, fn($a, $b) => $b['available_carats'] <=> $a['available_carats']);
+
+            // Combine: active stamps with stock first, followed by empty master stamps
+            $diamondBreakdown = array_merge($stampsWithStock, $stampsEmpty);
+
+            // Re-sync RawMaterial allocations
+            \App\Models\RawMaterial::recalculateAllocations();
+
+            // Total carats and count across vault strictly match the breakdown sum
+            $totalDiaCarats = round(collect($diamondBreakdown)->sum('available_carats'), 3);
+            $totalDiaCount = (int) round(collect($diamondBreakdown)->sum('available_count'), 0);
+
+            // Synchronize RawMaterial primary diamond record with active vault balance
+            $primaryDiamond = RawMaterial::where('material_type', 'diamond')->first();
+            if ($primaryDiamond) {
+                $primaryDiamond->current_balance = $totalDiaCarats;
+                $primaryDiamond->current_count = $totalDiaCount;
+                $primaryDiamond->save();
             }
 
             // 2. Gold stock breakdown by Karat / Purity (24K, 22K, 18K, 14K)
@@ -378,12 +578,97 @@ class MaterialOpeningStockController extends Controller
             $silverPurchases = PurchaseEntry::where('purchase_type', 'raw_material')->where('metal_type', 'silver')->get();
             $totalSilverWeight = $silverRaw ? round((float)$silverRaw->current_balance, 3) : round((float)$silverOpening->sum('weight') + (float)$silverPurchases->sum('weight'), 3);
 
-            // 4. Colour Stones Stock
+            // 4. Colour Stones Stock with Stamp / Gemstone breakdown (NO Karigar Allocation deduction - vault-maintained)
             $stoneRaw = RawMaterial::where('material_type', 'stone')->first();
             $stoneOpening = MaterialOpeningStock::where('material_type', 'stone')->get();
-            $stonePurchases = PurchaseEntry::where('purchase_type', 'raw_material')->where('metal_type', 'stone')->get();
-            $totalStoneWeight = $stoneRaw ? round((float)$stoneRaw->current_balance, 3) : round((float)$stoneOpening->sum('weight') + (float)$stonePurchases->sum('weight'), 3);
-            $totalStoneCount = $stoneRaw ? round((float)$stoneRaw->current_count, 0) : round((float)$stoneOpening->sum('quantity') + (float)$stonePurchases->sum('count_qty'), 0);
+            $stonePurchases = PurchaseEntry::where(function($q) {
+                $q->where('purchase_type', 'raw_material')
+                  ->orWhereNull('purchase_type');
+            })
+            ->where(function($q) {
+                $q->whereRaw('LOWER(metal_type) = ?', ['stone'])
+                  ->orWhereHas('rawMaterial', function($rm) {
+                      $rm->whereRaw('LOWER(material_type) = ?', ['stone'])
+                         ->orWhere('name', 'like', '%stone%')
+                         ->orWhere('name', 'like', '%ruby%')
+                         ->orWhere('name', 'like', '%emerald%')
+                         ->orWhere('name', 'like', '%sapphire%');
+                  });
+            })
+            ->get();
+
+            $stoneStampMasters = Stamp::where(function($q) {
+                $q->where('applicable_for', 'like', '%stone%')
+                  ->orWhere('applicable_for', 'like', '%all%');
+            })->get();
+
+            $stoneBreakdown = [];
+            $allStoneStamps = collect();
+
+            foreach ($stoneOpening as $op) {
+                $st = trim($op->stamp ?: 'Unclassified');
+                if ($st) $allStoneStamps->push($st);
+            }
+            foreach ($stonePurchases as $pur) {
+                $st = trim($pur->stamp ?: ($pur->color_stone_stamp ?: ($pur->purity ?: '')));
+                if ($st && !preg_match('/^(?:24k|22k|18k|14k|916|750|585)/i', $st)) {
+                    $allStoneStamps->push($st);
+                }
+            }
+            foreach ($stoneStampMasters as $m) {
+                $allStoneStamps->push(trim($m->name));
+            }
+
+            $uniqueStoneStamps = $allStoneStamps->unique()->values();
+
+            $totalStoneWeightCalc = 0.0;
+            $totalStoneCountCalc = 0.0;
+
+            foreach ($uniqueStoneStamps as $st) {
+                $opWt = (float) $stoneOpening->filter(fn($o) => strcasecmp(trim($o->stamp ?? ''), $st) === 0)->sum('weight');
+                $opCts = (float) $stoneOpening->filter(fn($o) => strcasecmp(trim($o->stamp ?? ''), $st) === 0)->sum('carat_weight');
+                $opPcs = (float) $stoneOpening->filter(fn($o) => strcasecmp(trim($o->stamp ?? ''), $st) === 0)->sum('quantity');
+
+                $matchingPurchases = $stonePurchases->filter(function($p) use ($st) {
+                    $pStamp = trim($p->stamp ?? ($p->color_stone_stamp ?? ''));
+                    if (!empty($pStamp)) {
+                        return strcasecmp($pStamp, $st) === 0;
+                    }
+                    $pPurity = trim($p->purity ?? '');
+                    if (!empty($pPurity)) {
+                        return strcasecmp($pPurity, $st) === 0;
+                    }
+                    return strcasecmp(trim($p->item_name ?? ''), $st) === 0;
+                });
+                $purWt = (float) $matchingPurchases->sum(function($p) {
+                    return (float) ($p->net_weight > 0 ? $p->net_weight : $p->weight);
+                });
+                $purPcs = (float) $matchingPurchases->sum('count_qty');
+
+                $availWt = round(($opWt > 0 ? $opWt : $opCts) + $purWt, 3);
+                $availPcs = round($opPcs + $purPcs, 0);
+
+                // Note: STRICTLY NO Karigar Allocation Deduction for colour stones!
+                if ($availWt > 0 || $availPcs > 0 || $stoneStampMasters->pluck('name')->contains($st)) {
+                    $stoneBreakdown[] = [
+                        'stamp' => $st,
+                        'available_weight' => $availWt,
+                        'available_carats' => $availWt,
+                        'available_count' => $availPcs,
+                        'unit' => 'ct',
+                    ];
+                }
+
+                $totalStoneWeightCalc += $availWt;
+                $totalStoneCountCalc += $availPcs;
+            }
+
+            $totalStoneWeight = $stoneRaw ? round((float)$stoneRaw->current_balance, 3) : round($totalStoneWeightCalc, 3);
+            $totalStoneCount = $stoneRaw ? round((float)$stoneRaw->current_count, 0) : round($totalStoneCountCalc, 0);
+            if ($totalStoneWeight == 0 && $totalStoneWeightCalc > 0) {
+                $totalStoneWeight = round($totalStoneWeightCalc, 3);
+                $totalStoneCount = round($totalStoneCountCalc, 0);
+            }
 
             // 5. Platinum Stock
             $platinumRaw = RawMaterial::where('material_type', 'platinum')->first();
@@ -414,7 +699,7 @@ class MaterialOpeningStockController extends Controller
                 ],
                 [
                     'material_type' => 'Colour Stones',
-                    'stamp_grade' => 'Precious & Semi-Precious',
+                    'stamp_grade' => 'All Stone Varieties (' . count($stoneBreakdown) . ' Stamps / Gemstones)',
                     'karat' => '—',
                     'unit' => 'ct / pcs',
                     'available_weight' => $totalStoneWeight,
@@ -449,9 +734,11 @@ class MaterialOpeningStockController extends Controller
                     'gold_total_weight' => $totalGoldWeight,
                     'silver_total_weight' => $totalSilverWeight,
                     'stone_total_count' => $totalStoneCount,
+                    'stone_total_weight' => $totalStoneWeight,
                     'platinum_total_weight' => $totalPlatinumWeight,
                 ],
                 'diamond_by_stamp' => $diamondBreakdown,
+                'stone_by_stamp' => $stoneBreakdown,
                 'gold_by_karat' => $goldBreakdown,
                 'unified_rows' => $unifiedRows,
             ]);
@@ -532,8 +819,7 @@ class MaterialOpeningStockController extends Controller
                                 $q->where('metal_type', 'diamond')->orWhere('metal_type', 'like', 'diamond%');
                             })
                             ->where(function($q) use ($stamp) {
-                                $q->whereRaw('LOWER(TRIM(stamp)) = ?', [strtolower(trim($stamp))])
-                                  ->orWhereRaw('LOWER(TRIM(diamond_grade)) = ?', [strtolower(trim($stamp))]);
+                                $q->whereRaw('LOWER(TRIM(stamp)) = ?', [strtolower(trim($stamp))]);
                             })
                             ->get();
                         $purCts = (float) $matchingPurchases->sum('weight');
@@ -546,8 +832,7 @@ class MaterialOpeningStockController extends Controller
 
                         $opStock = MaterialOpeningStock::where('material_type', 'diamond')
                             ->where(function($q) use ($stamp) {
-                                $q->whereRaw('LOWER(TRIM(stamp)) = ?', [strtolower(trim($stamp))])
-                                  ->orWhereRaw('LOWER(TRIM(diamond_grade)) = ?', [strtolower(trim($stamp))]);
+                                $q->whereRaw('LOWER(TRIM(stamp)) = ?', [strtolower(trim($stamp))]);
                             })->first();
 
                         if (!$opStock) {
@@ -558,7 +843,6 @@ class MaterialOpeningStockController extends Controller
                             $opStock->stock_number = $stockNo;
                             $opStock->material_type = 'diamond';
                             $opStock->stamp = $stamp;
-                            $opStock->diamond_grade = $stamp;
                             $opStock->entry_date = \Carbon\Carbon::today()->toDateString();
                             $opStock->unit = 'ct';
                             $opStock->created_by = Auth::id() ?? 1;

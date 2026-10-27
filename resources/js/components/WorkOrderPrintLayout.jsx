@@ -1,12 +1,15 @@
-import React from 'react';
+import { getStoredCompanyInfo } from '../utils/companyInfoService';
 
 export function WorkOrderPrintHeader({ title, number, issuedDate }) {
+  const company = getStoredCompanyInfo();
+  const addressStr = [company.address_line1, company.address_line2, company.city, company.pincode].filter(Boolean).join(', ');
+
   return (
     <div className="flex items-center justify-between border-b-2 border-[#881337] pb-3">
       <div>
-        <h1 className="text-xl font-black text-[#881337] tracking-wide uppercase">RUDHRA JEWELLERS</h1>
-        <p className="text-[10px] text-gray-600 uppercase font-bold tracking-wider mt-0.5">Heritage Gold, Diamond &amp; Fine Jewellery Crafts</p>
-        <p className="text-[10px] text-gray-500 mt-1">Plot No 14, Usman Road, T. Nagar, Chennai - 600017 | GSTIN: 33AAAAA0000A1Z5 | Phone: +91 98765 43210</p>
+        <h1 className="text-xl font-black text-[#881337] tracking-wide uppercase">{company.company_name || 'RUDRA JEWELLERY'}</h1>
+        <p className="text-[10px] text-gray-600 uppercase font-bold tracking-wider mt-0.5">{company.tagline || 'Heritage Gold, Diamond & Fine Jewellery Crafts'}</p>
+        <p className="text-[10px] text-gray-500 mt-1">{addressStr} | GSTIN: {company.gstin || '—'} | Phone: {company.phone || '—'}</p>
       </div>
       <div className="text-right">
         <h2 className="text-lg font-black text-[#881337]">{title}</h2>

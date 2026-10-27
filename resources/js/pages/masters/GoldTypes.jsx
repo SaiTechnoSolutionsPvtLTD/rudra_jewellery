@@ -200,7 +200,7 @@ export default function GoldTypes() {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-gray-50/80 border-b border-gray-200/80 text-[11px] font-bold text-gray-500 uppercase tracking-wider">
-                    <th className="px-5 py-3.5">Order</th>
+                    <th className="px-5 py-3.5 text-center w-14">S.No</th>
                     <th className="px-5 py-3.5">Gold Type</th>
                     <th className="px-5 py-3.5">Karat</th>
                     <th className="px-5 py-3.5">Purity</th>
@@ -211,10 +211,10 @@ export default function GoldTypes() {
                 <tbody className="divide-y divide-gray-100 text-xs">
                   {types
                     .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
-                    .map((type) => (
+                    .map((type, idx) => (
                     <tr key={type.id} className="hover:bg-gray-50/60 transition-colors">
-                      <td className="px-5 py-4 text-gray-400 font-mono text-[11px]">
-                        #{type.sort_order || type.id}
+                      <td className="px-5 py-4 text-center text-gray-500 font-mono text-[11px] font-semibold">
+                        {(currentPage - 1) * itemsPerPage + idx + 1}
                       </td>
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2.5">

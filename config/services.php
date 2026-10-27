@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'mcx' => [
+        'endpoint' => env('MCX_API_URL'),
+        'key' => env('MCX_API_KEY'),
+    ],
+
 ];

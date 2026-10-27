@@ -27,6 +27,8 @@ use App\Http\Controllers\Api\BankAccountController;
 use App\Http\Controllers\Api\CompanyInfoController;
 use App\Http\Controllers\Api\DiamondColorController;
 use App\Http\Controllers\Api\DiamondClarityController;
+use App\Http\Controllers\Api\ApprovalMemoController;
+use App\Http\Controllers\Api\RepairController;
 
 // Public authentication routes
 Route::post('/login', [AuthController::class, 'login']);
@@ -61,6 +63,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/work-orders/ready-pieces', [WorkOrderController::class, 'readyPieces']);
     Route::get('/work-orders/tags', [WorkOrderController::class, 'getTags']);
     Route::get('/inventory/products/{id}/tags', [WorkOrderController::class, 'getProductTags']);
+    Route::get('/inventory/jewellery-tags/{tag}', [WorkOrderController::class, 'getTagDetails']);
 
     Route::get('/work-orders/{id}/receiving-data', [WorkOrderController::class, 'receivingData']);
     Route::get('/work-orders/{id}/pieces', [WorkOrderController::class, 'getPieces']);
@@ -89,6 +92,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/work-orders/{id}/update-hallmarking', [WorkOrderController::class, 'updateHallmarking']);
     Route::post('/received-pieces/{id}/update-certification', [WorkOrderController::class, 'updatePieceCertification']);
     Route::post('/received-pieces/{id}/update-hallmarking', [WorkOrderController::class, 'updatePieceHallmarking']);
+    Route::get('/work-orders/{id}/material-requirements', [WorkOrderController::class, 'materialRequirements']);
+    Route::get('/work-orders/{id}/gold-reconciliation', [WorkOrderController::class, 'goldReconciliation']);
     Route::get('/work-orders/{id}/pdf', [WorkOrderController::class, 'exportPdf']);
     Route::apiResource('work-orders', WorkOrderController::class);
 
@@ -98,10 +103,12 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/clients/generate-code', [ClientController::class, 'generateCode']);
     Route::get('/clients/removed', [ClientController::class, 'removedClients']);
+    Route::post('/clients/{id}/metal-deposit', [ClientController::class, 'recordMetalDeposit']);
     Route::post('/clients/{id}/remove', [ClientController::class, 'removeClient']);
     Route::post('/clients/{id}/restore', [ClientController::class, 'restoreClient']);
     Route::get('/clients/{client}/price-list', [ClientPriceListController::class, 'show']);
     Route::get('/clients/{client}/price-list/history', [ClientPriceListController::class, 'history']);
+    Route::post('/clients/{client}/price-list/activate/{priceList}', [ClientPriceListController::class, 'activateVersion']);
     Route::post('/clients/{client}/price-list', [ClientPriceListController::class, 'storeOrUpdate']);
     Route::apiResource('clients', ClientController::class);
 
@@ -114,12 +121,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/reports', [ReportController::class, 'index']);
     Route::get('/sales/dashboard', [SalesController::class, 'dashboard']);
     Route::get('/sales/customer-report', [SalesController::class, 'customerReport']);
+    Route::get('/sales/available-pieces', [SalesController::class, 'availablePieces']);
     Route::get('/sales/products', [SalesController::class, 'products']);
     Route::get('/sales/profit', [SalesController::class, 'profit']);
     Route::get('/sales/profit-per-invoice', [SalesController::class, 'profit']);
     Route::get('/sales/profit-per-metal', [ReportController::class, 'profitPerMetal']);
     Route::get('/sales/customers/{client}', [SalesController::class, 'customer']);
+    Route::post('/sales/{sale}/finalize', [SalesController::class, 'finalize']);
+    Route::post('/sales/{sale}/cancel', [SalesController::class, 'cancel']);
+    Route::delete('/sales/{sale}', [SalesController::class, 'destroy']);
     Route::post('/sales/{sale}/payments', [SalesController::class, 'payment']);
+    Route::put('/sales/{sale}/payments/{payment}', [SalesController::class, 'updatePayment']);
+    Route::delete('/sales/{sale}/payments/{payment}', [SalesController::class, 'deletePayment']);
     Route::get('/sales/{sale}', [SalesController::class, 'show']);
     Route::get('/sales', [SalesController::class, 'index']);
     Route::post('/sales', [SalesController::class, 'store']);
@@ -139,12 +152,22 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/products/{id}/opening-stock', [ProductController::class, 'updateOpeningStock']);
     Route::apiResource('products', ProductController::class);
     Route::apiResource('memberships', MembershipController::class);
+    Route::get('/suppliers/{id}/ledger', [SupplierController::class, 'ledger']);
+    Route::post('/suppliers/{id}/settle', [SupplierController::class, 'settle']);
+    Route::post('/suppliers/{id}/settlements', [SupplierController::class, 'settle']);
+    Route::post('/suppliers/{id}/adjust-balance', [SupplierController::class, 'adjustBalance']);
     Route::apiResource('suppliers', SupplierController::class);
     Route::get('/raw-materials/unified-stock', [\App\Http\Controllers\Api\MaterialOpeningStockController::class, 'unifiedStock']);
     Route::post('/raw-materials/unified-stock/update', [\App\Http\Controllers\Api\MaterialOpeningStockController::class, 'updateUnifiedStock']);
+    Route::post('/raw-materials/quick-stock-add', [\App\Http\Controllers\Api\RawMaterialController::class, 'quickStockAdd']);
     Route::apiResource('raw-materials', \App\Http\Controllers\Api\RawMaterialController::class);
     Route::get('/purchase-entries/generate-no', [PurchaseEntryController::class, 'generateNo']);
+    Route::get('/purchase-entries/due-reminders', [PurchaseEntryController::class, 'dueReminders']);
+    Route::match(['post', 'patch'], '/purchase-entries/{id}/payment-status', [PurchaseEntryController::class, 'updatePaymentStatus']);
+    Route::post('/purchase-entries/{id}/convert-payment-mode', [PurchaseEntryController::class, 'convertPaymentMode']);
     Route::apiResource('purchase-entries', PurchaseEntryController::class);
+    Route::get('/gold-rates/today', [\App\Http\Controllers\Api\GoldRateController::class, 'today']);
+    Route::apiResource('gold-rates', \App\Http\Controllers\Api\GoldRateController::class);
     Route::get('/material-opening-stocks/generate-no', [\App\Http\Controllers\Api\MaterialOpeningStockController::class, 'generateNo']);
     Route::apiResource('material-opening-stocks', \App\Http\Controllers\Api\MaterialOpeningStockController::class);
 
@@ -179,10 +202,37 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/karigar-materials', [\App\Http\Controllers\Api\KarigarMaterialController::class, 'index']);
     Route::get('/karigars/{id}/material-ledger', [\App\Http\Controllers\Api\KarigarMaterialController::class, 'ledger']);
     Route::post('/karigars/{id}/material-action', [\App\Http\Controllers\Api\KarigarMaterialController::class, 'storeAction']);
+    Route::post('/karigars/{id}/allocate-materials', [\App\Http\Controllers\Api\KarigarMaterialController::class, 'allocateMaterials']);
+    Route::get('/karigars/{id}/work-orders/{workOrderId}/material-requirements', [\App\Http\Controllers\Api\KarigarMaterialController::class, 'workOrderMaterialRequirements']);
+    Route::post('/karigars/{id}/reverse-material-transaction/{txId}', [\App\Http\Controllers\Api\KarigarMaterialController::class, 'reverseMaterialTransaction']);
+    Route::match(['put', 'post'], '/karigars/{id}/material-transactions/{txId}', [\App\Http\Controllers\Api\KarigarMaterialController::class, 'updateMaterialTransaction']);
+    Route::post('/karigars/{id}/settle-cash', [\App\Http\Controllers\Api\KarigarMaterialController::class, 'settleCash']);
+    Route::get('/karigars/{id}/financial-ledger', [\App\Http\Controllers\Api\KarigarMaterialController::class, 'financialLedger']);
     Route::get('/karigars/generate-code', [KarigarController::class, 'generateCode']);
     Route::get('/karigars/{id}/works', [KarigarController::class, 'works']);
+    Route::get('/karigars/{id}/hisab-summary', [KarigarController::class, 'hisabSummary']);
     Route::apiResource('karigars', KarigarController::class);
     Route::apiResource('work-specifications', \App\Http\Controllers\Api\WorkSpecificationController::class);
+
+    // Approval / Jangad Memos
+    Route::get('/approvals', [ApprovalMemoController::class, 'index']);
+    Route::post('/approvals', [ApprovalMemoController::class, 'store']);
+    Route::get('/approvals/{id}', [ApprovalMemoController::class, 'show']);
+    Route::post('/approvals/{id}/return-piece/{itemId}', [ApprovalMemoController::class, 'returnPiece']);
+    Route::post('/approvals/{id}/convert-to-sale', [ApprovalMemoController::class, 'convertToSale']);
+
+    // Customer Jewellery Repair Management
+    Route::get('/repairs', [RepairController::class, 'index']);
+    Route::post('/repairs', [RepairController::class, 'store']);
+    Route::get('/repairs/{id}', [RepairController::class, 'show']);
+    Route::put('/repairs/{id}', [RepairController::class, 'updateProgress']);
+    Route::post('/repairs/{id}/deliver', [RepairController::class, 'deliver']);
+
+    // Statutory GST Reports (ITC-04 Job Work & GSTR-1 Summary)
+    Route::get('/reports/itc04', [ReportController::class, 'itc04Report']);
+    Route::get('/reports/gstr1', [ReportController::class, 'gstr1Summary']);
+    Route::get('/reports/karigar-monthly', [ReportController::class, 'karigarMonthlyReport']);
+    Route::get('/reports/supplier-monthly', [ReportController::class, 'supplierMonthlyReport']);
 
     // Inventory Module
     Route::get('/inventory/categories', [InventoryController::class, 'getCategories']);

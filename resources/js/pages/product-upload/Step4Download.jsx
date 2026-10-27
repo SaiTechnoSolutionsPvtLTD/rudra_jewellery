@@ -118,7 +118,7 @@ export default function Step4Download() {
       return;
     }
     const summary = designs.slice(0, 10).map((d, i) => `${i + 1}. SKU: ${d.design_no} | Purity: ${d.gold_type || '22K'} | Net Wt: ${d.net_wt ? Number(d.net_wt).toFixed(3) : '1.5'}g | Dia Wt: ${d.dia_wt_ct || '0.50'}ct`).join('%0A');
-    const text = `*RUDRA JEWELLERS - DIGITAL PRODUCT CATALOG*%0A%0ASelected Catalog Items (%2A${selectedCount} Items%2A):%0A%0A${summary}%0A%0AView & download full digital catalog: ${window.location.origin}/product-upload/step4`;
+    const text = `*RUDRA JEWELLERY - DIGITAL PRODUCT CATALOG*%0A%0ASelected Catalog Items (%2A${selectedCount} Items%2A):%0A%0A${summary}%0A%0AView & download full digital catalog: ${window.location.origin}/product-upload/step4`;
     window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
   };
 

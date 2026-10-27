@@ -1,5 +1,5 @@
 /**
- * Number Input Validation & Formatting Utilities for Rudhra Jewellers
+ * Number Input Validation & Formatting Utilities for Rudra Jewellery
  */
 
 const CONTROL_KEYS = [
@@ -34,27 +34,14 @@ export const normalizeNumericInput = (newVal, prevVal = '') => {
     (Number(prevStr) === 0 && !prevStr.includes('.'))
   );
 
-  // Scenario 1: Cursor was at end, typed 1 -> '01', or 43 -> '043'
-  // Remove leading zeros before any non-zero digit: '01' -> '1', '04' -> '4', '043' -> '43', '005' -> '5'
-  // But preserve '0.' for decimals (e.g. '0.5', '0.014')
+  // Scenario 1: User typed non-zero digit when field had leading zeros:
+  // e.g. '01' -> '1', '043' -> '43', '005' -> '5'
+  // But preserve '0.' for decimals (e.g. '0.5', '0.014', '0.00015')
   if (/^0+[1-9]/.test(str)) {
     str = str.replace(/^0+([1-9])/, '$1');
   }
 
-  // Scenario 2: Cursor was at start (before '0'):
-  // User typed 1 -> '10', or 43 -> '430'
-  // When previously default zero, strip the trailing zero that was the old default
-  if (wasDefaultZero && !str.includes('.') && str.endsWith('0') && str !== '0' && str !== '00') {
-    str = str.replace(/0$/, '');
-  }
-
-  // Scenario 3: If previously was '0.000' or '0.00' or '0.0' and user typed digits at beginning:
-  // e.g. '40.000' -> '4' or '430.000' -> '43'
-  if (wasDefaultZero && (prevStr === '0.000' || prevStr === '0.00' || prevStr === '0.0') && /^[1-9]+0\.(000|00|0)$/.test(str)) {
-    str = str.replace(/0\.(000|00|0)$/, '');
-  }
-
-  // Scenario 4: Multiple leading zeros entered before decimal (e.g. '00.5')
+  // Scenario 2: Multiple leading zeros entered before decimal (e.g. '00.5' -> '0.5')
   if (/^00+\./.test(str)) {
     str = str.replace(/^0+/, '0');
   }

@@ -186,6 +186,7 @@ export default function HistoryDetails() {
             <table className="w-full text-left text-xs">
               <thead>
                 <tr className="bg-stone-50 border-b border-stone-100 text-[11px] font-bold text-stone-500 uppercase tracking-wider">
+                  <th className="py-3 px-3 text-center w-12">S.NO</th>
                   <th className="py-3 px-4">WORK ORDER NO</th>
                   <th className="py-3 px-4">Product</th>
                   <th className="py-3 px-4">Aachari / Artisan</th>
@@ -198,12 +199,15 @@ export default function HistoryDetails() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {paginatedOrders.map((wo) => (
+                {paginatedOrders.map((wo, idx) => (
                   <tr
                     key={wo.id}
                     onClick={() => handleRowClick(wo)}
                     className="hover:bg-stone-50/80 transition-all cursor-pointer group"
                   >
+                    <td className="py-3.5 px-3 text-center font-mono font-bold text-stone-400 text-xs">
+                      {startIndex + idx + 1}
+                    </td>
                     <td className="py-3.5 px-4 font-mono font-bold text-[#b01622]">
                       {wo.work_order_number}
                     </td>

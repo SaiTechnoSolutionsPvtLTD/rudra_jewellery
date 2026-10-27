@@ -26,7 +26,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 if ($e instanceof \Illuminate\Auth\AuthenticationException) {
                     return response()->json([
                         'status' => false,
-                        'message' => 'Unauthenticated (401). Please log in to continue.'
+                        'message' => 'Your session has expired. Please log in again.'
                     ], 401);
                 }
 
@@ -35,7 +35,7 @@ return Application::configure(basePath: dirname(__DIR__))
                     $e instanceof \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException) {
                     return response()->json([
                         'status' => false,
-                        'message' => 'Access Denied (403). You do not have permission to access this resource.'
+                        'message' => 'You do not have permission to perform this action.'
                     ], 403);
                 }
 
@@ -44,8 +44,22 @@ return Application::configure(basePath: dirname(__DIR__))
                     $e instanceof \Symfony\Component\HttpKernel\Exception\NotFoundHttpException) {
                     return response()->json([
                         'status' => false,
-                        'message' => 'Resource Not Found (404).'
+                        'message' => 'The requested record could not be found.'
                     ], 404);
+                }
+
+                // Database unique constraint violation (SQLSTATE 23000 / code 1062)
+                if ($e instanceof \Illuminate\Database\QueryException && ($e->errorInfo[1] ?? null) === 1062) {
+                    $dupMsg = 'A record with this information already exists.';
+                    if (str_contains($e->getMessage(), 'product_code')) {
+                        $dupMsg = 'This product code already exists.';
+                    } elseif (str_contains($e->getMessage(), 'email')) {
+                        $dupMsg = 'This email address is already in use.';
+                    }
+                    return response()->json([
+                        'status' => false,
+                        'message' => $dupMsg
+                    ], 422);
                 }
 
                 // HTTP Method not allowed (405)
@@ -56,7 +70,7 @@ return Application::configure(basePath: dirname(__DIR__))
                     ], 405);
                 }
 
-                // Log the technical error internally for developers
+                // Log the technical error internally for developers without exposing to client
                 \Illuminate\Support\Facades\Log::error('API Error [' . get_class($e) . ']: ' . $e->getMessage(), [
                     'url' => $request->fullUrl(),
                     'method' => $request->method(),
@@ -71,20 +85,21 @@ return Application::configure(basePath: dirname(__DIR__))
                 }
 
                 $friendlyMessages = [
-                    400 => 'Bad Request (400). Please check your submission.',
-                    401 => 'Unauthenticated (401).',
-                    403 => 'Forbidden (403). Access denied.',
-                    404 => 'Resource Not Found (404).',
+                    400 => 'Invalid request. Please verify the entered information.',
+                    401 => 'Your session has expired. Please log in again.',
+                    403 => 'You do not have permission to perform this action.',
+                    404 => 'The requested record could not be found.',
                     405 => 'Method Not Allowed (405).',
-                    419 => 'Session Expired (419). Please refresh and try again.',
+                    419 => 'Your session has expired. Please log in again.',
+                    422 => 'Please check the required fields and verify the entered information.',
                     429 => 'Too Many Requests (429). Please wait a moment.',
-                    500 => 'Server Error (500). Please try again later or contact support.',
-                    502 => 'Bad Gateway (502). Service temporarily unavailable.',
-                    503 => 'Service Unavailable (503). Server is undergoing maintenance.',
-                    504 => 'Gateway Timeout (504). Please try again.',
+                    500 => 'An unexpected internal server error occurred. Please try again.',
+                    502 => 'Bad gateway. Please try again in a moment.',
+                    503 => 'Service temporarily unavailable. Please try again later.',
+                    504 => 'Gateway timeout. Please try again.',
                 ];
 
-                $userMessage = $friendlyMessages[$statusCode] ?? "Server Error ({$statusCode}). Please try again later.";
+                $userMessage = $friendlyMessages[$statusCode] ?? 'An unexpected error occurred. Please try again.';
 
                 return response()->json([
                     'status' => false,

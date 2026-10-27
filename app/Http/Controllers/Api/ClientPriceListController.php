@@ -21,6 +21,12 @@ class ClientPriceListController extends Controller
             'status' => 'active',
             'effective_from' => Carbon::now()->format('Y-m-d'),
             'effective_to' => 'Open / Till Updated',
+            'gold_rates' => [
+                'rate_24k' => 0,
+                'rate_22k' => 0,
+                'rate_18k' => 0,
+                'rate_14k' => 0,
+            ],
             'diamond_stone_rates' => [],
             'color_stone_charges' => [
                 [
@@ -94,16 +100,29 @@ class ClientPriceListController extends Controller
     }
 
     /**
-     * Get price list for a given client
+     * Get price list for a given client (active version or specified version)
      */
-    public function show($clientId)
+    public function show(Request $request, $clientId)
     {
         $client = Client::find($clientId);
         if (!$client) {
             return response()->json(['message' => 'Client not found'], 404);
         }
 
-        $priceList = ClientPriceList::where('client_id', $clientId)->latest()->first();
+        if ($request->filled('version')) {
+            $priceList = ClientPriceList::where('client_id', $clientId)
+                ->where('version', $request->query('version'))
+                ->first();
+        } else {
+            $priceList = ClientPriceList::where('client_id', $clientId)
+                ->where('status', 'active')
+                ->latest()
+                ->first();
+
+            if (!$priceList) {
+                $priceList = ClientPriceList::where('client_id', $clientId)->latest()->first();
+            }
+        }
 
         if (!$priceList) {
             // Return default template
@@ -125,7 +144,8 @@ class ClientPriceListController extends Controller
     }
 
     /**
-     * Save or update price list for a client
+     * Save or update price list for a client.
+     * When activating a version, all previous versions for this client are archived to prevent conflicts.
      */
     public function storeOrUpdate(Request $request, $clientId)
     {
@@ -135,6 +155,7 @@ class ClientPriceListController extends Controller
         }
 
         $version = $request->input('version', '01');
+        $status = $request->input('status', 'active');
 
         // Find existing price list for this client and version
         $priceList = ClientPriceList::where('client_id', $clientId)
@@ -144,9 +165,10 @@ class ClientPriceListController extends Controller
         $data = [
             'client_id' => (int)$clientId,
             'version' => $version,
-            'status' => $request->input('status', 'active'),
+            'status' => $status,
             'effective_from' => $request->input('effective_from', Carbon::now()->format('Y-m-d')),
             'effective_to' => $request->input('effective_to', 'Open / Till Updated'),
+            'gold_rates' => $request->input('gold_rates', []),
             'diamond_stone_rates' => $request->input('diamond_stone_rates', []),
             'color_stone_charges' => $request->input('color_stone_charges', []),
             'additional_charges' => $request->input('additional_charges', []),
@@ -161,11 +183,56 @@ class ClientPriceListController extends Controller
             $priceList = ClientPriceList::create($data);
         }
 
+        // If newly saved or updated version is active, archive any other version for this client
+        if ($status === 'active') {
+            ClientPriceList::where('client_id', $clientId)
+                ->where('id', '!=', $priceList->id)
+                ->update(['status' => 'archived']);
+        }
+
         return response()->json([
             'status' => 'success',
             'message' => 'Price list saved successfully for ' . $client->full_name,
             'price_list' => $priceList,
             'client' => $client
+        ]);
+    }
+
+    /**
+     * Activate a specific price list version for a client
+     */
+    public function activateVersion($clientId, $versionId)
+    {
+        $client = Client::find($clientId);
+        if (!$client) {
+            return response()->json(['message' => 'Client not found'], 404);
+        }
+
+        $priceList = ClientPriceList::where('client_id', $clientId)
+            ->where(function ($q) use ($versionId) {
+                $q->where('id', $versionId)->orWhere('version', $versionId);
+            })
+            ->first();
+
+        if (!$priceList) {
+            return response()->json(['message' => 'Price list version not found'], 404);
+        }
+
+        // Archive all other versions for this client
+        ClientPriceList::where('client_id', $clientId)
+            ->where('id', '!=', $priceList->id)
+            ->update(['status' => 'archived']);
+
+        $priceList->update([
+            'status' => 'active',
+            'effective_from' => Carbon::now()->format('Y-m-d'),
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => "Price list version {$priceList->version} activated successfully.",
+            'price_list' => $priceList,
+            'client' => $client,
         ]);
     }
 

@@ -42,6 +42,193 @@ export const resolveItemImage = (item) => {
   return normalizeImageUrl(raw);
 };
 
+export const normalizeWorkOrderItems = (rawItems = [], order = null, existingItems = []) => {
+  const getNum = (...candidates) => {
+    for (const c of candidates) {
+      if (c !== undefined && c !== null && c !== '') {
+        const n = parseFloat(c);
+        if (!isNaN(n) && n > 0) return n;
+      }
+    }
+    return 0;
+  };
+
+  const getVal = (...candidates) => {
+    for (const c of candidates) {
+      if (c !== undefined && c !== null) {
+        const s = String(c).trim();
+        if (s && s !== '-' && s !== '—' && s !== 'null' && s !== 'undefined') return s;
+      }
+    }
+    return '';
+  };
+
+  if (!Array.isArray(rawItems) || rawItems.length === 0) {
+    if (existingItems && existingItems.length > 0) return existingItems;
+    if (order && parseFloat(order.allotted_weight) > 0) {
+      const allocWt = parseFloat(order.allotted_weight) || 0;
+      return [{
+        id: Date.now(),
+        work_order_no: order.work_order_number || '',
+        form_no: order.work_order_number || '',
+        product_name: order.product_name || order.category?.name || 'Jewellery Item',
+        variant: order.product_name || order.category?.name || 'Jewellery Item',
+        gold_purity: order.gold_purity || order.purity || order.material_type || '22K (916)',
+        setting_type: 'Prong',
+        gold_weight: allocWt.toFixed(3),
+        total_weight: allocWt.toFixed(3),
+        allotted_weight: allocWt.toFixed(3),
+        need_pcs: order.required_qty || 1,
+        qty: order.required_qty || 1,
+        no_of_diamonds: 0,
+        diamond_weight: '',
+        total_gross_wt: allocWt.toFixed(3),
+        total_dia_cts: '',
+        reference_image: order.image_url ? normalizeImageUrl(order.image_url) : '',
+        image: order.image_url ? normalizeImageUrl(order.image_url) : '',
+        design_number: order.design_code || 'DG-4587',
+      }];
+    }
+    return [];
+  }
+
+  return rawItems.map((raw, i) => {
+    const existing = (existingItems && existingItems[i]) ||
+      (existingItems && existingItems.find(ex => (ex.id && ex.id === raw.id) || (ex.design_number && (ex.design_number === raw.design_no || ex.design_number === raw.design_number))));
+
+    let pd = {};
+    if (raw.pricing_details) {
+      try {
+        pd = typeof raw.pricing_details === 'string'
+          ? JSON.parse(raw.pricing_details)
+          : (raw.pricing_details || {});
+      } catch (e) {
+        pd = {};
+      }
+    }
+
+    const item = { ...(existing || {}), ...raw, ...pd };
+
+    const pcs = parseInt(getNum(item.need_pcs, item.required_qty, item.qty, pd.need_pcs, pd.required_qty, existing?.need_pcs, existing?.required_qty, order?.required_qty) || 1, 10);
+    const gw = getNum(
+      raw.gold_weight,
+      pd.gold_weight,
+      existing?.gold_weight,
+      raw.allotted_weight,
+      existing?.allotted_weight,
+      item.gold_weight,
+      item.total_weight,
+      item.allotted_weight,
+      order?.allotted_weight ? parseFloat(order.allotted_weight) / Math.max(1, rawItems.length) : 0
+    );
+
+    const rawDiaWt = getVal(raw.diamond_weight, pd.diamond_weight, existing?.diamond_weight, item.diamond_weight);
+    const cleanDiaWt = (rawDiaWt && rawDiaWt !== 'VS1' && rawDiaWt !== 'VVS2') ? rawDiaWt : '';
+    const diaNum = getNum(cleanDiaWt, pd.diamond_weight, existing?.diamond_weight, item.diamond_weight);
+
+    const diaCount = parseInt(getNum(
+      raw.no_of_diamonds,
+      pd.no_of_diamonds,
+      existing?.no_of_diamonds,
+      raw.diamond_count,
+      pd.diamond_count,
+      existing?.diamond_count,
+      item.diamond_count,
+      item.stone_details?.diamond_count,
+      pd.stone_details?.diamond_count
+    ), 10);
+
+    const stoneCount = parseInt(getNum(
+      raw.no_of_colour_stones,
+      pd.no_of_colour_stones,
+      existing?.no_of_colour_stones,
+      raw.color_stone_count,
+      pd.color_stone_count,
+      existing?.color_stone_count,
+      item.color_stone_count,
+      item.stone_details?.color_stone_count
+    ), 10);
+
+    const gPurity = getVal(
+      raw.gold_purity,
+      pd.gold_purity,
+      existing?.gold_purity,
+      raw.purity,
+      pd.purity,
+      raw.karat,
+      pd.karat,
+      raw.gold_priory,
+      pd.gold_priory,
+      item.gold_purity,
+      item.purity,
+      order?.gold_purity,
+      order?.purity,
+      order?.karat,
+      order?.material_type,
+      '22K (916)'
+    );
+
+    const setting = getVal(raw.setting_type, pd.setting_type, existing?.setting_type, item.setting_type, 'Prong');
+    const designNo = getVal(raw.design_number, pd.design_number, existing?.design_number, raw.design_no, existing?.design_no, item.design_number, order?.design_code, `DG-${4587 + i}`);
+    const prodName = getVal(raw.product_name, pd.product_name, existing?.product_name, raw.variant, pd.variant, existing?.variant, item.product_name, order?.product_name, 'Jewellery Item');
+
+    const totDiaCts = getNum(raw.total_dia_cts, pd.total_dia_cts, existing?.total_dia_cts) > 0
+      ? String(getNum(raw.total_dia_cts, pd.total_dia_cts, existing?.total_dia_cts))
+      : (diaNum > 0 ? (diaNum * pcs).toFixed(3) : '');
+
+    const totGrossWt = getNum(raw.total_gross_wt, pd.total_gross_wt, existing?.total_gross_wt) > 0
+      ? String(getNum(raw.total_gross_wt, pd.total_gross_wt, existing?.total_gross_wt))
+      : (gw > 0 ? (gw * pcs).toFixed(3) : '0.000');
+
+    const refImg = getVal(raw.reference_image, pd.reference_image, existing?.reference_image, raw.image, pd.image, existing?.image, item.reference_image, raw.product?.image_url, order?.image_url, '');
+    const cleanImg = (refImg && !refImg.includes('/samples/')) ? normalizeImageUrl(refImg) : '';
+
+    const sieves = Array.isArray(raw.diamond_sieves) && raw.diamond_sieves.length > 0
+      ? raw.diamond_sieves
+      : (Array.isArray(pd.diamond_sieves) && pd.diamond_sieves.length > 0
+        ? pd.diamond_sieves
+        : (Array.isArray(existing?.diamond_sieves) && existing.diamond_sieves.length > 0
+          ? existing.diamond_sieves
+          : (Array.isArray(item.diamond_sieves) && item.diamond_sieves.length > 0
+            ? item.diamond_sieves
+            : (Array.isArray(item.stone_details) ? item.stone_details : []))));
+
+    return {
+      ...item,
+      id: item.id || (existing?.id) || (Date.now() + i),
+      work_order_no: item.work_order_no || item.form_no || order?.work_order_number || '',
+      form_no: item.work_order_no || item.form_no || order?.work_order_number || '',
+      design_number: designNo,
+      product_name: prodName,
+      variant: prodName,
+      gold_purity: gPurity,
+      gold_stamp: getVal(raw.gold_stamp, pd.gold_stamp, existing?.gold_stamp, item.gold_stamp),
+      setting_type: setting,
+      need_pcs: pcs,
+      qty: pcs,
+      gold_weight: gw > 0 ? gw.toFixed(3) : (item.gold_weight || '0.000'),
+      total_weight: gw > 0 ? gw.toFixed(3) : (item.total_weight || '0.000'),
+      allotted_weight: gw > 0 ? gw.toFixed(3) : (item.allotted_weight || '0.000'),
+      diamond_weight: cleanDiaWt,
+      diamond_count: diaCount,
+      no_of_diamonds: diaCount,
+      color_stone_count: stoneCount,
+      no_of_colour_stones: stoneCount,
+      diamond_sieves: sieves,
+      diamond_stamp: getVal(raw.diamond_stamp, pd.diamond_stamp, existing?.diamond_stamp, item.diamond_stamp),
+      stamp_and_no: getVal(raw.stamp_and_no, pd.stamp_and_no, existing?.stamp_and_no, item.stamp_and_no, raw.stamp_details, pd.stamp_details),
+      reference_image: cleanImg,
+      image: cleanImg,
+      design_file: getVal(raw.design_file, pd.design_file, existing?.design_file, item.design_file),
+      design_file_name: getVal(raw.design_file_name, pd.design_file_name, existing?.design_file_name, item.design_file_name),
+      design_file_type: getVal(raw.design_file_type, pd.design_file_type, existing?.design_file_type, item.design_file_type),
+      total_gross_wt: totGrossWt,
+      total_dia_cts: totDiaCts,
+      remark: getVal(raw.remark, pd.remark, existing?.remark, item.remark, '-'),
+    };
+  });
+};
+
 export default function NewWorkOrder({ initialMode }) {
   const toastCtx = useToast();
   const rawShowToast = toastCtx?.showToast || ((msg) => console.log(msg));
@@ -71,6 +258,103 @@ export default function NewWorkOrder({ initialMode }) {
     }).format(val || 0);
   };
 
+  const [expandedDiamondRows, setExpandedDiamondRows] = useState({});
+
+  const toggleDiamondExpansion = (key, e) => {
+    e?.stopPropagation();
+    setExpandedDiamondRows((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
+
+  const renderDiamondDetails = (r, rowIndex = 0) => {
+    let sieves = [];
+    const pd = typeof r.pricing_details === 'string' ? JSON.parse(r.pricing_details || '{}') : (r.pricing_details || {});
+
+    if (Array.isArray(r.diamond_sieves) && r.diamond_sieves.length > 0) {
+      sieves = r.diamond_sieves;
+    } else if (Array.isArray(pd.diamond_sieves) && pd.diamond_sieves.length > 0) {
+      sieves = pd.diamond_sieves;
+    } else if (typeof r.stone_details === 'string' && r.stone_details.trim().startsWith('[')) {
+      try {
+        const parsed = JSON.parse(r.stone_details);
+        if (Array.isArray(parsed) && parsed.length > 0) sieves = parsed;
+      } catch (_) {}
+    } else if (Array.isArray(r.stone_details) && r.stone_details.length > 0) {
+      sieves = r.stone_details;
+    } else if (Array.isArray(r.diamond_components) && r.diamond_components.length > 0) {
+      sieves = r.diamond_components.map(c => ({
+        stamp: c.stamp || c.sieve || c.component_type || '—',
+        count: c.no_of_pieces || c.pieces || c.count || 0,
+        weight: c.weight || c.carats || 0,
+      }));
+    }
+
+    const validSieves = sieves.filter(s => s && (s.stamp || s.count || s.weight || s.carats || s.pieces));
+
+    if (validSieves.length > 0) {
+      const rowKey = r.id || `row-${rowIndex}`;
+      const isExpanded = !!expandedDiamondRows[rowKey];
+      const hasMany = validSieves.length > 2;
+      const displaySieves = (hasMany && !isExpanded) ? validSieves.slice(0, 2) : validSieves;
+
+      return (
+        <div className="flex flex-col gap-1 items-center justify-center font-mono">
+          {displaySieves.map((s, idx) => {
+            const st = s.stamp || s.sieve || '—';
+            const cnt = s.count ?? s.pieces ?? s.no_of_diamonds ?? 0;
+            const wt = s.weight ?? s.carats ?? s.diamond_weight ?? 0;
+            const wtFormatted = (!isNaN(parseFloat(wt)) && parseFloat(wt) > 0) ? `${Number(wt).toFixed(3)}ct` : (wt ? String(wt) : '—');
+            return (
+              <div key={idx} className="bg-purple-50 text-purple-950 px-1.5 py-0.5 rounded border border-purple-200/80 text-[7.5px] leading-tight whitespace-nowrap shadow-2xs">
+                <span className="text-purple-900 font-bold">{st}</span>
+                <span className="text-stone-400 mx-1">/</span>
+                <span className="text-emerald-800 font-semibold">{cnt} pcs</span>
+                <span className="text-stone-400 mx-1">/</span>
+                <span className="text-indigo-900 font-bold">{wtFormatted}</span>
+              </div>
+            );
+          })}
+
+          {hasMany && (
+            <button
+              type="button"
+              onClick={(e) => toggleDiamondExpansion(rowKey, e)}
+              className="mt-0.5 text-[8px] font-bold text-purple-700 hover:text-purple-900 bg-purple-100 hover:bg-purple-200 border border-purple-300 rounded px-1.5 py-0.5 cursor-pointer transition-colors shadow-2xs whitespace-nowrap flex items-center gap-1"
+              title={isExpanded ? 'Collapse diamond types' : `View all ${validSieves.length} diamond types`}
+            >
+              {isExpanded ? (
+                <span>Show Less ▲</span>
+              ) : (
+                <span>+{validSieves.length - 2} more ({validSieves.length} types) ▼</span>
+              )}
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    const stamp = r.diamond_stamp || pd.diamond_stamp || r.stamp_and_no || pd.stamp_and_no || r.stamp_details || pd.stamp_details;
+    const count = parseInt(r.no_of_diamonds ?? pd.no_of_diamonds ?? r.diamond_count ?? pd.diamond_count ?? 0, 10);
+    const wtVal = (r.diamond_weight && r.diamond_weight !== 'VS1' && r.diamond_weight !== 'VVS2') ? r.diamond_weight : (pd.diamond_weight || '');
+    const wtNum = parseFloat(wtVal) || 0;
+
+    if (stamp || count > 0 || wtNum > 0) {
+      return (
+        <div className="bg-purple-50 text-purple-950 px-1.5 py-0.5 rounded border border-purple-200/80 text-[7.5px] leading-tight whitespace-nowrap font-mono inline-block">
+          <span className="text-purple-900 font-bold">{stamp || '—'}</span>
+          <span className="text-stone-400 mx-1">/</span>
+          <span className="text-emerald-800 font-semibold">{count} pcs</span>
+          <span className="text-stone-400 mx-1">/</span>
+          <span className="text-indigo-900 font-bold">{wtNum > 0 ? `${wtNum.toFixed(3)}ct` : '—'}</span>
+        </div>
+      );
+    }
+
+    return <span className="text-stone-400">—</span>;
+  };
+
   // Modes: 'create', 'details', 'list'
   const targetId = params.id || searchParams.get('id');
   const [viewMode, setViewMode] = useState(() => {
@@ -81,8 +365,10 @@ export default function NewWorkOrder({ initialMode }) {
 
   const [orders, setOrders] = useState([]);
   const [karigars, setKarigars] = useState([]);
+  const [clientsList, setClientsList] = useState([]);
   const [inventoryProducts, setInventoryProducts] = useState([]);
   const [settingStyles, setSettingStyles] = useState([]);
+  const [stampsList, setStampsList] = useState([]);
   const [showStylesModal, setShowStylesModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -91,14 +377,31 @@ export default function NewWorkOrder({ initialMode }) {
   const fetchSettingStyles = async () => {
     try {
       const res = await api.get('/styles');
-      setSettingStyles(res.data || []);
+      const list = res.data || [];
+      setSettingStyles(list);
+      if (list.length > 0) {
+        setRowForm((prev) => {
+          const isValid = list.some((s) => s.name === prev.setting_type);
+          return isValid ? prev : { ...prev, setting_type: list[0].name };
+        });
+      }
     } catch (err) {
       console.error('Failed to fetch setting styles:', err);
     }
   };
 
+  const fetchStamps = async () => {
+    try {
+      const res = await api.get('/stamps');
+      setStampsList(res.data?.data || (Array.isArray(res.data) ? res.data : []));
+    } catch (err) {
+      console.error('Failed to fetch stamps:', err);
+    }
+  };
+
   useEffect(() => {
     fetchSettingStyles();
+    fetchStamps();
   }, []);
 
   // Search & Filter for list mode and month filter
@@ -119,12 +422,116 @@ export default function NewWorkOrder({ initialMode }) {
   const [editingRowIndex, setEditingRowIndex] = useState(null);
   const [formErrors, setFormErrors] = useState({});
 
+  // Dynamic Insufficient Diamond Stock Popup modal state
+  const [insufficientStockData, setInsufficientStockData] = useState(null);
+
+  // Live Previews Slider indices for Reference Image & CAD Design (Multi-Job navigation)
+  const [refSliderIndex, setRefSliderIndex] = useState(0);
+  const [cadSliderIndex, setCadSliderIndex] = useState(0);
+
+  // Helper to parse diamond stamp and stones input e.g. "+7-4, +5-7" -> stamp +7 (4 pcs), stamp +5 (7 pcs), total = 11
+  const parseDiamondStampAndNo = (inputStr) => {
+    if (!inputStr || typeof inputStr !== 'string') return { totalStones: 0, items: [], summaryText: '' };
+    const tokens = inputStr.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean);
+    let totalStones = 0;
+    const items = [];
+    for (const rawToken of tokens) {
+      const match = rawToken.match(/^([+-]?\w+(?:\.\w+)?)\s*[-:]\s*(\d+)$/);
+      if (match) {
+        const stamp = match[1];
+        const count = parseInt(match[2], 10);
+        if (!isNaN(count)) {
+          totalStones += count;
+          items.push({ stamp, count, raw: rawToken });
+        }
+      }
+    }
+    const summaryText = items.map((it) => `Stamp ${it.stamp}: ${it.count} pcs`).join(', ');
+    return { totalStones, items, summaryText };
+  };
+
+  const handleAddDiamondSieve = () => {
+    setRowForm(prev => {
+      const sieves = Array.isArray(prev.diamond_sieves) ? [...prev.diamond_sieves] : [];
+      sieves.push({ stamp: '', count: '', weight: '' });
+      return { ...prev, diamond_sieves: sieves };
+    });
+  };
+
+  const handleUpdateDiamondSieve = (index, field, value) => {
+    setRowForm(prev => {
+      const sieves = Array.isArray(prev.diamond_sieves) ? [...prev.diamond_sieves] : [];
+      if (!sieves[index]) sieves[index] = { stamp: '', count: '', weight: '' };
+      sieves[index][field] = value;
+
+      let totalStones = 0;
+      let totalCarats = 0;
+      const parts = [];
+
+      sieves.forEach(s => {
+        const c = parseInt(s.count, 10) || 0;
+        const w = parseFloat(s.weight) || 0;
+        totalStones += c;
+        totalCarats += w;
+        if (s.stamp && c > 0) {
+          parts.push(`${s.stamp}-${c}${w > 0 ? ` (${w}ct)` : ''}`);
+        }
+      });
+
+      const pcs = parseInt(prev.need_pcs, 10) || 1;
+      const totalDiaCts = totalCarats > 0 ? (totalCarats * pcs).toFixed(3) : prev.total_dia_cts;
+
+      return {
+        ...prev,
+        diamond_sieves: sieves,
+        no_of_diamonds: totalStones > 0 ? totalStones : prev.no_of_diamonds,
+        diamond_count: totalStones > 0 ? totalStones : prev.diamond_count,
+        diamond_weight: totalCarats > 0 ? totalCarats.toFixed(3) : prev.diamond_weight,
+        total_dia_cts: totalDiaCts,
+        stamp_and_no: parts.length > 0 ? parts.join(', ') : prev.stamp_and_no,
+        diamond_stamp: sieves[0]?.stamp || prev.diamond_stamp,
+      };
+    });
+  };
+
+  const handleRemoveDiamondSieve = (index) => {
+    setRowForm(prev => {
+      const sieves = (prev.diamond_sieves || []).filter((_, i) => i !== index);
+      let totalStones = 0;
+      let totalCarats = 0;
+      const parts = [];
+
+      sieves.forEach(s => {
+        const c = parseInt(s.count, 10) || 0;
+        const w = parseFloat(s.weight) || 0;
+        totalStones += c;
+        totalCarats += w;
+        if (s.stamp && c > 0) {
+          parts.push(`${s.stamp}-${c}${w > 0 ? ` (${w}ct)` : ''}`);
+        }
+      });
+
+      const pcs = parseInt(prev.need_pcs, 10) || 1;
+      const totalDiaCts = totalCarats > 0 ? (totalCarats * pcs).toFixed(3) : '';
+
+      return {
+        ...prev,
+        diamond_sieves: sieves,
+        no_of_diamonds: totalStones,
+        diamond_count: totalStones,
+        diamond_weight: totalCarats > 0 ? totalCarats.toFixed(3) : '',
+        total_dia_cts: totalDiaCts,
+        stamp_and_no: parts.join(', '),
+      };
+    });
+  };
+
   const updateFormField = (field, val) => {
     const numericFields = [
       'need_pcs', 'diamond_count', 'color_stone_count', 'no_of_diamonds',
       'no_of_colour_stones', 'diamond_weight', 'color_stone_weight',
       'diamond_wt_from', 'diamond_wt_to', 'gold_weight', 'gold_wt_from',
-      'gold_wt_to', 'total_gross_wt', 'total_dia_cts'
+      'gold_wt_to', 'total_gross_wt', 'total_gold_wt', 'total_dia_cts'
     ];
     const sanitizedVal = numericFields.includes(field)
       ? normalizeNumericInput(val, rowForm[field])
@@ -155,10 +562,12 @@ export default function NewWorkOrder({ initialMode }) {
     gold_purity: '',
     gold_karat: '',
     gold_stamp: '',
-    setting_type: 'Prong',
+    setting_type: 'Open setting',
     diamond_weight: '',
     diamond_count: 0,
     diamond_stamp: '',
+    stamp_and_no: '',
+    diamond_sieves: [],
     color_stone_weight: '',
     color_stone_count: 0,
     color_stone_stamp: '',
@@ -171,6 +580,7 @@ export default function NewWorkOrder({ initialMode }) {
     no_of_diamonds: 0,
     no_of_colour_stones: 0,
     total_gross_wt: '',
+    total_gold_wt: '',
     total_dia_cts: '',
     remark: '-',
     material_type: '',
@@ -201,8 +611,8 @@ export default function NewWorkOrder({ initialMode }) {
     const numericFields = [
       'need_pcs', 'diamond_count', 'color_stone_count', 'no_of_diamonds',
       'no_of_colour_stones', 'diamond_weight', 'color_stone_weight',
-      'diamond_wt_from', 'diamond_wt_to', 'gold_weight', 'gold_wt_from',
-      'gold_wt_to', 'total_gross_wt', 'total_dia_cts'
+      'diamond_wt_from', 'diamond_wt_to', 'gold_weight', 'fine_gold_weight', 'gold_wt_from',
+      'gold_wt_to', 'total_gross_wt', 'total_gold_wt', 'total_dia_cts'
     ];
     const sanitizedVal = numericFields.includes(field)
       ? normalizeNumericInput(val, rowForm[field])
@@ -212,14 +622,33 @@ export default function NewWorkOrder({ initialMode }) {
       const next = { ...prev, [field]: sanitizedVal };
       const goldWt = parseFloat(field === 'gold_weight' ? sanitizedVal : next.gold_weight) || 0;
       const diaWt = parseFloat(field === 'diamond_weight' ? sanitizedVal : next.diamond_weight) || 0;
-      const cstoneWt = parseFloat(field === 'color_stone_weight' ? sanitizedVal : next.color_stone_weight) || 0;
       const pcs = parseInt(field === 'need_pcs' ? sanitizedVal : next.need_pcs, 10) || 1;
 
-      // 1 carat = 0.2 grams
-      const diaGrams = diaWt * 0.2;
-      const grossSingle = goldWt + diaGrams + cstoneWt;
-      next.total_gross_wt = grossSingle > 0 ? (grossSingle * pcs).toFixed(3) : '';
+      // Keep Gold weight (g) and Diamond carats (ct) separate
+      const calcGold = goldWt > 0 ? (goldWt * pcs).toFixed(3) : '';
+      next.total_gold_wt = calcGold;
+      next.total_gross_wt = calcGold;
       next.total_dia_cts = diaWt > 0 ? (diaWt * pcs).toFixed(3) : '';
+
+      if (field === 'gold_weight' || field === 'gold_purity') {
+        const purityStr = field === 'gold_purity' ? sanitizedVal : next.gold_purity;
+        const parseRatio = (str) => {
+          if (!str) return 0.916;
+          const s = String(str).toLowerCase();
+          if (s.includes('24') || s.includes('999')) return 0.999;
+          if (s.includes('22') || s.includes('916')) return 0.916;
+          if (s.includes('18') || s.includes('750')) return 0.750;
+          if (s.includes('14') || s.includes('585')) return 0.585;
+          const m = s.match(/(\d+(?:\.\d+)?)\s*%/);
+          if (m) return parseFloat(m[1]) / 100;
+          return 0.916;
+        };
+        if (goldWt > 0) {
+          next.fine_gold_weight = (goldWt * parseRatio(purityStr)).toFixed(3);
+        } else if (goldWt === 0) {
+          next.fine_gold_weight = '';
+        }
+      }
       return next;
     });
 
@@ -243,13 +672,12 @@ export default function NewWorkOrder({ initialMode }) {
       setRowForm((prev) => {
         const goldWt = (p.gold_weight !== undefined && p.gold_weight !== null && p.gold_weight !== '')
           ? String(p.gold_weight)
-          : (p.attributes?.gross_wt !== undefined ? String(p.attributes.gross_wt) : (p.opening_stock_weight ? String(p.opening_stock_weight) : ''));
-        const diaWt = (p.diamond_weight !== undefined && p.diamond_weight !== null && p.diamond_weight !== '')
-          ? String(p.diamond_weight)
-          : (p.attributes?.dia_wt_ct !== undefined ? String(p.attributes.dia_wt_ct) : '');
+          : (p.net_gold_weight !== undefined && p.net_gold_weight !== null && p.net_gold_weight !== ''
+            ? String(p.net_gold_weight)
+            : (p.attributes?.net_wt !== undefined ? String(p.attributes.net_wt) : (p.opening_fine_weight ? String(p.opening_fine_weight) : '')));
+
         const pcs = parseInt(prev.need_pcs || 1, 10);
         const goldWtNum = parseFloat(goldWt) || 0;
-        const diaWtNum = parseFloat(diaWt) || 0;
 
         // Auto-assign product's real image (ignoring generic sample / placeholder images)
         const rawImg = p.image_url || p.image || p.thumbnail_url || p.specifications?.image || '';
@@ -258,23 +686,129 @@ export default function NewWorkOrder({ initialMode }) {
         const prodName = p.product_name || p.name || prev.product_name || '';
         const imgName = productImg ? (prodName ? `${prodName} Reference` : 'Product Image Attached') : '';
 
-        const diaCount = parseInt(p.diamond_count ?? p.attributes?.diamond_count ?? prev.no_of_diamonds ?? 0, 10);
+        // Extract and populate multiple diamond types / sieves (ensuring metal gross weight never leaks)
+        let sieveRows = [];
+        const rawComps = (Array.isArray(p.diamond_components) && p.diamond_components.length > 0)
+          ? p.diamond_components
+          : (Array.isArray(p.components) ? p.components : (Array.isArray(p.attributes?.components) ? p.attributes.components : []));
+
+        if (Array.isArray(p.diamond_components) && p.diamond_components.length > 0) {
+          sieveRows = p.diamond_components
+            .filter((dc) => (parseFloat(dc.diamond_weight || dc.weight || 0) > 0))
+            .map((dc) => ({
+              stamp: dc.stamp || dc.size || '',
+              count: parseInt(dc.diamond_count || dc.count || 1, 10),
+              weight: parseFloat(dc.diamond_weight || dc.weight || 0),
+              rate: parseFloat(dc.purchase_rate || dc.rate || 0),
+            }));
+        } else if (rawComps.length > 0) {
+          rawComps.forEach((c) => {
+            // Strictly exclude metal components or whole-product primary rows
+            if (c.is_metal || c.is_primary) return;
+            const matType = String(c.material_type || '').toLowerCase();
+            if (['gold', 'silver', 'platinum', 'metal'].includes(matType)) return;
+
+            const cName = (c.category_name || c.item_name || c.component_type || '').toLowerCase().trim();
+            // Ignore if category/item name describes a finished jewelry article rather than a stone
+            if (
+              cName.includes('diamond cut') ||
+              cName.includes('diamond-cut') ||
+              cName.includes('ring') ||
+              cName.includes('bangle') ||
+              cName.includes('necklace') ||
+              cName.includes('chain') ||
+              cName.includes('choker') ||
+              cName.includes('earring') ||
+              cName.includes('pendant')
+            ) {
+              return;
+            }
+
+            const isDia = c.is_diamond === true ||
+              c.component_type === 'diamond' ||
+              cName === 'diamond' ||
+              cName.startsWith('diamond ') ||
+              /\bdia\b/.test(cName) ||
+              cName.includes('solitaire');
+
+            if (isDia) {
+              const unit = (c.unit || '').toLowerCase();
+              const isCt = unit === 'ct' || unit === 'carats' || unit === 'carat';
+              const w = parseFloat(c.stone_weight ?? (isCt ? (c.weight ?? c.gross_wt) : (c.diamond_weight ?? 0)) ?? 0) || 0;
+              if (w > 0) {
+                sieveRows.push({
+                  stamp: c.stamp || c.size || '',
+                  count: parseInt(c.no_of_pieces || c.quantity || 1, 10),
+                  weight: w,
+                  rate: parseFloat(c.purchase_rate || 0),
+                });
+              }
+            }
+          });
+        }
+
+        let calculatedDiaWeight = '';
+        let calculatedDiaCount = 0;
+
+        if (sieveRows.length > 0) {
+          const sumCarats = sieveRows.reduce((sum, s) => sum + (parseFloat(s.weight) || 0), 0);
+          const sumCount = sieveRows.reduce((sum, s) => sum + (parseInt(s.count, 10) || 0), 0);
+          calculatedDiaWeight = sumCarats > 0 ? sumCarats.toFixed(3) : '';
+          calculatedDiaCount = sumCount;
+        } else {
+          // If no diamond sieve rows, verify explicit diamond weight is not a duplicate/leakage of gross weight
+          const grossNum = parseFloat(p.gross_weight ?? p.attributes?.gross_wt ?? p.opening_stock_weight ?? 0);
+          const rawDiaWt = parseFloat(p.diamond_weight ?? p.attributes?.dia_wt_ct ?? p.attributes?.diamond_wt ?? p.attributes?.diamond_weight ?? 0);
+          const rawDiaCount = parseInt(p.diamond_count ?? p.attributes?.diamond_count ?? p.attributes?.no_of_diamonds ?? 0, 10);
+
+          const isLeakedGross = grossNum > 0 && Math.abs(rawDiaWt - grossNum) < 0.001 && rawDiaCount === 0;
+
+          if (rawDiaWt > 0 && rawDiaCount > 0 && !isLeakedGross) {
+            calculatedDiaWeight = rawDiaWt.toFixed(3);
+            calculatedDiaCount = rawDiaCount;
+          }
+        }
+
+        const diaWtNum = parseFloat(calculatedDiaWeight) || 0;
         const stoneCount = parseInt(p.color_stone_count ?? p.attributes?.stone_count ?? prev.no_of_colour_stones ?? 0, 10);
+
+        const goldPurityVal = p.gold_purity || (p.attributes?.purity ? String(p.attributes.purity) : '') || (p.attributes?.gold_purity ? String(p.attributes.gold_purity) : '') || (p.attributes?.gold_type ? String(p.attributes.gold_type) : '') || (p.opening_touch ? String(p.opening_touch) : '') || (p.gold_karat ? `${p.gold_karat}K` : '') || (p.attributes?.karat ? `${p.attributes.karat}` : '') || prev.gold_purity || '22K (916)';
+
+        const parsePurityRatio = (str) => {
+          if (!str) return 0.916;
+          const s = String(str).toLowerCase();
+          if (s.includes('24') || s.includes('999')) return 0.999;
+          if (s.includes('22') || s.includes('916')) return 0.916;
+          if (s.includes('18') || s.includes('750')) return 0.750;
+          if (s.includes('14') || s.includes('585')) return 0.585;
+          const m = s.match(/(\d+(?:\.\d+)?)\s*%/);
+          if (m) return parseFloat(m[1]) / 100;
+          return 0.916;
+        };
+
+        const fineGoldWt = p.fine_gold_weight !== undefined && p.fine_gold_weight !== null
+          ? String(p.fine_gold_weight)
+          : (goldWtNum > 0 ? (goldWtNum * parsePurityRatio(goldPurityVal)).toFixed(3) : '');
 
         return {
           ...prev,
           product_id: p.product_id || p.id || prev.product_id,
           product_name: prodName,
           variant: prodName || prev.variant || '',
-          gold_purity: p.gold_purity || (p.attributes?.purity ? String(p.attributes.purity) : '') || (p.attributes?.gold_purity ? String(p.attributes.gold_purity) : '') || (p.attributes?.gold_type ? String(p.attributes.gold_type) : '') || (p.opening_touch ? String(p.opening_touch) : '') || (p.gold_karat ? `${p.gold_karat}K` : '') || (p.attributes?.karat ? `${p.attributes.karat}` : '') || prev.gold_purity || '',
+          gold_purity: goldPurityVal,
           gold_karat: p.gold_karat || (p.attributes?.karat || ''),
           gold_stamp: p.gold_stamp || (p.attributes?.stamp || ''),
           setting_type: p.setting_type || (p.attributes?.setting_style || prev.setting_type || 'Prong'),
           gold_weight: goldWt || prev.gold_weight || '',
-          diamond_weight: diaWt || prev.diamond_weight || '',
-          diamond_count: diaCount,
-          no_of_diamonds: diaCount,
-          diamond_stamp: p.diamond_stamp || (p.attributes?.diamond_stamp || ''),
+          fine_gold_weight: fineGoldWt,
+          diamond_weight: calculatedDiaWeight || prev.diamond_weight || '',
+          diamond_count: calculatedDiaCount,
+          no_of_diamonds: calculatedDiaCount,
+          diamond_stamp: p.diamond_stamp || (p.attributes?.diamond_stamp || '') || (sieveRows[0]?.stamp || ''),
+          stamp_and_no: sieveRows.length > 0
+            ? sieveRows.map(s => `${s.stamp}-${s.count}`).join(', ')
+            : (p.diamond_stamp || (p.attributes?.diamond_stamp || '') || prev.stamp_and_no || ''),
+          diamond_sieves: sieveRows.length > 0 ? sieveRows : prev.diamond_sieves,
           color_stone_weight: p.color_stone_weight || (p.attributes?.stone_weight ? String(p.attributes.stone_weight) : ''),
           color_stone_count: stoneCount,
           no_of_colour_stones: stoneCount,
@@ -468,19 +1002,75 @@ export default function NewWorkOrder({ initialMode }) {
   // File upload input refs for Design File and Reference Image
   const designFileInputRef = useRef(null);
   const refImageInputRef = useRef(null);
+  const isSubmittingRef = useRef(false);
 
-  // Handle Design File upload (CAD / sketch / blueprint / photo)
-  const handleDesignFileUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
+  // Client-side image optimizer to keep uploads lightweight (< 300KB) and prevent payload-too-large server crashes
+  const readFileWithOptimization = (file) => {
+    return new Promise((resolve) => {
+      const ext = file.name.split('.').pop()?.toLowerCase() || '';
+      const isPdf = ext === 'pdf';
+      const isImg = ['jpg', 'jpeg', 'png', 'webp', 'bmp'].includes(ext) || file.type.startsWith('image/');
+      const docType = isPdf ? 'pdf' : (isImg ? 'image' : 'file');
+
+      if (!isImg) {
+        const reader = new FileReader();
+        reader.onload = (uploadEvt) => {
+          resolve({ res: uploadEvt.target?.result || '', ext, isImg: false, docType });
+        };
+        reader.onerror = () => resolve({ res: '', ext, isImg: false, docType });
+        reader.readAsDataURL(file);
+        return;
+      }
+
       const reader = new FileReader();
       reader.onload = (uploadEvt) => {
-        const res = uploadEvt.target?.result || '';
-        const ext = file.name.split('.').pop()?.toLowerCase() || '';
-        const isPdf = ext === 'pdf';
-        const isImg = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(ext) || file.type.startsWith('image/');
-        const docType = isPdf ? 'pdf' : (isImg ? 'image' : 'file');
+        const rawUrl = uploadEvt.target?.result || '';
+        // If already under 400KB, use directly
+        if (file.size < 400 * 1024) {
+          resolve({ res: rawUrl, ext, isImg: true, docType });
+          return;
+        }
 
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const maxDimension = 1400;
+            let width = img.width;
+            let height = img.height;
+            if (width > maxDimension || height > maxDimension) {
+              if (width > height) {
+                height = Math.round((height * maxDimension) / width);
+                width = maxDimension;
+              } else {
+                width = Math.round((width * maxDimension) / height);
+                height = maxDimension;
+              }
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            const optimized = canvas.toDataURL('image/jpeg', 0.82);
+            resolve({ res: optimized, ext: 'jpg', isImg: true, docType });
+          } catch (err) {
+            resolve({ res: rawUrl, ext, isImg: true, docType });
+          }
+        };
+        img.onerror = () => resolve({ res: rawUrl, ext, isImg: true, docType });
+        img.src = rawUrl;
+      };
+      reader.onerror = () => resolve({ res: '', ext, isImg: true, docType });
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // Handle Design File upload (CAD / sketch / blueprint / photo)
+  const handleDesignFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const { res, docType, isImg } = await readFileWithOptimization(file);
+      if (res) {
         setRowForm((prev) => ({
           ...prev,
           design_file: res,
@@ -490,24 +1080,17 @@ export default function NewWorkOrder({ initialMode }) {
           image_name: isImg ? file.name : prev.image_name,
         }));
         if (toast?.success) toast.success(`Design file "${file.name}" uploaded successfully.`);
-      };
-      reader.readAsDataURL(file);
+      }
     }
     if (e?.target) e.target.value = '';
   };
 
   // Handle Reference Image upload (client / sample picture)
-  const handleReferenceImageUpload = (e) => {
+  const handleReferenceImageUpload = async (e) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = (uploadEvt) => {
-        const res = uploadEvt.target?.result || '';
-        const ext = file.name.split('.').pop()?.toLowerCase() || '';
-        const isPdf = ext === 'pdf';
-        const isImg = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(ext) || file.type.startsWith('image/');
-        const docType = isPdf ? 'pdf' : (isImg ? 'image' : 'file');
-
+      const { res, docType } = await readFileWithOptimization(file);
+      if (res) {
         setRowForm((prev) => ({
           ...prev,
           reference_image: res,
@@ -517,8 +1100,7 @@ export default function NewWorkOrder({ initialMode }) {
           image_name: file.name,
         }));
         if (toast?.success) toast.success(`Reference image "${file.name}" uploaded successfully.`);
-      };
-      reader.readAsDataURL(file);
+      }
     }
     if (e?.target) e.target.value = '';
   };
@@ -628,15 +1210,21 @@ export default function NewWorkOrder({ initialMode }) {
 
   const fetchPrerequisites = async () => {
     try {
-      const [kRes, noRes, prodRes] = await Promise.all([
+      const [kRes, noRes, prodRes, cRes, stampsRes] = await Promise.all([
         api.get('/karigars'),
         api.get('/job-orders/generate-number').catch(() => api.get('/work-orders/generate-number')),
         api.get('/products').catch(() => ({ data: [] })),
+        api.get('/clients').catch(() => ({ data: { clients: [] } })),
+        api.get('/stamps').catch(() => ({ data: [] })),
       ]);
       const kList = kRes.data.data || [];
       setKarigars(kList);
       const pList = Array.isArray(prodRes?.data) ? prodRes.data : (prodRes?.data?.data || []);
       setInventoryProducts(pList);
+      const cList = cRes?.data?.clients || cRes?.data?.data || (Array.isArray(cRes?.data) ? cRes.data : []);
+      setClientsList(cList);
+      const sList = stampsRes?.data?.data || (Array.isArray(stampsRes?.data) ? stampsRes.data : []);
+      if (sList.length > 0) setStampsList(sList);
       if ((noRes?.data?.job_order_number || noRes?.data?.work_order_number) && !targetId) {
         setOrderNumber(noRes.data.job_order_number || noRes.data.work_order_number);
       }
@@ -691,137 +1279,7 @@ export default function NewWorkOrder({ initialMode }) {
           rawItems = [order.specifications];
         }
 
-        let normalizedItems = rawItems.map((raw, i) => {
-          let pd = {};
-          if (raw.pricing_details) {
-            try {
-              pd = typeof raw.pricing_details === 'string'
-                ? JSON.parse(raw.pricing_details)
-                : (raw.pricing_details || {});
-            } catch (e) {
-              pd = {};
-            }
-          }
-          // Merge raw first, then overlay valid pd properties on top
-          const item = { ...raw, ...pd };
-
-          const isDiamond = String(item.material_type || '').toLowerCase().includes('diamond');
-          const gw = parseFloat(item.gold_weight ?? item.total_weight ?? item.allotted_weight ?? 0) || 0;
-          const wst = parseFloat(item.wastage ?? 0) || 0;
-
-          const woNo = item.form_no || item.work_order_no || order.work_order_number || orderNumber || '';
-          const gPurity = item.gold_purity || item.gold_priory || item.purity || (item.gold_karat ? `${item.gold_karat}K` : '') || '';
-          const gFrom = (item.gold_wt_from !== undefined && item.gold_wt_from !== null && item.gold_wt_from !== '')
-            ? String(item.gold_wt_from)
-            : ((item.from_wt !== undefined && item.from_wt !== null && item.from_wt !== '') ? String(item.from_wt) : '');
-          const gTo = (item.gold_wt_to !== undefined && item.gold_wt_to !== null && item.gold_wt_to !== '')
-            ? String(item.gold_wt_to)
-            : ((item.to_wt !== undefined && item.to_wt !== null && item.to_wt !== '') ? String(item.to_wt) : '');
-          const dFrom = (item.diamond_wt_from !== undefined && item.diamond_wt_from !== null && item.diamond_wt_from !== '')
-            ? String(item.diamond_wt_from)
-            : ((item.from_cts !== undefined && item.from_cts !== null && item.from_cts !== '') ? String(item.from_cts) : '');
-          const dTo = (item.diamond_wt_to !== undefined && item.diamond_wt_to !== null && item.diamond_wt_to !== '')
-            ? String(item.diamond_wt_to)
-            : ((item.to_cts !== undefined && item.to_cts !== null && item.to_cts !== '') ? String(item.to_cts) : '');
-
-          const rawDiaWt = item.diamond_weight;
-          const cleanDiaWt = (rawDiaWt && rawDiaWt !== 'VS1' && rawDiaWt !== 'VVS2') ? String(rawDiaWt) : '';
-          const pcs = parseInt(item.need_pcs || item.qty || 1, 10);
-          const diaCount = parseInt(item.no_of_diamonds ?? item.diamond_count ?? 0, 10);
-          const stoneCount = parseInt(item.no_of_colour_stones ?? item.color_stone_count ?? 0, 10);
-          const diaNum = parseFloat(cleanDiaWt) || 0;
-
-          const totDiaCts = (item.total_dia_cts && !isNaN(parseFloat(item.total_dia_cts)) && parseFloat(item.total_dia_cts) > 0 && parseFloat(item.total_dia_cts) !== 0.66)
-            ? String(item.total_dia_cts)
-            : (diaNum > 0 ? (diaNum * pcs).toFixed(3) : '');
-
-          const totGrossWt = (item.total_gross_wt && !isNaN(parseFloat(item.total_gross_wt)) && parseFloat(item.total_gross_wt) > 0)
-            ? String(item.total_gross_wt)
-            : (gw > 0 ? (gw * pcs).toFixed(3) : '0.000');
-
-          return {
-            ...item,
-            id: item.id || Date.now() + i,
-            work_order_no: woNo,
-            form_no: woNo,
-            product_name: item.product_name || item.variant || 'Jewellery Item',
-            gold_purity: gPurity,
-            gold_wt_from: gFrom,
-            gold_wt_to: gTo,
-            from_wt: gFrom,
-            to_wt: gTo,
-            diamond_wt_from: dFrom,
-            diamond_wt_to: dTo,
-            from_cts: dFrom,
-            to_cts: dTo,
-            material_type: item.material_type || (isDiamond ? 'Round Brilliant Diamonds' : (order.material_type || 'Gold')),
-            material_subtitle: item.material_subtitle || (isDiamond ? 'Diamond Grade' : 'Standard Quality'),
-            ordered_date: item.ordered_date || order.allotted_date || new Date().toISOString().split('T')[0],
-            delivery_date: item.delivery_date || order.delivery_date || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
-            reference_image: (item.reference_image && !item.reference_image.includes('/samples/')) ? normalizeImageUrl(item.reference_image) : ((item.image && !item.image.includes('/samples/')) ? normalizeImageUrl(item.image) : null),
-            image: (item.reference_image && !item.reference_image.includes('/samples/')) ? normalizeImageUrl(item.reference_image) : ((item.image && !item.image.includes('/samples/')) ? normalizeImageUrl(item.image) : (order.image_url && !order.image_url.includes('/samples/') ? normalizeImageUrl(order.image_url) : null)),
-            design_number: item.design_number || item.design_no || order.design_code || `DG-${4587 + i}`,
-            variant: item.variant || item.product_name || order.category?.name || 'Jewellery',
-            setting_type: item.setting_type || 'Prong',
-            diamond_weight: cleanDiaWt,
-            diamond_count: diaCount,
-            no_of_diamonds: diaCount,
-            color_stone_count: stoneCount,
-            no_of_colour_stones: stoneCount,
-            gold_weight: gw > 0 ? gw : (item.gold_weight || 0),
-            total_weight: gw > 0 ? gw : (item.gold_weight || 0),
-            cons_cts: item.cons_cts || '-',
-            total_cts: item.total_cts !== undefined && item.total_cts !== '' ? item.total_cts : '',
-            cons_wt: item.cons_wt !== undefined && item.cons_wt !== '' ? item.cons_wt : '',
-            need_pcs: pcs,
-            qty: pcs,
-            wastage: wst,
-            percentages: item.percentages || (gw > 0 && wst > 0 ? ((wst / gw) * 100).toFixed(2) + '%' : '0.00%'),
-            total_gross_wt: totGrossWt,
-            total_dia_cts: totDiaCts,
-            remark: item.remark || '-',
-          };
-        });
-
-        if (normalizedItems.length === 0 && parseFloat(order.allotted_weight) > 0) {
-          const allocWt = parseFloat(order.allotted_weight) || 0;
-          normalizedItems = [
-            {
-              id: Date.now(),
-              work_order_no: order.work_order_number || '',
-              form_no: order.work_order_number || '',
-              material_type: order.material_type || 'Gold',
-              material_subtitle: 'Standard Quality',
-              ordered_date: order.allotted_date || new Date().toISOString().split('T')[0],
-              delivery_date: order.delivery_date || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
-              image: (order.image_url && !order.image_url.includes('/samples/')) ? normalizeImageUrl(order.image_url) : '',
-              design_number: order.design_code || 'DG-4587',
-              product_name: order.product_name || order.category?.name || 'Jewellery Item',
-              variant: order.product_name || order.category?.name || 'Jewellery Item',
-              gold_purity: order.gold_purity || '91.6',
-              setting_type: 'Prong',
-              diamond_weight: '',
-              gold_weight: allocWt,
-              total_weight: allocWt,
-              from_wt: '',
-              to_wt: '',
-              diamond_wt_from: '',
-              diamond_wt_to: '',
-              from_cts: '',
-              to_cts: '',
-              need_pcs: 1,
-              qty: 1,
-              no_of_diamonds: 0,
-              no_of_colour_stones: 0,
-              wastage: 0,
-              percentages: '0.00%',
-              total_gross_wt: allocWt.toFixed(3),
-              total_dia_cts: '',
-              remark: '-',
-            }
-          ];
-        }
-
+        const normalizedItems = normalizeWorkOrderItems(rawItems, order, jobItems);
         setJobItems(normalizedItems);
 
         // Populate worker allocation & material tracking - guaranteed up-to-date!
@@ -867,7 +1325,7 @@ export default function NewWorkOrder({ initialMode }) {
   // Open Add Job Modal
   const handleOpenAddRowModal = () => {
     const year = new Date().getFullYear();
-    const autoWoNo = orderNumber || `WO-${year}-${randomCode}`;
+    const autoWoNo = orderNumber || `WO-${year}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     setRowForm({
       ...defaultRowForm,
@@ -876,10 +1334,11 @@ export default function NewWorkOrder({ initialMode }) {
       design_number: '',
       product_name: '',
       gold_purity: '',
-      setting_type: 'Prong',
+      setting_type: settingStyles[0]?.name || 'Open setting',
       diamond_weight: '',
       diamond_wt_from: '',
       diamond_wt_to: '',
+      stamp_and_no: '',
       gold_weight: '',
       gold_wt_from: '',
       gold_wt_to: '',
@@ -887,6 +1346,7 @@ export default function NewWorkOrder({ initialMode }) {
       no_of_diamonds: 0,
       no_of_colour_stones: 0,
       total_gross_wt: '',
+      total_gold_wt: '',
       total_dia_cts: '',
       remark: '-',
       ordered_date: timeline.estimated_start_date || new Date().toISOString().split('T')[0],
@@ -917,6 +1377,7 @@ export default function NewWorkOrder({ initialMode }) {
     const gTo = item.gold_wt_to !== undefined && item.gold_wt_to !== null && item.gold_wt_to !== '' ? String(item.gold_wt_to) : (item.to_wt !== undefined && item.to_wt !== null && item.to_wt !== '' ? String(item.to_wt) : '');
     const dFrom = item.diamond_wt_from !== undefined && item.diamond_wt_from !== null && item.diamond_wt_from !== '' ? String(item.diamond_wt_from) : (item.from_cts !== undefined && item.from_cts !== null && item.from_cts !== '' ? String(item.from_cts) : '');
     const dTo = item.diamond_wt_to !== undefined && item.diamond_wt_to !== null && item.diamond_wt_to !== '' ? String(item.diamond_wt_to) : (item.to_cts !== undefined && item.to_cts !== null && item.to_cts !== '' ? String(item.to_cts) : '');
+    const calcGold = (goldWt * pcs).toFixed(3);
 
     setRowForm({
       ...defaultRowForm,
@@ -927,19 +1388,25 @@ export default function NewWorkOrder({ initialMode }) {
       image: item.reference_image || item.image || '',
       product_name: item.product_name || item.variant || 'Necklace',
       gold_purity: item.gold_purity || item.gold_priory || item.purity || '',
+      gold_stamp: item.gold_stamp || item.stamp || '',
+      setting_type: item.setting_type || 'Prong',
       gold_weight: goldWt.toFixed(3),
       gold_wt_from: gFrom,
       gold_wt_to: gTo,
       from_wt: gFrom,
       to_wt: gTo,
+      diamond_weight: diaWt > 0 ? diaWt.toFixed(3) : (item.diamond_weight || ''),
       diamond_wt_from: dFrom,
       diamond_wt_to: dTo,
       from_cts: dFrom,
       to_cts: dTo,
+      diamond_stamp: item.diamond_stamp || '',
+      stamp_and_no: item.stamp_and_no || item.stamp_details || (item.diamond_stamp ? `${item.diamond_stamp}-${item.no_of_diamonds || 0}` : ''),
       need_pcs: pcs,
       no_of_diamonds: item.no_of_diamonds ?? 0,
       no_of_colour_stones: item.no_of_colour_stones ?? 0,
-      total_gross_wt: ((goldWt + (diaWt * 0.2)) * pcs).toFixed(3),
+      total_gold_wt: calcGold,
+      total_gross_wt: calcGold,
       total_dia_cts: (diaWt * pcs).toFixed(3),
     });
     setFormErrors({});
@@ -979,8 +1446,8 @@ export default function NewWorkOrder({ initialMode }) {
     const diaStonesNum = parseInt(rowForm.no_of_diamonds || 0, 10);
     const colourStonesNum = parseInt(rowForm.no_of_colour_stones || 0, 10);
 
-    if (isNaN(goldWeightNum) || goldWeightNum <= 0) {
-      errors.gold_weight = 'Please enter a valid Gold Weight greater than 0.';
+    if (goldWeightNum < 0) {
+      errors.gold_weight = 'Gold Weight cannot be negative.';
     }
 
     if (isNaN(needPcsNum) || needPcsNum < 1) {
@@ -1013,18 +1480,28 @@ export default function NewWorkOrder({ initialMode }) {
       product_name: rowForm.product_name.trim(),
       variant: rowForm.product_name.trim(),
       gold_purity: rowForm.gold_purity.trim(),
-      setting_type: rowForm.setting_type || 'Prong',
+      purity: rowForm.gold_purity.trim(),
+      karat: rowForm.gold_purity.trim(),
+      gold_karat: rowForm.gold_purity.trim(),
+      gold_stamp: rowForm.gold_stamp || '',
+      setting_type: (
+        settingStyles.length > 0 && settingStyles.some((s) => s.name === rowForm.setting_type)
+          ? rowForm.setting_type
+          : (rowForm.setting_type || settingStyles[0]?.name || 'Open setting')
+      ),
       diamond_weight: diaWeightNum > 0 ? diaWeightNum.toFixed(3) : (rowForm.diamond_weight ? String(rowForm.diamond_weight) : ''),
       diamond_count: diaStonesNum >= 0 ? diaStonesNum : 0,
       diamond_stamp: rowForm.diamond_stamp || '',
+      stamp_and_no: rowForm.stamp_and_no || '',
+      stamp_details: rowForm.stamp_and_no || '',
       color_stone_weight: rowForm.color_stone_weight || '',
       color_stone_count: colourStonesNum >= 0 ? colourStonesNum : 0,
       color_stone_stamp: rowForm.color_stone_stamp || '',
       diamond_wt_from: rowForm.diamond_wt_from || rowForm.from_cts || '',
       diamond_wt_to: rowForm.diamond_wt_to || rowForm.to_cts || '',
-      from_cts: rowForm.diamond_wt_from || rowForm.from_cts || '',
-      to_cts: rowForm.diamond_wt_to || rowForm.to_cts || '',
-      gold_weight: goldWeightNum.toFixed(3),
+      gold_weight: goldWeightNum > 0 ? goldWeightNum.toFixed(3) : (rowForm.gold_weight || ''),
+      fine_gold_weight: rowForm.fine_gold_weight || (goldWeightNum > 0 ? (goldWeightNum * 0.916).toFixed(3) : ''),
+      diamond_sieves: Array.isArray(rowForm.diamond_sieves) ? rowForm.diamond_sieves : [],
       gold_wt_from: rowForm.gold_wt_from || rowForm.from_wt || '',
       gold_wt_to: rowForm.gold_wt_to || rowForm.to_wt || '',
       from_wt: rowForm.gold_wt_from || rowForm.from_wt || '',
@@ -1034,6 +1511,7 @@ export default function NewWorkOrder({ initialMode }) {
       no_of_diamonds: diaStonesNum >= 0 ? diaStonesNum : 0,
       no_of_colour_stones: colourStonesNum >= 0 ? colourStonesNum : 0,
       total_gross_wt: calcTotalGrossWt,
+      total_gold_wt: calcTotalGrossWt,
       total_dia_cts: calcTotalDiaCts,
       remark: rowForm.remark || '-',
       reference_image: rowForm.reference_image || rowForm.image || '',
@@ -1042,7 +1520,7 @@ export default function NewWorkOrder({ initialMode }) {
       design_file_name: rowForm.design_file_name || '',
       image: rowForm.reference_image || rowForm.image || rowForm.design_file || '',
       work_name: rowForm.work_name || rowForm.product_name || rowForm.variant || 'Jewellery Piece',
-      material_type: rowForm.material_type || `Gold (${rowForm.gold_purity})`,
+      material_type: rowForm.material_type || `Gold (${rowForm.gold_purity.trim()})`,
     };
 
     try {
@@ -1145,37 +1623,44 @@ export default function NewWorkOrder({ initialMode }) {
 
   // Calculations matching all 21 user row columns (dynamically for active month view)
   const activeItemsForTotals = displayedJobItems;
-  const totalNeedPcs = activeItemsForTotals.reduce((acc, row) => acc + (parseInt(row.need_pcs ?? row.qty ?? 1, 10)), 0);
+  const totalNeedPcs = activeItemsForTotals.reduce((acc, row) => {
+    const pd = typeof row.pricing_details === 'string' ? JSON.parse(row.pricing_details || '{}') : (row.pricing_details || {});
+    const pcs = parseInt(row.need_pcs || pd.need_pcs || row.required_qty || row.qty || 1, 10);
+    return acc + (isNaN(pcs) || pcs < 1 ? 1 : pcs);
+  }, 0) || (parseInt(selectedOrder?.required_qty, 10) || 1);
   const totalQty = totalNeedPcs;
   const totalGoldWeight = activeItemsForTotals.reduce((acc, row) => {
-    const pcs = parseInt(row.need_pcs ?? row.qty ?? 1, 10);
-    const rowGross = parseFloat(row.total_gross_wt);
+    const pd = typeof row.pricing_details === 'string' ? JSON.parse(row.pricing_details || '{}') : (row.pricing_details || {});
+    const pcs = parseInt(row.need_pcs || pd.need_pcs || row.required_qty || row.qty || 1, 10) || 1;
+    const rowGross = parseFloat(row.total_gross_wt || pd.total_gross_wt);
     if (!isNaN(rowGross) && rowGross > 0) return acc + rowGross;
-    const perPiece = parseFloat(row.gold_weight ?? row.total_weight ?? 0) || 0;
+    const perPiece = parseFloat(row.gold_weight || pd.gold_weight || row.allotted_weight || row.total_weight || 0) || 0;
     return acc + (perPiece * pcs);
-  }, 0);
-  const totalOldWeight = activeItemsForTotals.reduce((acc, row) => acc + (parseFloat(row.old_weight || 0)), 0);
+  }, 0) || parseFloat(selectedOrder?.allotted_weight || 0);
+  const totalOldWeight = activeItemsForTotals.reduce((acc, row) => acc + (parseFloat(row.old_weight || 0) || 0), 0);
   const totalWastage = activeItemsForTotals.reduce((acc, row) => {
-    const pcs = parseInt(row.need_pcs ?? row.qty ?? 1, 10);
-    return acc + ((parseFloat(row.wastage || 0)) * pcs);
+    const pcs = parseInt(row.need_pcs || row.qty || 1, 10) || 1;
+    return acc + ((parseFloat(row.wastage || 0) || 0) * pcs);
   }, 0);
   const totalWastageWeight = totalWastage;
-  const totalConsWt = activeItemsForTotals.reduce((acc, row) => acc + (parseFloat(row.cons_wt || 0)), 0);
+  const totalConsWt = activeItemsForTotals.reduce((acc, row) => acc + (parseFloat(row.cons_wt || 0) || 0), 0);
   const totalGrossWt = totalGoldWeight;
   const totalDiaCts = activeItemsForTotals.reduce((acc, row) => {
-    const pcs = parseInt(row.need_pcs ?? row.qty ?? 1, 10);
-    const rowDia = parseFloat(row.total_dia_cts);
+    const pd = typeof row.pricing_details === 'string' ? JSON.parse(row.pricing_details || '{}') : (row.pricing_details || {});
+    const pcs = parseInt(row.need_pcs || pd.need_pcs || row.required_qty || row.qty || 1, 10) || 1;
+    const rowDia = parseFloat(row.total_dia_cts || pd.total_dia_cts);
     if (!isNaN(rowDia) && rowDia > 0) return acc + rowDia;
-    const perPieceDia = parseFloat(row.diamond_weight || 0) || 0;
+    const perPieceDia = parseFloat(row.diamond_weight || pd.diamond_weight || 0) || 0;
     return acc + (perPieceDia * pcs);
   }, 0);
   const totalCarats = totalDiaCts;
-  const totalCts = activeItemsForTotals.reduce((acc, row) => acc + (parseFloat(row.total_cts || 0)), 0);
+  const totalCts = activeItemsForTotals.reduce((acc, row) => acc + (parseFloat(row.total_cts || 0) || 0), 0);
   const avgPercentage = totalGoldWeight > 0 ? `${((totalWastage / totalGoldWeight) * 100).toFixed(2)}%` : '4.6%';
   const totalStonesCount = activeItemsForTotals.reduce((acc, row) => {
-    const pcs = parseInt(row.need_pcs ?? row.qty ?? 1, 10);
-    const diaCount = parseInt(row.no_of_diamonds || 0, 10);
-    const stoneCount = parseInt(row.no_of_colour_stones || 0, 10);
+    const pd = typeof row.pricing_details === 'string' ? JSON.parse(row.pricing_details || '{}') : (row.pricing_details || {});
+    const pcs = parseInt(row.need_pcs || pd.need_pcs || row.required_qty || row.qty || 1, 10) || 1;
+    const diaCount = parseInt(row.no_of_diamonds || pd.no_of_diamonds || row.diamond_count || (row.stone_details?.diamond_count) || (pd.stone_details?.diamond_count) || 0, 10) || 0;
+    const stoneCount = parseInt(row.no_of_colour_stones || pd.no_of_colour_stones || row.color_stone_count || (row.stone_details?.color_stone_count) || 0, 10) || 0;
     return acc + ((diaCount + stoneCount) * pcs);
   }, 0);
 
@@ -1192,7 +1677,7 @@ export default function NewWorkOrder({ initialMode }) {
   const totalAmount = jobItems.length > 0 ? (goldValue + makingCharges + stoneCharges + otherCharges) : 0;
 
   // Submit Work Order (Create)
-  const handleSaveWorkOrder = async () => {
+  const handleSaveWorkOrder = async (opts = {}) => {
     // 1. Validate at least 1 job item added
     if (jobItems.length === 0) {
       toast.error('Material Row Required: Please add at least one material row details before creating the work order.');
@@ -1228,10 +1713,18 @@ export default function NewWorkOrder({ initialMode }) {
       }
     }
 
+    if (submitting || isSubmittingRef.current) {
+      return;
+    }
+
     try {
+      isSubmittingRef.current = true;
       setSubmitting(true);
 
       const assignedWorker = karigars.find((k) => String(k.id) === String(workerId));
+
+      const firstItem = jobItems[0];
+      const detectedPurity = firstItem?.gold_purity || firstItem?.purity || firstItem?.karat || '24K';
 
       const payload = {
         work_order_number: orderNumber,
@@ -1243,12 +1736,24 @@ export default function NewWorkOrder({ initialMode }) {
         customer_name: customerName.trim() || null,
         allotted_date: timeline.estimated_start_date,
         delivery_date: timeline.promised_due_date,
-        allotted_weight: totalGoldWeight,
+        allotted_weight: 0,
+        expected_return_weight: totalGoldWeight,
+        allow_shortage: Boolean(opts.allowShortage),
         priority: timeline.priority,
-        material_type: jobItems[0]?.material_type || '22K Yellow Gold',
+        material_type: jobItems[0]?.material_type || `Gold (${detectedPurity})`,
+        gold_purity: detectedPurity,
+        purity: detectedPurity,
+        karat: detectedPurity,
+        gold_karat: detectedPurity,
         image_url: jobItems[0]?.reference_image || jobItems[0]?.design_file || jobItems[0]?.image || null,
         notes: craftingInstructions,
-        items: jobItems,
+        items: jobItems.map((it) => ({
+          ...it,
+          gold_purity: it.gold_purity || it.purity || it.karat || detectedPurity,
+          purity: it.gold_purity || it.purity || it.karat || detectedPurity,
+          karat: it.gold_purity || it.purity || it.karat || detectedPurity,
+          gold_karat: it.gold_purity || it.purity || it.karat || detectedPurity,
+        })),
         worker_allocation: {
           worker_id: workerId,
           worker_name: assignedWorker?.name || '',
@@ -1278,17 +1783,45 @@ export default function NewWorkOrder({ initialMode }) {
       const res = await api.post('/work-orders', payload);
       toast.success(`Work Order ${orderNumber} created successfully with ${jobItems.length} jobs!`);
 
-      // Switch to list or detail view
+      // Switch to list or detail view immediately without duplicate loading screen
       if (res.data?.data?.id) {
-        setSelectedOrder(res.data.data);
+        const createdOrder = res.data.data;
+        setSelectedOrder(createdOrder);
+        setOrderNumber(createdOrder.work_order_number || orderNumber);
+        setWorkerId(createdOrder.karigar_id || '');
+        setCustomerName(createdOrder.customer_name || createdOrder.client?.name || '');
         setViewMode('details');
+        const normalized = normalizeWorkOrderItems(
+          createdOrder.items && createdOrder.items.length > 0 ? createdOrder.items : jobItems,
+          createdOrder,
+          jobItems
+        );
+        setJobItems(normalized);
+
+        // Fetch full fresh order details from server
+        loadOrderDetails(createdOrder.id);
       } else {
         fetchOrdersList();
         setViewMode('list');
       }
     } catch (err) {
       const resp = err.response?.data;
-      let errMsg = resp?.message;
+      if (resp?.error_type === 'INSUFFICIENT_DIAMOND_STOCK' || resp?.data?.error_type === 'INSUFFICIENT_DIAMOND_STOCK') {
+        const stockData = resp.error_type === 'INSUFFICIENT_DIAMOND_STOCK' ? resp : resp.data;
+        setInsufficientStockData({
+          required_carats: stockData.required_carats ?? 0,
+          available_carats: stockData.available_carats ?? 0,
+          shortage_carats: stockData.shortage_carats ?? 0,
+          required_count: stockData.required_count ?? 0,
+          available_count: stockData.available_count ?? 0,
+          shortage_count: stockData.shortage_count ?? 0,
+          stamp_details: stockData.stamp_details ?? '',
+          message: stockData.message || 'Low stock in vault.',
+        });
+        return;
+      }
+
+      let errMsg = resp?.message || err?.userMessage || err?.message;
       if (resp?.errors && typeof resp.errors === 'object') {
         const firstErr = Object.values(resp.errors).flat()[0];
         if (firstErr) errMsg = firstErr;
@@ -1296,10 +1829,19 @@ export default function NewWorkOrder({ initialMode }) {
       if (!errMsg) errMsg = 'Failed to create work order.';
 
       const isStockIssue = /insufficient|stock|balance|vault|out of stock/i.test(errMsg);
-      toast.error(errMsg, isStockIssue ? 'Stock Not Available' : 'Validation Error');
+      toast.error(errMsg, isStockIssue ? 'Stock Not Available' : 'Order Creation Notice');
     } finally {
       setSubmitting(false);
+      isSubmittingRef.current = false;
     }
+  };
+
+  // Confirm creation after reviewing low stock disclaimer
+  const handleConfirmCreateWithShortage = () => {
+    setInsufficientStockData(null);
+    setTimeout(() => {
+      handleSaveWorkOrder({ allowShortage: true });
+    }, 150);
   };
 
   return (
@@ -1425,6 +1967,7 @@ export default function NewWorkOrder({ initialMode }) {
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-[#f7f8fa] text-[10px] font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200">
+                    <th className="py-3 px-3 text-center w-12 whitespace-nowrap">S.NO</th>
                     <th className="py-3 px-4 whitespace-nowrap min-w-[140px]">WORK ORDER #</th>
                     <th className="py-3 px-4 whitespace-nowrap min-w-[150px]">CUSTOMER</th>
                     <th className="py-3 px-4 whitespace-nowrap min-w-[150px]">ARTISAN / WORKER</th>
@@ -1439,21 +1982,21 @@ export default function NewWorkOrder({ initialMode }) {
                 <tbody className="divide-y divide-gray-100">
                   {loading ? (
                     <tr>
-                      <td colSpan="9" className="py-8 text-center text-gray-400">
+                      <td colSpan="10" className="py-8 text-center text-gray-400">
                         <i className="fa-solid fa-circle-notch fa-spin text-[#9e1b27] text-lg mr-2"></i>
                         Loading work orders...
                       </td>
                     </tr>
                   ) : filteredOrders.length === 0 ? (
                     <tr>
-                      <td colSpan="9" className="py-8 text-center text-gray-400">
+                      <td colSpan="10" className="py-8 text-center text-gray-400">
                         {search
                           ? `No work orders matching "${search}".`
                           : 'No work orders found. Click "+ Create New Work Order" to create one.'}
                       </td>
                     </tr>
                   ) : (
-                    paginatedOrders.map((wo) => {
+                    paginatedOrders.map((wo, idx) => {
                       const jobsCount = Array.isArray(wo.items) ? wo.items.length : 1;
                       return (
                         <tr
@@ -1461,6 +2004,11 @@ export default function NewWorkOrder({ initialMode }) {
                           onClick={() => loadOrderDetails(wo.id)}
                           className="hover:bg-[#fcf8f8] transition-colors cursor-pointer group"
                         >
+                          {/* S.No */}
+                          <td className="py-3.5 px-3 text-center font-mono font-bold text-gray-400 text-xs whitespace-nowrap">
+                            {(currentPage - 1) * itemsPerPage + idx + 1}
+                          </td>
+
                           {/* Order Number */}
                           <td className="py-3.5 px-4 font-mono font-bold text-[#9e1b27] whitespace-nowrap">
                             {wo.work_order_number}
@@ -1572,7 +2120,7 @@ export default function NewWorkOrder({ initialMode }) {
                 {viewMode === 'details' ? 'Work Order Details' : 'Create New Work Order'}
               </h1>
               <p className="text-xs text-[#6b7280] font-normal mt-0.5">
-                {orderNumber ? `Drafting Job #${orderNumber}` : 'Drafting New Work Order'}
+                {viewMode === 'details' ? `Work Order #${orderNumber || selectedOrder?.work_order_number || ''}` : (orderNumber ? `Drafting Job #${orderNumber}` : 'Drafting New Work Order')}
               </p>
             </div>
 
@@ -1684,16 +2232,21 @@ export default function NewWorkOrder({ initialMode }) {
 
                 <div>
                   <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
-                    Client Name
+                    Client ID / Code <span className="text-red-600">*</span>
                   </label>
-                  <input
-                    type="text"
+                  <select
                     value={customerName}
+                    required
                     onChange={(e) => setCustomerName(e.target.value)}
-                    placeholder="Enter client name"
-                    maxLength={255}
                     className="w-full text-xs font-semibold bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 outline-hidden focus:border-[#b01622] focus:bg-white transition-colors"
-                  />
+                  >
+                    <option value="">-- Select Client Code / ID --</option>
+                    {clientsList.map((c) => (
+                      <option key={c.id} value={c.client_code || c.full_name}>
+                        {c.client_code ? `${c.client_code} — ${c.full_name}` : c.full_name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
@@ -1785,7 +2338,7 @@ export default function NewWorkOrder({ initialMode }) {
               {/* Exact Table Layout with 17 Requested Columns */}
               <div className="border border-[#d8c8b0] rounded-xl overflow-hidden shadow-2xs bg-white">
                 <div className="overflow-x-auto w-full pb-2 scrollbar-thin scrollbar-thumb-stone-300">
-                  <table className="w-full text-left text-xs border-collapse min-w-[2200px]">
+                  <table className="w-full text-left text-xs border-collapse min-w-[1800px]">
                     <thead>
                       <tr className="bg-[#eedfce] text-[#3b3228] font-bold text-[10px] tracking-wider uppercase border-b border-[#ddccb4]">
                         <th className="py-2.5 px-3 whitespace-nowrap text-center min-w-[50px]">S.NO</th>
@@ -1796,15 +2349,11 @@ export default function NewWorkOrder({ initialMode }) {
                         <th className="py-2.5 px-3 whitespace-nowrap text-center min-w-[100px]">CAD DESIGN</th>
                         <th className="py-2.5 px-3 whitespace-nowrap min-w-[110px]">GOLD PURITY</th>
                         <th className="py-2.5 px-3 whitespace-nowrap min-w-[105px]">SETTING</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[105px]">DIAMOND WT</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[125px]">DIAMOND WT FROM</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[115px]">DIAMOND WT TO</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[95px]">GOLD WT</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[110px]">GOLD WT FROM</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[100px]">GOLD WT TO</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[105px]">NET GOLD WT (G)</th>
                         <th className="py-2.5 px-3 whitespace-nowrap text-center min-w-[90px]">NEEDED PCS</th>
                         <th className="py-2.5 px-3 whitespace-nowrap text-center min-w-[125px]">NO OF DIAMONDS</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-center min-w-[135px]">NO OF COLOUR STONES</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[115px]">DIAMOND WT (CTS)</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-center min-w-[150px]">DIAMOND DETAILS (STAMP / PCS / WT)</th>
                         <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[130px]">TOTAL GROSS WT</th>
                         <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[135px]">TOTAL DIAMOND CTS</th>
                         <th className="py-2.5 px-3 whitespace-nowrap min-w-[120px]">REMARKS</th>
@@ -1814,7 +2363,7 @@ export default function NewWorkOrder({ initialMode }) {
                     <tbody className="divide-y divide-stone-100">
                       {displayedJobItems.length === 0 ? (
                         <tr>
-                          <td colSpan="20" className="py-8 text-center text-stone-500 bg-stone-50/50">
+                          <td colSpan="17" className="py-8 text-center text-stone-500 bg-stone-50/50">
                             <p className="text-xs font-semibold">No materials found for the selected month.</p>
                             <button
                               type="button"
@@ -1827,14 +2376,20 @@ export default function NewWorkOrder({ initialMode }) {
                         </tr>
                       ) : (
                         displayedJobItems.map((row, idx) => {
-                          const goldWtNum = parseFloat(row.gold_weight || 0);
-                          const diaWtNum = parseFloat(row.diamond_weight || 0);
-                          const pcsNum = parseInt(row.need_pcs ?? 1, 10);
-                          const colourStones = parseInt(row.no_of_colour_stones || 0, 10);
+                          const pd = typeof row.pricing_details === 'string' ? JSON.parse(row.pricing_details || '{}') : (row.pricing_details || {});
+                          const goldWtNum = parseFloat(row.gold_weight || pd.gold_weight || row.allotted_weight || row.total_weight || 0) || 0;
+                          const diaWtNum = parseFloat(row.diamond_weight || pd.diamond_weight || 0) || 0;
+                          const pcsNum = parseInt(row.need_pcs || pd.need_pcs || row.required_qty || row.qty || 1, 10) || 1;
+                          const diaStonesNum = parseInt(row.no_of_diamonds || pd.no_of_diamonds || row.diamond_count || (row.stone_details?.diamond_count) || (pd.stone_details?.diamond_count) || 0, 10) || 0;
+                          const colourStones = parseInt(row.no_of_colour_stones || pd.no_of_colour_stones || row.color_stone_count || (row.stone_details?.color_stone_count) || 0, 10) || 0;
                           const diaGrams = diaWtNum * 0.2;
-                          const cstoneWt = parseFloat(row.color_stone_weight || 0);
-                          const grossWt = row.total_gross_wt || ((goldWtNum + diaGrams + cstoneWt) * pcsNum).toFixed(3);
-                          const diaCts = row.total_dia_cts || (diaWtNum * pcsNum).toFixed(3);
+                          const cstoneWt = parseFloat(row.color_stone_weight || pd.color_stone_weight || 0) || 0;
+                          const grossWt = row.total_gross_wt || pd.total_gross_wt || ((goldWtNum + diaGrams + cstoneWt) * pcsNum).toFixed(3);
+                          const diaCts = row.total_dia_cts || pd.total_dia_cts || (diaWtNum * pcsNum).toFixed(3);
+                          const purityVal = row.gold_purity || pd.gold_purity || row.gold_priory || pd.gold_priory || row.purity || pd.purity || row.karat || pd.karat || (row.gold_karat ? `${row.gold_karat}K` : '') || selectedOrder?.gold_purity || selectedOrder?.purity || selectedOrder?.material_type || '22K (916)';
+                          const settingVal = row.setting_type || pd.setting_type || 'Prong';
+                          const designVal = row.design_number || pd.design_number || row.design_no || selectedOrder?.design_code || 'DG-4587';
+                          const prodNameVal = row.product_name || pd.product_name || row.variant || pd.variant || selectedOrder?.product_name || 'Jewellery Piece';
 
                           return (
                             <tr key={row.id || idx} className="hover:bg-amber-50/20 transition-colors">
@@ -1853,12 +2408,12 @@ export default function NewWorkOrder({ initialMode }) {
 
                               {/* 3. Design No (Typing method) */}
                               <td className="py-2.5 px-3 whitespace-nowrap font-bold text-gray-900 text-xs font-mono">
-                                {row.design_number || 'DG-4587'}
+                                {designVal}
                               </td>
 
                               {/* 4. Product Name */}
                               <td className="py-2.5 px-3 whitespace-nowrap font-semibold text-gray-800 text-xs">
-                                {row.product_name || row.variant || 'Necklace'}
+                                {prodNameVal}
                               </td>
 
                               {/* 5. Reference Image Upload */}
@@ -1908,79 +2463,60 @@ export default function NewWorkOrder({ initialMode }) {
                                 )}
                               </td>
 
-                              {/* 7. Gold Purity (Typing method) */}
+                              {/* 7. Gold Purity & Stamp */}
                               <td className="py-2.5 px-3 whitespace-nowrap text-xs font-bold text-amber-800">
-                                {row.gold_purity || row.gold_priory || '-'}
+                                <div>{purityVal}</div>
+                                {row.gold_stamp && <div className="text-[10px] text-amber-600 font-mono font-semibold">{row.gold_stamp}</div>}
                               </td>
 
-                              {/* 8. Setting (Selecting setting style) */}
+                              {/* 8. Setting */}
                               <td className="py-2.5 px-3 whitespace-nowrap text-xs text-stone-700 font-medium">
                                 <span className="px-2 py-0.5 rounded-full bg-stone-100 border border-stone-200">
-                                  {row.setting_type || 'Prong'}
+                                  {settingVal}
                                 </span>
                               </td>
 
-                              {/* 9. Diamond Wt */}
-                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-800">
-                                {formatWeight(diaWtNum > 0 ? diaGrams : (row.diamond_weight_grams || 0))}g
-                              </td>
-
-                              {/* 10. Diamond Wt From */}
-                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-stone-600">
-                                {(row.diamond_wt_from || row.from_cts) ? `${row.diamond_wt_from || row.from_cts}ct` : '-'}
-                              </td>
-
-                              {/* 11. Diamond Wt To */}
-                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-stone-600">
-                                {(row.diamond_wt_to || row.to_cts) ? `${row.diamond_wt_to || row.to_cts}ct` : '-'}
-                              </td>
-
-                              {/* 12. Gold Wt */}
+                              {/* 9. Net Gold Wt (G) */}
                               <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-gray-900 font-bold">
-                                {formatWeight(row.gold_weight ?? row.total_weight)}g
+                                {goldWtNum > 0 ? `${formatWeight(goldWtNum)}g` : '-'}
                               </td>
 
-                              {/* 13. Gold Wt From */}
-                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-stone-600">
-                                {(row.gold_wt_from || row.from_wt) ? `${row.gold_wt_from || row.from_wt}g` : '-'}
-                              </td>
-
-                              {/* 14. Gold Wt To */}
-                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-stone-600">
-                                {(row.gold_wt_to || row.to_wt) ? `${row.gold_wt_to || row.to_wt}g` : '-'}
-                              </td>
-
-                              {/* 15. Needed Pcs */}
+                              {/* 10. Needed Pcs */}
                               <td className="py-2.5 px-3 whitespace-nowrap text-center font-mono font-bold text-xs text-gray-900">
                                 {pcsNum}
                               </td>
 
-                              {/* 16. No of Diamonds */}
+                              {/* 11. No of Diamonds */}
                               <td className="py-2.5 px-3 whitespace-nowrap text-center font-mono font-bold text-xs text-emerald-800">
-                                {parseInt(row.no_of_diamonds || 0, 10)}
+                                {diaStonesNum}
                               </td>
 
-                              {/* 17. No of Colour Stones */}
-                              <td className="py-2.5 px-3 whitespace-nowrap text-center font-mono font-bold text-xs text-purple-800">
-                                {colourStones}
+                              {/* 12. Diamond Wt (Carats) */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono text-xs text-emerald-800 font-bold">
+                                {diaWtNum > 0 ? `${diaWtNum.toFixed(3)}ct` : '-'}
                               </td>
 
-                              {/* 18. Total Gross Wt (Total Gold Wt x Needed Pcs) */}
+                              {/* 13. Diamond Details (Stamp / Pcs / Wt) */}
+                              <td className="py-2.5 px-3 text-center">
+                                {renderDiamondDetails(row, idx)}
+                              </td>
+
+                              {/* 14. Total Gross Wt (Total Gold Wt x Needed Pcs) */}
                               <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono font-bold text-xs text-[#881337]">
                                 {formatWeight(grossWt)}g
                               </td>
 
-                              {/* 19. Total Diamond Cts (Needed Pcs x Diamond Wt) */}
+                              {/* 15. Total Diamond Cts (Needed Pcs x Diamond Wt) */}
                               <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono font-bold text-xs text-emerald-700">
                                 {formatWeight(diaCts)}ct
                               </td>
 
-                              {/* 20. Remarks */}
+                              {/* 16. Remarks */}
                               <td className="py-2.5 px-3 whitespace-nowrap text-xs text-gray-500">
                                 {row.remark || '-'}
                               </td>
 
-                              {/* 21. Actions */}
+                              {/* 17. Actions */}
                               <td className="py-2.5 px-3 text-right whitespace-nowrap">
                                 <div className="flex items-center justify-end gap-1.5">
                                   <button
@@ -2015,28 +2551,24 @@ export default function NewWorkOrder({ initialMode }) {
                         <td colSpan="8" className="py-3 px-3 uppercase tracking-wider font-black text-xs text-gray-900">
                           TOTAL
                         </td>
-                        <td className="py-3 px-3 text-right font-mono font-bold text-xs text-gray-800">
-                          {activeItemsForTotals.reduce((a, r) => a + (parseFloat(r.diamond_weight || 0) * 0.2), 0).toFixed(3)}g
-                        </td>
-                        <td colSpan="2" className="py-3 px-3 text-center text-gray-400 font-normal">-</td>
                         <td className="py-3 px-3 text-right font-mono font-black text-xs text-gray-900">
                           {totalGoldWeight.toFixed(3)}g
                         </td>
-                        <td colSpan="2" className="py-3 px-3 text-center text-gray-400 font-normal">-</td>
                         <td className="py-3 px-3 text-center font-mono font-black text-xs text-[#b01622]">
                           {totalNeedPcs}
                         </td>
                         <td className="py-3 px-3 text-center font-mono font-black text-xs text-emerald-800">
-                          {activeItemsForTotals.reduce((a, r) => a + (parseInt(r.no_of_diamonds || 0, 10)), 0)}
+                          {totalStonesCount}
                         </td>
-                        <td className="py-3 px-3 text-center font-mono font-black text-xs text-purple-800">
-                          {activeItemsForTotals.reduce((a, r) => a + (parseInt(r.no_of_colour_stones || 0, 10)), 0)}
+                        <td className="py-3 px-3 text-right font-mono font-bold text-xs text-emerald-800">
+                          {totalCarats.toFixed(3)}ct
                         </td>
+                        <td className="py-3 px-3 text-center text-gray-400 font-normal">-</td>
                         <td className="py-3 px-3 text-right font-mono font-black text-xs text-[#881337]">
-                          {activeItemsForTotals.reduce((a, r) => a + (parseFloat(r.total_gross_wt || 0)), 0).toFixed(3)}g
+                          {totalGoldWeight.toFixed(3)}g
                         </td>
                         <td className="py-3 px-3 text-right font-mono font-black text-xs text-emerald-700">
-                          {activeItemsForTotals.reduce((a, r) => a + (parseFloat(r.total_dia_cts || 0)), 0).toFixed(3)}ct
+                          {totalCarats.toFixed(3)}ct
                         </td>
                         <td colSpan="2" className="py-3 px-3 text-center text-gray-400 font-normal">-</td>
                       </tr>
@@ -2053,97 +2585,6 @@ export default function NewWorkOrder({ initialMode }) {
             {/* Left Column (8 cols): Worker Tracking, Timeline, Crafting Instructions, Material Breakdown */}
             <div className="lg:col-span-8 space-y-6">
 
-              {/* Box 1: Worker Allocation / Used Gold Tracking (Matching Image 2 Exactly) */}
-              <div className="bg-white rounded-2xl border border-stone-200/90 p-5 shadow-2xs">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-lg bg-rose-50 border border-rose-100 text-[#881337] flex items-center justify-center text-sm shadow-2xs">
-                      <i className="fa-solid fa-user-gear"></i>
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-gray-900 text-sm">
-                        Worker Allocation / Used Gold Tracking
-                      </h3>
-                      <p className="text-[11px] text-gray-500">
-                        Live balance of precious material issued and utilized by artisan
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleSyncGoldWithTable}
-                      className="px-2.5 py-1 text-[11px] font-semibold text-[#881337] bg-rose-50 hover:bg-rose-100 rounded-lg border border-rose-100 transition-colors cursor-pointer"
-                      title="Sync Used Gold with Table Items Total"
-                    >
-                      <i className="fa-solid fa-arrows-rotate mr-1"></i>
-                      Sync Table Wt
-                    </button>
-                    {viewMode === 'details' && (
-                      <button
-                        type="button"
-                        disabled={submitting}
-                        onClick={handleUpdateWorkerTracking}
-                        className="px-3 py-1 bg-[#881337] hover:bg-[#70102d] text-white text-xs font-bold rounded-lg shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <i className="fa-solid fa-cloud-arrow-up text-xs"></i>
-                        <span>{submitting ? 'Saving...' : 'Save Tracking'}</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-                  {/* Gold Issued to Worker */}
-                  <div>
-                    <label className="text-xs font-semibold text-gray-600 block mb-1.5">
-                      Gold Issued to Worker (g)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      value={goldIssued}
-                      onChange={(e) => setGoldIssued(e.target.value)}
-                      className="w-full text-xs font-mono font-bold text-gray-900 border border-gray-200 rounded-lg p-2.5 outline-hidden focus:border-[#881337] bg-white shadow-2xs"
-                      placeholder="e.g. 100"
-                    />
-                  </div>
-
-                  {/* Gold Used Till Now */}
-                  <div>
-                    <label className="text-xs font-semibold text-gray-600 block mb-1.5">
-                      Gold Used Till Now (g)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      value={goldUsed}
-                      onChange={(e) => setGoldUsed(e.target.value)}
-                      className="w-full text-xs font-mono font-bold text-[#15803d] border border-gray-200 rounded-lg p-2.5 outline-hidden focus:border-[#881337] bg-white shadow-2xs"
-                      placeholder="e.g. 50"
-                    />
-                  </div>
-
-                  {/* Pending Gold */}
-                  <div>
-                    <label className="text-xs font-semibold text-gray-600 block mb-1.5">
-                      Pending Gold
-                    </label>
-                    <div className="w-full text-xs font-mono font-bold text-[#881337] border border-gray-200 rounded-lg p-2.5 bg-gray-50/70 shadow-2xs flex items-center h-[38px]">
-                      {pendingGoldNum.toFixed(2)}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Blue Info Callout Box Matching Image 2 */}
-                <div className="p-3 rounded-xl bg-[#f0f6ff] border border-blue-100/80 text-[#1e40af] text-xs flex items-center gap-2.5 font-medium shadow-2xs">
-                  <i className="fa-solid fa-circle-info text-base shrink-0 text-blue-600"></i>
-                  <span>
-                    Total {goldIssuedNum.toFixed(2)} g gold issued to the worker. {goldUsedNum.toFixed(2)} g used for work. Pending {pendingGoldNum.toFixed(2)} g.
-                  </span>
-                </div>
-              </div>
 
               {/* Box 2: Production Timeline */}
               <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-2xs">
@@ -2262,92 +2703,355 @@ export default function NewWorkOrder({ initialMode }) {
                 )}
               </div>
 
-              {/* Box 4: Material Breakdown */}
-              <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-2xs max-w-sm">
-                <h3 className="text-[11px] font-bold text-gray-800 tracking-wider uppercase border-b border-gray-100 pb-2 mb-3">
-                  MATERIAL BREAKDOWN
-                </h3>
-                <div className="space-y-2 text-xs">
-                  <div className="flex items-center justify-between text-gray-600">
-                    <span>Gold Value (22K)</span>
-                    <span className="font-mono font-semibold text-gray-900">
-                      ₹ {goldValue.toLocaleString('en-IN')}.00
-                    </span>
+              {/* Reference Image & CAD Design Live Preview Panels */}
+              {(() => {
+                const totalJobs = jobItems.length;
+                const safeRefIdx = totalJobs > 0 ? ((refSliderIndex % totalJobs) + totalJobs) % totalJobs : 0;
+                const safeCadIdx = totalJobs > 0 ? ((cadSliderIndex % totalJobs) + totalJobs) % totalJobs : 0;
+                const activeRefJob = totalJobs > 0 ? jobItems[safeRefIdx] : selectedOrder;
+                const activeCadJob = totalJobs > 0 ? jobItems[safeCadIdx] : selectedOrder;
+
+                const refImgUrl = resolveItemImage(activeRefJob) || normalizeImageUrl(activeRefJob?.reference_image || activeRefJob?.image || selectedOrder?.reference_image);
+                const cadFileUrl = activeCadJob?.design_file || selectedOrder?.design_file;
+                const cadFileName = activeCadJob?.design_file_name || selectedOrder?.design_file_name || 'CAD Drawing';
+                const isCadPdf = cadFileUrl && String(cadFileUrl).toLowerCase().endsWith('.pdf');
+
+                const handlePrevRef = (e) => {
+                  if (e) e.stopPropagation();
+                  if (totalJobs <= 1) return;
+                  setRefSliderIndex((prev) => (prev - 1 + totalJobs) % totalJobs);
+                };
+                const handleNextRef = (e) => {
+                  if (e) e.stopPropagation();
+                  if (totalJobs <= 1) return;
+                  setRefSliderIndex((prev) => (prev + 1) % totalJobs);
+                };
+                const handlePrevCad = (e) => {
+                  if (e) e.stopPropagation();
+                  if (totalJobs <= 1) return;
+                  setCadSliderIndex((prev) => (prev - 1 + totalJobs) % totalJobs);
+                };
+                const handleNextCad = (e) => {
+                  if (e) e.stopPropagation();
+                  if (totalJobs <= 1) return;
+                  setCadSliderIndex((prev) => (prev + 1) % totalJobs);
+                };
+
+                return (
+                  <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-2xs">
+                    <div className="flex items-center justify-between mb-3 border-b border-gray-100 pb-2">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-xs font-bold text-gray-800 tracking-wider uppercase flex items-center gap-1.5">
+                          <i className="fa-solid fa-images text-[#881337]"></i>
+                          Design &amp; Reference Previews
+                        </h3>
+                        {totalJobs > 1 && (
+                          <span className="text-[10px] bg-stone-100 text-stone-600 font-semibold px-2 py-0.5 rounded-full border border-stone-200">
+                            {totalJobs} Jobs in Order
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 text-xs font-mono font-bold">
+                        <span className="text-amber-800">Gold: {totalGoldWeight.toFixed(3)} g</span>
+                        <span className="text-blue-800">Dia: {totalCarats.toFixed(3)} ct ({totalStonesCount} pcs)</span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Reference Image Preview with Slider Controls & Enlarged Frame */}
+                      <div className="border border-stone-200 rounded-xl p-3.5 bg-stone-50/60 flex flex-col justify-between min-h-[300px] relative group transition-all hover:border-stone-300">
+                        {/* Header bar inside card */}
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10.5px] font-bold text-stone-700 uppercase tracking-wider flex items-center gap-1.5">
+                              <i className="fa-solid fa-camera text-[#881337]"></i>
+                              Reference Image
+                            </span>
+                            {totalJobs > 1 && (
+                              <span className="text-[10px] font-bold bg-[#881337]/10 text-[#881337] px-2 py-0.5 rounded-full border border-[#881337]/20">
+                                Job {safeRefIdx + 1} of {totalJobs}{activeRefJob?.design_number ? ` • ${activeRefJob.design_number}` : ''}
+                              </span>
+                            )}
+                          </div>
+                          {totalJobs > 1 && (
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={handlePrevRef}
+                                className="w-6 h-6 rounded-md bg-white border border-stone-300 hover:bg-stone-100 text-stone-700 hover:text-[#881337] flex items-center justify-center shadow-2xs transition-all cursor-pointer"
+                                title="Previous Job Image"
+                              >
+                                <i className="fa-solid fa-chevron-left text-[9px]"></i>
+                              </button>
+                              <span className="text-[10px] font-mono font-bold text-stone-600 px-1 select-none">
+                                {safeRefIdx + 1}/{totalJobs}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={handleNextRef}
+                                className="w-6 h-6 rounded-md bg-white border border-stone-300 hover:bg-stone-100 text-stone-700 hover:text-[#881337] flex items-center justify-center shadow-2xs transition-all cursor-pointer"
+                                title="Next Job Image"
+                              >
+                                <i className="fa-solid fa-chevron-right text-[9px]"></i>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Image Canvas with Floating Nav Arrows */}
+                        <div className="relative flex-1 flex flex-col items-center justify-center min-h-[230px] rounded-lg bg-white border border-stone-200/80 p-2 overflow-hidden shadow-2xs">
+                          {/* Floating Left Arrow */}
+                          {totalJobs > 1 && (
+                            <button
+                              type="button"
+                              onClick={handlePrevRef}
+                              className="absolute left-2 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-white/95 hover:bg-white text-stone-800 hover:text-[#881337] shadow-md border border-stone-300 flex items-center justify-center transition-all opacity-85 hover:opacity-100 hover:scale-110 active:scale-95 cursor-pointer"
+                              title="Previous Job Image"
+                            >
+                              <i className="fa-solid fa-chevron-left text-xs"></i>
+                            </button>
+                          )}
+
+                          {refImgUrl ? (
+                            <div className="w-full h-full flex flex-col items-center justify-center">
+                              <img
+                                src={refImgUrl}
+                                alt={`Job #${safeRefIdx + 1} Reference`}
+                                onClick={() => setPreviewDoc({
+                                  url: refImgUrl,
+                                  name: activeRefJob?.design_number ? `Reference - ${activeRefJob.design_number}` : `Job #${safeRefIdx + 1} Reference Image`,
+                                  type: 'image'
+                                })}
+                                className="max-h-64 sm:max-h-72 w-auto max-w-full object-contain rounded-md transition-transform hover:scale-[1.02] cursor-zoom-in"
+                                title="Click to view enlarged full preview"
+                              />
+                              {activeRefJob?.design_number && (
+                                <span className="text-[10px] font-mono text-stone-500 font-semibold mt-1.5 text-center">
+                                  {activeRefJob.design_number} {activeRefJob.product_name ? `• ${activeRefJob.product_name}` : ''}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="text-center py-10 text-stone-400">
+                              <i className="fa-regular fa-image text-4xl mb-2 text-stone-300"></i>
+                              <p className="text-xs font-medium">No Reference Image</p>
+                              {activeRefJob?.design_number && (
+                                <p className="text-[10px] font-mono text-stone-400 mt-0.5">{activeRefJob.design_number}</p>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Floating Right Arrow */}
+                          {totalJobs > 1 && (
+                            <button
+                              type="button"
+                              onClick={handleNextRef}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-white/95 hover:bg-white text-stone-800 hover:text-[#881337] shadow-md border border-stone-300 flex items-center justify-center transition-all opacity-85 hover:opacity-100 hover:scale-110 active:scale-95 cursor-pointer"
+                              title="Next Job Image"
+                            >
+                              <i className="fa-solid fa-chevron-right text-xs"></i>
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Bottom Indicators / Pagination Dots */}
+                        {totalJobs > 1 && (
+                          <div className="flex items-center justify-center gap-1.5 mt-2.5">
+                            {jobItems.map((job, idx) => (
+                              <button
+                                key={job.id || idx}
+                                type="button"
+                                onClick={() => setRefSliderIndex(idx)}
+                                className={`h-2 rounded-full transition-all cursor-pointer ${idx === safeRefIdx ? 'w-6 bg-[#881337]' : 'w-2 bg-stone-300 hover:bg-stone-400'}`}
+                                title={`Job #${idx + 1}${job.design_number ? ` (${job.design_number})` : ''}`}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* CAD Design Preview with Slider Controls & Enlarged Frame */}
+                      <div className="border border-stone-200 rounded-xl p-3.5 bg-stone-50/60 flex flex-col justify-between min-h-[300px] relative group transition-all hover:border-stone-300">
+                        {/* Header bar inside card */}
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10.5px] font-bold text-stone-700 uppercase tracking-wider flex items-center gap-1.5">
+                              <i className="fa-solid fa-compass-drafting text-indigo-700"></i>
+                              CAD Design
+                            </span>
+                            {totalJobs > 1 && (
+                              <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200">
+                                Job {safeCadIdx + 1} of {totalJobs}{activeCadJob?.design_number ? ` • ${activeCadJob.design_number}` : ''}
+                              </span>
+                            )}
+                          </div>
+                          {totalJobs > 1 && (
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={handlePrevCad}
+                                className="w-6 h-6 rounded-md bg-white border border-stone-300 hover:bg-stone-100 text-stone-700 hover:text-indigo-700 flex items-center justify-center shadow-2xs transition-all cursor-pointer"
+                                title="Previous Job CAD"
+                              >
+                                <i className="fa-solid fa-chevron-left text-[9px]"></i>
+                              </button>
+                              <span className="text-[10px] font-mono font-bold text-stone-600 px-1 select-none">
+                                {safeCadIdx + 1}/{totalJobs}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={handleNextCad}
+                                className="w-6 h-6 rounded-md bg-white border border-stone-300 hover:bg-stone-100 text-stone-700 hover:text-indigo-700 flex items-center justify-center shadow-2xs transition-all cursor-pointer"
+                                title="Next Job CAD"
+                              >
+                                <i className="fa-solid fa-chevron-right text-[9px]"></i>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* CAD Canvas with Floating Nav Arrows */}
+                        <div className="relative flex-1 flex flex-col items-center justify-center min-h-[230px] rounded-lg bg-white border border-stone-200/80 p-2 overflow-hidden shadow-2xs">
+                          {/* Floating Left Arrow */}
+                          {totalJobs > 1 && (
+                            <button
+                              type="button"
+                              onClick={handlePrevCad}
+                              className="absolute left-2 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-white/95 hover:bg-white text-stone-800 hover:text-indigo-700 shadow-md border border-stone-300 flex items-center justify-center transition-all opacity-85 hover:opacity-100 hover:scale-110 active:scale-95 cursor-pointer"
+                              title="Previous Job CAD"
+                            >
+                              <i className="fa-solid fa-chevron-left text-xs"></i>
+                            </button>
+                          )}
+
+                          {cadFileUrl ? (
+                            <div className="w-full h-full flex flex-col items-center justify-center">
+                              {isCadPdf ? (
+                                <div className="text-center py-6 text-indigo-700 flex flex-col items-center">
+                                  <i className="fa-solid fa-file-pdf text-5xl mb-2 text-red-500"></i>
+                                  <p className="text-xs font-bold text-gray-800">{cadFileName}</p>
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setPreviewDoc({
+                                        url: cadFileUrl,
+                                        name: cadFileName,
+                                        type: 'pdf'
+                                      })}
+                                      className="px-2.5 py-1 text-[11px] font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-md border border-indigo-200 transition-colors cursor-pointer"
+                                    >
+                                      Preview PDF &rarr;
+                                    </button>
+                                    <a
+                                      href={cadFileUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="px-2.5 py-1 text-[11px] font-semibold text-stone-600 hover:text-stone-900 underline"
+                                    >
+                                      Open New Tab
+                                    </a>
+                                  </div>
+                                </div>
+                              ) : (
+                                <img
+                                  src={normalizeImageUrl(cadFileUrl)}
+                                  alt={`Job #${safeCadIdx + 1} CAD`}
+                                  onClick={() => setPreviewDoc({
+                                    url: normalizeImageUrl(cadFileUrl),
+                                    name: activeCadJob?.design_number ? `CAD - ${activeCadJob.design_number}` : `Job #${safeCadIdx + 1} CAD Design`,
+                                    type: 'image'
+                                  })}
+                                  className="max-h-64 sm:max-h-72 w-auto max-w-full object-contain rounded-md transition-transform hover:scale-[1.02] cursor-zoom-in"
+                                  title="Click to view enlarged full preview"
+                                />
+                              )}
+                              {activeCadJob?.design_number && (
+                                <span className="text-[10px] font-mono text-stone-500 font-semibold mt-1.5 text-center">
+                                  {activeCadJob.design_number} {activeCadJob.product_name ? `• ${activeCadJob.product_name}` : ''}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="text-center py-10 text-stone-400">
+                              <i className="fa-solid fa-file-lines text-4xl mb-2 text-stone-300"></i>
+                              <p className="text-xs font-medium">No CAD Design File</p>
+                              {activeCadJob?.design_number && (
+                                <p className="text-[10px] font-mono text-stone-400 mt-0.5">{activeCadJob.design_number}</p>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Floating Right Arrow */}
+                          {totalJobs > 1 && (
+                            <button
+                              type="button"
+                              onClick={handleNextCad}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-white/95 hover:bg-white text-stone-800 hover:text-indigo-700 shadow-md border border-stone-300 flex items-center justify-center transition-all opacity-85 hover:opacity-100 hover:scale-110 active:scale-95 cursor-pointer"
+                              title="Next Job CAD"
+                            >
+                              <i className="fa-solid fa-chevron-right text-xs"></i>
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Bottom Indicators / Pagination Dots */}
+                        {totalJobs > 1 && (
+                          <div className="flex items-center justify-center gap-1.5 mt-2.5">
+                            {jobItems.map((job, idx) => (
+                              <button
+                                key={job.id || idx}
+                                type="button"
+                                onClick={() => setCadSliderIndex(idx)}
+                                className={`h-2 rounded-full transition-all cursor-pointer ${idx === safeCadIdx ? 'w-6 bg-indigo-700' : 'w-2 bg-stone-300 hover:bg-stone-400'}`}
+                                title={`Job #${idx + 1}${job.design_number ? ` (${job.design_number})` : ''}`}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between text-gray-600">
-                    <span>Making Charges</span>
-                    <span className="font-mono font-semibold text-gray-900">
-                      ₹ {makingCharges.toLocaleString('en-IN')}.00
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-gray-600">
-                    <span>Stone Charges</span>
-                    <span className="font-mono font-semibold text-gray-900">
-                      ₹ {stoneCharges.toLocaleString('en-IN')}.00
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-gray-600">
-                    <span>Other Charges</span>
-                    <span className="font-mono font-semibold text-gray-900">
-                      ₹ {otherCharges.toLocaleString('en-IN')}.00
-                    </span>
-                  </div>
-                  <div className="pt-2 border-t border-gray-100 flex items-center justify-between font-bold text-sm text-gray-900">
-                    <span>Total Amount</span>
-                    <span className="font-mono font-extrabold text-[#881337]">
-                      ₹ {totalAmount.toLocaleString('en-IN')}.00
-                    </span>
-                  </div>
-                </div>
-              </div>
+                );
+              })()}
 
             </div>
 
-            {/* Right Column (4 cols): Job Summary, Workflow Step, Documents */}
+            {/* Right Column: Weight Summary & Order Documents */}
             <div className="lg:col-span-4 space-y-6">
 
-              {/* Job Summary Card */}
+              {/* Order Total Weight Summary Card */}
               <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-2xs relative overflow-hidden">
-                <div className="absolute right-2 top-2 opacity-5 pointer-events-none text-8xl text-stone-900">
-                  <i className="fa-regular fa-gem"></i>
-                </div>
-
-                <h3 className="text-base font-bold text-[#881337] mb-4">
-                  Job Summary
+                <h3 className="text-base font-bold text-[#881337] mb-3 flex items-center justify-between">
+                  <span>Work Order Weight Summary</span>
+                  <span className="text-xs font-normal text-stone-500 font-sans">{jobItems.length} {jobItems.length === 1 ? 'Job' : 'Jobs'}</span>
                 </h3>
 
-                <div className="space-y-3 text-xs mb-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-500">Allocated Gold</span>
-                    <span className="font-mono font-bold text-gray-900">{totalGoldWeight.toFixed(2)} g</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-500">Stone Count</span>
-                    <span className="font-mono font-bold text-gray-900">{totalStonesCount} Pcs</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-500">Total Carats</span>
-                    <span className="font-mono font-bold text-gray-900">{totalCarats.toFixed(2)} ct</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-500">Est. Wastage</span>
-                    <span className="font-mono font-bold text-gray-900">{totalWastageWeight.toFixed(2)} g</span>
-                  </div>
-
-                  <div className="pt-3 border-t border-gray-100 flex items-center justify-between">
-                    <span className="text-xs font-bold text-gray-900">Est. Material Cost</span>
-                    <span className="text-base font-black text-[#881337] font-mono">
-                      ₹{totalAmount.toLocaleString('en-IN')}
+                <div className="space-y-3 text-xs mb-3">
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-amber-50/60 border border-amber-200/60">
+                    <span className="font-bold text-amber-900 flex items-center gap-1.5">
+                      <i className="fa-solid fa-coins text-amber-600"></i>
+                      Total Gold Weight
                     </span>
+                    <span className="font-mono font-black text-amber-950 text-sm">{totalGoldWeight.toFixed(3)} g</span>
                   </div>
-                </div>
 
-                {/* Soft Rose Note */}
-                <div className="p-3 rounded-lg bg-[#fff1f2] border border-[#ffe4e6] text-[#9f1239] text-[11px] leading-relaxed flex items-start gap-2">
-                  <i className="fa-solid fa-thumbtack text-xs mt-0.5"></i>
-                  <span>
-                    Current gold rate used for estimation: <strong>₹{goldRate22k.toLocaleString()}/g (22K)</strong>. Final cost adjusted upon job completion.
-                  </span>
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-blue-50/60 border border-blue-200/60">
+                    <span className="font-bold text-blue-900 flex items-center gap-1.5">
+                      <i className="fa-solid fa-gem text-blue-600"></i>
+                      Total Diamond Carats
+                    </span>
+                    <span className="font-mono font-black text-blue-950 text-sm">{totalCarats.toFixed(3)} ct</span>
+                  </div>
+
+                  <div className="flex items-center justify-between px-2 text-stone-600">
+                    <span>Total Diamonds Count</span>
+                    <span className="font-mono font-bold text-stone-900">{totalStonesCount} Pcs</span>
+                  </div>
+
+                  <div className="flex items-center justify-between px-2 text-stone-600">
+                    <span>Total Quantity Needed</span>
+                    <span className="font-mono font-bold text-stone-900">{totalNeedPcs} Units</span>
+                  </div>
                 </div>
               </div>
 
@@ -2685,26 +3389,46 @@ export default function NewWorkOrder({ initialMode }) {
               {/* 2. SECTION: Gold Purity & Setting Style */}
               <div className="border border-stone-200 rounded-xl p-3.5 space-y-3 bg-white">
                 <span className="text-[10px] font-extrabold uppercase text-[#881337] tracking-wider block">
-                  Gold Purity & Setting Style
+                  Gold Purity &amp; Setting Style
                 </span>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* Gold Purity - Typing method */}
+                  {/* Gold Purity - Linked to Masters / Standard Karats */}
                   <div>
                     <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide">
-                      GOLD PURITY (TYPING METHOD) <span className="text-red-600">*</span>
+                      GOLD PURITY <span className="text-red-600">*</span>
                     </label>
                     <input
                       type="text"
+                      list="gold-purity-master-options"
                       required
                       value={rowForm.gold_purity || ''}
-                      onChange={(e) => updateRowFormAndCalculate('gold_purity', e.target.value)}
-                      placeholder="e.g. 22K (916) / 18KT / 24K"
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        let autoStamp = '';
+                        if (val.includes('24') || val.includes('999')) autoStamp = '999';
+                        else if (val.includes('22') || val.includes('916')) autoStamp = '916';
+                        else if (val.includes('18') || val.includes('750')) autoStamp = '750';
+                        else if (val.includes('14') || val.includes('585')) autoStamp = '585';
+                        setRowForm(prev => ({
+                          ...prev,
+                          gold_purity: val,
+                          gold_stamp: autoStamp || prev.gold_stamp,
+                        }));
+                      }}
+                      placeholder="e.g. 22K (916) Hallmark Gold"
                       className={`w-full text-xs rounded-lg p-2.5 font-bold outline-hidden transition-all ${formErrors.gold_purity
                         ? 'border-2 border-red-500 bg-red-50/20 ring-1 ring-red-400'
                         : 'border border-gray-200 focus:border-[#881337] bg-white text-amber-900'
                         }`}
                     />
+                    <datalist id="gold-purity-master-options">
+                      <option value="24K (999) Pure Gold" />
+                      <option value="22K (916) Hallmark Gold" />
+                      <option value="18K (750) Gold" />
+                      <option value="14K (585) Gold" />
+                      <option value="10K (417) Gold" />
+                    </datalist>
                     {formErrors.gold_purity && (
                       <span className="text-[10px] text-red-600 font-bold block mt-1 flex items-center gap-1">
                         <i className="fa-solid fa-circle-exclamation text-[9px]"></i> {formErrors.gold_purity}
@@ -2729,28 +3453,38 @@ export default function NewWorkOrder({ initialMode }) {
                       </button>
                     </div>
                     <select
-                      value={rowForm.setting_type || 'Prong'}
+                      value={
+                        settingStyles.length > 0
+                          ? (settingStyles.some((s) => s.name === rowForm.setting_type) ? rowForm.setting_type : settingStyles[0].name)
+                          : (rowForm.setting_type || 'Open setting')
+                      }
                       onChange={(e) => updateRowFormAndCalculate('setting_type', e.target.value)}
                       className={`w-full text-xs rounded-lg p-2.5 outline-hidden transition-all bg-white font-medium ${formErrors.setting_type ? 'border-2 border-red-500 bg-red-50/20' : 'border border-gray-200 focus:border-[#881337]'
                         }`}
                     >
                       {settingStyles.length > 0 ? (
-                        settingStyles.map((s) => (
-                          <option key={s.id || s.name} value={s.name}>
-                            {s.name}
-                          </option>
-                        ))
+                        <>
+                          {settingStyles.map((s) => (
+                            <option key={s.id || s.name} value={s.name}>
+                              {s.name}
+                            </option>
+                          ))}
+                          {rowForm.setting_type && !settingStyles.some((s) => s.name === rowForm.setting_type) && (
+                            <option value={rowForm.setting_type}>{rowForm.setting_type}</option>
+                          )}
+                        </>
                       ) : (
                         <>
+                          <option value="Open setting">Open setting</option>
+                          <option value="Close Setting">Close Setting</option>
                           <option value="Prong">Prong</option>
                           <option value="Bezel">Bezel</option>
                           <option value="Channel">Channel</option>
-                          <option value="Pave">Pave</option>
-                          <option value="Bar">Bar</option>
-                          <option value="Flush">Flush</option>
-                          <option value="Tension">Tension</option>
-                          <option value="Invisible">Invisible</option>
-                          <option value="Plain Casting">Plain Casting</option>
+                          <option value="Pave Setting">Pave Setting</option>
+                          <option value="Bar Setting">Bar Setting</option>
+                          <option value="Flush Setting">Flush Setting</option>
+                          <option value="Tension Setting">Tension Setting</option>
+                          <option value="Invisible Setting">Invisible Setting</option>
                         </>
                       )}
                     </select>
@@ -2908,8 +3642,8 @@ export default function NewWorkOrder({ initialMode }) {
                       required
                       value={rowForm.need_pcs ?? 1}
                       onFocus={(e) => {
-                        try { e.target.select(); } catch (_) {}
-                        setTimeout(() => { try { e.target.select(); } catch (_) {} }, 15);
+                        try { e.target.select(); } catch (_) { }
+                        setTimeout(() => { try { e.target.select(); } catch (_) { } }, 15);
                       }}
                       onChange={(e) => {
                         const v = normalizeNumericInput(e.target.value, rowForm.need_pcs);
@@ -2931,26 +3665,30 @@ export default function NewWorkOrder({ initialMode }) {
 
               {/* 5. SECTION: Gold Weight Specifications */}
               <div className="border border-stone-200 rounded-xl p-3.5 space-y-3 bg-white">
-                <span className="text-[10px] font-extrabold uppercase text-[#881337] tracking-wider block flex items-center gap-1.5">
-                  <i className="fa-solid fa-coins text-amber-600 text-xs"></i>
-                  Gold Weight Specifications
-                </span>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-extrabold uppercase text-[#881337] tracking-wider flex items-center gap-1.5">
+                    <i className="fa-solid fa-coins text-amber-600 text-xs"></i>
+                    Gold Weight Specifications
+                  </span>
+                  <span className="text-[10px] text-stone-500 font-medium">
+                    (Weight optional for custom or open-ended jobs)
+                  </span>
+                </div>
 
-                {/* Gold Wt, Gold Wt From, Gold Wt To */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                  {/* Gold Net Weight (G) - Non-mandatory */}
                   <div className="flex flex-col justify-end">
                     <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide min-h-[20px] flex items-end">
-                      GOLD WT (G) <span className="text-red-600 ml-0.5">*</span>
+                      Gold Net Wt (g) <span className="text-[10px] text-stone-400 font-normal ml-1 lowercase">(optional)</span>
                     </label>
                     <input
                       type="number"
                       step="0.001"
-                      required
                       value={rowForm.gold_weight || ''}
                       onFocus={handleNumericFocus}
                       onChange={(e) => updateRowFormAndCalculate('gold_weight', normalizeNumericInput(e.target.value, rowForm.gold_weight))}
                       placeholder="e.g. 10.000"
-                      className={`w-full text-xs rounded-lg p-2.5 font-mono font-black outline-hidden transition-all text-gray-900 ${formErrors.gold_weight
+                      className={`w-full text-xs rounded-lg p-2.5 font-mono font-bold outline-hidden transition-all text-gray-900 ${formErrors.gold_weight
                         ? 'border-2 border-red-500 bg-red-50/20 ring-1 ring-red-400'
                         : 'border border-gray-200 focus:border-[#881337] bg-white'
                         }`}
@@ -2962,172 +3700,229 @@ export default function NewWorkOrder({ initialMode }) {
                     )}
                   </div>
 
+                  {/* Fine Gold Weight (G) - Auto-calculated from Net Wt × Purity %, also editable */}
                   <div className="flex flex-col justify-end">
-                    <label className="text-[11px] font-bold text-stone-600 block mb-1 uppercase tracking-wide min-h-[20px] flex items-end">
-                      GOLD WT FROM (G)
+                    <label className="text-[11px] font-bold text-amber-900 block mb-1 uppercase tracking-wide min-h-[20px] flex items-end justify-between">
+                      <span>Fine Gold Wt (g)</span>
+                      <span className="text-[9.5px] font-normal text-amber-700">Net Wt × Purity%</span>
                     </label>
                     <input
                       type="number"
                       step="0.001"
-                      value={rowForm.gold_wt_from || rowForm.from_wt || ''}
+                      value={rowForm.fine_gold_weight || ''}
                       onFocus={handleNumericFocus}
-                      onChange={(e) => {
-                        const v = normalizeNumericInput(e.target.value, rowForm.gold_wt_from);
-                        setRowForm({ ...rowForm, gold_wt_from: v, from_wt: v });
-                      }}
-                      placeholder="e.g. 8.000"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono outline-hidden focus:border-[#881337]"
+                      onChange={(e) => updateRowFormAndCalculate('fine_gold_weight', normalizeNumericInput(e.target.value, rowForm.fine_gold_weight))}
+                      placeholder="e.g. 9.160"
+                      className="w-full text-xs border border-amber-300 bg-amber-50/30 rounded-lg p-2.5 font-mono font-black text-amber-950 outline-hidden focus:border-amber-600 focus:bg-white"
                     />
                   </div>
 
+                  {/* Gold Purity Live Indicator */}
                   <div className="flex flex-col justify-end">
                     <label className="text-[11px] font-bold text-stone-600 block mb-1 uppercase tracking-wide min-h-[20px] flex items-end">
-                      GOLD WT TO (G)
+                      Gold Purity Standard
+                    </label>
+                    <div className="w-full text-xs border border-stone-200 bg-stone-50 rounded-lg p-2.5 font-bold text-stone-800 flex items-center justify-between">
+                      <span className="truncate">{rowForm.gold_purity || '22K (91.6% Pure)'}</span>
+                      <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-mono font-bold">
+                        {rowForm.gold_purity?.includes('24') ? '99.9%' : (rowForm.gold_purity?.includes('18') ? '75.0%' : (rowForm.gold_purity?.includes('14') ? '58.5%' : '91.6%'))}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 6. SECTION: Diamond Specifications (Dynamic Multi-Type / Sieves Table) */}
+              <div className="border border-purple-200/80 rounded-xl p-3.5 space-y-3 bg-purple-50/15">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-extrabold uppercase text-purple-900 tracking-wider flex items-center gap-1.5">
+                    <i className="fa-solid fa-gem text-purple-600 text-xs"></i>
+                    Diamond Specifications (Multiple Diamond Types &amp; Sieves)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleAddDiamondSieve}
+                    className="text-[11px] font-bold text-white bg-purple-700 hover:bg-purple-800 px-2.5 py-1 rounded-lg flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
+                  >
+                    <i className="fa-solid fa-plus text-[10px]"></i> Add Diamond Type
+                  </button>
+                </div>
+
+                {Array.isArray(rowForm.diamond_sieves) && rowForm.diamond_sieves.length > 0 ? (
+                  <div className="border border-purple-200 rounded-lg overflow-hidden bg-white shadow-2xs">
+                    <table className="w-full text-left text-[11px]">
+                      <thead className="bg-purple-100/75 text-purple-950 font-bold border-b border-purple-200">
+                        <tr>
+                          <th className="p-2 pl-3">Diamond Stamp</th>
+                          <th className="p-2 w-32 text-center">Pieces (Count)</th>
+                          <th className="p-2 w-36 text-right">Carats (Cts / Wt)</th>
+                          <th className="p-2 w-10 text-center"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-purple-100">
+                        {rowForm.diamond_sieves.map((sieve, sIdx) => (
+                          <tr key={sIdx} className="hover:bg-purple-50/30">
+                            <td className="p-2 pl-3">
+                              <input
+                                type="text"
+                                value={sieve.stamp || ''}
+                                onChange={(e) => handleUpdateDiamondSieve(sIdx, 'stamp', e.target.value)}
+                                placeholder="Diamond Stamp (e.g. +1, +2, -2)"
+                                className="w-full px-2.5 py-1.5 border border-stone-200 rounded-lg text-xs font-mono font-bold text-purple-900 bg-white focus:border-purple-600 outline-hidden"
+                              />
+                            </td>
+                            <td className="p-2">
+                              <input
+                                type="number"
+                                min="0"
+                                value={sieve.count ?? ''}
+                                onChange={(e) => handleUpdateDiamondSieve(sIdx, 'count', e.target.value)}
+                                placeholder="0"
+                                className="w-full px-2.5 py-1.5 border border-stone-200 rounded-lg text-xs font-mono font-bold text-center bg-white focus:border-purple-600 outline-hidden"
+                              />
+                            </td>
+                            <td className="p-2">
+                              <input
+                                type="number"
+                                step="0.001"
+                                min="0"
+                                value={sieve.weight ?? ''}
+                                onChange={(e) => handleUpdateDiamondSieve(sIdx, 'weight', e.target.value)}
+                                placeholder="0.000"
+                                className="w-full px-2.5 py-1.5 border border-stone-200 rounded-lg text-xs font-mono font-black text-right text-purple-900 bg-white focus:border-purple-600 outline-hidden"
+                              />
+                            </td>
+                            <td className="p-2 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveDiamondSieve(sIdx)}
+                                className="text-stone-400 hover:text-red-600 font-bold text-xs p-1 cursor-pointer transition-colors"
+                                title="Remove diamond type row"
+                              >
+                                <i className="fa-solid fa-trash-can"></i>
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-purple-50/70 border-t border-purple-200 font-bold text-[11px] text-purple-950">
+                        <tr>
+                          <td className="p-2 pl-3 uppercase tracking-wide text-purple-900 font-extrabold">
+                            Total Diamonds ({rowForm.diamond_sieves.length} {rowForm.diamond_sieves.length === 1 ? 'type' : 'types'})
+                          </td>
+                          <td className="p-2 text-center font-mono font-black text-purple-900">
+                            {rowForm.no_of_diamonds || 0} pcs
+                          </td>
+                          <td className="p-2 text-right font-mono font-black text-purple-900">
+                            {parseFloat(rowForm.diamond_weight || 0).toFixed(3)} cts
+                          </td>
+                          <td className="p-2 text-center text-[10px] text-stone-500 font-normal">
+                            Per Piece Totals
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="border border-dashed border-purple-300 rounded-xl p-4 bg-white/70 text-center space-y-2">
+                    <i className="fa-regular fa-gem text-2xl text-purple-300"></i>
+                    <p className="text-xs text-stone-600 font-medium">No diamond types added to this work item.</p>
+                    <button
+                      type="button"
+                      onClick={handleAddDiamondSieve}
+                      className="text-xs font-bold text-purple-700 hover:text-purple-900 underline cursor-pointer"
+                    >
+                      + Click here to add a diamond stamp
+                    </button>
+                  </div>
+                )}
+
+                {/* Optional Colour Stones */}
+                <div className="pt-2 border-t border-purple-200/60 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="flex flex-col justify-end">
+                    <label className="text-[10.5px] font-bold text-stone-600 block mb-1 uppercase tracking-wide">
+                      Colour Stones (Pcs)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={rowForm.no_of_colour_stones || ''}
+                      onFocus={handleNumericFocus}
+                      onChange={(e) => updateRowFormAndCalculate('no_of_colour_stones', normalizeNumericInput(e.target.value, rowForm.no_of_colour_stones))}
+                      placeholder="0"
+                      className="w-full text-xs border border-gray-200 rounded-lg p-2 font-mono outline-hidden focus:border-[#881337] bg-white"
+                    />
+                  </div>
+                  <div className="flex flex-col justify-end">
+                    <label className="text-[10.5px] font-bold text-stone-600 block mb-1 uppercase tracking-wide">
+                      Colour Stones Weight (Cts)
                     </label>
                     <input
                       type="number"
                       step="0.001"
-                      value={rowForm.gold_wt_to || rowForm.to_wt || ''}
+                      min="0"
+                      value={rowForm.color_stone_weight || ''}
                       onFocus={handleNumericFocus}
-                      onChange={(e) => {
-                        const v = normalizeNumericInput(e.target.value, rowForm.gold_wt_to);
-                        setRowForm({ ...rowForm, gold_wt_to: v, to_wt: v });
-                      }}
-                      placeholder="e.g. 10.000"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono outline-hidden focus:border-[#881337]"
+                      onChange={(e) => updateRowFormAndCalculate('color_stone_weight', normalizeNumericInput(e.target.value, rowForm.color_stone_weight))}
+                      placeholder="0.000"
+                      className="w-full text-xs border border-gray-200 rounded-lg p-2 font-mono outline-hidden focus:border-[#881337] bg-white"
+                    />
+                  </div>
+                  <div className="flex flex-col justify-end">
+                    <label className="text-[10.5px] font-bold text-stone-600 block mb-1 uppercase tracking-wide">
+                      Colour Stone Remarks / Type
+                    </label>
+                    <input
+                      type="text"
+                      value={rowForm.color_stone_stamp || ''}
+                      onChange={(e) => setRowForm({ ...rowForm, color_stone_stamp: e.target.value })}
+                      placeholder="e.g. Ruby, Emerald"
+                      className="w-full text-xs border border-gray-200 rounded-lg p-2 outline-hidden focus:border-[#881337] bg-white"
                     />
                   </div>
                 </div>
               </div>
 
-              {/* 6. SECTION: Diamond & Stone Specifications */}
-              <div className="border border-stone-200 rounded-xl p-3.5 space-y-3 bg-white">
-                <span className="text-[10px] font-extrabold uppercase text-[#881337] tracking-wider block flex items-center gap-1.5">
-                  <i className="fa-solid fa-gem text-blue-600 text-xs"></i>
-                  Diamond &amp; Stone Specifications
-                </span>
-
-                {/* Diamond Wt, Diamond Wt From, Diamond Wt To, No of Diamonds, No of Colour Stones */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
-                  <div className="flex flex-col justify-end">
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1 uppercase tracking-wide min-h-[28px] flex items-end">
-                      DIAMOND WEIGHT (CTS)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      value={rowForm.diamond_weight || ''}
-                      onFocus={handleNumericFocus}
-                      onChange={(e) => updateRowFormAndCalculate('diamond_weight', normalizeNumericInput(e.target.value, rowForm.diamond_weight))}
-                      placeholder="e.g. 0.500"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono font-medium outline-hidden focus:border-[#881337]"
-                    />
-                  </div>
-
-                  <div className="flex flex-col justify-end">
-                    <label className="text-[11px] font-bold text-stone-600 block mb-1 uppercase tracking-wide min-h-[28px] flex items-end">
-                      DIAMOND WT FROM
-                    </label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      value={rowForm.diamond_wt_from || rowForm.from_cts || ''}
-                      onFocus={handleNumericFocus}
-                      onChange={(e) => {
-                        const v = normalizeNumericInput(e.target.value, rowForm.diamond_wt_from);
-                        setRowForm({ ...rowForm, diamond_wt_from: v, from_cts: v });
-                      }}
-                      placeholder="e.g. 0.100"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono outline-hidden focus:border-[#881337]"
-                    />
-                  </div>
-
-                  <div className="flex flex-col justify-end">
-                    <label className="text-[11px] font-bold text-stone-600 block mb-1 uppercase tracking-wide min-h-[28px] flex items-end">
-                      DIAMOND WT TO
-                    </label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      value={rowForm.diamond_wt_to || rowForm.to_cts || ''}
-                      onFocus={handleNumericFocus}
-                      onChange={(e) => {
-                        const v = normalizeNumericInput(e.target.value, rowForm.diamond_wt_to);
-                        setRowForm({ ...rowForm, diamond_wt_to: v, to_cts: v });
-                      }}
-                      placeholder="e.g. 0.500"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono outline-hidden focus:border-[#881337]"
-                    />
-                  </div>
-
-                  <div className="flex flex-col justify-end">
-                    <label className="text-[11px] font-bold text-stone-600 block mb-1 uppercase tracking-wide min-h-[28px] flex items-end">
-                      NO OF DIAMONDS
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={rowForm.no_of_diamonds !== null && rowForm.no_of_diamonds !== undefined && rowForm.no_of_diamonds !== 0 ? rowForm.no_of_diamonds : ''}
-                      onFocus={handleNumericFocus}
-                      onChange={(e) => {
-                        const v = normalizeNumericInput(e.target.value, rowForm.no_of_diamonds);
-                        const parsed = parseInt(v, 10);
-                        setRowForm({ ...rowForm, no_of_diamonds: isNaN(parsed) ? '' : parsed });
-                      }}
-                      placeholder="0"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono font-bold outline-hidden focus:border-[#881337] bg-white text-gray-900"
-                    />
-                  </div>
-
-                  <div className="flex flex-col justify-end">
-                    <label className="text-[11px] font-bold text-stone-600 block mb-1 uppercase tracking-wide min-h-[28px] flex items-end">
-                      NO OF COLOUR STONES
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={rowForm.no_of_colour_stones !== null && rowForm.no_of_colour_stones !== undefined && rowForm.no_of_colour_stones !== 0 ? rowForm.no_of_colour_stones : ''}
-                      onFocus={handleNumericFocus}
-                      onChange={(e) => {
-                        const v = normalizeNumericInput(e.target.value, rowForm.no_of_colour_stones);
-                        const parsed = parseInt(v, 10);
-                        setRowForm({ ...rowForm, no_of_colour_stones: isNaN(parsed) ? '' : parsed });
-                      }}
-                      placeholder="0"
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2.5 font-mono font-bold outline-hidden focus:border-[#881337] bg-white text-gray-900"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* 6. SECTION: Auto Calculated Totals (Total Gross Wt & Total Diamond Cts) */}
+              {/* 7. SECTION: Auto Calculated Totals */}
               <div className="bg-rose-50/40 border border-rose-200 rounded-xl p-3.5 space-y-2">
                 <span className="text-[10px] font-extrabold uppercase text-[#881337] tracking-wider block">
-                  Auto Calculated Row Totals
+                  Auto Calculated Row Totals (For {rowForm.need_pcs || 1} {parseInt(rowForm.need_pcs, 10) === 1 ? 'Unit' : 'Units'})
                 </span>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="bg-white p-3 rounded-lg border border-rose-200 shadow-2xs">
                     <label className="text-[10px] font-bold text-stone-500 uppercase tracking-wider block">
-                      TOTAL GROSS WT (Gold Wt × Needed Pcs)
+                      Total Gold Net Wt (g)
                     </label>
                     <div className="text-sm font-black font-mono text-[#881337] mt-0.5">
-                      {rowForm.total_gross_wt || '0.000'} g
+                      {rowForm.total_gold_wt || rowForm.total_gross_wt || '0.000'} g
                     </div>
                     <span className="text-[10px] text-stone-400">
-                      Calculated: {rowForm.gold_weight || 0}g × {rowForm.need_pcs || 1} pcs
+                      {rowForm.gold_weight || 0}g × {rowForm.need_pcs || 1} pcs
                     </span>
                   </div>
 
-                  <div className="bg-white p-3 rounded-lg border border-emerald-200 shadow-2xs">
+                  <div className="bg-white p-3 rounded-lg border border-amber-200 shadow-2xs">
                     <label className="text-[10px] font-bold text-stone-500 uppercase tracking-wider block">
-                      TOTAL DIAMOND CTS (Needed Pcs × Dia Wt)
+                      Total Fine Gold Wt (g)
                     </label>
-                    <div className="text-sm font-black font-mono text-emerald-700 mt-0.5">
+                    <div className="text-sm font-black font-mono text-amber-700 mt-0.5">
+                      {((parseFloat(rowForm.fine_gold_weight) || 0) * (parseInt(rowForm.need_pcs, 10) || 1)).toFixed(3)} g
+                    </div>
+                    <span className="text-[10px] text-stone-400">
+                      {rowForm.fine_gold_weight || 0}g × {rowForm.need_pcs || 1} pcs
+                    </span>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-lg border border-purple-200 shadow-2xs">
+                    <label className="text-[10px] font-bold text-stone-500 uppercase tracking-wider block">
+                      Total Diamond Cts (ct)
+                    </label>
+                    <div className="text-sm font-black font-mono text-purple-700 mt-0.5">
                       {rowForm.total_dia_cts || '0.000'} cts
                     </div>
                     <span className="text-[10px] text-stone-400">
-                      Calculated: {rowForm.need_pcs || 1} pcs × {rowForm.diamond_weight || 0} cts
+                      {rowForm.diamond_weight || 0} cts × {rowForm.need_pcs || 1} pcs
                     </span>
                   </div>
                 </div>
@@ -3166,6 +3961,136 @@ export default function NewWorkOrder({ initialMode }) {
               </div>
 
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* POPUP MODAL: Low Stock Disclaimer Notice */}
+      {insufficientStockData && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setInsufficientStockData(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-amber-200 relative animate-in zoom-in-95 duration-150"
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between pb-4 border-b border-amber-100">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center text-xl shadow-2xs shrink-0">
+                  <i className="fa-solid fa-triangle-exclamation"></i>
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-gray-900 text-base leading-tight">
+                    Vault Stock Notice — Low Stock Alert
+                  </h3>
+                  <p className="text-xs text-amber-800 font-medium mt-0.5">
+                    Vault stock is currently below the requirement for this order.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInsufficientStockData(null)}
+                className="w-8 h-8 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-500 hover:text-stone-900 flex items-center justify-center text-sm font-bold transition-colors cursor-pointer"
+                title="Close"
+              >
+                <i className="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+
+            {/* Shortage Summary Cards */}
+            <div className="my-4 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                {/* Weight Shortage */}
+                <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200">
+                  <span className="text-[10px] font-bold text-amber-900 uppercase tracking-wider block">
+                    Diamond Weight (Cts)
+                  </span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="text-xs text-stone-500 font-medium">Required:</span>
+                    <span className="font-mono font-bold text-gray-900">{insufficientStockData.required_carats} ct</span>
+                  </div>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-xs text-stone-500 font-medium">In Vault:</span>
+                    <span className="font-mono font-semibold text-stone-700">{insufficientStockData.available_carats} ct</span>
+                  </div>
+                  <div className="flex items-baseline justify-between pt-1.5 mt-1 border-t border-amber-200/80">
+                    <span className="text-xs font-bold text-rose-700">Shortage:</span>
+                    <span className="font-mono font-extrabold text-rose-700 text-sm">+{insufficientStockData.shortage_carats} ct</span>
+                  </div>
+                </div>
+
+                {/* Count Shortage */}
+                <div className="p-3 rounded-xl bg-purple-50/70 border border-purple-200">
+                  <span className="text-[10px] font-bold text-purple-900 uppercase tracking-wider block">
+                    Total Diamonds (Pcs)
+                  </span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="text-xs text-stone-500 font-medium">Required:</span>
+                    <span className="font-mono font-bold text-gray-900">{insufficientStockData.required_count} pcs</span>
+                  </div>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-xs text-stone-500 font-medium">In Vault:</span>
+                    <span className="font-mono font-semibold text-stone-700">
+                      {insufficientStockData.available_count > 0
+                        ? `${insufficientStockData.available_count} pcs`
+                        : (insufficientStockData.available_carats > 0 ? `${insufficientStockData.available_carats} ct (Parcel)` : '0 pcs')
+                      }
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between pt-1.5 mt-1 border-t border-purple-200/80">
+                    <span className="text-xs font-bold text-rose-700">Shortage:</span>
+                    <span className="font-mono font-extrabold text-rose-700 text-sm">+{insufficientStockData.shortage_count} pcs</span>
+                  </div>
+                </div>
+              </div>
+
+              {insufficientStockData.stamp_details && (
+                <div className="p-2.5 rounded-lg bg-stone-50 border border-stone-200 flex items-center justify-between text-xs">
+                  <span className="font-medium text-stone-600 flex items-center gap-1.5">
+                    <i className="fa-solid fa-stamp text-purple-600"></i> Stamp &amp; Sizes:
+                  </span>
+                  <span className="font-mono font-bold text-purple-900">{insufficientStockData.stamp_details}</span>
+                </div>
+              )}
+
+              {/* Disclaimer Notice Box */}
+              <div className="p-3.5 rounded-xl bg-amber-50/90 border border-amber-200/90 text-amber-950 text-xs flex items-start gap-3">
+                <i className="fa-solid fa-circle-info text-amber-600 text-base mt-0.5 shrink-0"></i>
+                <div className="space-y-1">
+                  <span className="font-bold text-amber-900 block text-[12.5px]">
+                    Material Allocation Notice:
+                  </span>
+                  <p className="text-[11.5px] leading-relaxed text-amber-900/90">
+                    Vault has <strong>{insufficientStockData.shortage_carats > 0 ? `${insufficientStockData.shortage_carats} ct` : `${insufficientStockData.shortage_count} pcs`}</strong> low stock. You can still proceed to create this Work Order now. Materials will <strong>not</strong> be automatically alloted or debited from the vault.
+                  </p>
+                  <p className="text-[11px] text-amber-800 leading-relaxed pt-0.5">
+                    After creating the work order, you can purchase the required stock via <strong>Purchase Entry</strong>, and then allot the material from the vault to the artisan using the <strong>Material Allocation Hub</strong>.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setInsufficientStockData(null)}
+                className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-gray-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+              >
+                Cancel / Review Items
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCreateWithShortage}
+                className="px-4 py-2 bg-[#881337] hover:bg-[#70102d] text-white text-xs font-bold rounded-lg shadow-sm transition-colors flex items-center gap-2 cursor-pointer"
+              >
+                <i className="fa-solid fa-check text-xs"></i>
+                <span>OK, Create Work Order</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -3323,21 +4248,24 @@ export default function NewWorkOrder({ initialMode }) {
             {/* Print Table in 2-Row Structured Format (No horizontal scrolling / clipping) */}
             <div className="w-full space-y-2 my-1">
               {jobItems.map((r, i) => {
-                const diaWtVal = (r.diamond_weight && r.diamond_weight !== 'VS1' && r.diamond_weight !== 'VVS2') ? r.diamond_weight : '';
+                const pd = typeof r.pricing_details === 'string' ? JSON.parse(r.pricing_details || '{}') : (r.pricing_details || {});
+                const diaWtVal = (r.diamond_weight && r.diamond_weight !== 'VS1' && r.diamond_weight !== 'VVS2') ? r.diamond_weight : (pd.diamond_weight || '');
                 const diaWtNum = parseFloat(diaWtVal) || 0;
-                const pcsNum = parseInt(r.need_pcs ?? r.qty ?? 1, 10);
+                const pcsNum = parseInt(r.need_pcs || pd.need_pcs || r.required_qty || r.qty || 1, 10) || 1;
                 const diaGrams = diaWtNum * 0.2;
-                const goldWtNum = parseFloat(r.gold_weight ?? r.total_weight ?? r.allotted_weight ?? 0) || 0;
-                const cstoneWt = parseFloat(r.color_stone_weight || 0);
+                const goldWtNum = parseFloat(r.gold_weight || pd.gold_weight || r.allotted_weight || r.total_weight || 0) || 0;
+                const cstoneWt = parseFloat(r.color_stone_weight || pd.color_stone_weight || 0) || 0;
                 const grossSingle = goldWtNum + diaGrams + cstoneWt;
-                const grossWtFormatted = (r.total_gross_wt && !isNaN(parseFloat(r.total_gross_wt)) && parseFloat(r.total_gross_wt) > 0)
-                  ? Number(r.total_gross_wt).toFixed(3)
-                  : (grossSingle > 0 ? (grossSingle * pcsNum).toFixed(3) : (goldWtNum > 0 ? (goldWtNum * pcsNum).toFixed(3) : '—'));
+                const actualTotalGross = grossSingle > 0 ? (grossSingle * pcsNum) : (goldWtNum * pcsNum);
+                const grossWtFormatted = actualTotalGross > 0
+                  ? actualTotalGross.toFixed(3)
+                  : ((r.total_gross_wt && !isNaN(parseFloat(r.total_gross_wt))) ? Number(r.total_gross_wt).toFixed(3) : (goldWtNum > 0 ? (goldWtNum * pcsNum).toFixed(3) : '—'));
                 const diaCtsFormatted = (r.total_dia_cts && !isNaN(parseFloat(r.total_dia_cts)) && parseFloat(r.total_dia_cts) > 0 && parseFloat(r.total_dia_cts) !== 0.66)
                   ? Number(r.total_dia_cts).toFixed(3)
                   : (diaWtNum > 0 ? (diaWtNum * pcsNum).toFixed(3) : '—');
                 const formNo = r.form_no || r.work_order_no || orderNumber || selectedOrder?.work_order_number || `JO-${new Date().getFullYear()}-0001`;
-                const goldPurity = r.gold_purity || r.gold_priory || r.purity || (r.gold_karat ? `${r.gold_karat}K` : '') || selectedOrder?.gold_purity || '—';
+                const goldPurity = r.gold_purity || pd.gold_purity || r.gold_priory || pd.gold_priory || r.purity || pd.purity || (r.gold_karat ? `${r.gold_karat}K` : '') || selectedOrder?.gold_purity || selectedOrder?.purity || selectedOrder?.material_type || '22K (916)';
+                const diaCount = parseInt(r.no_of_diamonds || pd.no_of_diamonds || r.diamond_count || pd.diamond_count || (r.stone_details?.diamond_count) || 0, 10) || 0;
 
                 return (
                   <div key={r.id || i} className="border border-[#d8c8b0] rounded-lg bg-white overflow-hidden shadow-2xs space-y-1 p-1.5">
@@ -3355,10 +4283,9 @@ export default function NewWorkOrder({ initialMode }) {
                             <th className="py-1 px-1.5 border border-[#d8c8b0] text-center w-8">Image</th>
                             <th className="py-1 px-2 border border-[#d8c8b0]">Form No</th>
                             <th className="py-1 px-2 border border-[#d8c8b0]">Gold Purity</th>
+                            <th className="py-1 px-2 border border-[#d8c8b0]">Gold Stamp</th>
                             <th className="py-1 px-2 border border-[#d8c8b0]">Setting</th>
                             <th className="py-1 px-2 border border-[#d8c8b0] text-right">Gold Weight</th>
-                            <th className="py-1 px-2 border border-[#d8c8b0] text-right">From Wt</th>
-                            <th className="py-1 px-2 border border-[#d8c8b0] text-right">To Wt</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -3381,15 +4308,12 @@ export default function NewWorkOrder({ initialMode }) {
                             <td className="py-1.5 px-2 border border-stone-200 font-bold text-amber-900">
                               {goldPurity}
                             </td>
+                            <td className="py-1.5 px-2 border border-stone-200 font-mono font-bold text-amber-900">
+                              {r.gold_stamp || '—'}
+                            </td>
                             <td className="py-1.5 px-2 border border-stone-200">{r.setting_type || 'Prong'}</td>
                             <td className="py-1.5 px-2 border border-stone-200 text-right font-mono font-bold">
                               {goldWtNum > 0 ? `${goldWtNum.toFixed(3)}g` : '—'}
-                            </td>
-                            <td className="py-1.5 px-2 border border-stone-200 text-right font-mono text-stone-700">
-                              {(r.gold_wt_from || r.from_wt) ? `${Number(r.gold_wt_from || r.from_wt).toFixed(3)}g` : '—'}
-                            </td>
-                            <td className="py-1.5 px-2 border border-stone-200 text-right font-mono text-stone-700">
-                              {(r.gold_wt_to || r.to_wt) ? `${Number(r.gold_wt_to || r.to_wt).toFixed(3)}g` : '—'}
                             </td>
                           </tr>
                         </tbody>
@@ -3406,12 +4330,10 @@ export default function NewWorkOrder({ initialMode }) {
                         <thead>
                           <tr className="bg-[#f5eade] text-[#881337] font-bold border-b border-[#d8c8b0] text-[7.5px] uppercase">
                             <th className="py-1 px-2 border border-[#d8c8b0] text-right">Diamond Weight</th>
-                            <th className="py-1 px-2 border border-[#d8c8b0] text-right">From Cts</th>
-                            <th className="py-1 px-2 border border-[#d8c8b0] text-right">To Cts</th>
+                            <th className="py-1 px-2 border border-[#d8c8b0] text-center min-w-[130px]">Diamond Details (Stamp / Pcs / Wt)</th>
                             <th className="py-1 px-2 border border-[#d8c8b0] text-center">No of Diamonds</th>
                             <th className="py-1 px-2 border border-[#d8c8b0] text-right">Total Dia Cts</th>
                             <th className="py-1 px-2 border border-[#d8c8b0] text-center">Need Pcs</th>
-                            <th className="py-1 px-2 border border-[#d8c8b0] text-center">Colour Stones</th>
                             <th className="py-1 px-2 border border-[#d8c8b0] text-right">Total Gross Wt</th>
                             <th className="py-1 px-2 border border-[#d8c8b0]">Remarks</th>
                           </tr>
@@ -3421,27 +4343,17 @@ export default function NewWorkOrder({ initialMode }) {
                             <td className="py-1.5 px-2 border border-stone-200 text-right font-mono font-medium">
                               {diaWtNum > 0 ? `${diaWtNum.toFixed(3)}ct` : (r.diamond_details || '—')}
                             </td>
-                            <td className="py-1.5 px-2 border border-stone-200 text-right font-mono text-stone-700">
-                              {(r.diamond_wt_from || r.from_cts) && !isNaN(parseFloat(r.diamond_wt_from || r.from_cts))
-                                ? `${Number(r.diamond_wt_from || r.from_cts).toFixed(3)}ct`
-                                : ((r.diamond_wt_from || r.from_cts) ? String(r.diamond_wt_from || r.from_cts) : '—')}
-                            </td>
-                            <td className="py-1.5 px-2 border border-stone-200 text-right font-mono text-stone-700">
-                              {(r.diamond_wt_to || r.to_cts) && !isNaN(parseFloat(r.diamond_wt_to || r.to_cts))
-                                ? `${Number(r.diamond_wt_to || r.to_cts).toFixed(3)}ct`
-                                : ((r.diamond_wt_to || r.to_cts) ? String(r.diamond_wt_to || r.to_cts) : '—')}
+                            <td className="py-1.5 px-2 border border-stone-200 text-center">
+                              {renderDiamondDetails(r, i)}
                             </td>
                             <td className="py-1.5 px-2 border border-stone-200 text-center font-bold text-emerald-800">
-                              {parseInt(r.no_of_diamonds ?? r.diamond_count ?? 0, 10)}
+                              {diaCount}
                             </td>
                             <td className="py-1.5 px-2 border border-stone-200 text-right font-mono font-bold text-emerald-700">
                               {diaCtsFormatted !== '—' ? `${diaCtsFormatted}ct` : '—'}
                             </td>
                             <td className="py-1.5 px-2 border border-stone-200 text-center font-bold">
                               {pcsNum}
-                            </td>
-                            <td className="py-1.5 px-2 border border-stone-200 text-center font-bold text-purple-800">
-                              {parseInt(r.no_of_colour_stones ?? r.color_stone_count ?? 0, 10)}
                             </td>
                             <td className="py-1.5 px-2 border border-stone-200 text-right font-mono font-bold text-[#881337]">
                               {grossWtFormatted !== '—' ? `${grossWtFormatted}g` : '—'}
@@ -3453,6 +4365,70 @@ export default function NewWorkOrder({ initialMode }) {
                         </tbody>
                       </table>
                     </div>
+
+                    {/* Part 3: Reference Image & CAD Design Image Side-by-Side (Enlarged for Karigar Crafting Specs) */}
+                    <div className="w-full border border-[#d8c8b0] rounded-lg bg-white p-2.5 mt-2">
+                      <div className="bg-[#eedfce]/80 px-2.5 py-1 text-[8.5px] font-black text-[#881337] uppercase tracking-wider border-b border-[#d8c8b0] flex items-center justify-between mb-2 rounded-t">
+                        <span className="flex items-center gap-1.5">
+                          <i className="fa-solid fa-shapes text-[#881337]"></i>
+                          Job #{i + 1} Visual Reference &amp; CAD Design Drawing — Crafting Specs for Karigar
+                        </span>
+                        <span className="font-mono text-stone-600 font-bold">{r.design_number || 'Design Model'}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3.5 items-center justify-center">
+                        {/* Reference Image - Enlarged for artisan visual clarity */}
+                        <div className="flex flex-col items-center justify-center border border-stone-200 rounded-lg p-2.5 bg-stone-50/50 min-h-[270px]">
+                          <span className="text-[8.5px] font-bold text-stone-700 uppercase mb-2 flex items-center gap-1.5 self-start">
+                            <i className="fa-solid fa-camera text-[#881337]"></i> Reference Image
+                          </span>
+                          {(resolveItemImage(r) || normalizeImageUrl(r.reference_image || r.image)) ? (
+                            <img
+                              src={resolveItemImage(r) || normalizeImageUrl(r.reference_image || r.image)}
+                              alt={`Job #${i + 1} Reference`}
+                              className="max-h-[280px] min-h-[220px] w-auto max-w-full object-contain rounded-md border border-stone-300 bg-white p-1.5 shadow-2xs"
+                              onError={(e) => { e.target.style.display = 'none'; }}
+                            />
+                          ) : (
+                            <div className="flex flex-col items-center justify-center text-stone-400 py-14">
+                              <i className="fa-solid fa-image text-3xl text-stone-300 mb-1.5"></i>
+                              <span className="text-[9px] italic">No Reference Image Attached</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* CAD Design Image - Enlarged for artisan dimensions and prong details */}
+                        <div className="flex flex-col items-center justify-center border border-stone-200 rounded-lg p-2.5 bg-stone-50/50 min-h-[270px]">
+                          <span className="text-[8.5px] font-bold text-stone-700 uppercase mb-2 flex items-center gap-1.5 self-start">
+                            <i className="fa-solid fa-drafting-compass text-indigo-700"></i> CAD Design Drawing
+                          </span>
+                          {r.design_file ? (
+                            r.design_file.toLowerCase().includes('.pdf') ? (
+                              <div className="flex flex-col items-center justify-center text-stone-600 py-14">
+                                <i className="fa-solid fa-file-pdf text-4xl text-red-600 mb-2"></i>
+                                <span className="text-[9px] font-bold">{r.design_file_name || 'CAD PDF Document Attached'}</span>
+                              </div>
+                            ) : (
+                              <img
+                                src={normalizeImageUrl(r.design_file)}
+                                alt={`Job #${i + 1} CAD Design`}
+                                className="max-h-[280px] min-h-[220px] w-auto max-w-full object-contain rounded-md border border-stone-300 bg-white p-1.5 shadow-2xs"
+                                onError={(e) => { e.target.style.display = 'none'; }}
+                              />
+                            )
+                          ) : (
+                            <div className="flex flex-col items-center justify-center text-stone-400 py-14">
+                              <i className="fa-solid fa-compass-drafting text-3xl text-stone-300 mb-1.5"></i>
+                              <span className="text-[9px] italic">No CAD Design Attached</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Page Break for multi-job work orders so next job starts cleanly on next page */}
+                    {i < jobItems.length - 1 && (
+                      <div className="print-page-break" style={{ pageBreakAfter: 'always', breakAfter: 'page', height: '0', margin: '0', padding: '0' }} />
+                    )}
                   </div>
                 );
               })}
@@ -3462,11 +4438,10 @@ export default function NewWorkOrder({ initialMode }) {
                 <span>TOTAL SUMMARY ({jobItems.length} {jobItems.length === 1 ? 'Item' : 'Items'})</span>
                 <div className="flex items-center gap-4 text-[10px] font-mono">
                   <span>Gold: {totalGoldWeight.toFixed(3)}g</span>
-                  <span>Gross Wt: {totalGrossWt.toFixed(3)}g</span>
+                  <span>Gross Wt: {totalGoldWeight.toFixed(3)}g</span>
                   <span>Need Pcs: {totalNeedPcs}</span>
-                  <span>Diamonds: {jobItems.reduce((a, r) => a + (parseInt(r.no_of_diamonds ?? r.diamond_count ?? 0, 10)), 0)} pcs</span>
+                  <span>Diamonds: {totalStonesCount} pcs</span>
                   <span>Dia Cts: {totalDiaCts.toFixed(3)}ct</span>
-                  <span>Colour Stones: {jobItems.reduce((a, r) => a + (parseInt(r.no_of_colour_stones ?? r.color_stone_count ?? 0, 10)), 0)} pcs</span>
                 </div>
               </div>
             </div>

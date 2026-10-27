@@ -157,4 +157,67 @@ class RawMaterialController extends Controller
             'message' => 'Raw material master deleted successfully',
         ]);
     }
+
+    /**
+     * Quickly replenish or add stock for materials (e.g. diamonds, stones) directly from order creation flows.
+     */
+    public function quickStockAdd(Request $request)
+    {
+        $validated = $request->validate([
+            'material_type' => 'required|string|in:diamond,stone,gold,silver,platinum',
+            'weight' => 'nullable|numeric|min:0',
+            'count' => 'nullable|numeric|min:0',
+            'unit' => 'nullable|string',
+            'stamp' => 'nullable|string',
+            'notes' => 'nullable|string',
+        ]);
+
+        $type = strtolower($validated['material_type']);
+        $weight = (float)($validated['weight'] ?? 0);
+        $count = (float)($validated['count'] ?? 0);
+        $unit = $validated['unit'] ?? ($type === 'diamond' ? 'ct' : ($type === 'stone' ? 'units' : 'g'));
+
+        if ($weight <= 0 && $count <= 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Please provide a valid weight or piece count to add stock.',
+            ], 422);
+        }
+
+        $record = RawMaterial::creditOpeningStock($type, $weight, $count, $unit);
+        RawMaterial::recalculateAllocations();
+        if ($record) {
+            $record->refresh();
+        }
+        // Also record in MaterialOpeningStock for audit trail
+        try {
+            $latest = MaterialOpeningStock::orderBy('id', 'desc')->first();
+            $stockNo = 'OS-QUICK-' . ($latest ? ($latest->id + 1001) : rand(1000, 9999));
+            MaterialOpeningStock::create([
+                'stock_number' => $stockNo,
+                'material_type' => $type,
+                'raw_material_id' => $record?->id,
+                'item_name' => 'Quick Vault Stock Add (' . ucfirst($type) . ')',
+                'purity' => $record?->purity ?? 'Standard',
+                'gross_weight' => $weight,
+                'net_weight' => $weight,
+                'weight' => $weight,
+                'pieces' => $count,
+                'unit' => $unit,
+                'description' => $validated['notes'] ?? 'Quick stock replenishment from order creation flow',
+                'created_by' => auth()->id() ?? 1,
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Quick opening stock audit log warning: ' . $e->getMessage());
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => "Successfully added {$weight} {$unit} and {$count} pcs to {$type} vault stock.",
+            'material' => $record,
+            'current_balance' => $record?->current_balance ?? 0,
+            'current_count' => $record?->current_count ?? 0,
+        ]);
+    }
 }
+
