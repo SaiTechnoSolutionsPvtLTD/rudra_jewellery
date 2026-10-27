@@ -1480,7 +1480,7 @@ export default function ReportModule() {
                   ) : (
                     reportData.sales.map((row, idx) => (
                       <tr key={row.id} className="hover:bg-stone-50/60 transition-colors">
-                        <td className="py-3.5 px-4 text-center font-mono text-stone-500 font-semibold">{idx + 1}</td>
+                        <td className="py-3.5 px-4 text-center font-mono text-stone-500 font-semibold">{(activePagination.from || 1) + idx}</td>
                         <td className="py-3.5 px-4 font-mono font-bold text-[#b01622] tracking-tight whitespace-nowrap">{row.invoice_number}</td>
                         <td className="py-3.5 px-4 font-bold text-stone-900 whitespace-nowrap">{row.customer_name}</td>
                         <td className="py-3.5 px-4 text-stone-500 font-mono text-[11px] whitespace-nowrap">{row.date}</td>
@@ -1524,7 +1524,7 @@ export default function ReportModule() {
                   ) : (
                     reportData.inventory.map((row, idx) => (
                       <tr key={row.id} className="hover:bg-stone-50/60 transition-colors">
-                        <td className="py-3.5 px-4 text-center font-mono text-stone-500 font-semibold">{idx + 1}</td>
+                        <td className="py-3.5 px-4 text-center font-mono text-stone-500 font-semibold">{(activePagination.from || 1) + idx}</td>
                         <td className="py-3.5 px-4 font-mono font-bold text-stone-600 whitespace-nowrap">{row.sku}</td>
                         <td className="py-3.5 px-4 font-bold text-stone-900 whitespace-nowrap">{row.name}</td>
                         <td className="py-3.5 px-4 text-stone-600 whitespace-nowrap">{row.category}</td>
@@ -1910,7 +1910,7 @@ export default function ReportModule() {
                       ) : (
                         reportData.workOrders.map((row, idx) => (
                           <tr key={row.id} className="hover:bg-stone-50/60 transition-colors">
-                            <td className="py-3.5 px-4 text-center font-mono text-stone-500 font-semibold">{idx + 1}</td>
+                            <td className="py-3.5 px-4 text-center font-mono text-stone-500 font-semibold">{(activePagination.from || 1) + idx}</td>
                             <td className="py-3.5 px-4 font-mono font-bold text-[#b01622] whitespace-nowrap">{row.work_order_number}</td>
                             <td className="py-3.5 px-4 font-bold text-stone-900 whitespace-nowrap">{row.artisan_name}</td>
                             <td className="py-3.5 px-4 text-stone-700 whitespace-nowrap">{row.product_name}</td>
@@ -3039,7 +3039,7 @@ export default function ReportModule() {
                   ) : (
                     reportData.purchases.map((row, idx) => (
                       <tr key={row.id} className="hover:bg-stone-50/60 transition-colors">
-                        <td className="py-3.5 px-4 text-center font-mono text-stone-500 font-semibold">{idx + 1}</td>
+                        <td className="py-3.5 px-4 text-center font-mono text-stone-500 font-semibold">{(activePagination.from || 1) + idx}</td>
                         <td className="py-3.5 px-4 font-mono font-bold text-stone-800 whitespace-nowrap">{row.purchase_no}</td>
                         <td className="py-3.5 px-4 font-bold text-stone-900 whitespace-nowrap">{row.supplier_name}</td>
                         <td className="py-3.5 px-4 text-stone-500 font-mono text-[11px] whitespace-nowrap">{row.purchase_date}</td>
@@ -3139,7 +3139,7 @@ export default function ReportModule() {
                     <span className="text-xs font-bold text-stone-800 uppercase tracking-wider font-['Inter',sans-serif]">
                       Daily Showroom Metal Rates Archive
                     </span>
-                    <span className="text-[11px] text-stone-500 font-mono">({goldRates.length} records)</span>
+                    <span className="text-[11px] text-stone-500 font-mono">({activePagination.total ?? goldRates.length} records)</span>
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
@@ -3184,12 +3184,12 @@ export default function ReportModule() {
                   <tbody className="divide-y divide-stone-100 font-medium">
                     {goldRatesLoading ? (
                       <tr><td colSpan="13" className="py-8 text-center text-stone-400">Loading daily metal rates...</td></tr>
-                    ) : goldRates.length === 0 ? (
+                    ) : (paginatedGoldRates || []).length === 0 ? (
                       <tr><td colSpan="13" className="py-8 text-center text-stone-400">No daily metal rates recorded for the selected period.</td></tr>
                     ) : (
-                      goldRates.map((row, idx) => (
+                      paginatedGoldRates.map((row, idx) => (
                         <tr key={row.id} className="hover:bg-stone-50/60 transition-colors">
-                          <td className="py-3.5 px-4 text-center font-mono text-stone-500 font-semibold">{idx + 1}</td>
+                          <td className="py-3.5 px-4 text-center font-mono text-stone-500 font-semibold">{(activePagination.from || 1) + idx}</td>
                           <td className="py-3.5 px-4 font-mono font-bold text-stone-900 whitespace-nowrap">{row.rate_date}</td>
                           <td className="py-3.5 px-4 text-right font-mono font-bold text-amber-900 whitespace-nowrap">{formatINR(row.gold_24k_1g)}</td>
                           <td className="py-3.5 px-4 text-right font-mono font-extrabold text-[#b01622] whitespace-nowrap">{formatINR(row.gold_22k_1g)}</td>
@@ -3251,7 +3251,7 @@ export default function ReportModule() {
                   ) : (
                     reportData.sales.map((row, idx) => (
                       <tr key={row.id} className="hover:bg-stone-50/60 transition-colors">
-                        <td className="py-3.5 px-4 text-center font-mono text-stone-500 font-semibold">{idx + 1}</td>
+                        <td className="py-3.5 px-4 text-center font-mono text-stone-500 font-semibold">{(activePagination.from || 1) + idx}</td>
                         <td className="py-3.5 px-4 font-mono font-bold text-[#b01622] whitespace-nowrap">{row.invoice_number}</td>
                         <td className="py-3.5 px-4 font-bold text-stone-900 whitespace-nowrap">{row.customer_name}</td>
                         <td className="py-3.5 px-4 text-stone-500 font-mono text-[11px] whitespace-nowrap">{row.date}</td>
@@ -3271,12 +3271,33 @@ export default function ReportModule() {
         )}
 
         {/* 6. Report Table Pagination Bar */}
-        {!loading && activeTab !== 'gold_rates' && (
+        {!(loading || (activeTab === 'gold_rates' && goldRatesLoading)) && (
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 border-t border-stone-200/80 bg-stone-50/50 font-['Inter',sans-serif]">
-            <div className="text-xs text-stone-600 font-medium">
-              Showing <span className="font-bold text-stone-900">{activePagination.from || 0}</span> to{' '}
-              <span className="font-bold text-stone-900">{activePagination.to || 0}</span> of{' '}
-              <span className="font-bold text-stone-900">{activePagination.total || 0}</span> records
+            <div className="flex items-center gap-3 text-xs text-stone-600 font-medium">
+              <span>
+                Showing <span className="font-bold text-stone-900">{activePagination.from || 0}</span> to{' '}
+                <span className="font-bold text-stone-900">{activePagination.to || 0}</span> of{' '}
+                <span className="font-bold text-stone-900">{activePagination.total || 0}</span> records
+              </span>
+              {activeTab === 'gold_rates' && (
+                <div className="flex items-center gap-1.5 ml-2">
+                  <span className="text-stone-400">Rows per page:</span>
+                  <select
+                    value={goldRatesPerPage}
+                    onChange={(e) => {
+                      setGoldRatesPerPage(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="px-2 py-0.5 bg-white border border-stone-300 rounded text-xs text-stone-700 font-semibold focus:outline-hidden focus:border-[#b01622] cursor-pointer"
+                  >
+                    <option value={5}>5</option>
+                    <option value={10}>10</option>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </div>
+              )}
             </div>
 
             {/* Dynamic Pagination Controls */}
@@ -3285,31 +3306,54 @@ export default function ReportModule() {
                 type="button"
                 disabled={activePagination.current_page <= 1}
                 onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                className="w-7 h-7 flex items-center justify-center rounded-lg border border-stone-300 disabled:opacity-40 text-stone-600 hover:bg-stone-100 text-xs transition-colors cursor-pointer"
+                className="px-2.5 py-1 flex items-center gap-1 rounded-lg border border-stone-300 disabled:opacity-40 text-stone-600 hover:bg-stone-100 text-xs font-semibold transition-colors cursor-pointer"
               >
                 <i className="fa-solid fa-chevron-left text-[10px]"></i>
+                <span className="hidden sm:inline">Prev</span>
               </button>
 
-              {Array.from({ length: activePagination.last_page || 1 }, (_, i) => i + 1).map((pageNum) => (
-                <button
-                  key={pageNum}
-                  type="button"
-                  onClick={() => setCurrentPage(pageNum)}
-                  className={`w-7 h-7 flex items-center justify-center rounded-lg text-xs font-bold cursor-pointer ${activePagination.current_page === pageNum
-                    ? 'bg-[#b01622] text-white'
-                    : 'border border-stone-300 text-stone-700 hover:bg-stone-100'
-                    }`}
-                >
-                  {pageNum}
-                </button>
-              ))}
+              {(() => {
+                const total = activePagination.last_page || 1;
+                const current = activePagination.current_page || 1;
+                let pages = [];
+                if (total <= 7) {
+                  for (let i = 1; i <= total; i++) pages.push(i);
+                } else {
+                  pages.push(1);
+                  if (current > 3) pages.push('...');
+                  const start = Math.max(2, current - 1);
+                  const end = Math.min(total - 1, current + 1);
+                  for (let i = start; i <= end; i++) pages.push(i);
+                  if (current < total - 2) pages.push('...');
+                  pages.push(total);
+                }
+                return pages.map((pageNum, idx) =>
+                  pageNum === '...' ? (
+                    <span key={`dots-${idx}`} className="px-1 text-stone-400 font-bold select-none text-xs">...</span>
+                  ) : (
+                    <button
+                      key={pageNum}
+                      type="button"
+                      onClick={() => setCurrentPage(pageNum)}
+                      className={`w-7 h-7 flex items-center justify-center rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                        current === pageNum
+                          ? 'bg-[#b01622] text-white shadow-2xs'
+                          : 'border border-stone-300 text-stone-700 hover:bg-stone-100 bg-white'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  )
+                );
+              })()}
 
               <button
                 type="button"
                 disabled={activePagination.current_page >= activePagination.last_page}
                 onClick={() => setCurrentPage((prev) => Math.min(activePagination.last_page, prev + 1))}
-                className="w-7 h-7 flex items-center justify-center rounded-lg border border-stone-300 disabled:opacity-40 text-stone-600 hover:bg-stone-100 text-xs transition-colors cursor-pointer"
+                className="px-2.5 py-1 flex items-center gap-1 rounded-lg border border-stone-300 disabled:opacity-40 text-stone-600 hover:bg-stone-100 text-xs font-semibold transition-colors cursor-pointer"
               >
+                <span className="hidden sm:inline">Next</span>
                 <i className="fa-solid fa-chevron-right text-[10px]"></i>
               </button>
             </div>

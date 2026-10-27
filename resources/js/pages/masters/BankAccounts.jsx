@@ -10,6 +10,7 @@ import {
   sanitizeIFSC,
   handleMobileKeyDown
 } from '../../utils/validationUtils';
+import Pagination from '../../components/Pagination';
 
 const DEFAULT_BANK_ACCOUNTS = [
   {
@@ -262,12 +263,23 @@ export default function BankAccounts() {
     }
   };
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
   const filteredAccounts = accounts.filter(acc => 
     (acc.bank_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
     (acc.account_number || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
     (acc.ifsc_code || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
     (acc.branch || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const totalPages = Math.max(1, Math.ceil(filteredAccounts.length / itemsPerPage));
+  const validPage = Math.min(Math.max(1, currentPage), totalPages);
+  const paginatedAccounts = filteredAccounts.slice((validPage - 1) * itemsPerPage, validPage * itemsPerPage);
 
   return (
     <div className="w-full min-h-screen pb-16 space-y-6 font-['Inter',-apple-system,BlinkMacSystemFont,sans-serif] text-gray-800">
@@ -360,11 +372,11 @@ export default function BankAccounts() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {filteredAccounts.map((acc, idx) => (
+                {paginatedAccounts.map((acc, idx) => (
                   <tr key={acc.id} className="hover:bg-amber-50/20 transition-colors">
                     {/* S.No */}
                     <td className="px-4 py-3 text-center font-mono text-stone-500 font-semibold">
-                      {idx + 1}
+                      {(validPage - 1) * itemsPerPage + idx + 1}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
@@ -452,6 +464,19 @@ export default function BankAccounts() {
             </table>
           </div>
         )}
+
+        {/* Pagination Controls */}
+        <Pagination
+          currentPage={validPage}
+          totalPages={totalPages}
+          totalItems={filteredAccounts.length}
+          itemsPerPage={itemsPerPage}
+          onPageChange={(page) => setCurrentPage(page)}
+          onItemsPerPageChange={(num) => {
+            setItemsPerPage(num);
+            setCurrentPage(1);
+          }}
+        />
       </div>
 
       {/* ADD BANK ACCOUNT MODAL */}
