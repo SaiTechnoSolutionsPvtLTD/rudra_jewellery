@@ -1064,6 +1064,26 @@ export default function ReportModule() {
     validKarigarPage * karigarPerPage
   );
 
+  const filteredGoldRates = useMemo(() => {
+    if (!searchQuery) return goldRates;
+    const q = searchQuery.toLowerCase().trim();
+    return goldRates.filter(r =>
+      (r.rate_date && r.rate_date.toLowerCase().includes(q)) ||
+      (r.source && r.source.toLowerCase().includes(q)) ||
+      (r.notes && r.notes.toLowerCase().includes(q))
+    );
+  }, [goldRates, searchQuery]);
+
+  const goldRatesTotal = filteredGoldRates.length;
+  const goldRatesLastPage = Math.max(1, Math.ceil(goldRatesTotal / goldRatesPerPage));
+  const validGoldRatesPage = Math.min(Math.max(1, currentPage), goldRatesLastPage);
+  const goldRatesFrom = goldRatesTotal > 0 ? (validGoldRatesPage - 1) * goldRatesPerPage + 1 : 0;
+  const goldRatesTo = Math.min(goldRatesTotal, validGoldRatesPage * goldRatesPerPage);
+  const paginatedGoldRates = filteredGoldRates.slice(
+    (validGoldRatesPage - 1) * goldRatesPerPage,
+    validGoldRatesPage * goldRatesPerPage
+  );
+
   const activePagination = activeTab === 'supplier_ledger'
     ? {
         current_page: validSupplierPage,
@@ -1081,6 +1101,15 @@ export default function ReportModule() {
         total: karigarTotal,
         from: karigarFrom,
         to: karigarTo,
+      }
+    : activeTab === 'gold_rates'
+    ? {
+        current_page: validGoldRatesPage,
+        last_page: goldRatesLastPage,
+        per_page: goldRatesPerPage,
+        total: goldRatesTotal,
+        from: goldRatesFrom,
+        to: goldRatesTo,
       }
     : paginationMeta;
 
